@@ -5,10 +5,20 @@ import { env, isGoogleAuthConfigured } from "@/lib/env/server";
 
 const ONE_DAY_IN_SECONDS = 60 * 60 * 24;
 
+// Always trust local dev and the configured public app URL. Also trust the
+// current Vercel deployment's own unique URL (VERCEL_URL, injected
+// automatically by Vercel) so Preview deployments work even though
+// NEXT_PUBLIC_APP_URL points at the stable production domain there.
+const trustedOrigins = [
+  "http://localhost:3000",
+  env.NEXT_PUBLIC_APP_URL,
+  ...(process.env.VERCEL_URL ? [`https://${process.env.VERCEL_URL}`] : []),
+];
+
 export const auth = betterAuth({
   secret: env.BETTER_AUTH_SECRET,
   baseURL: env.BETTER_AUTH_URL,
-  trustedOrigins: [env.NEXT_PUBLIC_APP_URL],
+  trustedOrigins,
 
   database: prismaAdapter(prisma, {
     provider: "postgresql",

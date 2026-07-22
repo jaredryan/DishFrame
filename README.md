@@ -34,7 +34,7 @@ sessions, and meal planning are intentionally not built yet — see
 pnpm install
 cp .env.example .env.local   # then fill in the values below
 pnpm db:generate              # generate the Prisma client
-pnpm db:migrate                 # apply migrations (needs DATABASE_URL)
+pnpm db:migrate                 # apply migrations to your dev database
 pnpm dev
 ```
 
@@ -67,22 +67,57 @@ disabled and a setup notice instead of a broken flow.
 2. In the Neon console, go to **Connect** and copy the **pooled** connection
    string into `DATABASE_URL`, and the **direct** connection string into
    `DIRECT_URL`.
-3. Run `pnpm db:migrate` to apply the initial migration
-   (`prisma/migrations/20260722200916_init`), which creates the `users`,
-   `sessions`, `accounts`, and `verifications` tables Better Auth needs.
+3. Apply the schema (see [Migrations](#migrations) below). The Prisma CLI
+   only auto-loads `.env`, not `.env.local` — `prisma.config.ts` loads
+   `.env.local` first (falling back to `.env`) so `pnpm db:migrate` /
+   `pnpm db:deploy` see the same `DATABASE_URL` the app uses.
+4. `/api/health` reports `database: "connected"` as soon as Prisma can
+   reach Postgres — that only proves connectivity, **not** that the
+   Better Auth tables exist. Confirm the schema itself with
+   `pnpm exec prisma migrate status`.
+
+### Migrations
+
+```bash
+pnpm db:migrate    # prisma migrate dev — local/dev database only.
+                    # Creates + applies a migration from schema changes.
+pnpm db:deploy      # prisma migrate deploy — production-safe.
+                    # Applies committed migrations, no shadow DB, no prompts.
+```
+
+`pnpm db:deploy` must be run by hand (or as a deploy-time hook) against
+Neon whenever `prisma/migrations/` changes — **Vercel builds do not run
+it automatically**, and a successful `next build` / a healthy
+`/api/health` do not imply the migration was applied. Running it against
+an already-up-to-date database is a no-op.
 
 ### Google OAuth setup
 
 1. In the [Google Cloud Console](https://console.cloud.google.com/apis/credentials),
    create an OAuth 2.0 Client ID (Web application).
-2. Add this authorized redirect URI (adjust the host for production):
+2. Add both authorized JavaScript origins and both redirect URIs — one
+   pair per environment, on the same client:
 
    ```
-   http://localhost:3000/api/auth/callback/google
+   Authorized JavaScript origins:
+     http://localhost:3000
+     https://dish-frame.vercel.app
+
+   Authorized redirect URIs:
+     http://localhost:3000/api/auth/callback/google
+     https://dish-frame.vercel.app/api/auth/callback/google
    ```
 
 3. Copy the client ID and secret into `GOOGLE_CLIENT_ID` and
-   `GOOGLE_CLIENT_SECRET`.
+   `GOOGLE_CLIENT_SECRET` — locally in `.env.local`, and in Vercel under
+   **Project Settings → Environment Variables**.
+
+`BETTER_AUTH_URL` and `NEXT_PUBLIC_APP_URL` must match the environment
+they run in — `http://localhost:3000` in `.env.local`,
+`https://dish-frame.vercel.app` in Vercel — since Better Auth builds the
+Google redirect URI from `BETTER_AUTH_URL`. Setting the production URL in
+`.env.local` will make local sign-in construct a `localhost`-unreachable
+callback.
 
 ## Scripts
 
@@ -134,15 +169,43 @@ model. The only database models are the ones Better Auth requires (users,
 sessions, accounts, verifications). See `docs/MILESTONE_1.md` for the full
 brief and `docs/BRANDING.md` for the visual and voice reference.
 
-## Known external setup still required
+## Production deployment
 
-No live Neon database or Google OAuth credentials were available while
-scaffolding this project. To reach full functionality:
+Production runs on Vercel at **https://dish-frame.vercel.app**, backed by
+the same Neon project referenced by `DATABASE_URL` locally.
 
-1. Create a Neon project and set `DATABASE_URL` / `DIRECT_URL`.
-2. Run `pnpm db:migrate` to apply the initial migration.
-3. Create a Google OAuth client and set `GOOGLE_CLIENT_ID` /
-   `GOOGLE_CLIENT_SECRET`.
+- Environment variables live in Vercel under **Project Settings →
+  Environment Variables** (Production + Preview): `DATABASE_URL`,
+  `DIRECT_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`,
+  `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `NEXT_PUBLIC_APP_URL`.
+- `next build` / a passing deploy do **not** run Prisma migrations.
+  After any schema change, apply it to production explicitly:
 
-Everything else — the app shell, marketing pages, sign-in UI, theming, and
-tests — works without those credentials.
+  ```bash
+  DATABASE_URL="<neon pooled url>" DIRECT_URL="<neon direct url>" \
+    pnpm db:deploy
+  ```
+
+  (or export those two vars from Vercel's dashboard values first). Verify
+  with `pnpm exec prisma migrate status` against the same URL.
+
+- `/api/health` proves Postgres connectivity, not schema correctness —
+  a missing-table error only surfaces when an actual query runs (e.g.
+  sign-in), as a `500` from `/api/auth/*`. Check `vercel logs` /
+  the deployment's Runtime Logs for the underlying Prisma error, which
+  names the missing table directly.
+
+## Known external setup
+
+The app is fully configured to run without a database or Google OAuth
+credentials (see [Environment variables](#environment-variables) above)
+for local scaffolding/CI purposes — public pages, the sign-in page, and
+the build all work regardless. Sign-in and any database-backed page
+additionally require:
+
+1. A Neon project with `DATABASE_URL` / `DIRECT_URL` set, and the
+   migration applied (`pnpm db:migrate` locally, `pnpm db:deploy` in
+   production — see [Migrations](#migrations)).
+2. A Google OAuth client with `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`
+   set, and both origins/redirect URIs registered (see
+   [Google OAuth setup](#google-oauth-setup)).
