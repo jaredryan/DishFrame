@@ -1,0 +1,10 @@
+.next
+node_modules
+docs
+src/generated
+pnpm-lock.yaml
+prisma/migrations
+.playwright-mcp
+playwright-report
+test-results
+*.png
