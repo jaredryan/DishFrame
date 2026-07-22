@@ -35,6 +35,22 @@ const schema = z.object({
     .transform((value) => (value ? value : undefined)),
 
   NEXT_PUBLIC_APP_URL: z.url().default("http://localhost:3000"),
+
+  // Optional: the contact form checks `isContactFormConfigured` and fails
+  // clearly at submission time when unset, rather than at startup — public
+  // pages (including /contact itself) must keep rendering either way.
+  RESEND_API_KEY: z
+    .string()
+    .optional()
+    .transform((value) => (value ? value : undefined)),
+  CONTACT_FROM_EMAIL: z
+    .string()
+    .min(1)
+    .default("DishFrame <onboarding@resend.dev>"),
+  CONTACT_TO_EMAIL: z
+    .string()
+    .optional()
+    .transform((value) => (value ? value : undefined)),
 });
 
 function loadEnv() {
@@ -57,4 +73,7 @@ export const env = loadEnv();
 export const isDatabaseConfigured = Boolean(env.DATABASE_URL);
 export const isGoogleAuthConfigured = Boolean(
   env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET,
+);
+export const isContactFormConfigured = Boolean(
+  env.RESEND_API_KEY && env.CONTACT_TO_EMAIL,
 );

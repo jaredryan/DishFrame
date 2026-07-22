@@ -1,8 +1,5 @@
 import type { Metadata } from "next";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import { ContactForm } from "@/components/marketing/contact-form";
 
 export const metadata: Metadata = {
   title: "Contact",
@@ -21,37 +18,7 @@ export default function ContactPage() {
         especially useful.
       </p>
 
-      <form
-        className="mt-10 flex flex-col gap-5"
-        aria-describedby="contact-form-note"
-      >
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="name">Name</Label>
-          <Input id="name" name="name" autoComplete="name" disabled />
-        </div>
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="email">Email</Label>
-          <Input
-            id="email"
-            name="email"
-            type="email"
-            autoComplete="email"
-            disabled
-          />
-        </div>
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="message">Message</Label>
-          <Textarea id="message" name="message" rows={5} disabled />
-        </div>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <Button type="submit" disabled>
-            Send message
-          </Button>
-          <p id="contact-form-note" className="text-muted-foreground text-sm">
-            Message sending is coming soon — this form isn&apos;t connected yet.
-          </p>
-        </div>
-      </form>
+      <ContactForm />
     </div>
   );
 }
