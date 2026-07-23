@@ -6,7 +6,12 @@ import { SignInCard } from "@/components/auth/sign-in-card";
 
 export const metadata: Metadata = {
   title: "Sign in",
-  description: "Sign in to DishFrame with Google.",
+  description:
+    "Sign in to access your DishFrame recipes, reusable parts, and cooking history.",
+  robots: {
+    index: false,
+    follow: false,
+  },
 };
 
 const ERROR_MESSAGES: Record<string, string> = {

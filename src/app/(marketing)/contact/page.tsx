@@ -3,7 +3,16 @@ import { ContactForm } from "@/components/marketing/contact-form";
 
 export const metadata: Metadata = {
   title: "Contact",
-  description: "Send feedback about DishFrame.",
+  description: "Share questions, ideas, or practical feedback about DishFrame.",
+  alternates: {
+    canonical: "/contact",
+  },
+  openGraph: {
+    url: "/contact",
+    title: "Contact | DishFrame",
+    description:
+      "Share questions, ideas, or practical feedback about DishFrame.",
+  },
 };
 
 export default function ContactPage() {

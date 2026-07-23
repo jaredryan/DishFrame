@@ -24,7 +24,7 @@ test("Contact loads", async ({ page }) => {
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Send message" }),
-  ).toBeDisabled();
+  ).toBeEnabled();
 });
 
 test("Sign-in page loads", async ({ page }) => {

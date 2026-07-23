@@ -2,7 +2,17 @@ import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "About",
-  description: "The idea behind DishFrame and how it approaches cooking.",
+  description:
+    "Learn how DishFrame helps home cooks organize recipes, reuse familiar preparations, and improve dishes over time.",
+  alternates: {
+    canonical: "/about",
+  },
+  openGraph: {
+    url: "/about",
+    title: "About | DishFrame",
+    description:
+      "Learn how DishFrame helps home cooks organize recipes, reuse familiar preparations, and improve dishes over time.",
+  },
 };
 
 export default function AboutPage() {

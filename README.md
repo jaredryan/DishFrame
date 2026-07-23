@@ -4,10 +4,14 @@ A framework for organizing, preparing, cooking, evaluating, and improving
 the dishes you cook: keep recipes organized, reuse the sauces and staples
 you make often, and carry ratings and notes forward into the next meal.
 
-**This repository currently contains Milestone 1: the technical foundation
-and application shell.** Recipes, reusable parts, versions, cooking
-sessions, and meal planning are intentionally not built yet — see
-[Milestone 1 scope](#milestone-1-scope) below.
+**This repository currently contains Milestone 1 (technical foundation and
+application shell) and Milestone 2 (production polish, SEO, and launch
+readiness).** Recipes, reusable parts, versions, cooking sessions, and meal
+planning are intentionally not built yet — see
+[Milestone 1 scope](#milestone-1-scope) below. Deployment, the database,
+Google sign-in, and the Resend-backed contact form are all live and
+confirmed working in production; remaining pre-launch work is tracked in
+[`POST_LAUNCH_TODO.md`](./POST_LAUNCH_TODO.md).
 
 ## Stack
 
@@ -132,11 +136,16 @@ pnpm test:watch      # vitest, watch mode
 pnpm test:e2e        # playwright (starts its own dev server)
 pnpm format          # prettier --write
 pnpm format:check    # prettier --check
+pnpm check           # format:check + lint + typecheck + test + build
 pnpm db:generate     # generate the Prisma client
 pnpm db:migrate      # create/apply a migration in development
 pnpm db:deploy       # apply pending migrations (CI/production)
 pnpm db:studio       # Prisma Studio
 ```
+
+`pnpm check` is the single command to run before opening a PR or deploying;
+it does not run Playwright, which stays a separate `pnpm test:e2e` step
+since it spins up its own dev server and is slower.
 
 ## Route map
 
@@ -159,6 +168,47 @@ pnpm db:studio       # Prisma Studio
 
 - `/api/auth/[...all]` — Better Auth
 - `/api/health` — liveness + database connectivity
+
+## SEO, metadata & production readiness
+
+Added in Milestone 2 (`docs/MILESTONE_2.md`):
+
+- **Metadata** — `src/app/layout.tsx` sets `metadataBase`, the title
+  template, description, Open Graph, and Twitter card metadata from
+  `src/lib/site.ts` (which reads `NEXT_PUBLIC_APP_URL`). Public pages
+  (`/`, `/about`, `/contact`) each set a canonical URL; private routes set
+  `robots: { index: false, follow: false }` on the `(app)` layout and the
+  `/sign-in` page.
+- **Sitemap** — `src/app/sitemap.ts` lists only the public marketing pages,
+  served at `/sitemap.xml`.
+- **Robots** — `src/app/robots.ts` allows the public pages, disallows the
+  signed-in app and `/api/*`, and points to the sitemap, served at
+  `/robots.txt`.
+- **JSON-LD** — `src/components/marketing/json-ld.tsx` renders a
+  `WebApplication` schema on the homepage, with `<` escaped so the payload
+  can't break out of its `<script>` tag.
+- **Social image & icons** — `src/app/opengraph-image.tsx` /
+  `twitter-image.tsx` generate a temporary DishFrame share image via
+  `next/og`; `src/app/icon.tsx` / `apple-icon.tsx` generate a temporary
+  favicon and Apple touch icon from the same nested-frame mark used in
+  `src/components/branding/mark.tsx`. All four are meant to be replaced
+  once a final logo exists (see `POST_LAUNCH_TODO.md`).
+- **Manifest** — `src/app/manifest.ts`, served at `/manifest.webmanifest`,
+  with no service worker or offline behavior (deferred — see
+  `POST_LAUNCH_TODO.md`).
+- **Error & loading states** — `src/app/not-found.tsx`, `error.tsx`, and
+  `global-error.tsx` give branded fallback UI instead of the Next.js
+  defaults; `loading.tsx` covers the `(app)` shell and `/sign-in`, where a
+  real server-side session lookup happens before the page renders.
+- **Security headers** — `next.config.ts` disables `X-Powered-By` and adds
+  `X-Content-Type-Options`, `Referrer-Policy`, and a restrained
+  `Permissions-Policy` to every route. No enforcing Content-Security-Policy
+  yet — see `POST_LAUNCH_TODO.md`.
+- **Speed Insights** — `@vercel/speed-insights` is mounted in the root
+  layout; confirm it's enabled for this project in the Vercel dashboard
+  (see `POST_LAUNCH_TODO.md`).
+- **`pnpm check`** — runs `format:check`, `lint`, `typecheck`, `test`, and
+  `build` in one command; Playwright stays separate as `pnpm test:e2e`.
 
 ## Milestone 1 scope
 

@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { HeroVisual } from "@/components/marketing/hero-visual";
+import { JsonLd } from "@/components/marketing/json-ld";
 
 const PILLARS = [
   {
@@ -32,6 +33,7 @@ const LOOP_STEPS = ["Organize", "Cook", "Review", "Improve"];
 export default function MarketingHomePage() {
   return (
     <>
+      <JsonLd />
       <section className="mx-auto grid max-w-6xl gap-12 px-4 pt-16 pb-20 sm:px-6 sm:pt-20 sm:pb-28 lg:grid-cols-2 lg:items-center lg:gap-8 lg:px-8">
         <div className="flex flex-col items-start gap-6">
           <h1 className="font-heading text-foreground max-w-xl text-4xl font-semibold tracking-tight text-balance sm:text-5xl">

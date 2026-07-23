@@ -1,6 +1,8 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Manrope, Inter } from "next/font/google";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import { ThemeProvider } from "@/components/theme/theme-provider";
+import { SITE_DESCRIPTION, SITE_NAME, SITE_TITLE, SITE_URL } from "@/lib/site";
 import "./globals.css";
 
 const manrope = Manrope({
@@ -16,12 +18,37 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
+  applicationName: SITE_NAME,
   title: {
-    default: "DishFrame",
+    default: SITE_TITLE,
     template: "%s · DishFrame",
   },
-  description:
-    "A better framework for the way you cook. Organize recipes, reuse what already works, and save what you learn each time you cook.",
+  description: SITE_DESCRIPTION,
+  alternates: {
+    canonical: "/",
+  },
+  manifest: "/manifest.webmanifest",
+  openGraph: {
+    type: "website",
+    url: "/",
+    siteName: SITE_NAME,
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f4f6f8" },
+    { media: "(prefers-color-scheme: dark)", color: "#252932" },
+  ],
+  colorScheme: "light dark",
 };
 
 export default function RootLayout({
@@ -44,6 +71,7 @@ export default function RootLayout({
         >
           {children}
         </ThemeProvider>
+        <SpeedInsights />
       </body>
     </html>
   );

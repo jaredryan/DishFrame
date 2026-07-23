@@ -1,8 +1,16 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth/session";
 import { SidebarNav } from "@/components/app/sidebar-nav";
 import { MobileTopbar } from "@/components/app/mobile-topbar";
 import { AccountMenu } from "@/components/app/account-menu";
+
+export const metadata: Metadata = {
+  robots: {
+    index: false,
+    follow: false,
+  },
+};
 
 export default async function AppLayout({
   children,
