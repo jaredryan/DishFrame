@@ -54,8 +54,14 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
+      - name: Migration safety scan
+        run: pnpm run db:scan-migrations
+
       - name: Apply database migrations
         run: pnpm exec prisma migrate deploy
+
+      - name: Verify protected database objects
+        run: pnpm exec tsx scripts/verify-db-objects.ts
 
       - name: Unit tests
         run: pnpm run test

@@ -25,9 +25,14 @@
     "postinstall": "prisma generate",
     "db:docker:up": "docker compose up -d --wait",
     "db:docker:down": "docker compose down",
-    "db:migrate:local": "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dishframe DIRECT_URL=postgresql://postgres:postgres@localhost:5432/dishframe DATABASE_DRIVER=pg prisma migrate dev",
-    "db:deploy:local": "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dishframe DIRECT_URL=postgresql://postgres:postgres@localhost:5432/dishframe DATABASE_DRIVER=pg prisma migrate deploy",
-    "test:integration": "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dishframe DIRECT_URL=postgresql://postgres:postgres@localhost:5432/dishframe DATABASE_DRIVER=pg vitest run --config vitest.integration.config.mts"
+    "db:docker:reset": "docker compose down -v && docker compose up -d --wait",
+    "db:migrate:local": "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dishframe DIRECT_URL=postgresql://postgres:postgres@localhost:5432/dishframe_shadow DATABASE_DRIVER=pg prisma migrate dev",
+    "db:deploy:local": "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dishframe DIRECT_URL=postgresql://postgres:postgres@localhost:5432/dishframe_shadow DATABASE_DRIVER=pg prisma migrate deploy",
+    "db:status:local": "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dishframe DIRECT_URL=postgresql://postgres:postgres@localhost:5432/dishframe_shadow DATABASE_DRIVER=pg prisma migrate status",
+    "db:verify:local": "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dishframe DIRECT_URL=postgresql://postgres:postgres@localhost:5432/dishframe_shadow DATABASE_DRIVER=pg tsx scripts/verify-db-objects.ts",
+    "db:scan-migrations": "tsx scripts/scan-migrations.ts",
+    "test:integration": "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dishframe DIRECT_URL=postgresql://postgres:postgres@localhost:5432/dishframe_shadow DATABASE_DRIVER=pg vitest run --config vitest.integration.config.mts",
+    "dev:production-db": "node scripts/dev-production-db.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",

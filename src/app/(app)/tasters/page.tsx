@@ -22,11 +22,11 @@ export default async function TastersPage() {
     <div className="mx-auto flex max-w-2xl flex-col gap-8">
       <div>
         <Link
-          href="/profile"
+          href="/settings"
           className="text-muted-foreground mb-2 inline-flex items-center gap-1 text-sm hover:underline"
         >
           <ArrowLeft className="size-4" aria-hidden="true" />
-          Profile
+          Settings
         </Link>
         <h1 className="font-heading text-foreground text-2xl font-semibold">
           Tasters

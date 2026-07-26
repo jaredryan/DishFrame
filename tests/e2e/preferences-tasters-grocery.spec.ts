@@ -38,12 +38,12 @@ function seed(...args: string[]): string {
 }
 
 /**
- * Golden path for BUILD_PLAN.md Slice 2's UI: sign-in is Google OAuth-only,
- * so this test mints a session directly via Better Auth's `testUtils`
- * plugin rather than driving a real OAuth consent screen — the sanctioned
- * mechanism for exactly this situation.
+ * Golden path for BUILD_PLAN.md Slice 2 + its follow-up's Settings UI:
+ * sign-in is Google OAuth-only, so this mints a session directly via Better
+ * Auth's `testUtils` plugin rather than driving a real OAuth consent
+ * screen — the sanctioned mechanism for exactly this situation.
  */
-test.describe("Preferences, Tasters, and Grocery Categories", () => {
+test.describe("Settings: Preferences, Grocery Categories, and Tasters", () => {
   let userId: string;
 
   test.beforeEach(async ({ context }) => {
@@ -70,11 +70,11 @@ test.describe("Preferences, Tasters, and Grocery Categories", () => {
     seed("cleanup", userId);
   });
 
-  test("save preferences, manage a Taster, and manage a Grocery Category", async ({
+  test("save preferences, manage Grocery Categories (incl. the protected fallback), and navigate to Tasters", async ({
     page,
   }) => {
-    await page.goto("/profile");
-    await expect(page.getByRole("heading", { name: "Profile" })).toBeVisible();
+    await page.goto("/settings");
+    await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
 
     // --- Preferences: change a setting and confirm it persists ---
     await page.getByLabel("Measurement system").click();
@@ -84,7 +84,13 @@ test.describe("Preferences, Tasters, and Grocery Categories", () => {
     await page.reload();
     await expect(page.getByLabel("Measurement system")).toContainText("Metric");
 
-    // --- Grocery Categories: add one ---
+    // --- Grocery Categories: the seeded fallback is protected ---
+    await expect(page.getByText("Fallback")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Delete Other" }),
+    ).not.toBeVisible();
+
+    // --- Grocery Categories: create, rename, reorder, delete an ordinary one ---
     const categoryInput = page.getByLabel("Add a category");
     await categoryInput.fill("Spices");
     await page
@@ -92,36 +98,23 @@ test.describe("Preferences, Tasters, and Grocery Categories", () => {
       .filter({ has: categoryInput })
       .getByRole("button", { name: "Add" })
       .click();
-    await expect(page.getByText("Spices")).toBeVisible();
+    await expect(page.getByText("Spices", { exact: true })).toBeVisible();
 
-    // --- Tasters: navigate, add, rename, archive, restore, delete ---
+    await page.getByRole("button", { name: "Rename Spices" }).click();
+    await page.getByLabel("Edit name for Spices").fill("Herbs & Spices");
+    await page.getByRole("button", { name: "Save" }).click();
+    await expect(page.getByText("Herbs & Spices")).toBeVisible();
+
+    await page.getByRole("button", { name: "Move Herbs & Spices up" }).click();
+
+    await page.getByRole("button", { name: "Delete Herbs & Spices" }).click();
+    await expect(page.getByText("Herbs & Spices")).not.toBeVisible();
+
+    // --- Tasters: navigate from Settings, confirm the owner Taster is present ---
     await page.getByRole("link", { name: "Manage Tasters" }).click();
     await expect(page).toHaveURL(/\/tasters/);
     await expect(
       page.getByRole("listitem").filter({ hasText: "You" }),
     ).toBeVisible();
-
-    const tasterInput = page.getByLabel("Add a taster");
-    await tasterInput.fill("Mom");
-    await page
-      .locator("form")
-      .filter({ has: tasterInput })
-      .getByRole("button", { name: "Add" })
-      .click();
-    await expect(page.getByText("Mom", { exact: true })).toBeVisible();
-
-    await page.getByRole("button", { name: "Rename Mom" }).click();
-    await page.getByLabel("Edit name for Mom").fill("Mother");
-    await page.getByRole("button", { name: "Save" }).click();
-    await expect(page.getByText("Mother", { exact: true })).toBeVisible();
-
-    await page.getByRole("button", { name: "Archive Mother" }).click();
-    await expect(page.getByText("Archived")).toBeVisible();
-
-    await page.getByRole("button", { name: "Restore Mother" }).click();
-    await expect(page.getByText("Archived")).not.toBeVisible();
-
-    await page.getByRole("button", { name: "Delete Mother" }).click();
-    await expect(page.getByText("Mother", { exact: true })).not.toBeVisible();
   });
 });

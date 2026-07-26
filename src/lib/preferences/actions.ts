@@ -19,7 +19,7 @@ export async function updatePreferences(
 
     await preferencesService.updatePreferences(userId, data);
 
-    revalidatePath("/profile");
+    revalidatePath("/settings");
     return { status: "success", message: "Preferences saved." };
   } catch (error) {
     return { status: "error", message: toActionErrorMessage(error) };

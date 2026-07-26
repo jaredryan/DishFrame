@@ -1,8 +1,19 @@
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// See vitest.config.mts for why this is here — loads .env.local's
+// non-database vars (BETTER_AUTH_SECRET, etc.) without ever overriding the
+// DATABASE_URL/DIRECT_URL/DATABASE_DRIVER this config's own npm scripts set
+// explicitly (process.loadEnvFile never overrides an already-set var).
+for (const file of [".env.local", ".env"]) {
+  if (existsSync(file)) {
+    process.loadEnvFile(file);
+  }
+}
 
 // Separate from vitest.config.mts: integration tests hit a real disposable
 // Postgres (docker-compose locally, a service container in CI — see
@@ -13,6 +24,7 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.integration.test.ts"],
+    setupFiles: ["./src/test/integration-setup.ts"],
     hookTimeout: 30_000,
     testTimeout: 30_000,
   },

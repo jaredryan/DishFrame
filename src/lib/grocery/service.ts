@@ -47,6 +47,8 @@ export async function renameGroceryCategory(
   id: string,
   name: string,
 ) {
+  // The fallback category (isFallback: true) can be renamed — protection
+  // only blocks deletion, per PRODUCT_SPEC.md §63.4.
   await getOwnedGroceryCategoryOrThrow(ownerId, id);
 
   try {
@@ -63,12 +65,33 @@ export async function renameGroceryCategory(
 }
 
 export async function deleteGroceryCategory(ownerId: string, id: string) {
-  await getOwnedGroceryCategoryOrThrow(ownerId, id);
-  // GroceryListItem.category and IngredientCategoryMemory.groceryCategory
-  // both react to this at the database level (SetNull / Cascade
-  // respectively per prisma/schema.prisma) — deleted-category items fall
-  // back to the "Other" display bucket (§63.4), never left dangling.
-  return prisma.groceryCategory.delete({ where: { id } });
+  const category = await getOwnedGroceryCategoryOrThrow(ownerId, id);
+  if (category.isFallback) {
+    throw new ConflictError("The fallback Grocery Category can't be deleted.");
+  }
+
+  // Guaranteed to exist by initializeNewUser (repaired on every call,
+  // regardless of the account's defaultsInitializedAt marker) — see
+  // src/lib/account/init.ts.
+  const fallback = await prisma.groceryCategory.findFirstOrThrow({
+    where: { ownerId, isFallback: true },
+  });
+
+  await prisma.$transaction([
+    // Move existing GroceryListItem rows to the fallback category rather
+    // than relying on the schema's onDelete: SetNull, which would instead
+    // leave them uncategorized (PRODUCT_SPEC.md §63.4 — deleted-category
+    // items must land in the fallback bucket, not go dangling/null).
+    prisma.groceryListItem.updateMany({
+      where: { categoryId: id },
+      data: { categoryId: fallback.id },
+    }),
+    // IngredientCategoryMemory rows for this category cascade-delete at the
+    // database level (onDelete: Cascade, prisma/schema.prisma) as part of
+    // this same delete, so remembered categorizations for those ingredients
+    // can be relearned rather than silently pointing at the fallback.
+    prisma.groceryCategory.delete({ where: { id } }),
+  ]);
 }
 
 export async function reorderGroceryCategories(

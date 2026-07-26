@@ -1,0 +1,79 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { getServerSession } from "@/lib/auth/session";
+import { PreferencesForm } from "@/components/app/preferences-form";
+import { GroceryCategoryManager } from "@/components/app/grocery-category-manager";
+import { prisma } from "@/lib/db/prisma";
+
+export const metadata: Metadata = {
+  title: "Settings",
+};
+
+export default async function SettingsPage() {
+  const session = await getServerSession();
+  if (!session) {
+    redirect("/sign-in");
+  }
+
+  const { user } = session;
+
+  // Ordinarily seeded by initializeNewUser at sign-up (src/lib/account/init.ts)
+  // and repaired by the (app) shell layout on any request where it's still
+  // missing; upsert-on-read here is a defensive fallback only.
+  const preference = await prisma.userPreference.upsert({
+    where: { userId: user.id },
+    update: {},
+    create: { userId: user.id },
+  });
+  const groceryCategories = await prisma.groceryCategory.findMany({
+    where: { ownerId: user.id },
+    orderBy: { position: "asc" },
+    select: { id: true, displayName: true, position: true, isFallback: true },
+  });
+
+  return (
+    <div className="mx-auto flex max-w-2xl flex-col gap-8">
+      <div>
+        <h1 className="font-heading text-foreground text-2xl font-semibold">
+          Settings
+        </h1>
+        <p className="text-muted-foreground mt-2">
+          How DishFrame behaves for your account.
+        </p>
+      </div>
+
+      <section className="flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-foreground text-lg font-semibold">Preferences</h2>
+          <Link
+            href="/tasters"
+            className="text-primary text-sm hover:underline"
+          >
+            Manage Tasters
+          </Link>
+        </div>
+        <div className="border-border bg-card rounded-xl border p-5">
+          <PreferencesForm
+            initialValues={{
+              measurementSystem: preference.measurementSystem,
+              fractionOrDecimal: preference.fractionOrDecimal,
+              primaryRatingDisplay: preference.primaryRatingDisplay,
+              timerSoundEnabled: preference.timerSoundEnabled,
+              reviewPromptEnabled: preference.reviewPromptEnabled,
+            }}
+          />
+        </div>
+      </section>
+
+      <section className="flex flex-col gap-4">
+        <h2 className="text-foreground text-lg font-semibold">
+          Grocery Categories
+        </h2>
+        <div className="border-border bg-card rounded-xl border p-5">
+          <GroceryCategoryManager initialCategories={groceryCategories} />
+        </div>
+      </section>
+    </div>
+  );
+}

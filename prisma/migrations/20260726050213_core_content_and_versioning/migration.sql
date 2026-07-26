@@ -199,11 +199,16 @@ CREATE TABLE "UserPreference" (
     "timerSoundEnabled" BOOLEAN NOT NULL DEFAULT true,
     "reviewPromptEnabled" BOOLEAN NOT NULL DEFAULT true,
     "onboardingState" JSONB,
+    "defaultsInitializedAt" TIMESTAMP(3),
 
     CONSTRAINT "UserPreference_pkey" PRIMARY KEY ("userId")
 );
 
 -- CreateTable
+-- NOTE (Slice 2 follow-up): the "isFallback" column and its partial unique
+-- index (one_fallback_category_per_user) are added later by Migration 3
+-- (planning_and_grocery), which is where the fallback-category behavior
+-- conceptually belongs, even though this table itself is created here.
 CREATE TABLE "GroceryCategory" (
     "id" TEXT NOT NULL,
     "ownerId" TEXT NOT NULL,

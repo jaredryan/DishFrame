@@ -26,3 +26,18 @@ export type ActionState = {
 };
 
 export const initialActionState: ActionState = { status: "idle" };
+
+export type CategoryDto = {
+  id: string;
+  displayName: string;
+  position: number;
+  isFallback: boolean;
+};
+
+export type CreateCategoryActionState = ActionState & {
+  category?: CategoryDto;
+};
+
+export const initialCreateCategoryActionState: CreateCategoryActionState = {
+  status: "idle",
+};

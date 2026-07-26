@@ -257,3 +257,14 @@ ALTER TABLE "MealPlanEntry"
     OR
     ("dishId" IS NOT NULL AND "dishVersionId" IS NOT NULL)
   );
+
+-- Slice 2 follow-up: the protected fallback Grocery Category (behaviorally
+-- identified, not by name — see prisma/schema.prisma's GroceryCategory
+-- comment). Added here, in the planning/grocery migration, rather than
+-- Migration 1 (where the GroceryCategory table itself was created),
+-- because this behavior belongs conceptually to grocery-list management.
+ALTER TABLE "GroceryCategory" ADD COLUMN "isFallback" BOOLEAN NOT NULL DEFAULT false;
+
+CREATE UNIQUE INDEX "one_fallback_category_per_user"
+  ON "GroceryCategory" ("ownerId")
+  WHERE "isFallback" = true;

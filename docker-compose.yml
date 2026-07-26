@@ -1,3 +1,6 @@
+# Disposable local Postgres for ordinary development — never Neon, never
+# production credentials. See .env.example / src/lib/db/adapter.ts for how
+# the app selects this vs. the deployed Neon database.
 services:
   postgres:
     image: postgres:16-alpine
@@ -10,6 +13,11 @@ services:
       - "5432:5432"
     volumes:
       - dishframe-postgres:/var/lib/postgresql/data
+      # Creates the dishframe_shadow database on first container start only
+      # (docker-entrypoint-initdb.d scripts never re-run against an existing
+      # volume) — `prisma migrate dev` requires a shadow database distinct
+      # from the main dev database (dishframe).
+      - ./docker/init-db:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d dishframe"]
       interval: 2s
@@ -17,4 +25,6 @@ services:
       retries: 20
 
 volumes:
+  # Named + persistent: survives `docker compose down` / restarts. Only
+  # `pnpm db:docker:reset` (down -v) removes it.
   dishframe-postgres:

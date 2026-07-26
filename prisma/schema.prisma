@@ -438,15 +438,32 @@ model UserPreference {
   reviewPromptEnabled  Boolean              @default(true)
   onboardingState      Json?
 
+  // Slice 2 follow-up: completion marker for src/lib/account/init.ts's
+  // one-time defaults (ordinary Grocery Categories, starter Flavor
+  // Profiles). Set only after every required initialization step succeeds,
+  // so a partial failure leaves this null and the (app) shell layout
+  // retries initializeNewUser on the account's next request rather than
+  // depending solely on Better Auth's one-shot user.create.after hook.
+  // Protected singletons (Favorite tag, owner Taster, fallback Grocery
+  // Category) are repaired on every call regardless of this marker.
+  defaultsInitializedAt DateTime?
+
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model GroceryCategory {
-  id             String @id @default(cuid())
+  id             String  @id @default(cuid())
   ownerId        String
   normalizedName String
   displayName    String
   position       Int
+  // Slice 2 follow-up: the account's single protected fallback category
+  // (seeded as "Other"), identified behaviorally by this flag rather than
+  // by name so a user renaming it doesn't lose its protected status.
+  // Uniqueness (at most one per owner) is enforced by the raw-SQL partial
+  // unique index one_fallback_category_per_user (§ Migration 3), since
+  // Prisma Schema Language cannot express a partial unique index.
+  isFallback     Boolean @default(false)
 
   owner                      User                       @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   groceryListItems           GroceryListItem[]

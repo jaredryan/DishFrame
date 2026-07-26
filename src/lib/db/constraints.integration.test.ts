@@ -160,4 +160,31 @@ describe("database-level constraints", () => {
       }),
     ).rejects.toThrow();
   });
+
+  it("one_fallback_category_per_user (Slice 2 follow-up) rejects a second fallback Grocery Category", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+
+    await prisma.groceryCategory.create({
+      data: {
+        ownerId: userId,
+        normalizedName: "other",
+        displayName: "Other",
+        position: 0,
+        isFallback: true,
+      },
+    });
+
+    await expect(
+      prisma.groceryCategory.create({
+        data: {
+          ownerId: userId,
+          normalizedName: "misc",
+          displayName: "Misc",
+          position: 1,
+          isFallback: true,
+        },
+      }),
+    ).rejects.toThrow();
+  });
 });

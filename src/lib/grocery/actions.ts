@@ -10,24 +10,34 @@ import {
   categoryIdSchema,
   reorderCategoriesSchema,
   type ActionState,
+  type CreateCategoryActionState,
 } from "@/lib/grocery/schema";
 
-const PROFILE_PATH = "/profile";
+const SETTINGS_PATH = "/settings";
 
 export async function createGroceryCategory(
-  _prevState: ActionState,
+  _prevState: CreateCategoryActionState,
   formData: FormData,
-): Promise<ActionState> {
+): Promise<CreateCategoryActionState> {
   try {
     const userId = await requireUserId();
     const { name } = createCategorySchema.parse({
       name: formData.get("name"),
     });
 
-    await groceryService.createGroceryCategory(userId, name);
+    const category = await groceryService.createGroceryCategory(userId, name);
 
-    revalidatePath(PROFILE_PATH);
-    return { status: "success", message: `Added ${name}.` };
+    revalidatePath(SETTINGS_PATH);
+    return {
+      status: "success",
+      message: `Added ${name}.`,
+      category: {
+        id: category.id,
+        displayName: category.displayName,
+        position: category.position,
+        isFallback: category.isFallback,
+      },
+    };
   } catch (error) {
     return { status: "error", message: toActionErrorMessage(error) };
   }
@@ -46,7 +56,7 @@ export async function renameGroceryCategory(
 
     await groceryService.renameGroceryCategory(userId, id, name);
 
-    revalidatePath(PROFILE_PATH);
+    revalidatePath(SETTINGS_PATH);
     return { status: "success", message: "Renamed." };
   } catch (error) {
     return { status: "error", message: toActionErrorMessage(error) };
@@ -63,7 +73,7 @@ export async function deleteGroceryCategory(
 
     await groceryService.deleteGroceryCategory(userId, id);
 
-    revalidatePath(PROFILE_PATH);
+    revalidatePath(SETTINGS_PATH);
     return { status: "success", message: "Deleted." };
   } catch (error) {
     return { status: "error", message: toActionErrorMessage(error) };
@@ -79,7 +89,7 @@ export async function reorderGroceryCategories(
 
     await groceryService.reorderGroceryCategories(userId, ids);
 
-    revalidatePath(PROFILE_PATH);
+    revalidatePath(SETTINGS_PATH);
     return { status: "success" };
   } catch (error) {
     return { status: "error", message: toActionErrorMessage(error) };

@@ -3,7 +3,11 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { LogOut, User as UserIcon } from "lucide-react";
+import {
+  LogOut,
+  Settings as SettingsIcon,
+  User as UserIcon,
+} from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -83,6 +87,12 @@ export function AccountMenu({
           <Link href="/profile">
             <UserIcon />
             Profile
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link href="/settings">
+            <SettingsIcon />
+            Settings
           </Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />

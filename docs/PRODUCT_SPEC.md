@@ -2311,6 +2311,13 @@ Users may:
 - restore;
 - permanently delete.
 
+**Formalized in the Slice 2 follow-up:** the built-in owner Taster (§34.2)
+is exempt from archive and permanent deletion — one owner Taster must
+always exist and remain selectable, enforced by a database-level partial
+unique index. It may still be renamed (the "more specific display name"
+case §34.2 already allows), and the UI continues identifying it as the
+owner regardless of its current display name.
+
 ## 34.5 Archive
 
 Archiving:
@@ -4201,6 +4208,13 @@ Users may:
 - create categories;
 - delete categories.
 
+**Formalized in the Slice 2 follow-up:** the "Other" category (§63.1) is
+the account's single protected fallback category — it may be renamed and
+reordered like any other, but never permanently deleted, since it is the
+destination items fall back to (§63.4) and must always exist. It is
+identified behaviorally (a stable flag), not by its literal name, so
+renaming it does not affect its protected status.
+
 ## 63.3 Ingredient memory
 
 DishFrame may remember the category previously selected for a normalized ingredient name for that user.
@@ -4210,6 +4224,12 @@ DishFrame may remember the category previously selected for a normalized ingredi
 Items without a category appear under:
 
 > Other
+
+**Formalized in the Slice 2 follow-up:** this also applies when a category
+is deleted — its existing Grocery List items move to the protected
+fallback category (§63.2) rather than becoming uncategorized, and any
+remembered ingredient categorizations (§63.3) pointing at the deleted
+category are cleared so they can be relearned.
 
 ## 63.5 No retailer mapping
 

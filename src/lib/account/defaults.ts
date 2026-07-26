@@ -13,14 +13,29 @@ export const FAVORITE_TAG_DISPLAY_NAME = "Favorite";
 
 export const OWNER_TASTER_DISPLAY_NAME = "You";
 
-export const DEFAULT_GROCERY_CATEGORIES = [
+// Ordinary, user-mutable starter categories — seeded once, on first
+// initialization only (PRODUCT_SPEC.md §63.1's example list). Distinct from
+// the protected fallback category below: a user who deletes or renames one
+// of these is never "repaired" back by a later initializeNewUser call.
+export const ORDINARY_DEFAULT_GROCERY_CATEGORIES = [
   "Produce",
   "Meat and Seafood",
   "Dairy",
   "Pantry",
   "Frozen",
   "Bakery",
-  "Other",
+] as const;
+
+// The account's single protected fallback Grocery Category (PRODUCT_SPEC.md
+// §63.4). Identified behaviorally via GroceryCategory.isFallback, not by
+// this name — a user may rename it and it remains the fallback. Repaired
+// (never duplicated) on every initializeNewUser call, unlike the ordinary
+// defaults above.
+export const FALLBACK_GROCERY_CATEGORY_NAME = "Other";
+
+export const DEFAULT_GROCERY_CATEGORIES = [
+  ...ORDINARY_DEFAULT_GROCERY_CATEGORIES,
+  FALLBACK_GROCERY_CATEGORY_NAME,
 ] as const;
 
 export const STARTER_FLAVOR_PROFILES = [
