@@ -1,12 +1,24 @@
 import type { Metadata } from "next";
-import { Layers } from "lucide-react";
-import { EmptyState } from "@/components/app/empty-state";
+import { redirect } from "next/navigation";
+import { getServerSession } from "@/lib/auth/session";
+import { DishLibraryView } from "@/components/domain/dish/dish-library-view";
 
 export const metadata: Metadata = {
   title: "Parts",
 };
 
-export default function PartsPage() {
+export default async function PartsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ archived?: string }>;
+}) {
+  const session = await getServerSession();
+  if (!session) {
+    redirect("/sign-in");
+  }
+
+  const { archived } = await searchParams;
+
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-6">
       <div>
@@ -19,10 +31,10 @@ export default function PartsPage() {
         </p>
       </div>
 
-      <EmptyState
-        icon={Layers}
-        title="No saved parts yet"
-        description="Parts you save from a recipe will show up here, ready to reuse."
+      <DishLibraryView
+        ownerId={session.user.id}
+        kind="PART"
+        includeArchived={archived === "1"}
       />
     </div>
   );
