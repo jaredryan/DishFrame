@@ -376,6 +376,8 @@ model Ingredient {
 }
 ```
 
+**Settled precision (Slice 3 Gate 2 polish pass, PRODUCT_SPEC.md §10.6a):** `quantity`/`quantityEnd` are `@db.Decimal(12, 3)` — 3 places past the decimal point, the actual DB ceiling. The domain layer normalizes to that same precision *before* the write (`normalizeQuantity` in `schema.ts`, applied by both the client's fraction/mixed-number parser and `sanitizedSectionsOrThrow` in `service.ts`), so the database's own rounding is never the only thing enforcing it.
+
 `substituteForIngredientId` being `@unique` enforces "at most one substitute per ingredient" at the database level. "A substitute cannot contain another substitute" (§11.4) is enforced by a service-layer check that a row already acting as a substitute (i.e., is itself pointed to by `substituteForIngredientId` on another row) can never itself set `substituteForIngredientId` — a narrow, testable invariant rather than a recursive constraint.
 
 ### D.5 `Instruction`
@@ -947,6 +949,22 @@ createNewVersion(dishId, baseVersionId, content)   → majorVersion = MAX(major 
 ```
 
 Both run inside one transaction: insert `DishVersion` (+ its `Section`/`Ingredient`/`Instruction`/`PartLink` children) → conditionally update `Dish.currentVersionId`/denormalized search fields → done. **The Recipe/Part editor's "Save small update" / "Save new version" choice is the only place in the entire product that decides which of these two functions is called** — propagation, restore, and duplication all reduce to calling one of these two with computed inputs, never a third path.
+
+### F.5a Settled scope-narrowing of the user-facing choice (Slice 3 Gate 2 correction)
+
+F.5 described the small-update/new-version choice as "the only place in
+the entire product that decides which of these two functions is called."
+That remains true, but Gate 2 settled *when the editor actually shows it*:
+`editDish` (`src/lib/dishes/service.ts`) independently classifies every
+save via `diffVersionContent` (`src/lib/dishes/schema.ts`) into stable
+metadata / non-cooking Version-owned / cooking content (PRODUCT_SPEC.md
+§13.2a), and only calls `createSmallUpdate`/`createNewVersion` — i.e., only
+consults a `versionChoice` at all — for the third bucket. A non-cooking
+Version-owned edit still calls `createSmallUpdate` exactly as F.5
+describes, just without the user ever choosing so; a stable-metadata-only
+or no-op save calls neither, and updates (or doesn't touch) the `Dish` row
+directly. This is a narrower *presentation* rule, not a new code path: the
+same two functions, the same transaction shape.
 
 ### F.6 Propagation-only Recipe updates
 

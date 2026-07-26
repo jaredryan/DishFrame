@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/app/empty-state";
-import { DishCard } from "@/components/domain/dish/dish-card";
+import { DishLibraryDisplay } from "@/components/domain/dish/dish-library-display";
 import { listDishes } from "@/lib/dishes/queries";
 import type { DishKindValue } from "@/lib/dishes/schema";
 
@@ -48,11 +48,7 @@ export async function DishLibraryView({
           }
         />
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {dishes.map((dish) => (
-            <DishCard key={dish.id} dish={dish} kind={kind} />
-          ))}
-        </div>
+        <DishLibraryDisplay dishes={dishes} kind={kind} label={label} />
       )}
     </div>
   );

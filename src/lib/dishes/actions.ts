@@ -8,9 +8,11 @@ import {
   dishContentSchema,
   duplicateDishSchema,
   restoreDishSchema,
+  versionChoiceSchema,
   type DishActionState,
   type DishContentInput,
   type DishKindValue,
+  type VersionChoiceValue,
 } from "@/lib/dishes/schema";
 
 function basePath(kind: DishKindValue): "/recipes" | "/parts" {
@@ -47,12 +49,23 @@ export async function editDish(
   dishId: string,
   baseVersionId: string,
   values: DishContentInput,
+  versionChoice?: VersionChoiceValue,
 ): Promise<DishActionState> {
   try {
     const userId = await requireUserId();
     const input = dishContentSchema.parse(values);
+    const parsedVersionChoice = versionChoice
+      ? versionChoiceSchema.parse(versionChoice)
+      : undefined;
 
-    await dishService.editDish(userId, dishId, baseVersionId, input, kind);
+    await dishService.editDish(
+      userId,
+      dishId,
+      baseVersionId,
+      input,
+      parsedVersionChoice,
+      kind,
+    );
 
     revalidateDish(kind, dishId);
     return { status: "success", dishId };

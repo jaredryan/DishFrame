@@ -42,6 +42,8 @@ export default async function EditPartPage({
         dish={{
           id: dish.id,
           currentVersionId: dish.currentVersionId!,
+          currentMajorVersion: dish.currentVersion!.majorVersion,
+          currentMinorVersion: dish.currentVersion!.minorVersion,
           values: dishToFormValues(dish),
         }}
       />

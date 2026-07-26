@@ -8,9 +8,11 @@ export type DishCardItem = {
   currentTitle: string | null;
   stage: StageValue;
   cuisine: string | null;
+  updatedAt: Date;
 };
 
-function basePath(kind: DishKindValue) {
+// Shared with dish-list-row.tsx, the other library view of the same data.
+export function dishBasePath(kind: DishKindValue) {
   return kind === "PART" ? "/parts" : "/recipes";
 }
 
@@ -22,7 +24,7 @@ export function DishCard({
   kind: DishKindValue;
 }) {
   return (
-    <Link href={`${basePath(kind)}/${dish.id}`} className="group">
+    <Link href={`${dishBasePath(kind)}/${dish.id}`} className="group">
       <Card className="ring-border transition-shadow group-hover:shadow-md">
         <CardHeader>
           <div className="flex items-start justify-between gap-2">

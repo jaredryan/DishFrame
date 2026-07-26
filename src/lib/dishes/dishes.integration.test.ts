@@ -3,8 +3,13 @@ import { describe, it, expect, afterEach } from "vitest";
 import { prisma } from "@/lib/db/prisma";
 import { createTestUser, deleteTestUser } from "@/test/factories";
 import * as dishService from "@/lib/dishes/service";
-import { restoreDishSchema, type DishContentInput } from "@/lib/dishes/schema";
-import { NotFoundError, ConflictError } from "@/lib/errors";
+import {
+  restoreDishSchema,
+  dishContentSchema,
+  type DishContentInput,
+  type SectionInput,
+} from "@/lib/dishes/schema";
+import { NotFoundError, ConflictError, ValidationError } from "@/lib/errors";
 
 function content(overrides: Partial<DishContentInput> = {}): DishContentInput {
   return {
@@ -41,6 +46,60 @@ function content(overrides: Partial<DishContentInput> = {}): DishContentInput {
   };
 }
 
+function blankIngredient(name: string) {
+  return {
+    name,
+    quantity: null,
+    quantityEnd: null,
+    isApproximate: false,
+    unit: null,
+    displayText: null,
+    preparationNote: null,
+    isOptional: false,
+    substitute: null,
+  };
+}
+
+async function loadDishWithVersion(dishId: string) {
+  return prisma.dish.findUniqueOrThrow({
+    where: { id: dishId },
+    include: {
+      currentVersion: {
+        include: { sections: { include: { ingredients: true } } },
+      },
+    },
+  });
+}
+
+async function versionCount(dishId: string) {
+  return prisma.dishVersion.count({ where: { dishId } });
+}
+
+// Rebuilds the single default Section/Ingredient with their real, already-
+// persisted lineageIds — mirroring what `dishToFormValues` sends for
+// content the user left untouched. `content()`'s own default ingredient
+// deliberately has no lineageId (it simulates a brand-new row), which is
+// wrong for a "nothing about the cooking content changed" edit: without
+// the real lineageId, `diffVersionContent` correctly (and unavoidably)
+// reads it as a newly-added ingredient rather than an unchanged one.
+function unchangedSections(
+  dish: Awaited<ReturnType<typeof loadDishWithVersion>>,
+): SectionInput[] {
+  const section = dish.currentVersion!.sections[0];
+  const ingredient = section.ingredients[0];
+  return [
+    {
+      lineageId: section.lineageId,
+      name: null,
+      guidanceNote: null,
+      ingredients: [
+        { lineageId: ingredient.lineageId, ...blankIngredient("Salt") },
+      ],
+      instructions: [],
+    },
+  ];
+}
+
 describe("dishes service", () => {
   let userId: string | undefined;
 
@@ -58,14 +117,7 @@ describe("dishes service", () => {
 
       const dishId = await dishService.createDish(userId, "RECIPE", content());
 
-      const dish = await prisma.dish.findUniqueOrThrow({
-        where: { id: dishId },
-        include: {
-          currentVersion: {
-            include: { sections: { include: { ingredients: true } } },
-          },
-        },
-      });
+      const dish = await loadDishWithVersion(dishId);
 
       expect(dish.currentVersionId).not.toBeNull();
       expect(dish.currentVersion?.majorVersion).toBe(1);
@@ -100,95 +152,138 @@ describe("dishes service", () => {
     });
   });
 
-  describe("editDish", () => {
-    it("bumps the minor version within the current major line and leaves sourceVersionId null", async () => {
+  // Gate 2 correction (docs/SLICE_3.md): editDish's settled Version
+  // classification — stable-only/no-op create no Version, non-cooking
+  // Version-owned changes auto-bump a minor Version, and any Ingredient/
+  // Instruction change requires an explicit minor/major choice.
+  describe("editDish — Version classification", () => {
+    it("creates no Version for a cuisine-only change", async () => {
       const user = await createTestUser();
       userId = user.id;
 
       const dishId = await dishService.createDish(userId, "RECIPE", content());
-      const dish = await prisma.dish.findUniqueOrThrow({
-        where: { id: dishId },
-      });
+      const before = await loadDishWithVersion(dishId);
+
+      await dishService.editDish(
+        userId,
+        dishId,
+        before.currentVersionId!,
+        content({ cuisine: "Japanese", sections: unchangedSections(before) }),
+        undefined,
+      );
+
+      const after = await loadDishWithVersion(dishId);
+      expect(after.cuisine).toBe("Japanese");
+      expect(after.currentVersionId).toBe(before.currentVersionId);
+      expect(await versionCount(dishId)).toBe(1);
+    });
+
+    it("creates no Version for a Stage-only change", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+
+      const dishId = await dishService.createDish(userId, "RECIPE", content());
+      const before = await loadDishWithVersion(dishId);
+
+      await dishService.editDish(
+        userId,
+        dishId,
+        before.currentVersionId!,
+        content({ stage: "ACTIVE", sections: unchangedSections(before) }),
+        undefined,
+      );
+
+      const after = await loadDishWithVersion(dishId);
+      expect(after.stage).toBe("ACTIVE");
+      expect(after.currentVersionId).toBe(before.currentVersionId);
+      expect(await versionCount(dishId)).toBe(1);
+    });
+
+    it("creates no Version for a true no-op save", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+
+      const dishId = await dishService.createDish(userId, "RECIPE", content());
+      const before = await loadDishWithVersion(dishId);
+
+      await dishService.editDish(
+        userId,
+        dishId,
+        before.currentVersionId!,
+        content({ sections: unchangedSections(before) }),
+        undefined,
+      );
+
+      const after = await loadDishWithVersion(dishId);
+      expect(after.currentVersionId).toBe(before.currentVersionId);
+      expect(after.updatedAt.getTime()).toBe(before.updatedAt.getTime());
+      expect(await versionCount(dishId)).toBe(1);
+    });
+
+    it("creates exactly one minor Version for a non-cooking Version-owned change (title)", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+
+      const dishId = await dishService.createDish(userId, "RECIPE", content());
+      const before = await loadDishWithVersion(dishId);
+
+      await dishService.editDish(
+        userId,
+        dishId,
+        before.currentVersionId!,
+        content({
+          title: "Ginger Soy Bowl (updated)",
+          sections: unchangedSections(before),
+        }),
+        undefined,
+      );
+
+      const after = await loadDishWithVersion(dishId);
+      expect(after.currentVersion?.majorVersion).toBe(1);
+      expect(after.currentVersion?.minorVersion).toBe(1);
+      expect(after.currentVersion?.title).toBe("Ginger Soy Bowl (updated)");
+      expect(after.currentVersionId).not.toBe(before.currentVersionId);
+      expect(await versionCount(dishId)).toBe(2);
+    });
+
+    it("carries an existing row's lineageId forward and mints a fresh one for a newly-added row, saved as minor", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+
+      const dishId = await dishService.createDish(userId, "RECIPE", content());
+      const dish = await loadDishWithVersion(dishId);
+      const originalSection = dish.currentVersion!.sections[0];
+      const originalIngredient = originalSection.ingredients[0];
 
       await dishService.editDish(
         userId,
         dishId,
         dish.currentVersionId!,
-        content({ title: "Ginger Soy Bowl (updated)" }),
+        {
+          ...content(),
+          sections: [
+            {
+              lineageId: originalSection.lineageId,
+              name: null,
+              guidanceNote: null,
+              ingredients: [
+                {
+                  lineageId: originalIngredient.lineageId,
+                  ...blankIngredient("Salt"),
+                },
+                blankIngredient("Pepper"),
+              ],
+              instructions: [],
+            },
+          ],
+        },
+        "MINOR",
       );
 
-      const updated = await prisma.dish.findUniqueOrThrow({
-        where: { id: dishId },
-        include: { currentVersion: true },
-      });
-
+      const updated = await loadDishWithVersion(dishId);
       expect(updated.currentVersion?.majorVersion).toBe(1);
       expect(updated.currentVersion?.minorVersion).toBe(1);
-      expect(updated.currentVersion?.title).toBe("Ginger Soy Bowl (updated)");
-      expect(updated.currentVersionId).not.toBe(dish.currentVersionId);
-    });
 
-    it("carries an existing row's lineageId forward and mints a fresh one for a newly-added row", async () => {
-      const user = await createTestUser();
-      userId = user.id;
-
-      const dishId = await dishService.createDish(userId, "RECIPE", content());
-      const dish = await prisma.dish.findUniqueOrThrow({
-        where: { id: dishId },
-        include: {
-          currentVersion: {
-            include: { sections: { include: { ingredients: true } } },
-          },
-        },
-      });
-      const originalSection = dish.currentVersion!.sections[0];
-      const originalIngredient = originalSection.ingredients[0];
-
-      await dishService.editDish(userId, dishId, dish.currentVersionId!, {
-        ...content(),
-        sections: [
-          {
-            lineageId: originalSection.lineageId,
-            name: null,
-            guidanceNote: null,
-            ingredients: [
-              {
-                lineageId: originalIngredient.lineageId,
-                name: "Salt",
-                quantity: null,
-                quantityEnd: null,
-                isApproximate: false,
-                unit: null,
-                displayText: null,
-                preparationNote: null,
-                isOptional: false,
-                substitute: null,
-              },
-              {
-                name: "Pepper",
-                quantity: null,
-                quantityEnd: null,
-                isApproximate: false,
-                unit: null,
-                displayText: null,
-                preparationNote: null,
-                isOptional: false,
-                substitute: null,
-              },
-            ],
-            instructions: [],
-          },
-        ],
-      });
-
-      const updated = await prisma.dish.findUniqueOrThrow({
-        where: { id: dishId },
-        include: {
-          currentVersion: {
-            include: { sections: { include: { ingredients: true } } },
-          },
-        },
-      });
       const newIngredients = updated.currentVersion!.sections[0].ingredients;
       const salt = newIngredients.find((i) => i.name === "Salt")!;
       const pepper = newIngredients.find((i) => i.name === "Pepper")!;
@@ -198,22 +293,211 @@ describe("dishes service", () => {
       expect(pepper.lineageId).toBeTruthy();
     });
 
+    it("saving an Instruction change as major increments the major number and resets minor to zero", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+
+      const dishId = await dishService.createDish(userId, "RECIPE", content());
+      const dish = await loadDishWithVersion(dishId);
+      const originalSection = dish.currentVersion!.sections[0];
+      const originalIngredient = originalSection.ingredients[0];
+
+      await dishService.editDish(
+        userId,
+        dishId,
+        dish.currentVersionId!,
+        {
+          ...content(),
+          sections: [
+            {
+              lineageId: originalSection.lineageId,
+              name: null,
+              guidanceNote: null,
+              ingredients: [
+                {
+                  lineageId: originalIngredient.lineageId,
+                  ...blankIngredient("Salt"),
+                },
+              ],
+              instructions: [{ text: "Whisk everything together." }],
+            },
+          ],
+        },
+        "MAJOR",
+      );
+
+      const updated = await loadDishWithVersion(dishId);
+      expect(updated.currentVersion?.majorVersion).toBe(2);
+      expect(updated.currentVersion?.minorVersion).toBe(0);
+    });
+
+    it("requires an explicit minor/major choice for add, remove, and reorder Ingredient changes", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+
+      const dishId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              ingredients: [blankIngredient("Salt"), blankIngredient("Pepper")],
+              instructions: [],
+            },
+          ],
+        }),
+      );
+      const dish = await loadDishWithVersion(dishId);
+      const section = dish.currentVersion!.sections[0];
+      const salt = section.ingredients.find((i) => i.name === "Salt")!;
+      const pepper = section.ingredients.find((i) => i.name === "Pepper")!;
+
+      function sectionsWith(ingredients: SectionInput["ingredients"]) {
+        return [
+          {
+            lineageId: section.lineageId,
+            name: null,
+            guidanceNote: null,
+            ingredients,
+            instructions: [],
+          },
+        ];
+      }
+
+      // Add a third ingredient.
+      await expect(
+        dishService.editDish(
+          userId!,
+          dishId,
+          dish.currentVersionId!,
+          {
+            ...content(),
+            sections: sectionsWith([
+              { lineageId: salt.lineageId, ...blankIngredient("Salt") },
+              { lineageId: pepper.lineageId, ...blankIngredient("Pepper") },
+              blankIngredient("Garlic"),
+            ]),
+          },
+          undefined,
+        ),
+      ).rejects.toThrow(ValidationError);
+
+      // Remove the second ingredient.
+      await expect(
+        dishService.editDish(
+          userId!,
+          dishId,
+          dish.currentVersionId!,
+          {
+            ...content(),
+            sections: sectionsWith([
+              { lineageId: salt.lineageId, ...blankIngredient("Salt") },
+            ]),
+          },
+          undefined,
+        ),
+      ).rejects.toThrow(ValidationError);
+
+      // Reorder the two ingredients (same rows, swapped position).
+      await expect(
+        dishService.editDish(
+          userId!,
+          dishId,
+          dish.currentVersionId!,
+          {
+            ...content(),
+            sections: sectionsWith([
+              { lineageId: pepper.lineageId, ...blankIngredient("Pepper") },
+              { lineageId: salt.lineageId, ...blankIngredient("Salt") },
+            ]),
+          },
+          undefined,
+        ),
+      ).rejects.toThrow(ValidationError);
+
+      // No Version should have been created by any of the rejected attempts.
+      expect(await versionCount(dishId)).toBe(1);
+    });
+
+    it("updates stable metadata and Version-owned content together in one save", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+
+      const dishId = await dishService.createDish(userId, "RECIPE", content());
+      const before = await loadDishWithVersion(dishId);
+
+      await dishService.editDish(
+        userId,
+        dishId,
+        before.currentVersionId!,
+        content({
+          cuisine: "Thai",
+          title: "Ginger Soy Bowl (v2)",
+          sections: unchangedSections(before),
+        }),
+        undefined,
+      );
+
+      const after = await loadDishWithVersion(dishId);
+      expect(after.cuisine).toBe("Thai");
+      expect(after.currentVersion?.title).toBe("Ginger Soy Bowl (v2)");
+      expect(after.currentVersion?.minorVersion).toBe(1);
+      expect(await versionCount(dishId)).toBe(2);
+    });
+
+    it("leaves the previous Version's content unchanged after a new Version is created", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+
+      const dishId = await dishService.createDish(userId, "RECIPE", content());
+      const before = await loadDishWithVersion(dishId);
+      const originalVersionId = before.currentVersionId!;
+
+      await dishService.editDish(
+        userId,
+        dishId,
+        originalVersionId,
+        content({
+          title: "Ginger Soy Bowl (updated)",
+          sections: unchangedSections(before),
+        }),
+        undefined,
+      );
+
+      const originalVersion = await prisma.dishVersion.findUniqueOrThrow({
+        where: { id: originalVersionId },
+      });
+      expect(originalVersion.title).toBe("Ginger Soy Bowl");
+    });
+
     it("throws ConflictError when baseVersionId is stale", async () => {
       const user = await createTestUser();
       userId = user.id;
 
       const dishId = await dishService.createDish(userId, "RECIPE", content());
-      const dish = await prisma.dish.findUniqueOrThrow({
-        where: { id: dishId },
-      });
+      const dish = await loadDishWithVersion(dishId);
       const staleVersionId = dish.currentVersionId!;
 
-      // First edit moves currentVersionId forward...
-      await dishService.editDish(userId, dishId, staleVersionId, content());
+      // A real edit moves currentVersionId forward...
+      await dishService.editDish(
+        userId,
+        dishId,
+        staleVersionId,
+        content({ title: "First edit", sections: unchangedSections(dish) }),
+        undefined,
+      );
 
-      // ...so retrying with the now-stale id must conflict.
+      // ...so retrying against the now-stale id must conflict.
       await expect(
-        dishService.editDish(userId, dishId, staleVersionId, content()),
+        dishService.editDish(
+          userId,
+          dishId,
+          staleVersionId,
+          content({ title: "Second attempt" }),
+          undefined,
+        ),
       ).rejects.toThrow(ConflictError);
     });
 
@@ -227,9 +511,7 @@ describe("dishes service", () => {
         "RECIPE",
         content(),
       );
-      const dish = await prisma.dish.findUniqueOrThrow({
-        where: { id: dishId },
-      });
+      const dish = await loadDishWithVersion(dishId);
 
       await expect(
         dishService.editDish(
@@ -237,10 +519,247 @@ describe("dishes service", () => {
           dishId,
           dish.currentVersionId!,
           content(),
+          undefined,
         ),
       ).rejects.toThrow(NotFoundError);
 
       await deleteTestUser(intruder.id);
+    });
+  });
+
+  // Task 3 (docs/SLICE_3.md Gate 2 section): proves the approved Ingredient
+  // entry values survive server validation, creation, an edit, and a
+  // reload. Fraction/mixed-number *text parsing* is a client-side concern
+  // covered separately in number-field.test.ts — this suite proves the
+  // resulting decimal values (and every other supported field) persist.
+  describe("Ingredient field persistence", () => {
+    it("a fully-populated Ingredient (range, approximate, unit, prep note, optional) survives creation, edit, and reload", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+
+      const payload = content({
+        sections: [
+          {
+            name: null,
+            guidanceNote: null,
+            ingredients: [
+              {
+                name: "Broth",
+                quantity: 1.5, // "1 1/2" parsed client-side
+                quantityEnd: 2, // range: "1 1/2–2 cups"
+                isApproximate: true,
+                unit: "cup",
+                displayText: null,
+                preparationNote: "warmed",
+                isOptional: true,
+                substitute: null,
+              },
+            ],
+            instructions: [],
+          },
+        ],
+      });
+
+      // Server validation: the payload must parse before it ever reaches
+      // the service (mirrors what the Server Action does).
+      const validated = dishContentSchema.parse(payload);
+
+      const dishId = await dishService.createDish(user.id, "RECIPE", validated);
+
+      const created = await loadDishWithVersion(dishId);
+      const createdIngredient =
+        created.currentVersion!.sections[0].ingredients[0];
+      expect(createdIngredient.name).toBe("Broth");
+      expect(createdIngredient.quantity?.toNumber()).toBe(1.5);
+      expect(createdIngredient.quantityEnd?.toNumber()).toBe(2);
+      expect(createdIngredient.isApproximate).toBe(true);
+      expect(createdIngredient.unit).toBe("cup");
+      expect(createdIngredient.preparationNote).toBe("warmed");
+      expect(createdIngredient.isOptional).toBe(true);
+
+      await dishService.editDish(
+        user.id,
+        dishId,
+        created.currentVersionId!,
+        {
+          ...content(),
+          sections: [
+            {
+              lineageId: created.currentVersion!.sections[0].lineageId,
+              name: null,
+              guidanceNote: null,
+              ingredients: [
+                {
+                  lineageId: createdIngredient.lineageId,
+                  name: "Broth",
+                  quantity: 1.5,
+                  quantityEnd: 2,
+                  isApproximate: true,
+                  unit: "cup",
+                  displayText: null,
+                  preparationNote: "warmed, low-sodium",
+                  isOptional: false,
+                  substitute: null,
+                },
+              ],
+              instructions: [],
+            },
+          ],
+        },
+        "MINOR",
+      );
+
+      const reloaded = await loadDishWithVersion(dishId);
+      const reloadedIngredient =
+        reloaded.currentVersion!.sections[0].ingredients[0];
+      expect(reloadedIngredient.preparationNote).toBe("warmed, low-sodium");
+      expect(reloadedIngredient.isOptional).toBe(false);
+      expect(reloadedIngredient.quantity?.toNumber()).toBe(1.5);
+      expect(reloadedIngredient.quantityEnd?.toNumber()).toBe(2);
+    });
+
+    it("a free-text-only Ingredient (no numeric quantity) survives creation and reload", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+
+      const payload = content({
+        sections: [
+          {
+            name: null,
+            guidanceNote: null,
+            ingredients: [
+              {
+                name: "Salt",
+                quantity: null,
+                quantityEnd: null,
+                isApproximate: false,
+                unit: null,
+                displayText: "to taste",
+                preparationNote: null,
+                isOptional: false,
+                substitute: null,
+              },
+            ],
+            instructions: [],
+          },
+        ],
+      });
+      const validated = dishContentSchema.parse(payload);
+
+      const dishId = await dishService.createDish(user.id, "RECIPE", validated);
+
+      const created = await loadDishWithVersion(dishId);
+      const ingredient = created.currentVersion!.sections[0].ingredients[0];
+      expect(ingredient.quantity).toBeNull();
+      expect(ingredient.displayText).toBe("to taste");
+    });
+  });
+
+  // Gate 2 polish pass (docs/SLICE_3_FOLLOWUP.md): Ingredient.quantity/
+  // quantityEnd are `Decimal @db.Decimal(12, 3)` — normalization to 3
+  // decimal places happens in `sanitizedSectionsOrThrow` (service.ts),
+  // which both `createDish` and `editDish` always pass sections through
+  // regardless of whether the caller went through `dishContentSchema`
+  // first — these tests call the service directly (bypassing the schema
+  // entirely, as most of this file's tests do) to prove that bypass path
+  // still gets normalized.
+  describe("Ingredient quantity normalization (PRODUCT_SPEC.md §10.6a)", () => {
+    it("normalizes unbounded fraction decimals (1/3, 2/3) to 3 places on create, surviving reload", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+
+      const dishId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              ingredients: [
+                {
+                  ...blankIngredient("Broth"),
+                  quantity: 1 / 3, // 0.3333333333333333, unvalidated
+                  quantityEnd: 2 / 3, // 0.6666666666666666
+                },
+              ],
+              instructions: [],
+            },
+          ],
+        }),
+      );
+
+      const created = await loadDishWithVersion(dishId);
+      const ingredient = created.currentVersion!.sections[0].ingredients[0];
+      expect(ingredient.quantity?.toNumber()).toBe(0.333);
+      expect(ingredient.quantityEnd?.toNumber()).toBe(0.667);
+    });
+
+    it("normalizes a mixed-number decimal already exact at 3 places, and rounds a decimal with more than 3 places, on edit — quantityEnd follows the same rule", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+
+      const dishId = await dishService.createDish(userId, "RECIPE", content());
+      const dish = await loadDishWithVersion(dishId);
+      const section = dish.currentVersion!.sections[0];
+      const ingredient = section.ingredients[0];
+
+      await dishService.editDish(
+        userId,
+        dishId,
+        dish.currentVersionId!,
+        {
+          ...content(),
+          sections: [
+            {
+              lineageId: section.lineageId,
+              name: null,
+              guidanceNote: null,
+              ingredients: [
+                {
+                  lineageId: ingredient.lineageId,
+                  ...blankIngredient("Broth"),
+                  quantity: 2 + 1 / 8, // 2.125 — already exact at 3 places
+                  quantityEnd: 1.23456789, // more than 3 places
+                },
+              ],
+              instructions: [],
+            },
+          ],
+        },
+        "MINOR",
+      );
+
+      const reloaded = await loadDishWithVersion(dishId);
+      const reloadedIngredient =
+        reloaded.currentVersion!.sections[0].ingredients[0];
+      expect(reloadedIngredient.quantity?.toNumber()).toBe(2.125);
+      expect(reloadedIngredient.quantityEnd?.toNumber()).toBe(1.235);
+    });
+
+    it("leaves a decimal already at or under 3 places unchanged", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+
+      const dishId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              ingredients: [{ ...blankIngredient("Broth"), quantity: 1.5 }],
+              instructions: [],
+            },
+          ],
+        }),
+      );
+
+      const created = await loadDishWithVersion(dishId);
+      expect(
+        created.currentVersion!.sections[0].ingredients[0].quantity?.toNumber(),
+      ).toBe(1.5);
     });
   });
 
@@ -311,14 +830,7 @@ describe("dishes service", () => {
         "RECIPE",
         content({ stage: "PROVEN" }),
       );
-      const source = await prisma.dish.findUniqueOrThrow({
-        where: { id: sourceId },
-        include: {
-          currentVersion: {
-            include: { sections: { include: { ingredients: true } } },
-          },
-        },
-      });
+      const source = await loadDishWithVersion(sourceId);
 
       const copyId = await dishService.duplicateDish(
         userId,
@@ -327,14 +839,7 @@ describe("dishes service", () => {
       );
       expect(copyId).not.toBe(sourceId);
 
-      const copy = await prisma.dish.findUniqueOrThrow({
-        where: { id: copyId },
-        include: {
-          currentVersion: {
-            include: { sections: { include: { ingredients: true } } },
-          },
-        },
-      });
+      const copy = await loadDishWithVersion(copyId);
 
       expect(copy.currentTitle).toBe("Copy of Ginger Soy Bowl");
       expect(copy.stage).toBe("PROVEN");

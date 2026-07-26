@@ -40,8 +40,10 @@ import { createDish, editDish } from "@/lib/dishes/actions";
 import {
   removeEmptySections,
   hasMinimumContent,
+  diffVersionContent,
   stageValues,
   type DishKindValue,
+  type VersionChoiceValue,
 } from "@/lib/dishes/schema";
 
 const STAGE_LABEL: Record<(typeof stageValues)[number], string> = {
@@ -60,12 +62,16 @@ export function DishEditor({
   dish?: {
     id: string;
     currentVersionId: string;
+    currentMajorVersion: number;
+    currentMinorVersion: number;
     values: DishFormValues;
   };
 }) {
   const router = useRouter();
   const [serverError, setServerError] = React.useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [pendingCookingChange, setPendingCookingChange] =
+    React.useState<DishFormValues | null>(null);
 
   const form = useForm<DishFormValues>({
     defaultValues: dish ? dish.values : blankDishFormValues(),
@@ -78,6 +84,31 @@ export function DishEditor({
   const basePath = kind === "PART" ? "/parts" : "/recipes";
   const kindLabel = kind === "PART" ? "Part" : "Recipe";
   const cancelHref = dish ? `${basePath}/${dish.id}` : basePath;
+
+  async function performSave(
+    cleaned: DishFormValues,
+    versionChoice?: VersionChoiceValue,
+  ) {
+    setIsSubmitting(true);
+    const result = dish
+      ? await editDish(
+          kind,
+          dish.id,
+          dish.currentVersionId,
+          cleaned,
+          versionChoice,
+        )
+      : await createDish(kind, cleaned);
+
+    if (result.status === "success" && result.dishId) {
+      form.reset(cleaned);
+      router.push(`${basePath}/${result.dishId}`);
+      router.refresh();
+    } else {
+      setServerError(result.message ?? "Could not save. Please try again.");
+      setIsSubmitting(false);
+    }
+  }
 
   async function onSubmit(values: DishFormValues) {
     setServerError(null);
@@ -102,20 +133,39 @@ export function DishEditor({
       return;
     }
 
-    setIsSubmitting(true);
-    const result = dish
-      ? await editDish(kind, dish.id, dish.currentVersionId, cleaned)
-      : await createDish(kind, cleaned);
-
-    if (result.status === "success" && result.dishId) {
-      form.reset(cleaned);
-      router.push(`${basePath}/${result.dishId}`);
-      router.refresh();
-    } else {
-      setServerError(result.message ?? "Could not save. Please try again.");
-      setIsSubmitting(false);
+    // Only an existing Dish's edit can require the minor/major choice — a
+    // new Dish always starts at V1.0, nothing to diff against.
+    if (dish) {
+      const { cookingChanged } = diffVersionContent(
+        dish.values.sections,
+        cleaned.sections,
+      );
+      if (cookingChanged) {
+        setPendingCookingChange(cleaned);
+        return;
+      }
     }
+
+    await performSave(cleaned);
   }
+
+  function chooseVersion(versionChoice: VersionChoiceValue) {
+    if (!pendingCookingChange) return;
+    const cleaned = pendingCookingChange;
+    setPendingCookingChange(null);
+    void performSave(cleaned, versionChoice);
+  }
+
+  // Slice 3 has no UI path to reach a historical major (see the module doc
+  // comment in service.ts), so the currently-loaded Version is always the
+  // highest minor within its major line — the next minor is always exactly
+  // one past it.
+  const versionChoiceLabels = dish
+    ? {
+        major: `Starts V${dish.currentMajorVersion + 1}.0`,
+        minor: `Saves as V${dish.currentMajorVersion}.${dish.currentMinorVersion + 1}`,
+      }
+    : null;
 
   return (
     <FormProvider {...form}>
@@ -287,6 +337,49 @@ export function DishEditor({
               Discard changes
             </Button>
             <Button onClick={guard.keepEditing}>Keep editing</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={pendingCookingChange !== null}
+        onOpenChange={(open) => !open && setPendingCookingChange(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>How should this change be saved?</DialogTitle>
+            <DialogDescription>
+              You changed an ingredient or instruction. Save this as a
+              refinement of the current version, or start a new version for a
+              more substantial change.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => chooseVersion("MAJOR")}
+              disabled={isSubmitting}
+              className="h-auto flex-col items-start gap-0 py-1.5"
+            >
+              <span>Start a new version</span>
+              {versionChoiceLabels && (
+                <span className="text-xs font-normal opacity-75">
+                  {versionChoiceLabels.major}
+                </span>
+              )}
+            </Button>
+            <Button
+              onClick={() => chooseVersion("MINOR")}
+              disabled={isSubmitting}
+              className="h-auto flex-col items-start gap-0 py-1.5"
+            >
+              <span>Save as a refinement</span>
+              {versionChoiceLabels && (
+                <span className="text-xs font-normal opacity-75">
+                  {versionChoiceLabels.minor}
+                </span>
+              )}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

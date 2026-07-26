@@ -748,6 +748,35 @@ The implementation specification will determine whether values are stored as:
 - strings plus parsed values;
 - another safe structure.
 
+## 10.6a Settled storage precision (Slice 3 Gate 2 polish pass)
+
+§10.6's open question is settled: numeric `quantity` and `quantityEnd` are
+stored as decimals normalized to **3 places past the decimal point**,
+matching the database column's actual precision. A typed fraction or mixed
+number is parsed, then rounded to that precision, before it is ever
+persisted:
+
+```text
+1/3     → 0.333
+2/3     → 0.667
+2 1/8   → 2.125
+1.5     → 1.5
+```
+
+One shared, pure rounding function is used identically by the entry-form
+parser and the server-side sanitization path that runs on every save
+(regardless of entry point), so a value can never reach storage as an
+unbounded repeating decimal (e.g. `0.3333333333333333`) and no second,
+divergent rounding implementation can exist.
+
+This does not change §10.4's supported entry forms, §10.5's entry
+controls, or §10.7's free-text fallback (untouched, never a numeric
+value). Later fraction-aware **display** formatting (§52, Slice 5 scope,
+not implemented by this pass) should recognize a normalized decimal as
+"close enough to" a common fraction using a small tolerance against the
+3-decimal-rounded value, rather than requiring exact rational equality —
+`0.333` should still be recognized and offered as `1/3`.
+
 ## 10.7 Free-text fallback
 
 DishFrame must support quantities and notes that cannot be represented honestly as exact numbers.
@@ -915,6 +944,57 @@ Examples:
 - revival of a useful historical direction as the next main Recipe.
 
 DishFrame may visually emphasize **Save new version**, but it never forces the classification.
+
+## 13.2a Settled automatic classification (Slice 3 Gate 2 correction)
+
+§13.1's "every successful content save creates a Version" and §13.2's "the
+user chooses" are refined by a settled implementation decision: the
+explicit **Save small update / Save new version** choice (in the editor,
+worded as **Save as a refinement / Start a new version**) is presented
+**only** when an Ingredient or Instruction actually changed. Every save is
+classified into exactly one of three buckets, determined server-side —
+never trusting a client-supplied claim:
+
+### No new Version
+
+- Stage-only change;
+- cuisine-only change;
+- archive or restore;
+- a true no-op save (nothing at all changed).
+
+### Automatic small update — no prompt
+
+Version-owned information that changes the Recipe/Part record or its
+presentation but does not itself change cooking content:
+
+- title;
+- description;
+- Makes / serving-size information;
+- preparation time;
+- cooking time;
+- difficulty;
+- nutrition information (once implemented);
+- Section naming or organization changes that leave every Ingredient's and
+  Instruction's own content, owning Section, and position untouched.
+
+### Explicit refinement / new-version choice — the one user-facing prompt
+
+Any Ingredient or Instruction:
+
+- addition;
+- removal;
+- edit;
+- reorder;
+- movement between Sections.
+
+Only this bucket shows the choice described in §13.2. A save combining a
+bucket-two field (e.g. title) with a bucket-three change (e.g. an
+Ingredient edit) still only prompts once, for the Ingredient/Instruction
+change, and both changes land in the one Version that choice creates.
+
+Nutrition, scaling, and the Version-history comparison UI (§94) remain
+future-slice scope; this section only settles which bucket a change falls
+into, not those later features.
 
 ## 13.3 Version numbering
 

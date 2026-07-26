@@ -3,16 +3,19 @@ import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/db/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
-import { getOwnedDishOrThrow } from "@/lib/dishes/queries";
+import { getOwnedDishOrThrow, getVersionContent } from "@/lib/dishes/queries";
 import {
   removeEmptySections,
   hasMinimumContent,
+  diffVersionContent,
+  normalizeQuantity,
   type DishContentInput,
   type SectionInput,
   type IngredientInput,
   type StageValue,
   type RestorableStageValue,
   type DishKindValue,
+  type VersionChoiceValue,
 } from "@/lib/dishes/schema";
 
 /**
@@ -20,12 +23,22 @@ import {
  * src/lib/tasters/service.ts for the same rationale.
  *
  * Only two entry points ever create DishVersion content
- * (ARCHITECTURE_PROPOSAL.md §F.10/§F.5): `createDish` (V1.0) and `editDish`
- * (a "save small update" within the current major line — Slice 3 does not
- * yet expose the small-update/new-major-version choice itself, since
- * historical-major navigation is Slice 4 scope; see docs/BUILD_PLAN.md).
+ * (ARCHITECTURE_PROPOSAL.md §F.10/§F.5): `createDish` (V1.0) and `editDish`.
  * DishVersion rows are never updated or deleted directly outside these
  * functions and `duplicateDish`.
+ *
+ * `editDish`'s settled Gate 2 classification (docs/SLICE_3.md) — determined
+ * independently here, never trusting a client claim:
+ *   - Stable Dish metadata only (Stage, cuisine, archive/restore) or a
+ *     true no-op: no Version created, `Dish` updated in place (or not at
+ *     all, for a genuine no-op).
+ *   - Version-owned but non-cooking content (title, description, yield,
+ *     prep/cook time, difficulty, Section naming/reordering that leaves
+ *     every Ingredient/Instruction's own content, Section, and position
+ *     untouched): exactly one minor Version, created automatically.
+ *   - Any Ingredient/Instruction add, remove, edit, or reorder: requires
+ *     the caller to have already resolved the minor/major choice
+ *     (`versionChoice`); throws `ValidationError` if it's missing.
  */
 
 function nextArchivedAt(
@@ -47,10 +60,15 @@ type IngredientWithSubstitute = Prisma.IngredientGetPayload<{
   include: { substitute: true };
 }>;
 
+// Always includes `lineageId` — safe for every current caller: `duplicateDish`
+// passes the result through `insertSections(..., {mintFreshLineage: true})`,
+// which ignores any supplied `lineageId` and mints a fresh one regardless;
+// `editDish`'s content-diffing needs the real `lineageId` to match rows.
 function toIngredientInput(
   ingredient: IngredientWithSubstitute,
 ): IngredientInput {
   return {
+    lineageId: ingredient.lineageId,
     name: ingredient.name,
     quantity: decimalToNumber(ingredient.quantity),
     quantityEnd: decimalToNumber(ingredient.quantityEnd),
@@ -61,6 +79,7 @@ function toIngredientInput(
     isOptional: ingredient.isOptional,
     substitute: ingredient.substitute
       ? {
+          lineageId: ingredient.substitute.lineageId,
           name: ingredient.substitute.name,
           quantity: decimalToNumber(ingredient.substitute.quantity),
           quantityEnd: decimalToNumber(ingredient.substitute.quantityEnd),
@@ -70,6 +89,49 @@ function toIngredientInput(
           preparationNote: ingredient.substitute.preparationNote,
         }
       : null,
+  };
+}
+
+type VersionSectionRow = Prisma.SectionGetPayload<{
+  include: {
+    ingredients: { include: { substitute: true } };
+    instructions: true;
+  };
+}>;
+
+// Shared by `duplicateDish` (source content → a fresh Version) and
+// `editDish` (base content → content-diffing against the proposed edit).
+function sectionRowsToInput(sections: VersionSectionRow[]): SectionInput[] {
+  return sections.map((section) => ({
+    lineageId: section.lineageId,
+    name: section.name,
+    guidanceNote: section.guidanceNote,
+    ingredients: section.ingredients
+      .filter((ingredient) => ingredient.substituteForIngredientId === null)
+      .map(toIngredientInput),
+    instructions: section.instructions.map((instruction) => ({
+      lineageId: instruction.lineageId,
+      text: instruction.text,
+    })),
+  }));
+}
+
+async function nextVersionNumbers(
+  tx: Prisma.TransactionClient,
+  dishId: string,
+  baseMajorVersion: number,
+  bump: VersionChoiceValue,
+): Promise<{ majorVersion: number; minorVersion: number }> {
+  if (bump === "MAJOR") {
+    return { majorVersion: baseMajorVersion + 1, minorVersion: 0 };
+  }
+  const highestMinor = await tx.dishVersion.aggregate({
+    where: { dishId, majorVersion: baseMajorVersion },
+    _max: { minorVersion: true },
+  });
+  return {
+    majorVersion: baseMajorVersion,
+    minorVersion: (highestMinor._max.minorVersion ?? 0) + 1,
   };
 }
 
@@ -165,8 +227,41 @@ async function insertSections(
   return { sectionNames };
 }
 
+function normalizeNullableQuantity(
+  value: number | null | undefined,
+): number | null | undefined {
+  return value == null ? value : normalizeQuantity(value);
+}
+
+// PRODUCT_SPEC.md §10.6a: the database's `Decimal(12, 3)` column can only
+// ever hold 3 decimal places, so numeric quantities are rounded to that
+// precision here — the server-side sanitization boundary both `createDish`
+// and `editDish` always pass through — so a direct Server Action or service
+// call cannot bypass the rule the client's own parser already applies.
+function normalizeIngredientQuantities(
+  ingredient: IngredientInput,
+): IngredientInput {
+  return {
+    ...ingredient,
+    quantity: normalizeNullableQuantity(ingredient.quantity),
+    quantityEnd: normalizeNullableQuantity(ingredient.quantityEnd),
+    substitute: ingredient.substitute
+      ? {
+          ...ingredient.substitute,
+          quantity: normalizeNullableQuantity(ingredient.substitute.quantity),
+          quantityEnd: normalizeNullableQuantity(
+            ingredient.substitute.quantityEnd,
+          ),
+        }
+      : ingredient.substitute,
+  };
+}
+
 function sanitizedSectionsOrThrow(input: DishContentInput): SectionInput[] {
-  const sections = removeEmptySections(input.sections);
+  const sections = removeEmptySections(input.sections).map((section) => ({
+    ...section,
+    ingredients: section.ingredients.map(normalizeIngredientQuantities),
+  }));
   if (!hasMinimumContent(sections)) {
     throw new ValidationError(
       "Add at least one ingredient or instruction before saving.",
@@ -226,17 +321,25 @@ export async function createDish(
 }
 
 /**
- * "Save" from the Recipe/Part editor for an already-existing Dish. Always a
- * small update within the current major line — Slice 3 has no UI path to
- * reach a historical major (Slice 4), so `baseVersionId` is required to
- * still equal `Dish.currentVersionId` (ARCHITECTURE_PROPOSAL.md §I's
- * optimistic-concurrency check for the editor).
+ * "Save" from the Recipe/Part editor for an already-existing Dish. Slice 3
+ * has no UI path to reach a historical major (Slice 4), so `baseVersionId`
+ * is required to still equal `Dish.currentVersionId`
+ * (ARCHITECTURE_PROPOSAL.md §I's optimistic-concurrency check for the
+ * editor) — any edit that does create a Version is therefore always still
+ * "current" per §F.2, whether it bumps the minor or the major number.
+ *
+ * See the module doc comment above for the settled stable/non-cooking/
+ * cooking classification. `versionChoice` is only consulted when the
+ * independently-computed diff finds an actual Ingredient/Instruction
+ * change — a client-supplied choice for a metadata-only edit is ignored,
+ * and a missing choice for a real cooking-content change is rejected.
  */
 export async function editDish(
   ownerId: string,
   dishId: string,
   baseVersionId: string,
   input: DishContentInput,
+  versionChoice: VersionChoiceValue | undefined,
   kind?: DishKindValue,
 ): Promise<string> {
   const dish = await getOwnedDishOrThrow(ownerId, dishId, kind);
@@ -246,23 +349,65 @@ export async function editDish(
     );
   }
 
-  const base = await prisma.dishVersion.findUniqueOrThrow({
-    where: { id: baseVersionId },
-  });
+  const base = await getVersionContent(baseVersionId);
   const sections = sanitizedSectionsOrThrow(input);
 
+  const nonCookingScalarChanged =
+    base.title !== input.title ||
+    (base.description ?? null) !== (input.description || null) ||
+    decimalToNumber(base.yieldQuantity) !== (input.yieldQuantity ?? null) ||
+    (base.yieldUnit ?? null) !== (input.yieldUnit || null) ||
+    (base.prepTimeMinutes ?? null) !== (input.prepTimeMinutes ?? null) ||
+    (base.cookTimeMinutes ?? null) !== (input.cookTimeMinutes ?? null) ||
+    (base.difficulty ?? null) !== (input.difficulty || null);
+
+  const { cookingChanged, sectionOrganizationChanged } = diffVersionContent(
+    sectionRowsToInput(base.sections),
+    sections,
+  );
+  const nonCookingVersionChanged =
+    nonCookingScalarChanged || sectionOrganizationChanged;
+
+  const stableChanged =
+    input.stage !== dish.stage ||
+    (input.cuisine || null) !== (dish.cuisine ?? null);
+
+  if (cookingChanged && !versionChoice) {
+    throw new ValidationError(
+      "Choose whether to save this within the current version or start a new version.",
+    );
+  }
+
+  if (!cookingChanged && !nonCookingVersionChanged) {
+    // Stable-metadata-only edit, or a true no-op — never creates a Version.
+    if (stableChanged) {
+      await prisma.dish.update({
+        where: { id: dish.id },
+        data: {
+          stage: input.stage,
+          cuisine: input.cuisine || null,
+          archivedAt: nextArchivedAt(dish.stage, dish.archivedAt, input.stage),
+        },
+      });
+    }
+    return dish.id;
+  }
+
+  const bump: VersionChoiceValue = cookingChanged ? versionChoice! : "MINOR";
+
   return prisma.$transaction(async (tx) => {
-    const highestMinor = await tx.dishVersion.aggregate({
-      where: { dishId: dish.id, majorVersion: base.majorVersion },
-      _max: { minorVersion: true },
-    });
-    const nextMinor = (highestMinor._max.minorVersion ?? 0) + 1;
+    const { majorVersion, minorVersion } = await nextVersionNumbers(
+      tx,
+      dish.id,
+      base.majorVersion,
+      bump,
+    );
 
     const version = await tx.dishVersion.create({
       data: {
         dishId: dish.id,
-        majorVersion: base.majorVersion,
-        minorVersion: nextMinor,
+        majorVersion,
+        minorVersion,
         title: input.title,
         description: input.description || null,
         yieldQuantity: input.yieldQuantity ?? null,
@@ -277,10 +422,6 @@ export async function editDish(
       mintFreshLineage: false,
     });
 
-    // Slice 3 always edits the current major line (see the doc comment
-    // above), so the new minor Version is always still "current" per F.2 —
-    // Slice 4's historical-major editing will need to generalize this
-    // comparison instead of always overwriting the pointer.
     await tx.dish.update({
       where: { id: dish.id },
       data: {
@@ -363,16 +504,7 @@ export async function duplicateDish(
     throw new NotFoundError("Version not found.");
   }
 
-  const sections: SectionInput[] = sourceVersion.sections.map((section) => ({
-    name: section.name,
-    guidanceNote: section.guidanceNote,
-    ingredients: section.ingredients
-      .filter((ingredient) => ingredient.substituteForIngredientId === null)
-      .map(toIngredientInput),
-    instructions: section.instructions.map((instruction) => ({
-      text: instruction.text,
-    })),
-  }));
+  const sections: SectionInput[] = sectionRowsToInput(sourceVersion.sections);
 
   const title = `Copy of ${sourceVersion.title}`;
   const sourceLabel = `V${sourceVersion.majorVersion}.${sourceVersion.minorVersion}`;
