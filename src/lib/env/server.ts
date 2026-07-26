@@ -19,6 +19,15 @@ const schema = z.object({
     .optional()
     .transform((value) => (value ? value : undefined)),
 
+  // Explicit driver-adapter selection (see src/lib/db/adapter.ts). Deliberately not
+  // inferred from whether DATABASE_URL happens to look like a Neon host — the
+  // architecture proposal calls that out as unsafe: a clear, explicit setting is
+  // safer than pattern-matching a connection string. Defaults to "neon" so a
+  // deployed environment that forgets to set this still gets the correct,
+  // already-working-in-production adapter; local development and CI must opt into
+  // "pg" explicitly (see .env.example and .github/workflows/ci.yml).
+  DATABASE_DRIVER: z.enum(["neon", "pg"]).default("neon"),
+
   BETTER_AUTH_SECRET: z
     .string()
     .min(1, "BETTER_AUTH_SECRET is required — see .env.example."),

@@ -9,10 +9,29 @@ env:
   BETTER_AUTH_SECRET: ci-placeholder-secret-do-not-use-in-production
   BETTER_AUTH_URL: http://localhost:3000
   NEXT_PUBLIC_APP_URL: http://localhost:3000
+  # Disposable service-container Postgres — never the real Neon database.
+  # See src/lib/db/adapter.ts and docker-compose.yml for the local-dev equivalent.
+  DATABASE_DRIVER: pg
+  DATABASE_URL: postgresql://postgres:postgres@localhost:5432/dishframe
+  DIRECT_URL: postgresql://postgres:postgres@localhost:5432/dishframe
 
 jobs:
   ci:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dishframe
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d dishframe"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -35,8 +54,14 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
+      - name: Apply database migrations
+        run: pnpm exec prisma migrate deploy
+
       - name: Unit tests
         run: pnpm run test
+
+      - name: Integration tests
+        run: pnpm exec vitest run --config vitest.integration.config.mts
 
       - name: Production build
         run: pnpm run build

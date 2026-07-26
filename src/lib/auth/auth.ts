@@ -2,6 +2,7 @@ import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { prisma } from "@/lib/db/prisma";
 import { env, isGoogleAuthConfigured } from "@/lib/env/server";
+import { initializeNewUser } from "@/lib/account/init";
 
 const ONE_DAY_IN_SECONDS = 60 * 60 * 24;
 
@@ -23,6 +24,20 @@ export const auth = betterAuth({
   database: prismaAdapter(prisma, {
     provider: "postgresql",
   }),
+
+  // Idempotent account setup (BUILD_PLAN.md Slice 2): seeds UserPreference,
+  // the protected Favorite tag, default Grocery Categories, starter Flavor
+  // profiles, and the built-in owner Taster "You" right after Better Auth
+  // creates the user row. Safe to re-run — see src/lib/account/init.ts.
+  databaseHooks: {
+    user: {
+      create: {
+        after: async (user) => {
+          await initializeNewUser(user.id);
+        },
+      },
+    },
+  },
 
   // Long-lived, ordinary consumer-app sessions: 30 days, refreshed on use.
   // Better Auth allows multiple concurrent sessions per user by default —

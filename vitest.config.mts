@@ -11,7 +11,9 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
     include: ["src/**/*.test.{ts,tsx}", "*.test.{ts,tsx}"],
-    exclude: ["tests/e2e/**"],
+    // Integration tests hit a real disposable Postgres and run separately
+    // via vitest.integration.config.mts (`pnpm test:integration`).
+    exclude: ["tests/e2e/**", "src/**/*.integration.test.ts"],
   },
   resolve: {
     alias: {

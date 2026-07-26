@@ -4,25 +4,42 @@ generator client {
 }
 
 // Connection URLs live in prisma.config.ts (Prisma 7), not here.
-// The runtime client connects via the Neon driver adapter — see
-// src/lib/db/prisma.ts.
+// The runtime client connects via an environment-selected driver adapter —
+// see src/lib/db/prisma.ts and src/lib/db/adapter.ts.
 datasource db {
   provider = "postgresql"
 }
 
-/// Authentication models required by Better Auth's Prisma adapter.
-/// Milestone 1 intentionally contains no recipe/domain models — see MILESTONE_1.md.
+// ============================================================================
+// Existing Better Auth models — UNCHANGED except User gains relation fields.
+// ============================================================================
+
 model User {
-  id            String    @id
+  id            String   @id
   name          String
-  email         String    @unique
-  emailVerified Boolean   @default(false)
+  email         String   @unique
+  emailVerified Boolean  @default(false)
   image         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   sessions Session[]
   accounts Account[]
+
+  preference                 UserPreference?
+  dishes                     Dish[]
+  tags                       Tag[]
+  flavorProfileValues        FlavorProfileValue[]
+  groceryCategories          GroceryCategory[]
+  ingredientCategoryMemories IngredientCategoryMemory[]
+  tasters                    Taster[]
+  cookingSessions            CookingSession[]
+  groceryLists               GroceryList[]
+  mealPlans                  MealPlan[]
+  shareLinks                 ShareLink[]
+  sentDirectShares           DirectShare[]              @relation("DirectShareSender")
+  receivedDirectShares       DirectShare[]              @relation("DirectShareRecipient")
+  uploadedImages             ImageAsset[]               @relation("ImageUploader")
 
   @@map("users")
 }
@@ -72,4 +89,799 @@ model Verification {
   updatedAt  DateTime? @updatedAt
 
   @@map("verifications")
+}
+
+// ============================================================================
+// Migration 1 — Core content & versioning
+// ============================================================================
+
+enum DishKind {
+  RECIPE
+  PART
+}
+
+enum Stage {
+  IDEA
+  EXPERIMENTAL
+  PROVEN
+  ACTIVE
+  ARCHIVED
+}
+
+enum SourceKind {
+  NONE
+  DUPLICATE
+  ACCEPTED_SHARE
+  IMPORT
+}
+
+model Dish {
+  id      String   @id @default(cuid())
+  ownerId String
+  kind    DishKind
+
+  currentVersionId String? @unique
+
+  stage      Stage     @default(IDEA)
+  cuisine    String?
+  archivedAt DateTime?
+
+  defaultBatchQuantity Decimal? @db.Decimal(12, 3)
+  defaultBatchUnit     String?
+
+  // Round-3 Correction 6: split search maintenance. currentTitle (title only) and
+  // currentStructuralSearchText (Section names + linked Part-Version titles) are both
+  // refreshed ONLY at version-creation time, because both are genuinely tied to Version
+  // content. Cuisine/tag/Flavor-profile search is NOT denormalized here at all — it is
+  // queried live via relational joins at search time (see PRISMA_SCHEMA_PROPOSAL.md §6/§7),
+  // which sidesteps the "remember to refresh on every stable-metadata mutation" problem
+  // entirely for those three fields.
+  currentTitle                String?
+  currentStructuralSearchText String?
+
+  sourceKind             SourceKind @default(NONE)
+  sourceDishId           String?
+  sourceDishVersionLabel String?
+  sourceTitle            String?
+  sourceAggregateRating  Decimal?   @db.Decimal(3, 2)
+  sourceRatingCount      Int?
+  sourceSessionCount     Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner                  User                    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  versions               DishVersion[]           @relation("DishVersions")
+  currentVersion         DishVersion?            @relation("CurrentVersion", fields: [currentVersionId], references: [id])
+  tags                   DishTag[]
+  flavorProfiles         DishFlavorProfile[]
+  preferredUnitOverrides PreferredUnitOverride[]
+
+  sourceDish   Dish?  @relation("DishDuplicationSource", fields: [sourceDishId], references: [id], onDelete: SetNull)
+  duplicatedAs Dish[] @relation("DishDuplicationSource")
+
+  // Round-3 Correction 1: ShareLink's CURRENT-mode field is the ONLY remaining direct
+  // Dish relation among the models this correction touches — every other cross-cutting
+  // reference now targets DishVersion via a composite relation instead (see DishVersion's
+  // own back-relation list below).
+  shareLinksCurrent ShareLink[] @relation("ShareLinkCurrentDish")
+
+  @@index([ownerId, kind, stage])
+  @@index([ownerId, kind, archivedAt])
+}
+
+model DishVersion {
+  id           String @id @default(cuid())
+  dishId       String
+  majorVersion Int
+  minorVersion Int
+
+  title        String
+  description  String?
+  imageAssetId String?
+
+  yieldQuantity   Decimal? @db.Decimal(12, 3)
+  yieldUnit       String?
+  prepTimeMinutes Int?
+  cookTimeMinutes Int?
+  difficulty      String?
+
+  calories                Decimal?        @db.Decimal(10, 2)
+  protein                 Decimal?        @db.Decimal(10, 2)
+  carbs                   Decimal?        @db.Decimal(10, 2)
+  fat                     Decimal?        @db.Decimal(10, 2)
+  nutritionBasis          NutritionBasis?
+  nutritionBasisQuantity  Decimal?        @db.Decimal(12, 3)
+  nutritionBasisUnit      String?
+  moreNutrients           Json?
+  nutritionSourceProvider String?
+  nutritionSourceId       String?
+
+  versionNote String?
+
+  sourceVersionId String?
+
+  createdAt DateTime @default(now())
+
+  dish            Dish          @relation("DishVersions", fields: [dishId], references: [id], onDelete: Cascade)
+  currentFor      Dish?         @relation("CurrentVersion")
+  sourceVersion   DishVersion?  @relation("VersionLineage", fields: [sourceVersionId], references: [id])
+  derivedVersions DishVersion[] @relation("VersionLineage")
+  // Round-3 Correction 7: explicit Restrict — the database must physically refuse to
+  // delete an ImageAsset while any DishVersion still references it. Cleanup is a
+  // reference-counted application check performed BEFORE attempting the delete; this
+  // constraint is the hard backstop if that check is ever wrong or skipped.
+  imageAsset      ImageAsset?   @relation(fields: [imageAssetId], references: [id], onDelete: Restrict)
+
+  sections Section[]
+
+  partLinks           PartLink[] @relation("DishVersionPartLinks")
+  targetedByPartLinks PartLink[] @relation("PartLinkTarget")
+
+  // Round-3 Correction 1: every one of these now targets DishVersion (via a composite
+  // (dishId, dishVersionId) -> (dishId, id) relation on the child model) rather than Dish
+  // directly, since a direct Dish relation would have required reusing the same dishId
+  // scalar the composite relation also uses.
+  cookingSessions    CookingSession[]
+  ratings            Rating[]
+  groceryListSources GroceryListSource[]
+  mealPlanEntries    MealPlanEntry[]
+  shareLinksFixed    ShareLink[]
+  directShares       DirectShare[]
+
+  @@unique([dishId, majorVersion, minorVersion])
+  @@unique([dishId, id])
+  @@index([dishId, majorVersion(sort: Desc), minorVersion(sort: Desc)])
+  @@index([imageAssetId])
+}
+
+enum NutritionBasis {
+  WHOLE
+  PER_OUTPUT_UNIT
+}
+
+model ImageAsset {
+  id               String   @id @default(cuid())
+  storageKey       String   @unique
+  uploadedByUserId String?
+  createdAt        DateTime @default(now())
+
+  uploader User?         @relation("ImageUploader", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+  versions DishVersion[]
+
+  @@index([uploadedByUserId])
+}
+
+model Section {
+  id            String  @id @default(cuid())
+  lineageId     String
+  dishVersionId String
+  name          String?
+  guidanceNote  String?
+  position      Int
+
+  dishVersion  DishVersion   @relation(fields: [dishVersionId], references: [id], onDelete: Cascade)
+  ingredients  Ingredient[]
+  instructions Instruction[]
+  // Round-3 Correction 1/3: no Prisma relation from PartLink to Section anymore (it would
+  // have reused PartLink.containerVersionId, already used by PartLink's direct relation to
+  // DishVersion). Container consistency is enforced by a raw-SQL composite foreign key
+  // instead (PRISMA_SCHEMA_PROPOSAL.md §4), so this side carries no corresponding
+  // Prisma-navigable back-relation — PartLinks belonging to a Section are queried directly
+  // by sectionId, not via a Section.partLinks include.
+
+  @@unique([dishVersionId, id]) // target for PartLink's and Ingredient's/Instruction's raw-SQL composite FKs
+  @@unique([dishVersionId, lineageId]) // Round-3 Correction 8 — lineage uniqueness per Version
+  @@index([dishVersionId])
+  @@index([lineageId])
+}
+
+model Ingredient {
+  id                   String   @id @default(cuid())
+  lineageId            String
+  // Round-3 Correction 8: denormalized from Section, required so lineage uniqueness can be
+  // scoped to the whole DishVersion (not just one Section). Consistency with the actual
+  // owning Section's dishVersionId is enforced by a raw-SQL composite foreign key
+  // (dishVersionId, sectionId) -> Section(dishVersionId, id) — see PRISMA_SCHEMA_PROPOSAL.md
+  // §4 — rather than a second Prisma relation, since sectionId is already used by the
+  // direct `section` relation below.
+  dishVersionId        String
+  sectionId            String
+  name                 String
+  quantity             Decimal? @db.Decimal(12, 3)
+  quantityEnd          Decimal? @db.Decimal(12, 3)
+  isApproximate        Boolean  @default(false)
+  unit                 String?
+  displayText          String?
+  preparationNote      String?
+  isOptional           Boolean  @default(false)
+  originalImportedText String?
+  position             Int
+
+  substituteForIngredientId String?     @unique
+  substituteFor             Ingredient? @relation("Substitutes", fields: [substituteForIngredientId], references: [id])
+  substitute                Ingredient? @relation("Substitutes")
+
+  section Section @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+
+  @@unique([dishVersionId, lineageId])
+  @@index([sectionId])
+  @@index([lineageId])
+  @@index([dishVersionId])
+}
+
+model Instruction {
+  id            String @id @default(cuid())
+  lineageId     String
+  dishVersionId String // Round-3 Correction 8 — same reasoning as Ingredient.dishVersionId, above
+  sectionId     String
+  text          String
+  position      Int
+
+  section Section @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+
+  @@unique([dishVersionId, lineageId])
+  @@index([sectionId])
+  @@index([lineageId])
+  @@index([dishVersionId])
+}
+
+enum PartLinkState {
+  LIVE
+  MATERIALIZED
+}
+
+model PartLink {
+  id                 String        @id @default(cuid())
+  lineageId          String
+  containerVersionId String
+  // Round-3 Correction 1/3: sectionId remains a plain, indexed scalar. It is NOT the
+  // `fields` of any Prisma relation — the Section-container-consistency check is enforced
+  // entirely by a raw-SQL composite foreign key (containerVersionId, sectionId) ->
+  // Section(dishVersionId, id), added in Migration 1 (PRISMA_SCHEMA_PROPOSAL.md §4).
+  sectionId          String?
+  linkState          PartLinkState @default(LIVE)
+  position           Int
+
+  targetDishId        String?
+  targetDishVersionId String?
+
+  materializedTitle        String?
+  materializedVersionLabel String?
+  materializedContent      Json?
+
+  containerVersion DishVersion  @relation("DishVersionPartLinks", fields: [containerVersionId], references: [id], onDelete: Cascade)
+  // Round-3 Correction 1: `targetDish` (the direct-to-Dish relation from prior revisions)
+  // removed entirely — it reused targetDishId, already used by this composite relation.
+  // Existence of a valid target Dish is guaranteed transitively (targetDishVersionId's own
+  // DishVersion.dishId FK already proves it), so nothing is lost by removing it.
+  targetVersion    DishVersion? @relation("PartLinkTarget", fields: [targetDishId, targetDishVersionId], references: [dishId, id], onDelete: Restrict)
+
+  @@unique([containerVersionId, lineageId]) // Round-3 Correction 8 — lineage uniqueness per container Version
+  @@index([lineageId])
+  @@index([containerVersionId])
+  @@index([sectionId])
+  @@index([targetDishId])
+  @@index([targetDishVersionId])
+}
+
+model Tag {
+  id             String   @id @default(cuid())
+  ownerId        String
+  normalizedName String
+  displayName    String
+  isFavorite     Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  owner  User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  dishes DishTag[]
+
+  @@unique([ownerId, normalizedName])
+}
+
+model DishTag {
+  dishId String
+  tagId  String
+
+  dish Dish @relation(fields: [dishId], references: [id], onDelete: Cascade)
+  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([dishId, tagId])
+  @@index([tagId])
+}
+
+model FlavorProfileValue {
+  id             String @id @default(cuid())
+  ownerId        String
+  normalizedName String
+  displayName    String
+  position       Int
+
+  owner  User                @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  dishes DishFlavorProfile[]
+
+  @@unique([ownerId, normalizedName])
+}
+
+model DishFlavorProfile {
+  dishId               String
+  flavorProfileValueId String
+
+  dish               Dish               @relation(fields: [dishId], references: [id], onDelete: Cascade)
+  flavorProfileValue FlavorProfileValue @relation(fields: [flavorProfileValueId], references: [id], onDelete: Cascade)
+
+  @@id([dishId, flavorProfileValueId])
+  @@index([flavorProfileValueId])
+}
+
+enum MeasurementSystem {
+  US
+  METRIC
+}
+
+enum FractionOrDecimal {
+  FRACTIONS
+  DECIMALS
+}
+
+enum PrimaryRatingDisplay {
+  GROUP_AVERAGE
+  YOUR_RATING
+}
+
+model UserPreference {
+  userId               String               @id
+  measurementSystem    MeasurementSystem    @default(US)
+  fractionOrDecimal    FractionOrDecimal    @default(FRACTIONS)
+  primaryRatingDisplay PrimaryRatingDisplay @default(GROUP_AVERAGE)
+  timerSoundEnabled    Boolean              @default(true)
+  reviewPromptEnabled  Boolean              @default(true)
+  onboardingState      Json?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model GroceryCategory {
+  id             String @id @default(cuid())
+  ownerId        String
+  normalizedName String
+  displayName    String
+  position       Int
+
+  owner                      User                       @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  groceryListItems           GroceryListItem[]
+  ingredientCategoryMemories IngredientCategoryMemory[]
+
+  @@unique([ownerId, normalizedName])
+}
+
+model PreferredUnitOverride {
+  id                  String   @id @default(cuid())
+  dishId              String
+  ingredientLineageId String
+  unit                String
+  createdAt           DateTime @default(now())
+
+  dish Dish @relation(fields: [dishId], references: [id], onDelete: Cascade)
+
+  @@unique([dishId, ingredientLineageId])
+}
+
+// ============================================================================
+// Migration 2 — Cooking & feedback loop
+// ============================================================================
+
+enum SessionState {
+  IN_PROGRESS
+  COMPLETED
+  ENDED_EARLY
+}
+
+model CookingSession {
+  id            String       @id @default(cuid())
+  ownerId       String
+  // Round-3 Correction 1: dishId remains a plain, indexed scalar — no longer the `fields`
+  // of a direct-to-Dish relation (removed; it reused dishId, already used by the composite
+  // relation below). Every Cooking Session always references an exact Version, so the
+  // composite relation alone is sufficient.
+  dishId        String
+  dishVersionId String
+  state         SessionState @default(IN_PROGRESS)
+
+  startedAt               DateTime  @default(now())
+  endedAt                 DateTime?
+  rawElapsedSeconds       Int?
+  adjustedDurationSeconds Int?
+
+  scaleFactor  Decimal? @db.Decimal(8, 4)
+  cookingNotes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner           User                 @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  dishVersion     DishVersion          @relation(fields: [dishId, dishVersionId], references: [dishId, id], onDelete: Cascade)
+  units           CookingSessionUnit[]
+  review          SessionReview?
+  ratings         Rating[]
+  mealPlanEntries MealPlanEntry[]
+
+  @@index([ownerId, state, updatedAt])
+  @@index([dishId])
+}
+
+model CookingSessionUnit {
+  id                   String    @id @default(cuid())
+  sessionId            String
+  position             Int
+  scaleFactor          Decimal?  @db.Decimal(8, 4)
+  completedAt          DateTime?
+  removedAt            DateTime?
+  removedAfterProgress Boolean   @default(false)
+
+  label                  String
+  sourceDishTitle        String
+  sourceDishVersionLabel String
+
+  sourceSectionLineageId  String?
+  sourcePartLinkLineageId String?
+
+  session        CookingSession                @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  checklistItems CookingSessionChecklistItem[]
+  timers         Timer[]
+
+  @@index([sessionId])
+}
+
+enum ChecklistItemKind {
+  INGREDIENT
+  INSTRUCTION
+}
+
+model CookingSessionChecklistItem {
+  id        String            @id @default(cuid())
+  unitId    String
+  kind      ChecklistItemKind
+  checkedAt DateTime?
+
+  displayText     String
+  displayQuantity String?
+  displayUnit     String?
+  sourceLineageId String?
+
+  unit CookingSessionUnit @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  @@index([unitId])
+}
+
+enum TimerState {
+  RUNNING
+  PAUSED
+  EXPIRED
+  DISMISSED
+}
+
+model Timer {
+  id               String     @id @default(cuid())
+  unitId           String
+  name             String
+  targetEndAt      DateTime?
+  remainingSeconds Int?
+  state            TimerState @default(RUNNING)
+
+  unit CookingSessionUnit @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  @@index([unitId])
+}
+
+model SessionReview {
+  sessionId                     String   @id
+  whatWentWell                  String?
+  whatDidNotGoWell              String?
+  anythingElse                  String?
+  actualAmountQuantity          Decimal? @db.Decimal(12, 3)
+  actualAmountUnit              String?
+  reviewAdjustedDurationSeconds Int?
+  createdAt                     DateTime @default(now())
+  updatedAt                     DateTime @updatedAt
+
+  session CookingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}
+
+model Rating {
+  id            String  @id @default(cuid())
+  sessionId     String
+  // Round-3 Correction 4: paired-nullability enforced by a raw-SQL CHECK constraint (both
+  // null or both non-null) in addition to the composite FK's own MATCH SIMPLE behavior,
+  // which alone would silently accept a half-null row.
+  dishId        String?
+  dishVersionId String?
+
+  dishTitleSnapshot        String
+  dishVersionLabelSnapshot String
+
+  tasterId  String
+  value     Int
+  createdAt DateTime @default(now())
+
+  session     CookingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  dishVersion DishVersion?   @relation(fields: [dishId, dishVersionId], references: [dishId, id], onDelete: SetNull)
+  taster      Taster         @relation(fields: [tasterId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, tasterId, dishId])
+  @@index([dishId, dishVersionId])
+}
+
+model Taster {
+  id         String    @id @default(cuid())
+  ownerId    String
+  name       String
+  isOwner    Boolean   @default(false)
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  owner   User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  ratings Rating[]
+
+  @@index([ownerId])
+}
+
+// ============================================================================
+// Migration 3 — Planning & grocery
+// ============================================================================
+
+enum GroceryListMode {
+  STANDALONE
+  MEAL_PLAN_LINKED
+}
+
+enum GroceryItemSyncFlag {
+  UNCHANGED
+  CHANGED
+  REMOVED
+}
+
+enum GroceryContributionState {
+  ACTIVE
+  CHANGED
+  REMOVED
+}
+
+model GroceryList {
+  id               String          @id @default(cuid())
+  ownerId          String
+  title            String
+  mode             GroceryListMode @default(STANDALONE)
+  linkedMealPlanId String?
+  completedAt      DateTime?
+  createdAt        DateTime        @default(now())
+
+  owner          User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  // Round-3 Correction 2: Restrict, not SetNull. SetNull would fire automatically the
+  // instant a referenced MealPlan is deleted, nulling linkedMealPlanId WHILE mode is still
+  // MEAL_PLAN_LINKED — immediately violating the mode-consistency CHECK constraint before
+  // any application code could react. Restrict instead forces the MealPlan-deletion service
+  // to explicitly flip every affected list to STANDALONE (and clear linkedMealPlanId) in
+  // its own transaction BEFORE the MealPlan row can be deleted at all — see
+  // PRISMA_SCHEMA_PROPOSAL.md §5/§6.
+  linkedMealPlan MealPlan? @relation(fields: [linkedMealPlanId], references: [id], onDelete: Restrict)
+
+  sources GroceryListSource[]
+  items   GroceryListItem[]
+
+  @@index([ownerId])
+  @@index([linkedMealPlanId])
+}
+
+model GroceryListSource {
+  id            String   @id @default(cuid())
+  groceryListId String
+  dishId        String?
+  dishVersionId String?
+  scaleFactor   Decimal? @db.Decimal(8, 4)
+
+  sourceDishTitleSnapshot        String
+  sourceDishKindSnapshot         DishKind
+  sourceDishVersionLabelSnapshot String
+
+  groceryList GroceryList  @relation(fields: [groceryListId], references: [id], onDelete: Cascade)
+  dishVersion DishVersion? @relation(fields: [dishId, dishVersionId], references: [dishId, id], onDelete: SetNull)
+
+  contributions GroceryItemContribution[]
+
+  @@index([groceryListId])
+  @@index([dishId])
+}
+
+model GroceryListItem {
+  id              String    @id @default(cuid())
+  groceryListId   String
+  categoryId      String?
+  name            String
+  quantityText    String?
+  quantityDecimal Decimal?  @db.Decimal(12, 3)
+  unit            String?
+  isOptional      Boolean   @default(false)
+  isManual        Boolean   @default(false)
+  checkedAt       DateTime?
+
+  syncFlag           GroceryItemSyncFlag @default(UNCHANGED)
+  flagAcknowledgedAt DateTime?
+
+  position Int
+
+  groceryList   GroceryList               @relation(fields: [groceryListId], references: [id], onDelete: Cascade)
+  category      GroceryCategory?          @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  contributions GroceryItemContribution[]
+
+  @@index([groceryListId, categoryId])
+}
+
+model GroceryItemContribution {
+  id                  String   @id @default(cuid())
+  groceryListItemId   String
+  groceryListSourceId String?
+  mealPlanEntryId     String?
+  ingredientLineageId String?
+  originalName        String
+  quantityDecimal     Decimal? @db.Decimal(12, 3)
+  quantityText        String?
+  unit                String?
+
+  state                   GroceryContributionState @default(ACTIVE)
+  previousQuantityDecimal Decimal?                 @db.Decimal(12, 3)
+  previousQuantityText    String?
+  previousUnit            String?
+  acknowledgedAt          DateTime?
+
+  groceryListItem   GroceryListItem    @relation(fields: [groceryListItemId], references: [id], onDelete: Cascade)
+  groceryListSource GroceryListSource? @relation(fields: [groceryListSourceId], references: [id], onDelete: SetNull)
+  mealPlanEntry     MealPlanEntry?     @relation(fields: [mealPlanEntryId], references: [id], onDelete: SetNull)
+
+  @@index([groceryListItemId])
+  @@index([ingredientLineageId])
+  @@index([mealPlanEntryId])
+}
+
+enum MealPlanEntryStatus {
+  PLANNED
+  IN_PROGRESS
+  COOKED
+  SKIPPED
+}
+
+model MealPlan {
+  id        String   @id @default(cuid())
+  ownerId   String
+  title     String
+  startDate DateTime
+  endDate   DateTime
+  notes     String?
+  createdAt DateTime @default(now())
+
+  owner              User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  entries            MealPlanEntry[]
+  linkedGroceryLists GroceryList[]
+
+  @@index([ownerId])
+}
+
+model MealPlanEntry {
+  id                  String              @id @default(cuid())
+  mealPlanId          String
+  dishId              String?
+  dishVersionId       String?
+  cookDate            DateTime
+  targetYieldQuantity Decimal?            @db.Decimal(12, 3)
+  targetYieldUnit     String?
+  note                String?
+  status              MealPlanEntryStatus @default(PLANNED)
+  linkedSessionId     String?
+
+  sourceDishTitleSnapshot        String
+  sourceDishKindSnapshot         DishKind
+  sourceDishVersionLabelSnapshot String
+
+  mealPlan             MealPlan                  @relation(fields: [mealPlanId], references: [id], onDelete: Cascade)
+  dishVersion          DishVersion?              @relation(fields: [dishId, dishVersionId], references: [dishId, id], onDelete: SetNull)
+  linkedSession        CookingSession?           @relation(fields: [linkedSessionId], references: [id], onDelete: SetNull)
+  plannedMeals         PlannedMeal[]
+  groceryContributions GroceryItemContribution[]
+
+  @@index([mealPlanId, cookDate])
+  @@index([linkedSessionId])
+  @@index([dishId])
+}
+
+model PlannedMeal {
+  id       String   @id @default(cuid())
+  entryId  String
+  label    String
+  date     DateTime
+  servings Decimal  @db.Decimal(8, 2)
+
+  entry MealPlanEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+
+  @@index([entryId])
+}
+
+model IngredientCategoryMemory {
+  id                       String @id @default(cuid())
+  ownerId                  String
+  normalizedIngredientName String
+  groceryCategoryId        String
+
+  owner           User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  groceryCategory GroceryCategory @relation(fields: [groceryCategoryId], references: [id], onDelete: Cascade)
+
+  @@unique([ownerId, normalizedIngredientName])
+}
+
+// ============================================================================
+// Migration 4 — Sharing
+// ============================================================================
+
+enum ShareLinkMode {
+  FIXED_SNAPSHOT
+  CURRENT
+}
+
+model ShareLink {
+  id      String        @id @default(cuid())
+  ownerId String
+  mode    ShareLinkMode @default(FIXED_SNAPSHOT)
+
+  tokenId String @unique
+
+  // Round-3 Correction 1: redesigned with separate field sets per mode, instead of one
+  // dishId field trying to serve both. currentDishId is used only in CURRENT mode;
+  // fixedDishId/fixedDishVersionId are used only in FIXED_SNAPSHOT mode. Neither scalar is
+  // shared with the other relation, so both are ordinary, unambiguous Prisma relations.
+  currentDishId String?
+
+  fixedDishId        String?
+  fixedDishVersionId String?
+  frozenSnapshot     Json?
+
+  dishTitleSnapshot String
+
+  expiresAt DateTime?
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  owner            User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  currentDish      Dish?        @relation("ShareLinkCurrentDish", fields: [currentDishId], references: [id], onDelete: SetNull)
+  fixedDishVersion DishVersion? @relation(fields: [fixedDishId, fixedDishVersionId], references: [dishId, id], onDelete: SetNull)
+
+  @@index([ownerId])
+  @@index([currentDishId])
+  @@index([fixedDishId])
+}
+
+enum DirectShareStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  CANCELED
+}
+
+model DirectShare {
+  id                String            @id @default(cuid())
+  senderId          String
+  recipientId       String?
+  recipientLookup   String
+  dishId            String?
+  dishVersionId     String?
+  dishTitleSnapshot String
+  note              String?
+  status            DirectShareStatus @default(PENDING)
+  createdAt         DateTime          @default(now())
+
+  sender      User         @relation("DirectShareSender", fields: [senderId], references: [id], onDelete: Cascade)
+  recipient   User?        @relation("DirectShareRecipient", fields: [recipientId], references: [id], onDelete: SetNull)
+  dishVersion DishVersion? @relation(fields: [dishId, dishVersionId], references: [dishId, id], onDelete: SetNull)
+
+  @@index([senderId])
+  @@index([recipientId])
+  @@index([dishId, status])
 }
