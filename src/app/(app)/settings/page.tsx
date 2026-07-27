@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth/session";
 import { PreferencesForm } from "@/components/app/preferences-form";
@@ -48,6 +47,19 @@ export default async function SettingsPage() {
       </div>
 
       <section className="flex flex-col gap-4">
+        <h2 className="text-foreground text-lg font-semibold">Appearance</h2>
+        <div className="border-border bg-card flex items-center justify-between gap-4 rounded-xl border p-5">
+          <div>
+            <p className="text-foreground text-sm font-medium">Theme</p>
+            <p className="text-muted-foreground text-sm">
+              Choose Light, Dark, or match your device.
+            </p>
+          </div>
+          <ThemeToggle />
+        </div>
+      </section>
+
+      <section className="flex flex-col gap-4">
         <h2 className="text-foreground text-lg font-semibold">Preferences</h2>
         <div className="border-border bg-card rounded-xl border p-5">
           <PreferencesForm
@@ -63,28 +75,7 @@ export default async function SettingsPage() {
       </section>
 
       <section className="flex flex-col gap-4">
-        <h2 className="text-foreground text-lg font-semibold">Appearance</h2>
-        <div className="border-border bg-card flex items-center justify-between gap-4 rounded-xl border p-5">
-          <div>
-            <p className="text-foreground text-sm font-medium">Theme</p>
-            <p className="text-muted-foreground text-sm">
-              Choose Light, Dark, or match your device.
-            </p>
-          </div>
-          <ThemeToggle />
-        </div>
-      </section>
-
-      <section className="flex flex-col gap-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-foreground text-lg font-semibold">Tasters</h2>
-          <Link
-            href="/tasters"
-            className="text-primary text-sm hover:underline"
-          >
-            Open Tasters page
-          </Link>
-        </div>
+        <h2 className="text-foreground text-lg font-semibold">Tasters</h2>
         <p className="text-muted-foreground -mt-2 text-sm">
           Who tried it? Add the people whose ratings you want to remember.
         </p>

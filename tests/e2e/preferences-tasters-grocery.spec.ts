@@ -160,9 +160,14 @@ test.describe("Settings: Preferences, Grocery Categories, and Tasters", () => {
     await expect(page.getByText("Herbs & Spices")).toBeVisible();
 
     // Reordering is drag-and-drop (Gate 2 final correction pass removed
-    // the Move up/down buttons) — scope to rows that have a drag handle so
-    // this never matches Tasters' own <li> rows below.
-    const groceryRows = page.locator("li").filter({
+    // the Move up/down buttons). Both Grocery Categories and Tasters now
+    // have "Drag to reorder" handles, so scope to this section specifically
+    // (via its heading) rather than just filtering for the handle, which
+    // would match both lists.
+    const groceryCategoriesSection = page.locator("section", {
+      has: page.getByRole("heading", { name: "Grocery Categories" }),
+    });
+    const groceryRows = groceryCategoriesSection.locator("li").filter({
       has: page.getByRole("button", { name: /^Drag to reorder/ }),
     });
     const namesBefore = await groceryRows.allTextContents();
@@ -228,6 +233,54 @@ test.describe("Settings: Preferences, Grocery Categories, and Tasters", () => {
     await expect(page.getByText("Mom", { exact: true })).toBeVisible();
     await expect(page.getByText("Added Mom.")).toBeVisible();
 
+    // --- Tasters: drag-and-drop reordering, same treatment as Grocery
+    // Categories (frontend and backend) ---
+    await addTasterInput.fill("Dad");
+    await page
+      .locator("form")
+      .filter({ has: addTasterInput })
+      .getByRole("button", { name: "Add" })
+      .click();
+    await expect(page.getByText("Dad", { exact: true })).toBeVisible();
+
+    const tastersSection = page.locator("section", {
+      has: page.getByRole("heading", { name: "Tasters", exact: true }),
+    });
+    const tasterRows = tastersSection.locator("li").filter({
+      has: page.getByRole("button", { name: /^Drag to reorder/ }),
+    });
+    const tasterNamesBefore = await tasterRows.allTextContents();
+    const dadIndexBefore = tasterNamesBefore.findIndex((text) =>
+      text.includes("Dad"),
+    );
+    expect(dadIndexBefore).toBeGreaterThan(0);
+
+    await reorderUpViaKeyboard(page, "Drag to reorder Dad");
+    await page.waitForTimeout(500);
+
+    const tasterNamesAfter = await tasterRows.allTextContents();
+    const dadIndexAfter = tasterNamesAfter.findIndex((text) =>
+      text.includes("Dad"),
+    );
+    expect(dadIndexAfter).toBe(dadIndexBefore - 1);
+
+    await page.reload();
+    // `allTextContents()` doesn't retry like a Playwright assertion does —
+    // wait for the section to actually be hydrated and rendered first, or
+    // this can read the DOM before the reloaded page is ready.
+    await expect(
+      page.getByRole("heading", { name: "Tasters", exact: true }),
+    ).toBeVisible();
+    await expect(tasterRows.filter({ hasText: "Dad" })).toBeVisible();
+    const tasterNamesReloaded = await tasterRows.allTextContents();
+    const dadIndexReloaded = tasterNamesReloaded.findIndex((text) =>
+      text.includes("Dad"),
+    );
+    expect(dadIndexReloaded).toBe(dadIndexAfter);
+
+    await page.getByRole("button", { name: "Delete Dad" }).click();
+    await expect(page.getByText("Dad", { exact: true })).not.toBeVisible();
+
     await page.getByRole("button", { name: "Rename Mom" }).click();
     await page.getByLabel("Edit name for Mom").fill("Mom (renamed)");
     await page
@@ -253,9 +306,10 @@ test.describe("Settings: Preferences, Grocery Categories, and Tasters", () => {
     await page.reload();
     await expect(page.getByText("Mom (renamed)")).not.toBeVisible();
 
-    // --- /tasters remains the detailed management route ---
-    await page.getByRole("link", { name: "Open Tasters page" }).click();
-    await expect(page).toHaveURL(/\/tasters/);
+    // --- /tasters is still a directly-reachable route, even though the
+    // "Open Tasters page" link was removed from Settings (Tasters is now a
+    // first-class Settings section, so the link was redundant) ---
+    await page.goto("/tasters");
     await expect(
       page.getByRole("listitem").filter({ hasText: "You" }),
     ).toBeVisible();

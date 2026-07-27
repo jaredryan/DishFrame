@@ -83,6 +83,11 @@ async function ensureOwnerTaster(userId: string) {
       data: {
         ownerId: userId,
         name: OWNER_TASTER_DISPLAY_NAME,
+        // Always the first Taster created for a new account, so position 0
+        // is correct here without needing an aggregate query (unlike
+        // createTaster in tasters/service.ts, which runs against an
+        // already-populated list).
+        position: 0,
         isOwner: true,
       },
     }),

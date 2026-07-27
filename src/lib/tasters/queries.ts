@@ -5,7 +5,14 @@ import { NotFoundError } from "@/lib/errors";
 export function listTasters(ownerId: string) {
   return prisma.taster.findMany({
     where: { ownerId },
-    orderBy: [{ isOwner: "desc" }, { archivedAt: "asc" }, { createdAt: "asc" }],
+    // `position` has no database-level uniqueness constraint per owner
+    // (Slice 3 closeout audit — same accepted tradeoff as
+    // GroceryCategory.position), so a tie is possible (e.g. two Tasters
+    // created in quick succession before either commits). `createdAt`,
+    // then `id`, break ties deterministically so rendering never flickers
+    // or reorders itself between reads for rows that happen to share a
+    // position.
+    orderBy: [{ position: "asc" }, { createdAt: "asc" }, { id: "asc" }],
   });
 }
 

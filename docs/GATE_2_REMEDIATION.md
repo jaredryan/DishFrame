@@ -1211,9 +1211,160 @@ future new `<DndContext>` added to this app should also receive a stable,
 unique `id` for the same reason) — worth keeping in mind rather than
 something that needs revisiting now.
 
+---
+
+# Taster ordering closeout audit
+
+A small, bounded audit of the persistent Taster ordering feature added
+earlier this pass (drag-and-drop reordering for Tasters, matching Grocery
+Categories) — done as a Slice 3 closeout check before considering the
+slice done. `pnpm run verify:all` had already passed and manual drag-and-
+drop/persistence had already been confirmed; this audit is specifically
+about the guarantees that aren't visible from clicking through the UI.
+
+## 1. Reorder authorization and integrity — one real gap found and fixed
+
+Audited `tasterService.reorderTasters` and its Server Action against six
+guarantees:
+
+| Guarantee | Before this audit | After |
+|---|---|---|
+| Operates only on the caller's own Tasters | ✅ already true (`ownerId` scoped) | ✅ unchanged |
+| Rejects duplicate submitted ids | ✅ already true, as a side effect of the length check (a duplicate always makes the distinct-match count come out lower than the raw submitted length) | ✅ now explicit and directly asserted, not just an accidental side effect |
+| Rejects foreign/nonexistent ids | ✅ already true (`ownerId` scoped lookup) | ✅ unchanged |
+| **Does not silently omit an owned Taster** | ❌ **gap** — the check only compared "how many submitted ids matched" against "how many ids were submitted," which passes just as easily for a partial, incomplete submission as for a complete one | ✅ fixed |
+| Does not accept injected extra ids | ✅ already true (foreign ids fail the ownership check) | ✅ unchanged |
+| Updates transactionally | ✅ already true (`prisma.$transaction`) | ✅ unchanged |
+
+**The gap, concretely:** the original check was `owned.length !==
+orderedIds.length`, where `owned` was fetched via `findMany({where: {
+ownerId, id: { in: orderedIds } } })` — i.e., only the *submitted* ids
+were ever looked up. A caller submitting 3 of a user's 5 Tasters (omitting
+2) would pass this check cleanly (3 matched, 3 submitted), silently
+leaving the 2 omitted rows at their old `position` values — values that
+could now collide with newly assigned ones and corrupt ordering. There is
+no partial/archive-filtered reorderable view in the product today (the
+Settings list always renders every owned Taster, archived included, as
+one reorderable list) that would make a partial submission intentional,
+so "complete set" is the correct requirement, not an edge case to allow
+for.
+
+**Fix** (`src/lib/tasters/service.ts`): `reorderTasters` now fetches the
+caller's *complete* owned Taster id set (not filtered by the submitted
+ids) and requires the submitted set to be exactly equal to it — same
+length as submitted (no duplicates), same size as owned (nothing omitted
+or extra), and every submitted id present in the owned set (no foreign
+ids). Any mismatch throws the same `ConflictError` as before; the
+transaction step is unchanged.
+
+**Tests added** (`src/lib/tasters/tasters.integration.test.ts`):
+
+- `"rejects a reorder that omits a currently owned Taster"` — submits 2 of
+  3 owned Tasters, confirms rejection, and confirms no positions were
+  partially applied (before/after snapshots equal).
+- `"rejects a reorder with a duplicated id"` — submits `[mom, mom]` for a
+  2-Taster owner, confirms rejection, then confirms the *actual* complete
+  set (`[mom, owner]`) succeeds — proving the rejection is about the
+  duplicate/omission shape specifically, not a coincidental failure.
+
+Both existing reorder tests (complete-set reorder, foreign-id rejection)
+were re-read against the new logic and needed no changes — they already
+submitted either the full owned set or an id-count mismatch, both of
+which the new check still handles identically.
+
+**Note for later, not touched now (out of this audit's bounded scope):**
+`groceryService.reorderGroceryCategories` has the exact same "only checks
+submitted ids, not the complete set" shape. It hasn't caused a known
+problem, and this audit was scoped to the newly added Taster ordering
+only — flagged here so it isn't rediscovered from scratch if it ever
+comes up.
+
+## 2. Deterministic ordering — fixed
+
+`listTasters` sorted by `position` alone. `position` has no database-level
+uniqueness constraint per owner (see §3 below), so ties are possible, and
+`ORDER BY position ASC` with ties present is not guaranteed stable across
+separate reads in Postgres — two different page loads could render tied
+rows in a different relative order.
+
+**Fix** (`src/lib/tasters/queries.ts`): secondary sort added —
+`orderBy: [{ position: "asc" }, { createdAt: "asc" }, { id: "asc" }]`.
+`createdAt` breaks the common case (two Tasters that happen to tie); `id`
+is a final deterministic fallback for the vanishingly unlikely case of two
+rows created in the same instant. No test added for this specifically —
+it's a plain `orderBy` argument, not independently meaningful business
+logic to test in isolation, and its effect is already implicitly exercised
+by every other Taster test that reads back a list.
+
+## 3. Concurrent creation — reviewed, accepted as-is, no change
+
+`createTaster`'s `MAX(position) + 1` strategy (`aggregate` read, then
+`create`) is not wrapped in a transaction or lock. Two simultaneous
+`createTaster` calls for the same owner (e.g., a double-click, or two
+browser tabs) could both read the same current max and both compute the
+same next `position`, producing a tie.
+
+Checked against the schema: `Taster.position` carries no `@@unique`
+constraint (confirmed identical to `GroceryCategory.position`, which has
+the same `MAX + 1` strategy and the same absence of a unique constraint —
+an already-established, already-shipped pattern in this codebase, not a
+new risk introduced here). Consequences of the tie:
+
+- **No creation failure** — no unique constraint exists to violate; both
+  creates succeed.
+- **No data corruption** — both rows persist correctly with all their own
+  fields intact; only their `position` values coincide.
+- **The only effect is a temporary display tie**, resolved deterministically
+  by the §2 secondary sort (`createdAt`, then `id`) until the user drags
+  either row — and `reorderTasters` rewrites *every* row's `position` to a
+  clean `0..N-1` sequence on any reorder at all, not just a reorder
+  involving the tied rows, so the tie self-heals the moment the user
+  reorders anything.
+
+**Accepted as a personal-product tradeoff, no implementation change.**
+DishFrame's Tasters are a single owner's household list, not a
+multi-writer shared resource — the realistic scenario is one person,
+occasionally with two browser tabs open, essentially never issuing two
+concurrent Taster creations within the same request-processing window.
+Adding locking/retry infrastructure to close a harmless, self-healing,
+already-precedented tie would be exactly the kind of theoretical-only
+correctness this audit was scoped to avoid.
+
+## 4. Canonical documentation
+
+- `docs/PRODUCT_SPEC.md` — new `## 34.4a Persistent ordering (Slice 3
+  closeout)`, inserted between §34.4 (Management) and §34.5 (Archive):
+  Tasters have persistent user-controlled order representing practical
+  household priority/frequency of use; the protected owner Taster is
+  freely reorderable (position is independent of its archive/delete
+  protection); future Taster selectors and cooking/review interfaces
+  should default to this order.
+- `docs/ARCHITECTURE_PROPOSAL.md` §D.9 — the `Taster` model snippet was
+  stale (missing `position` entirely, predating this feature); added the
+  field with a one-line note cross-referencing §34.4a and the accepted
+  no-unique-constraint tradeoff from §3 above, so a future reader of the
+  architecture doc alone gets the correct current shape.
+
+## Focused tests run
+
+`DATABASE_URL=... pnpm exec vitest run --config vitest.integration.config.mts
+src/lib/tasters/tasters.integration.test.ts` — **11 passed** (9 previous +
+2 new). Nothing else was run, per this audit's verification policy
+(no `verify:*` scripts, no broad suites).
+
+## Deviations or blockers
+
+None. All three code-facing items (§1–3) resolved within this audit; no
+question required stopping to ask the owner — the one real gap (§1) had
+an unambiguous, narrowly-scoped fix, and the concurrency question (§3)
+resolved to "accepted tradeoff" per the audit's own stated criteria
+(no possible creation failure or data corruption).
+
 ## Proposed next milestone
 
-Unchanged: **Slice 4 — Immutable Version history, historical majors,
-Version notes, and comparison**, now that the Gate 2 remediation pass, its
-final manual-review correction pass, and this backend verification repair
-are all complete, with `pnpm run verify:backend` passing in full.
+**Slice 3 is now complete**, including this closeout audit. Next:
+**Slice 4 — Immutable Version history, historical majors, Version notes,
+and comparison**, once the owner has reviewed this audit (no verification
+was run beyond the one focused Taster integration test above — run
+`pnpm run verify:all` if a final full-suite confirmation is wanted before
+moving on).

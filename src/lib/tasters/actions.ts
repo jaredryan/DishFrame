@@ -8,6 +8,7 @@ import {
   createTasterSchema,
   renameTasterSchema,
   tasterIdSchema,
+  reorderTastersSchema,
   type ActionState,
   type CreateTasterActionState,
 } from "@/lib/tasters/schema";
@@ -35,6 +36,7 @@ export async function createTaster(
       taster: {
         id: taster.id,
         name: taster.name,
+        position: taster.position,
         isOwner: taster.isOwner,
         archivedAt: taster.archivedAt,
       },
@@ -114,6 +116,23 @@ export async function deleteTaster(
     revalidatePath(TASTERS_PATH);
     revalidatePath(SETTINGS_PATH);
     return { status: "success", message: "Deleted." };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export async function reorderTasters(
+  orderedIds: string[],
+): Promise<ActionState> {
+  try {
+    const userId = await requireUserId();
+    const { orderedIds: ids } = reorderTastersSchema.parse({ orderedIds });
+
+    await tasterService.reorderTasters(userId, ids);
+
+    revalidatePath(TASTERS_PATH);
+    revalidatePath(SETTINGS_PATH);
+    return { status: "success" };
   } catch (error) {
     return { status: "error", message: toActionErrorMessage(error) };
   }

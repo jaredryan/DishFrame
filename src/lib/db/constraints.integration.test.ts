@@ -33,7 +33,7 @@ describe("database-level constraints", () => {
       data: { ownerId: userId, dishId: dish.id, dishVersionId: version.id },
     });
     const taster = await prisma.taster.create({
-      data: { ownerId: userId, name: "Taster" },
+      data: { ownerId: userId, name: "Taster", position: 0 },
     });
 
     await expect(

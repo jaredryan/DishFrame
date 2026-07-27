@@ -2398,6 +2398,23 @@ unique index. It may still be renamed (the "more specific display name"
 case §34.2 already allows), and the UI continues identifying it as the
 owner regardless of its current display name.
 
+## 34.4a Persistent ordering (Slice 3 closeout)
+
+Tasters have a persistent, user-controlled display order (drag-and-drop in
+Settings), the same treatment as Grocery Categories (§63).
+
+- The order is not alphabetical or creation-based — it represents
+  whatever practical priority or frequency-of-use makes sense to the
+  household (e.g., the people who taste-test most often listed first).
+- The built-in owner Taster (§34.2) may be reordered like any other
+  Taster. Reordering is independent of, and does not affect, its
+  protected archive/delete behavior (§34.4) — only archive and permanent
+  deletion are restricted for the owner Taster, never its position.
+- Future Taster selectors and cooking/review interfaces (rating entry,
+  session review, etc.) should read Tasters in this order by default
+  unless a specific workflow has its own settled reason to sort
+  differently (e.g., an eventual "most recently rated" view).
+
 ## 34.5 Archive
 
 Archiving:

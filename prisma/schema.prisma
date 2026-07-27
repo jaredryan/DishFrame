@@ -633,6 +633,11 @@ model Taster {
   id         String    @id @default(cuid())
   ownerId    String
   name       String
+  // User-defined display order (drag-and-drop in Settings), same pattern as
+  // GroceryCategory.position — not tied to isOwner/archivedAt, so the
+  // owner's own "You" Taster is reorderable just like the fallback Grocery
+  // Category is (only delete is protected, not position).
+  position   Int
   isOwner    Boolean   @default(false)
   archivedAt DateTime?
   createdAt  DateTime  @default(now())

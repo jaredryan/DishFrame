@@ -589,6 +589,7 @@ model Taster {
   id         String   @id @default(cuid())
   ownerId    String
   name       String
+  position   Int      // user-controlled display order (Slice 3 closeout, PRODUCT_SPEC.md §34.4a) — same drag-and-drop pattern as GroceryCategory.position (§D.-1/§63), no @@unique per owner (accepted tie tradeoff, resolved by a deterministic secondary sort — createdAt, then id — and by the fact that any later reorder rewrites every row's position anyway)
   isOwner    Boolean  @default(false) // the built-in "You" — seeded once per user
   archivedAt DateTime?
   createdAt  DateTime @default(now())
