@@ -1,8 +1,12 @@
 import { Prisma } from "@/generated/prisma/client";
-import type { sectionContentInclude } from "@/lib/dishes/queries";
+import type {
+  sectionContentInclude,
+  partLinkContentInclude,
+} from "@/lib/dishes/queries";
 import { normalizeDifficultyValue } from "@/lib/dishes/schema";
 import type { DishContentInput, StageValue } from "@/lib/dishes/schema";
 import { decimalToNumber } from "@/lib/dishes/format";
+import { versionContentToInput } from "@/lib/dishes/mappers";
 
 // Deliberately not a "use client" module: Server Component edit pages call
 // `dishToFormValues` directly (a Client Component's exports cannot be
@@ -15,7 +19,10 @@ export type DishFormValues = DishContentInput;
 // as of Slice 4, an arbitrary historical Version loaded as the editor's
 // base (PRODUCT_SPEC.md §13.4/§13.7).
 type VersionDetail = Prisma.DishVersionGetPayload<{
-  include: { sections: typeof sectionContentInclude };
+  include: {
+    sections: typeof sectionContentInclude;
+    partLinks: typeof partLinkContentInclude;
+  };
 }>;
 
 /**
@@ -36,6 +43,14 @@ export function dishToFormValues(input: {
   version: VersionDetail;
 }): DishFormValues {
   const { stage, cuisine, currentTitle, version } = input;
+  // Slice 6: one shared mapping (also used by `editDish`'s content-diffing,
+  // duplication, and promotion, and the Version-comparison route) — the
+  // editor's loaded Sections and top-level linked Parts must never drift
+  // from what the server treats as this Version's own content.
+  const { sections, partLinks } = versionContentToInput(
+    version.sections,
+    version.partLinks,
+  );
 
   return {
     title: currentTitle || version.title,
@@ -55,40 +70,8 @@ export function dishToFormValues(input: {
     // Version inherits the current Version's image by default" is
     // satisfied — an untouched form re-saves the same id unchanged.
     imageAssetId: version.imageAssetId,
-    sections: version.sections.map((section) => ({
-      lineageId: section.lineageId,
-      name: section.name,
-      guidanceNote: section.guidanceNote,
-      ingredients: section.ingredients
-        .filter((ingredient) => ingredient.substituteForIngredientId === null)
-        .map((ingredient) => ({
-          lineageId: ingredient.lineageId,
-          name: ingredient.name,
-          quantity: decimalToNumber(ingredient.quantity),
-          quantityEnd: decimalToNumber(ingredient.quantityEnd),
-          isApproximate: ingredient.isApproximate,
-          unit: ingredient.unit,
-          displayText: ingredient.displayText,
-          preparationNote: ingredient.preparationNote,
-          isOptional: ingredient.isOptional,
-          substitute: ingredient.substitute
-            ? {
-                lineageId: ingredient.substitute.lineageId,
-                name: ingredient.substitute.name,
-                quantity: decimalToNumber(ingredient.substitute.quantity),
-                quantityEnd: decimalToNumber(ingredient.substitute.quantityEnd),
-                isApproximate: ingredient.substitute.isApproximate,
-                unit: ingredient.substitute.unit,
-                displayText: ingredient.substitute.displayText,
-                preparationNote: ingredient.substitute.preparationNote,
-              }
-            : null,
-        })),
-      instructions: section.instructions.map((instruction) => ({
-        lineageId: instruction.lineageId,
-        text: instruction.text,
-      })),
-    })),
+    sections,
+    partLinks,
   };
 }
 
@@ -105,7 +88,14 @@ export function blankDishFormValues(): DishFormValues {
     difficulty: null,
     imageAssetId: null,
     sections: [
-      { name: null, guidanceNote: null, ingredients: [], instructions: [] },
+      {
+        name: null,
+        guidanceNote: null,
+        ingredients: [],
+        instructions: [],
+        partLinks: [],
+      },
     ],
+    partLinks: [],
   };
 }

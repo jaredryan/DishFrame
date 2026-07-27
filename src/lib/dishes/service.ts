@@ -7,6 +7,8 @@ import {
   getOwnedDishOrThrow,
   getDishScopedVersionContentOrThrow,
   getDishScopedVersionMetaOrThrow,
+  sectionContentInclude,
+  partLinkContentInclude,
 } from "@/lib/dishes/queries";
 import {
   assertImageAssetAttachable,
@@ -14,11 +16,13 @@ import {
   bestEffortDeleteBlob,
 } from "@/lib/images/service";
 import { decimalToNumber } from "@/lib/dishes/format";
-import { sectionRowsToInput } from "@/lib/dishes/mappers";
+import { versionContentToInput } from "@/lib/dishes/mappers";
 import {
   seedMajorVersionNote,
   normalizeVersionNote,
 } from "@/lib/dishes/version-note";
+import { assertNoPartCycle } from "@/lib/cycles/service";
+import type { PartLinkEdge } from "@/lib/cycles/reachability";
 import {
   removeEmptySections,
   hasMinimumContent,
@@ -29,6 +33,7 @@ import {
   type DishContentInput,
   type SectionInput,
   type IngredientInput,
+  type PartLinkInput,
   type StageValue,
   type RestorableStageValue,
   type DishKindValue,
@@ -83,7 +88,7 @@ function nextArchivedAt(
 // ARCHITECTURE_PROPOSAL.md §F.2: "current" is always the highest major, and
 // within it the highest minor — so the highest existing majorVersion alone
 // (no minor needed) tells us which major line is currently current.
-async function highestMajorVersion(
+export async function highestMajorVersion(
   tx: Prisma.TransactionClient,
   dishId: string,
 ): Promise<number> {
@@ -94,7 +99,7 @@ async function highestMajorVersion(
   return result._max.majorVersion ?? 0;
 }
 
-async function nextVersionNumbers(
+export async function nextVersionNumbers(
   tx: Prisma.TransactionClient,
   dishId: string,
   baseMajorVersion: number,
@@ -140,7 +145,7 @@ function isRecognizedAllocationConflict(error: unknown): boolean {
  * next available minor/major is recomputed fresh every attempt rather than
  * reusing a stale read from a failed one.
  */
-async function withVersionAllocation<T>(
+export async function withVersionAllocation<T>(
   fn: (tx: Prisma.TransactionClient) => Promise<T>,
 ): Promise<T> {
   for (let attempt = 1; attempt <= MAX_VERSION_ALLOCATION_ATTEMPTS; attempt++) {
@@ -176,10 +181,42 @@ async function withVersionAllocation<T>(
  * `lineageId` forward when the editor supplied one, and mints a fresh one
  * only for genuinely new content (§D.-1).
  */
-async function insertSections(
+/**
+ * Slice 6: writes one Section's (or the container's own top-level, when
+ * `sectionId` is `null`) linked-Part occurrences, in the same
+ * lineage-preserving-or-minting style as every other row `insertSections`
+ * writes. A PartLink's own position sequence is independent of its
+ * Section's Ingredient/Instruction positions — it's a separate ordered
+ * list, matching how the schema itself has no single interleaved order
+ * across the three row kinds.
+ */
+async function insertPartLinks(
+  tx: Prisma.TransactionClient,
+  containerVersionId: string,
+  sectionId: string | null,
+  partLinks: PartLinkInput[],
+  lineageFor: (id: string | undefined) => string,
+): Promise<void> {
+  for (let pi = 0; pi < partLinks.length; pi++) {
+    const partLink = partLinks[pi];
+    await tx.partLink.create({
+      data: {
+        lineageId: lineageFor(partLink.lineageId),
+        containerVersionId,
+        sectionId,
+        position: pi,
+        targetDishId: partLink.targetDishId,
+        targetDishVersionId: partLink.targetDishVersionId,
+      },
+    });
+  }
+}
+
+export async function insertSections(
   tx: Prisma.TransactionClient,
   dishVersionId: string,
   sections: SectionInput[],
+  topLevelPartLinks: PartLinkInput[],
   { mintFreshLineage }: { mintFreshLineage: boolean },
 ): Promise<{ sectionNames: string[] }> {
   const sectionNames: string[] = [];
@@ -187,6 +224,8 @@ async function insertSections(
   function lineageFor(id: string | undefined): string {
     return mintFreshLineage ? randomUUID() : (id ?? randomUUID());
   }
+
+  await insertPartLinks(tx, dishVersionId, null, topLevelPartLinks, lineageFor);
 
   for (let si = 0; si < sections.length; si++) {
     const section = sections[si];
@@ -253,9 +292,40 @@ async function insertSections(
         },
       });
     }
+
+    await insertPartLinks(
+      tx,
+      dishVersionId,
+      sectionRow.id,
+      section.partLinks,
+      lineageFor,
+    );
   }
 
   return { sectionNames };
+}
+
+/** Slice 6: the full flat set of proposed linked-Part occurrences across a
+ * whole Version's content — top-level and Section-nested alike — used as
+ * the cycle-check's input (`assertNoPartCycle`, ARCHITECTURE_PROPOSAL.md
+ * §G.3/§G.4). */
+function collectPartLinkEdges(
+  sections: SectionInput[],
+  topLevelPartLinks: PartLinkInput[],
+): PartLinkEdge[] {
+  const edges: PartLinkEdge[] = topLevelPartLinks.map((link) => ({
+    targetDishId: link.targetDishId,
+    targetDishVersionId: link.targetDishVersionId,
+  }));
+  for (const section of sections) {
+    for (const link of section.partLinks) {
+      edges.push({
+        targetDishId: link.targetDishId,
+        targetDishVersionId: link.targetDishVersionId,
+      });
+    }
+  }
+  return edges;
 }
 
 function normalizeNullableQuantity(
@@ -319,9 +389,9 @@ function sanitizedSectionsOrThrow(input: DishContentInput): SectionInput[] {
     }
   }
 
-  if (!hasMinimumContent(sections)) {
+  if (!hasMinimumContent(sections, input.partLinks)) {
     throw new ValidationError(
-      "Add at least one ingredient or instruction before saving.",
+      "Add at least one ingredient, instruction, or linked Part before saving.",
     );
   }
   return sections;
@@ -374,9 +444,20 @@ export async function createDish(
       },
     });
 
-    const { sectionNames } = await insertSections(tx, version.id, sections, {
-      mintFreshLineage: true,
-    });
+    // No cycle-check needed here: a brand-new Dish's `id` cannot possibly
+    // already be reachable from any pre-existing PartLink graph (nothing
+    // could have linked to an id that didn't exist until this very
+    // transaction), so attaching Parts on first creation can never
+    // introduce a cycle — ARCHITECTURE_PROPOSAL.md §G.3's check is only
+    // meaningful once a Dish already has an identity other content could
+    // reference.
+    const { sectionNames } = await insertSections(
+      tx,
+      version.id,
+      sections,
+      input.partLinks,
+      { mintFreshLineage: true },
+    );
 
     await tx.dish.update({
       where: { id: dish.id },
@@ -454,8 +535,8 @@ export async function editDish(
     (base.difficulty ?? null) !== (input.difficulty || null);
 
   const { cookingChanged, sectionOrganizationChanged } = diffVersionContent(
-    sectionRowsToInput(base.sections),
-    sections,
+    versionContentToInput(base.sections, base.partLinks),
+    { sections, partLinks: input.partLinks },
   );
   const nonCookingVersionChanged =
     nonCookingScalarChanged || sectionOrganizationChanged;
@@ -506,6 +587,21 @@ export async function editDish(
   const bump: VersionChoiceValue = cookingChanged ? versionChoice! : "MINOR";
 
   return withVersionAllocation(async (tx) => {
+    // Slice 6, ARCHITECTURE_PROPOSAL.md §G.4: the authoritative cycle check,
+    // re-run here (inside the version-creation transaction, immediately
+    // before the new DishVersion is created) against the *full* final
+    // proposed content — closes the race window between the editor's
+    // attach-time check and this save. Only meaningful for a Part: a
+    // PartLink's target must always be `kind = PART` (§D.6), so a Recipe
+    // can never appear inside anyone's reachable set.
+    if (dish.kind === "PART") {
+      await assertNoPartCycle(
+        tx,
+        dish.id,
+        collectPartLinkEdges(sections, input.partLinks),
+      );
+    }
+
     const preEditHighestMajor = await highestMajorVersion(tx, dish.id);
     const baseWasAlreadyCurrentLine = base.majorVersion === preEditHighestMajor;
 
@@ -582,9 +678,13 @@ export async function editDish(
       },
     });
 
-    const { sectionNames } = await insertSections(tx, version.id, sections, {
-      mintFreshLineage: false,
-    });
+    const { sectionNames } = await insertSections(
+      tx,
+      version.id,
+      sections,
+      input.partLinks,
+      { mintFreshLineage: false },
+    );
 
     await tx.dish.update({
       where: { id: dish.id },
@@ -713,7 +813,15 @@ export async function promoteHistoricalVersion(
 ): Promise<string> {
   const dish = await getOwnedDishOrThrow(ownerId, dishId, kind);
   const base = await getDishScopedVersionContentOrThrow(dish.id, versionId);
-  const sections = sectionRowsToInput(base.sections);
+  // Slice 6: PartLinks are copied verbatim, exactly like every other
+  // content field here — no cycle re-check needed, since this exact set of
+  // targets already passed cycle validation when the historical Version
+  // was originally created for this same Dish, and nothing about the
+  // targets changes here.
+  const { sections, partLinks } = versionContentToInput(
+    base.sections,
+    base.partLinks,
+  );
   const stableTitle = dish.currentTitle ?? base.title;
 
   return withVersionAllocation(async (tx) => {
@@ -747,9 +855,13 @@ export async function promoteHistoricalVersion(
       },
     });
 
-    const { sectionNames } = await insertSections(tx, version.id, sections, {
-      mintFreshLineage: false,
-    });
+    const { sectionNames } = await insertSections(
+      tx,
+      version.id,
+      sections,
+      partLinks,
+      { mintFreshLineage: false },
+    );
 
     await tx.dish.update({
       where: { id: dish.id },
@@ -900,23 +1012,23 @@ export async function duplicateDish(
   const sourceVersion = await prisma.dishVersion.findFirst({
     where: { id: versionId, dishId: dish.id },
     include: {
-      sections: {
-        orderBy: { position: "asc" },
-        include: {
-          ingredients: {
-            orderBy: { position: "asc" },
-            include: { substitute: true },
-          },
-          instructions: { orderBy: { position: "asc" } },
-        },
-      },
+      sections: sectionContentInclude,
+      partLinks: partLinkContentInclude,
     },
   });
   if (!sourceVersion) {
     throw new NotFoundError("Version not found.");
   }
 
-  const sections: SectionInput[] = sectionRowsToInput(sourceVersion.sections);
+  // Slice 6, ARCHITECTURE_PROPOSAL.md §D.2a-style reasoning (as already
+  // applied to images here): a brand-new Dish id can never already be
+  // reachable from any pre-existing PartLink graph, so copying these exact
+  // targets onto a new Dish can never introduce a cycle — no re-check
+  // needed, same as `createDish`.
+  const { sections, partLinks } = versionContentToInput(
+    sourceVersion.sections,
+    sourceVersion.partLinks,
+  );
 
   // Version-trigger correction pass: title is stable Dish identity, not
   // Version content — the duplicate's suggested title (and the frozen
@@ -964,9 +1076,13 @@ export async function duplicateDish(
       },
     });
 
-    const { sectionNames } = await insertSections(tx, version.id, sections, {
-      mintFreshLineage: true,
-    });
+    const { sectionNames } = await insertSections(
+      tx,
+      version.id,
+      sections,
+      partLinks,
+      { mintFreshLineage: true },
+    );
 
     await tx.dish.update({
       where: { id: newDish.id },

@@ -98,7 +98,7 @@ export default async function PartVersionPage({
             selected Version, current or historical, without creating a
             refinement. */}
         <VersionMetadataEditor
-          key={version.id}
+          key={`metadata-${version.id}`}
           kind="PART"
           dishId={dish.id}
           versionId={version.id}
@@ -148,7 +148,7 @@ export default async function PartVersionPage({
         />
 
         <VersionNoteEditor
-          key={version.id}
+          key={`note-${version.id}`}
           kind="PART"
           dishId={dish.id}
           versionId={version.id}

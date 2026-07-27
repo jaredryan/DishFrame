@@ -148,6 +148,20 @@ export const instructionInputSchema = z.object({
 });
 export type InstructionInput = z.infer<typeof instructionInputSchema>;
 
+// Slice 6, PRODUCT_SPEC.md §67.1/§68.1: a linked Part occurrence — an exact
+// selected Part Version, either top-level (on `dishContentSchema.partLinks`)
+// or nested inside a Section (`sectionInputSchema.partLinks`). `lineageId`
+// is the stable identity of this specific *occurrence* (ARCHITECTURE_
+// PROPOSAL.md §D.-1/§D.6), independent of which Part Version it currently
+// targets — present when loaded from an existing Version, absent for a
+// freshly attached occurrence, exactly like every other lineage-keyed row.
+export const partLinkInputSchema = z.object({
+  lineageId: z.string().min(1).optional(),
+  targetDishId: z.string().min(1),
+  targetDishVersionId: z.string().min(1),
+});
+export type PartLinkInput = z.infer<typeof partLinkInputSchema>;
+
 export const sectionInputSchema = z.object({
   lineageId: z.string().min(1).optional(),
   // null/empty = unnamed default Section, hidden in display per §9.1.
@@ -155,6 +169,7 @@ export const sectionInputSchema = z.object({
   guidanceNote: z.string().trim().max(500).nullable().optional(),
   ingredients: z.array(ingredientInputSchema),
   instructions: z.array(instructionInputSchema),
+  partLinks: z.array(partLinkInputSchema),
 });
 export type SectionInput = z.infer<typeof sectionInputSchema>;
 
@@ -175,30 +190,43 @@ export const dishContentSchema = z.object({
   // (§12.2) without needing a separate undefined-vs-null distinction.
   imageAssetId: z.string().nullable().default(null),
   sections: z.array(sectionInputSchema),
+  // Slice 6, PRODUCT_SPEC.md §67.1: top-level linked Parts, attached
+  // directly to this Recipe/Part Version rather than nested in a Section.
+  partLinks: z.array(partLinkInputSchema),
 });
 export type DishContentInput = z.infer<typeof dishContentSchema>;
 
 /**
- * §9.5: empty Sections (no ingredients, no instructions — no linked Parts
- * exist yet in Slice 3) are automatically removed at save time, regardless
- * of what the client sends.
+ * §9.5: empty Sections (no ingredients, no instructions, and — Slice 6 —
+ * no linked Parts) are automatically removed at save time, regardless of
+ * what the client sends.
  */
 export function removeEmptySections(sections: SectionInput[]): SectionInput[] {
   return sections.filter(
     (section) =>
-      section.ingredients.length > 0 || section.instructions.length > 0,
+      section.ingredients.length > 0 ||
+      section.instructions.length > 0 ||
+      section.partLinks.length > 0,
   );
 }
 
 /**
- * §8.3's minimum-save rule, practical Slice-3 form (linked Parts arrive in
- * a later slice): at least one meaningful local ingredient or instruction
- * must survive empty-Section removal.
+ * §8.3's minimum-save rule: at least one meaningful local ingredient or
+ * instruction, or (Slice 6) linked Part — top-level or nested in a
+ * surviving Section — must remain after empty-Section removal.
  */
-export function hasMinimumContent(sections: SectionInput[]): boolean {
-  return sections.some(
-    (section) =>
-      section.ingredients.length > 0 || section.instructions.length > 0,
+export function hasMinimumContent(
+  sections: SectionInput[],
+  topLevelPartLinks: PartLinkInput[] = [],
+): boolean {
+  return (
+    topLevelPartLinks.length > 0 ||
+    sections.some(
+      (section) =>
+        section.ingredients.length > 0 ||
+        section.instructions.length > 0 ||
+        section.partLinks.length > 0,
+    )
   );
 }
 
@@ -247,44 +275,87 @@ export function instructionContentSignature(
   return JSON.stringify({ text: instruction.text });
 }
 
+// Slice 6: a linked Part occurrence's own content-signature — only which
+// exact Part Version it targets matters for "did this occurrence change,"
+// matching the ingredient/instruction pattern above.
+export function partLinkContentSignature(partLink: PartLinkInput): string {
+  return JSON.stringify({
+    targetDishId: partLink.targetDishId,
+    targetDishVersionId: partLink.targetDishVersionId,
+  });
+}
+
 export type VersionContentChange = {
-  // Any Ingredient/Instruction add, remove, edit, or reorder — requires the
-  // explicit minor/major choice (PRODUCT_SPEC.md's settled Gate 2 rule).
+  // Any Ingredient/Instruction add, remove, edit, or reorder — or (Slice 6)
+  // any linked-Part attach, detach, target-Version change, or move — all
+  // require the explicit minor/major choice (PRODUCT_SPEC.md's settled
+  // Gate 2 rule). A linked Part is exactly as "cooking-adjacent" as an
+  // Ingredient/Instruction — it changes what's actually made — so it folds
+  // into the same bucket rather than inventing a fifth classification.
   cookingChanged: boolean;
-  // Section add/remove/rename/reorder that does NOT touch any Ingredient
-  // or Instruction content — still Version-owned, but auto-minor, no choice.
+  // Section add/remove/rename/reorder that does NOT touch any Ingredient,
+  // Instruction, or linked Part — still Version-owned, but auto-minor, no
+  // choice.
   sectionOrganizationChanged: boolean;
 };
 
+// A sentinel distinct from any real Section lineageId (a cuid) and from
+// `undefined` (a brand-new, not-yet-lineaged Section) — used to key
+// top-level linked Parts in the same lookup maps as Section-nested ones
+// without any risk of collision.
+const TOP_LEVEL_PART_LINK_KEY = " top-level";
+
+export type VersionContentInput = {
+  sections: SectionInput[];
+  partLinks: PartLinkInput[];
+};
+
 /**
- * Classifies a proposed edit's Sections against the currently-saved
- * Sections (both already in `SectionInput` shape — the caller is
- * responsible for mapping DB rows via `dishToFormValues`-style conversion
- * first). Rows are matched by `lineageId`; a row with no matching
- * `lineageId` in `base` is always treated as a genuine addition. Framework-
- * and DB-agnostic on purpose so both the client (to decide whether to show
- * the minor/major choice dialog) and the server (the actual authority) can
- * run the identical classification — see docs/SLICE_3.md's Gate 2 section.
+ * Classifies a proposed edit against the currently-saved content (both
+ * already in `SectionInput`/`PartLinkInput` shape — the caller is
+ * responsible for mapping DB rows first, e.g. via `versionContentToInput`).
+ * Rows are matched by `lineageId`; a row with no matching `lineageId` in
+ * `base` is always treated as a genuine addition. Framework- and
+ * DB-agnostic on purpose so both the client (to decide whether to show the
+ * minor/major choice dialog) and the server (the actual authority) can run
+ * the identical classification — see docs/SLICE_3.md's Gate 2 section.
  */
 export function diffVersionContent(
-  base: SectionInput[],
-  edited: SectionInput[],
+  base: VersionContentInput,
+  edited: VersionContentInput,
 ): VersionContentChange {
   type Keyed = {
-    sectionLineageId: string;
+    sectionLineageId: string | undefined;
     position: number;
     signature: string;
   };
 
   const baseIngredients = new Map<string, Keyed>();
   const baseInstructions = new Map<string, Keyed>();
+  const basePartLinks = new Map<string, Keyed>();
   const baseSectionMeta = new Map<
     string,
     { name: string | null | undefined; guidanceNote: string | null | undefined }
   >();
   const baseSectionOrder: string[] = [];
 
-  for (const section of base) {
+  function indexPartLinks(
+    sectionLineageId: string | undefined,
+    links: PartLinkInput[],
+  ) {
+    links.forEach((link, index) => {
+      if (!link.lineageId) return;
+      basePartLinks.set(link.lineageId, {
+        sectionLineageId,
+        position: index,
+        signature: partLinkContentSignature(link),
+      });
+    });
+  }
+
+  indexPartLinks(TOP_LEVEL_PART_LINK_KEY, base.partLinks);
+
+  for (const section of base.sections) {
     if (!section.lineageId) continue; // every persisted Section has one
     baseSectionOrder.push(section.lineageId);
     baseSectionMeta.set(section.lineageId, {
@@ -307,15 +378,41 @@ export function diffVersionContent(
         signature: instructionContentSignature(instruction),
       });
     });
+    indexPartLinks(section.lineageId, section.partLinks);
   }
 
   let cookingChanged = false;
   let sectionOrganizationChanged = false;
   const seenIngredientLineageIds = new Set<string>();
   const seenInstructionLineageIds = new Set<string>();
+  const seenPartLinkLineageIds = new Set<string>();
   const editedSectionOrder: string[] = [];
 
-  for (const section of edited) {
+  function diffPartLinks(
+    sectionLineageId: string | undefined,
+    links: PartLinkInput[],
+  ) {
+    links.forEach((link, index) => {
+      if (!link.lineageId) {
+        cookingChanged = true; // newly attached occurrence
+        return;
+      }
+      seenPartLinkLineageIds.add(link.lineageId);
+      const before = basePartLinks.get(link.lineageId);
+      if (
+        !before ||
+        before.sectionLineageId !== sectionLineageId ||
+        before.position !== index ||
+        before.signature !== partLinkContentSignature(link)
+      ) {
+        cookingChanged = true;
+      }
+    });
+  }
+
+  diffPartLinks(TOP_LEVEL_PART_LINK_KEY, edited.partLinks);
+
+  for (const section of edited.sections) {
     if (section.lineageId) {
       editedSectionOrder.push(section.lineageId);
       const meta = baseSectionMeta.get(section.lineageId);
@@ -361,6 +458,8 @@ export function diffVersionContent(
         cookingChanged = true;
       }
     });
+
+    diffPartLinks(section.lineageId, section.partLinks);
   }
 
   for (const id of baseIngredients.keys()) {
@@ -368,6 +467,9 @@ export function diffVersionContent(
   }
   for (const id of baseInstructions.keys()) {
     if (!seenInstructionLineageIds.has(id)) cookingChanged = true; // removed
+  }
+  for (const id of basePartLinks.keys()) {
+    if (!seenPartLinkLineageIds.has(id)) cookingChanged = true; // detached
   }
 
   if (baseSectionOrder.length !== editedSectionOrder.length) {

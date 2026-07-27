@@ -15,7 +15,7 @@ import {
   pickDefaultComparisonPair,
   type VersionCompareInput,
 } from "@/lib/dishes/compare";
-import { sectionRowsToInput } from "@/lib/dishes/mappers";
+import { versionContentToInput } from "@/lib/dishes/mappers";
 import { decimalToNumber } from "@/lib/dishes/format";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
 
@@ -50,7 +50,8 @@ async function toCompareInput(
         carbs: decimalToNumber(version.carbs),
         fat: decimalToNumber(version.fat),
       },
-      sections: sectionRowsToInput(version.sections),
+      sections: versionContentToInput(version.sections, version.partLinks)
+        .sections,
     },
   };
 }

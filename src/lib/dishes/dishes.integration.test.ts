@@ -15,6 +15,10 @@ import {
   ValidationError,
 } from "@/lib/errors";
 import { decimalToNumber } from "@/lib/dishes/format";
+import {
+  listCurrentPartUsages,
+  listAttachableParts,
+} from "@/lib/dishes/queries";
 
 // Slice 5: `deleteDish`'s reference-counted image cleanup calls
 // `bestEffortDeleteBlob` (`src/lib/images/service.ts`), which calls
@@ -54,8 +58,10 @@ function content(overrides: Partial<DishContentInput> = {}): DishContentInput {
           },
         ],
         instructions: [],
+        partLinks: [],
       },
     ],
+    partLinks: [],
     ...overrides,
   };
 }
@@ -110,6 +116,7 @@ function unchangedSections(
         { lineageId: ingredient.lineageId, ...blankIngredient("Salt") },
       ],
       instructions: [],
+      partLinks: [],
     },
   ];
 }
@@ -158,6 +165,7 @@ describe("dishes service", () => {
                 guidanceNote: null,
                 ingredients: [],
                 instructions: [],
+                partLinks: [],
               },
             ],
           }),
@@ -324,6 +332,7 @@ describe("dishes service", () => {
                 blankIngredient("Pepper"),
               ],
               instructions: [],
+              partLinks: [],
             },
           ],
         },
@@ -370,6 +379,7 @@ describe("dishes service", () => {
                 },
               ],
               instructions: [{ text: "Whisk everything together." }],
+              partLinks: [],
             },
           ],
         },
@@ -399,6 +409,7 @@ describe("dishes service", () => {
               guidanceNote: null,
               ingredients: [blankIngredient("Salt"), blankIngredient("Pepper")],
               instructions: [],
+              partLinks: [],
             },
           ],
         }),
@@ -416,6 +427,7 @@ describe("dishes service", () => {
             guidanceNote: null,
             ingredients,
             instructions: [],
+            partLinks: [],
           },
         ];
       }
@@ -655,6 +667,7 @@ describe("dishes service", () => {
               guidanceNote: null,
               ingredients: [blankIngredient("Ginger")],
               instructions: [],
+              partLinks: [],
             },
           ],
         }),
@@ -692,6 +705,7 @@ describe("dishes service", () => {
                 },
               ],
               instructions: [],
+              partLinks: [],
             },
           ],
         }),
@@ -746,6 +760,7 @@ describe("dishes service", () => {
                 },
               ],
               instructions: [],
+              partLinks: [],
             },
           ],
         }),
@@ -1121,6 +1136,7 @@ describe("dishes service", () => {
               },
             ],
             instructions: [],
+            partLinks: [],
           },
         ],
       });
@@ -1168,6 +1184,7 @@ describe("dishes service", () => {
                 },
               ],
               instructions: [],
+              partLinks: [],
             },
           ],
         },
@@ -1206,6 +1223,7 @@ describe("dishes service", () => {
               },
             ],
             instructions: [],
+            partLinks: [],
           },
         ],
       });
@@ -1259,6 +1277,7 @@ describe("dishes service", () => {
               },
             ],
             instructions: [],
+            partLinks: [],
           },
         ],
       });
@@ -1303,6 +1322,7 @@ describe("dishes service", () => {
               },
             ],
             instructions: [],
+            partLinks: [],
           },
         ],
       });
@@ -1343,6 +1363,7 @@ describe("dishes service", () => {
               },
             ],
             instructions: [],
+            partLinks: [],
           },
         ],
       });
@@ -1399,6 +1420,7 @@ describe("dishes service", () => {
                 },
               ],
               instructions: [],
+              partLinks: [],
             },
           ],
         });
@@ -1437,6 +1459,7 @@ describe("dishes service", () => {
                   },
                 ],
                 instructions: [],
+                partLinks: [],
               },
             ],
           }),
@@ -1468,6 +1491,7 @@ describe("dishes service", () => {
                 },
               ],
               instructions: [],
+              partLinks: [],
             },
           ],
         });
@@ -1513,6 +1537,7 @@ describe("dishes service", () => {
                 },
               ],
               instructions: [],
+              partLinks: [],
             },
           ],
         }),
@@ -1553,6 +1578,7 @@ describe("dishes service", () => {
                 },
               ],
               instructions: [],
+              partLinks: [],
             },
           ],
         },
@@ -1580,6 +1606,7 @@ describe("dishes service", () => {
               guidanceNote: null,
               ingredients: [{ ...blankIngredient("Broth"), quantity: 1.5 }],
               instructions: [],
+              partLinks: [],
             },
           ],
         }),
@@ -1966,6 +1993,7 @@ describe("dishes service", () => {
                 },
               ],
               instructions: [],
+              partLinks: [],
             },
           ],
         }),
@@ -2018,6 +2046,7 @@ describe("dishes service", () => {
                 },
               ],
               instructions: [],
+              partLinks: [],
             },
           ],
         }),
@@ -2205,6 +2234,7 @@ describe("dishes service", () => {
                 },
               ],
               instructions: [],
+              partLinks: [],
             },
           ],
         }),
@@ -2252,6 +2282,7 @@ describe("dishes service", () => {
                 },
               ],
               instructions: [],
+              partLinks: [],
             },
           ],
         }),
@@ -2423,6 +2454,7 @@ describe("dishes service", () => {
               guidanceNote: null,
               ingredients: [blankIngredient("Ginger")],
               instructions: [],
+              partLinks: [],
             },
           ],
         }),
@@ -2678,6 +2710,347 @@ describe("dishes service", () => {
       ).rejects.toThrow(NotFoundError);
 
       await deleteTestUser(intruder.id);
+    });
+  });
+});
+
+// Slice 6 pre-gate scope (Build Plan Review Gate 3): Part attach/detach via
+// the ordinary editDish content pipeline, the authoritative save-time cycle
+// re-check, verbatim copy through duplicate/promote, and usage discovery.
+// Propagation and deletion materialization are out of scope until the gate.
+describe("Slice 6 — linked Parts", () => {
+  let userId: string | undefined;
+
+  afterEach(async () => {
+    if (userId) {
+      await deleteTestUser(userId);
+      userId = undefined;
+    }
+  });
+
+  async function createPart(ownerId: string, title: string) {
+    return dishService.createDish(
+      ownerId,
+      "PART",
+      content({ title, partLinks: [] }),
+    );
+  }
+
+  describe("editDish — attaching and detaching", () => {
+    it("attaching a top-level Part requires the minor/major choice and persists a LIVE PartLink", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      const partDishId = await createPart(userId, "Nuoc Cham");
+      const partVersionId = (
+        await prisma.dish.findUniqueOrThrow({ where: { id: partDishId } })
+      ).currentVersionId!;
+
+      const dishId = await dishService.createDish(userId, "RECIPE", content());
+      const dish = await loadDishWithVersion(dishId);
+      const baseVersionId = dish.currentVersionId!;
+
+      await expect(
+        dishService.editDish(
+          userId,
+          dishId,
+          baseVersionId,
+          {
+            ...content({ sections: unchangedSections(dish) }),
+            partLinks: [
+              { targetDishId: partDishId, targetDishVersionId: partVersionId },
+            ],
+          },
+          undefined,
+        ),
+      ).rejects.toThrow(ValidationError);
+
+      const newDishId = await dishService.editDish(
+        userId,
+        dishId,
+        baseVersionId,
+        {
+          ...content({ sections: unchangedSections(dish) }),
+          partLinks: [
+            { targetDishId: partDishId, targetDishVersionId: partVersionId },
+          ],
+        },
+        "MINOR",
+      );
+
+      const after = await prisma.dish.findUniqueOrThrow({
+        where: { id: newDishId },
+        include: { currentVersion: { include: { partLinks: true } } },
+      });
+      expect(after.currentVersion?.majorVersion).toBe(1);
+      expect(after.currentVersion?.minorVersion).toBe(1);
+      expect(after.currentVersion?.partLinks).toHaveLength(1);
+      expect(after.currentVersion?.partLinks[0]).toMatchObject({
+        linkState: "LIVE",
+        sectionId: null,
+        targetDishId: partDishId,
+        targetDishVersionId: partVersionId,
+      });
+    });
+
+    it("detaching (removing) a linked Part is a cooking change and leaves no PartLink on the new Version", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      const partDishId = await createPart(userId, "Nuoc Cham");
+      const partVersionId = (
+        await prisma.dish.findUniqueOrThrow({ where: { id: partDishId } })
+      ).currentVersionId!;
+
+      const dishId = await dishService.createDish(userId, "RECIPE", content());
+      let dish = await loadDishWithVersion(dishId);
+      const v1Id = dish.currentVersionId!;
+
+      const v2DishId = await dishService.editDish(
+        userId,
+        dishId,
+        v1Id,
+        {
+          ...content({ sections: unchangedSections(dish) }),
+          partLinks: [
+            { targetDishId: partDishId, targetDishVersionId: partVersionId },
+          ],
+        },
+        "MINOR",
+      );
+      const v2 = await prisma.dish.findUniqueOrThrow({
+        where: { id: v2DishId },
+      });
+
+      dish = await loadDishWithVersion(dishId);
+      await expect(
+        dishService.editDish(
+          userId,
+          dishId,
+          v2.currentVersionId!,
+          { ...content({ sections: unchangedSections(dish) }), partLinks: [] },
+          undefined,
+        ),
+      ).rejects.toThrow(ValidationError);
+
+      await dishService.editDish(
+        userId,
+        dishId,
+        v2.currentVersionId!,
+        { ...content({ sections: unchangedSections(dish) }), partLinks: [] },
+        "MINOR",
+      );
+
+      const after = await prisma.dish.findUniqueOrThrow({
+        where: { id: dishId },
+        include: { currentVersion: { include: { partLinks: true } } },
+      });
+      expect(after.currentVersion?.minorVersion).toBe(2);
+      expect(after.currentVersion?.partLinks).toHaveLength(0);
+    });
+
+    it("rejects a save that would create a Part cycle, authoritatively, at save time", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+
+      const partBId = await createPart(userId, "Part B");
+      const partBV1 = (
+        await prisma.dish.findUniqueOrThrow({ where: { id: partBId } })
+      ).currentVersionId!;
+
+      const partAId = await createPart(userId, "Part A");
+      const partAV1 = (
+        await prisma.dish.findUniqueOrThrow({ where: { id: partAId } })
+      ).currentVersionId!;
+
+      // Part A attaches Part B — legitimate, no cycle. This creates a new
+      // Version (V1.1) for Part A; the link lives on that new Version, not
+      // on the original, still-unchanged V1.0 (`partAV1`).
+      const partADish = await loadDishWithVersion(partAId);
+      await dishService.editDish(
+        userId,
+        partAId,
+        partAV1,
+        {
+          ...content({
+            title: "Part A",
+            sections: unchangedSections(partADish),
+          }),
+          partLinks: [{ targetDishId: partBId, targetDishVersionId: partBV1 }],
+        },
+        "MINOR",
+        "PART",
+      );
+      const partACurrentVersionId = (
+        await prisma.dish.findUniqueOrThrow({ where: { id: partAId } })
+      ).currentVersionId!;
+
+      // Now attempt to make Part B attach Part A's *current* Version (the
+      // one that actually contains the link to Part B) — B -> A -> B, a
+      // real cycle.
+      const partBDish = await loadDishWithVersion(partBId);
+      await expect(
+        dishService.editDish(
+          userId,
+          partBId,
+          partBV1,
+          {
+            ...content({
+              title: "Part B",
+              sections: unchangedSections(partBDish),
+            }),
+            partLinks: [
+              {
+                targetDishId: partAId,
+                targetDishVersionId: partACurrentVersionId,
+              },
+            ],
+          },
+          "MINOR",
+          "PART",
+        ),
+      ).rejects.toThrow(ValidationError);
+    });
+  });
+
+  describe("duplicateDish and promoteHistoricalVersion — verbatim PartLink copy", () => {
+    it("duplicateDish copies the same live target reference, not a new Part", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      const partDishId = await createPart(userId, "Nuoc Cham");
+      const partVersionId = (
+        await prisma.dish.findUniqueOrThrow({ where: { id: partDishId } })
+      ).currentVersionId!;
+
+      const dishId = await dishService.createDish(userId, "RECIPE", content());
+      const dish = await loadDishWithVersion(dishId);
+      await dishService.editDish(
+        userId,
+        dishId,
+        dish.currentVersionId!,
+        {
+          ...content({ sections: unchangedSections(dish) }),
+          partLinks: [
+            { targetDishId: partDishId, targetDishVersionId: partVersionId },
+          ],
+        },
+        "MINOR",
+      );
+
+      const duplicateId = await dishService.duplicateDish(
+        userId,
+        dishId,
+        undefined,
+      );
+      const duplicate = await prisma.dish.findUniqueOrThrow({
+        where: { id: duplicateId },
+        include: { currentVersion: { include: { partLinks: true } } },
+      });
+
+      expect(duplicate.currentVersion?.partLinks).toHaveLength(1);
+      expect(duplicate.currentVersion?.partLinks[0].targetDishId).toBe(
+        partDishId,
+      );
+      expect(duplicate.currentVersion?.partLinks[0].targetDishVersionId).toBe(
+        partVersionId,
+      );
+    });
+
+    it("promoteHistoricalVersion copies the historical Version's PartLinks verbatim", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      const partDishId = await createPart(userId, "Nuoc Cham");
+      const partVersionId = (
+        await prisma.dish.findUniqueOrThrow({ where: { id: partDishId } })
+      ).currentVersionId!;
+
+      const dishId = await dishService.createDish(userId, "RECIPE", content());
+      const dish = await loadDishWithVersion(dishId);
+      const v1Id = dish.currentVersionId!;
+      await dishService.editDish(
+        userId,
+        dishId,
+        v1Id,
+        {
+          ...content({ sections: unchangedSections(dish) }),
+          partLinks: [
+            { targetDishId: partDishId, targetDishVersionId: partVersionId },
+          ],
+        },
+        "MINOR",
+      );
+
+      await dishService.promoteHistoricalVersion(userId, dishId, v1Id);
+
+      const after = await prisma.dish.findUniqueOrThrow({
+        where: { id: dishId },
+        include: { currentVersion: { include: { partLinks: true } } },
+      });
+      // V1.0 had no PartLinks — promoting it verbatim means the new
+      // current Version has none either, even though V1.1 (still saved,
+      // untouched) has one.
+      expect(after.currentVersion?.majorVersion).toBe(2);
+      expect(after.currentVersion?.partLinks).toHaveLength(0);
+    });
+  });
+
+  describe("listCurrentPartUsages and listAttachableParts", () => {
+    it("finds the current usage of a Part, with its container's title and Section placement", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      const partDishId = await createPart(userId, "Nuoc Cham");
+      const partVersionId = (
+        await prisma.dish.findUniqueOrThrow({ where: { id: partDishId } })
+      ).currentVersionId!;
+
+      const dishId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({ title: "Grilled Pork" }),
+      );
+      const dish = await loadDishWithVersion(dishId);
+      await dishService.editDish(
+        userId,
+        dishId,
+        dish.currentVersionId!,
+        {
+          ...content({
+            title: "Grilled Pork",
+            sections: unchangedSections(dish),
+          }),
+          partLinks: [
+            { targetDishId: partDishId, targetDishVersionId: partVersionId },
+          ],
+        },
+        "MINOR",
+      );
+
+      const usages = await listCurrentPartUsages(userId, partDishId);
+      expect(usages).toHaveLength(1);
+      expect(usages[0]).toMatchObject({
+        containerDishId: dishId,
+        containerKind: "RECIPE",
+        containerTitle: "Grilled Pork",
+        targetDishVersionId: partVersionId,
+        sectionName: null, // top-level occurrence
+      });
+    });
+
+    it("does not include a Part that has no current usages", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      const partDishId = await createPart(userId, "Unused Part");
+
+      expect(await listCurrentPartUsages(userId, partDishId)).toEqual([]);
+    });
+
+    it("excludes the Part currently being edited from its own attach picker", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      const partDishId = await createPart(userId, "Toasted Almonds");
+      await createPart(userId, "Nuoc Cham");
+
+      const attachable = await listAttachableParts(userId, partDishId);
+      expect(attachable.map((p) => p.id)).not.toContain(partDishId);
+      expect(attachable.length).toBeGreaterThanOrEqual(1);
     });
   });
 });

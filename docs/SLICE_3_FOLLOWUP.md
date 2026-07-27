@@ -308,6 +308,26 @@ not reproducible against a fresh dev server). If a future CI/local run
 sees a flake at that exact assertion, that's the known cause — not a
 functional regression.
 
+**Slice 6 correction:** the guidance above was wrongly relied on to wave off
+a real regression more than once. A `>5s timeout` on the assertion right
+after the "golden path" test's Restore step recurred during Slice 6. Two
+real, unrelated bugs were found and fixed along the way (a `strict mode
+violation` from the new "Save as reusable Part" Section button also
+matching `getByRole("button", { name: "Save" })`, and a duplicate-React-key
+bug from `VersionMetadataEditor`/`VersionNoteEditor` both keyed by bare
+`version.id`) — but neither was the cause of *this* specific timeout: it
+recurred even after both were fixed. The actual cause was in the test
+itself: the Restore dialog's Select defaults to "Active" the instant it
+opens, so `expect(getByText("Active")).toBeVisible()` right after clicking
+confirm doesn't prove the restore mutation finished — it's already
+satisfied by the dialog's own label. The test could then race ahead to
+`goto("/recipes")` before the Server Action committed (worse under dev-
+server load, which is why this always presented as the same documented
+"heavy load" flake). Fixed by waiting for the dialog to actually close
+before asserting anything. Treat a match on "timeout on an assertion in
+golden path" as a prompt to check for a real cause first, not as
+confirmation of this known flake.
+
 ## Commands run and results this pass
 
 - `pnpm exec tsc --noEmit` — clean, throughout (checked after every

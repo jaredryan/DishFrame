@@ -19,5 +19,15 @@ export async function createTestUser(overrides?: { email?: string }) {
 }
 
 export async function deleteTestUser(userId: string) {
+  // PartLink.targetVersion is onDelete: Restrict by design (Arch §I/§J — a
+  // Part in use can only be removed through the deliberate two-phase
+  // deletion flow, not an incidental cascade). Cascading a test user's own
+  // Dishes can therefore hit that Restrict if some PartLink (in this user's
+  // own Dishes, or another test's) still targets one of this user's Part
+  // Versions — clear those links first so teardown doesn't depend on
+  // Postgres's cascade-processing order across the two Dishes.
+  await prisma.partLink.deleteMany({
+    where: { targetVersion: { dish: { ownerId: userId } } },
+  });
   await prisma.user.delete({ where: { id: userId } });
 }

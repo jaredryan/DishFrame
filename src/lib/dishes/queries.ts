@@ -47,10 +47,36 @@ export const sectionContentInclude = {
   },
 };
 
+/**
+ * Slice 6: `PartLink` has no Prisma relation to `Section` (raw-SQL
+ * composite FK only, per schema.prisma's own comment on `Section.partLinks`
+ * — the consistency check is enforced at the DB level, not surfaced as a
+ * Prisma-navigable back-relation). A `DishVersion`'s linked Parts —
+ * top-level (`sectionId: null`) and Section-nested alike — are fetched as
+ * one flat, ordered list directly off `DishVersion.partLinks` and bucketed
+ * by `sectionId` afterward (`mappers.ts`'s `versionContentToInput`), never
+ * nested under `sections` in the Prisma include itself. Only `LIVE` rows —
+ * a `MATERIALIZED` row (Part-deletion history, not exercised until
+ * propagation/deletion-materialization work) has no live target to resolve.
+ */
+export const partLinkContentInclude = {
+  where: { linkState: "LIVE" as const },
+  orderBy: { position: "asc" as const },
+  select: {
+    id: true,
+    lineageId: true,
+    sectionId: true,
+    position: true,
+    targetDishId: true,
+    targetDishVersionId: true,
+  },
+} as const;
+
 export const dishDetailInclude = {
   currentVersion: {
     include: {
       sections: sectionContentInclude,
+      partLinks: partLinkContentInclude,
     },
   },
   // Slice 5, PRODUCT_SPEC.md §53.6: needed so the detail view can apply a
@@ -95,7 +121,10 @@ export async function getOwnedDishDetailOrThrow(
 export function getVersionContent(dishVersionId: string) {
   return prisma.dishVersion.findUniqueOrThrow({
     where: { id: dishVersionId },
-    include: { sections: sectionContentInclude },
+    include: {
+      sections: sectionContentInclude,
+      partLinks: partLinkContentInclude,
+    },
   });
 }
 
@@ -112,7 +141,10 @@ export async function getDishScopedVersionContentOrThrow(
 ) {
   const version = await prisma.dishVersion.findFirst({
     where: { id: versionId, dishId },
-    include: { sections: sectionContentInclude },
+    include: {
+      sections: sectionContentInclude,
+      partLinks: partLinkContentInclude,
+    },
   });
   if (!version) {
     throw new NotFoundError("Version not found.");
@@ -209,6 +241,105 @@ export async function getHighestMinorVersion(
     _max: { minorVersion: true },
   });
   return result._max.minorVersion ?? 0;
+}
+
+/**
+ * Slice 6, PRODUCT_SPEC.md §68: candidate Parts an owner may attach —
+ * every owned, non-archived Part, excluding the Part currently being
+ * edited itself when one is given (a cheap self-attach guard on top of
+ * the real identity-level cycle check, which rejects indirect self-
+ * composition too).
+ */
+export async function listAttachableParts(
+  ownerId: string,
+  excludeDishId?: string,
+) {
+  return prisma.dish.findMany({
+    where: {
+      ownerId,
+      kind: "PART",
+      archivedAt: null,
+      currentVersionId: { not: null },
+      ...(excludeDishId ? { id: { not: excludeDishId } } : {}),
+    },
+    select: { id: true, currentTitle: true, currentVersionId: true },
+    orderBy: { currentTitle: "asc" },
+  });
+}
+export type AttachablePart = Awaited<
+  ReturnType<typeof listAttachableParts>
+>[number];
+
+/**
+ * PRODUCT_SPEC.md §71 "Recipes using this Part" — current usages only
+ * (historical usages remain discoverable through Version history, per
+ * §71's "primary view emphasizes current Recipe Versions"). Scoped to
+ * `LIVE` links whose container is some Dish's *current* Version, owned by
+ * the same owner as the Part itself (no cross-account linking exists yet).
+ */
+export type PartUsage = {
+  id: string;
+  containerDishId: string;
+  containerKind: DishKindValue;
+  containerTitle: string;
+  containerVersionId: string;
+  containerMajorVersion: number;
+  containerMinorVersion: number;
+  targetDishVersionId: string;
+  sectionName: string | null; // null = top-level occurrence
+};
+
+export async function listCurrentPartUsages(
+  ownerId: string,
+  partDishId: string,
+): Promise<PartUsage[]> {
+  const links = await prisma.partLink.findMany({
+    where: {
+      targetDishId: partDishId,
+      linkState: "LIVE",
+      containerVersion: { currentFor: { isNot: null }, dish: { ownerId } },
+    },
+    select: {
+      id: true,
+      sectionId: true,
+      targetDishVersionId: true,
+      containerVersion: {
+        select: {
+          id: true,
+          majorVersion: true,
+          minorVersion: true,
+          dish: { select: { id: true, kind: true, currentTitle: true } },
+        },
+      },
+    },
+  });
+
+  const sectionIds = links
+    .map((link) => link.sectionId)
+    .filter((id): id is string => !!id);
+  const sections = sectionIds.length
+    ? await prisma.section.findMany({
+        where: { id: { in: sectionIds } },
+        select: { id: true, name: true },
+      })
+    : [];
+  const sectionNameById = new Map(sections.map((s) => [s.id, s.name]));
+
+  return links.map((link) => ({
+    id: link.id,
+    containerDishId: link.containerVersion.dish.id,
+    containerKind: link.containerVersion.dish.kind,
+    containerTitle: link.containerVersion.dish.currentTitle ?? "Untitled",
+    containerVersionId: link.containerVersion.id,
+    containerMajorVersion: link.containerVersion.majorVersion,
+    containerMinorVersion: link.containerVersion.minorVersion,
+    // Guaranteed non-null: the CHECK constraint requires both target
+    // fields whenever `linkState = LIVE` (schema.prisma §D.6).
+    targetDishVersionId: link.targetDishVersionId!,
+    sectionName: link.sectionId
+      ? (sectionNameById.get(link.sectionId) ?? null)
+      : null,
+  }));
 }
 
 /**

@@ -198,6 +198,31 @@ design review while the UI is evolving. Detailed browser review may be
 combined across related slices when the next slice does not depend on the
 current presentation being settled.
 
+# Implementation report policy
+
+Applies the global `~/.claude/CLAUDE.md` "Token-efficient implementation
+handoffs" policy to this project. `docs/SLICE_{#}.md` is a concise
+operational handoff, not a comprehensive chapter — target ~80–150 lines
+for a normal slice; a pre-gate architecture handoff (e.g. explaining a
+transaction design ahead of a Review Gate) may run longer, but stay
+concise and non-duplicative.
+
+Include only: DishFrame-relevant deltas, decisions, tests written,
+unresolved issues, and owner-review needs. Reference canonical
+requirements by section number rather than restating them. Omit
+exhaustive modified-file lists, command-by-command histories, and
+repeated verification instructions.
+
+Create a partial/checkpoint file only for genuine interruption risk or an
+explicit pre-gate handoff; remove or mark it superseded once the final
+report lands.
+
+Review Gate documentation should focus on the actual architecture/product
+questions under review, not reproduce the surrounding slice's full scope.
+
+This does not change the owner-run testing, Git, source-of-truth, or
+manual-review policies above — those stand as written.
+
 # Database migrations
 
 DishFrame uses custom CHECK constraints, composite foreign keys, partial

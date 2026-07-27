@@ -55,8 +55,10 @@ function content(overrides: Partial<DishContentInput> = {}): DishContentInput {
           },
         ],
         instructions: [],
+        partLinks: [],
       },
     ],
+    partLinks: [],
     ...overrides,
   };
 }

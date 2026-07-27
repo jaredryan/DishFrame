@@ -20,6 +20,14 @@ import { createReorderAnnouncements } from "@/lib/dnd/announcements";
 import { ItemToolbar } from "@/components/domain/dish/reorder-buttons";
 import { IngredientFields } from "@/components/domain/dish/ingredient-fields";
 import { InstructionFields } from "@/components/domain/dish/instruction-fields";
+import { PartLinkFields } from "@/components/domain/dish/part-link-fields";
+import {
+  PartAttachPicker,
+  type AttachablePartOption,
+} from "@/components/domain/dish/part-attach-picker";
+import { SaveSectionAsPartDialog } from "@/components/domain/dish/save-section-as-part-dialog";
+import type { DetachedContent } from "@/lib/sections/service";
+import type { DishKindValue } from "@/lib/dishes/schema";
 
 const BLANK_INGREDIENT = {
   name: "",
@@ -40,15 +48,24 @@ export function SectionFields({
   id,
   sectionIndex,
   onRemove,
+  containerDishId,
+  containerKind,
+  attachableParts,
+  baseVersionId,
 }: {
   id: string;
   sectionIndex: number;
   onRemove: () => void;
+  containerDishId: string | null;
+  containerKind: DishKindValue;
+  attachableParts: AttachablePartOption[];
+  baseVersionId: string | null;
 }) {
   const { control, register, watch } = useFormContext();
   const prefix = `sections.${sectionIndex}`;
   const idPrefix = prefix.replace(/\./g, "-");
   const sectionName: string = watch(`${prefix}.name`);
+  const sectionLineageId: string | undefined = watch(`${prefix}.lineageId`);
   const [collapsed, setCollapsed] = React.useState(false);
 
   const ingredients = useFieldArray({ control, name: `${prefix}.ingredients` });
@@ -56,8 +73,33 @@ export function SectionFields({
     control,
     name: `${prefix}.instructions`,
   });
+  const partLinks = useFieldArray({ control, name: `${prefix}.partLinks` });
   const ingredientSensors = useReorderSensors();
   const instructionSensors = useReorderSensors();
+
+  // Slice 6, PRODUCT_SPEC.md §70.1: detaching content nested inside a
+  // Section flattens the target Part Version's own Ingredients/
+  // Instructions (across all of its Sections) directly into this
+  // container Section, and promotes every linked Part it carried (its own
+  // top-level links and any nested inside its Sections) into this
+  // Section's own linked Parts — this schema has no way to nest a Section
+  // inside a Section, so a whole extracted Part's structure collapses into
+  // the one Section it was attached to. A top-level detach (DishEditor)
+  // instead keeps each of the target's Sections intact as brand-new
+  // top-level Sections, since there's room for that at the container level.
+  function handleDetach(partLinkIndex: number, content: DetachedContent) {
+    content.sections.forEach((detachedSection) => {
+      detachedSection.ingredients.forEach((ingredient) =>
+        ingredients.append(ingredient),
+      );
+      detachedSection.instructions.forEach((instruction) =>
+        instructions.append(instruction),
+      );
+      detachedSection.partLinks.forEach((link) => partLinks.append(link));
+    });
+    content.partLinks.forEach((link) => partLinks.append(link));
+    partLinks.remove(partLinkIndex);
+  }
 
   const label = sectionName || `section ${sectionIndex + 1}`;
   const sectionNumberLabel = `Section ${sectionIndex + 1}`;
@@ -116,6 +158,8 @@ export function SectionFields({
               {ingredients.fields.length === 1 ? "" : "s"},{" "}
               {instructions.fields.length} instruction
               {instructions.fields.length === 1 ? "" : "s"}
+              {partLinks.fields.length > 0 &&
+                `, ${partLinks.fields.length} linked Part${partLinks.fields.length === 1 ? "" : "s"}`}
             </p>
           </div>
         </div>
@@ -175,6 +219,14 @@ export function SectionFields({
           onRemove={onRemove}
         />
       </div>
+
+      <SaveSectionAsPartDialog
+        containerDishId={containerDishId}
+        containerKind={containerKind}
+        baseVersionId={baseVersionId}
+        sectionLineageId={sectionLineageId}
+        sectionLabel={label}
+      />
 
       <div className="flex flex-col gap-2">
         <h4 className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
@@ -275,6 +327,28 @@ export function SectionFields({
           <Plus /> Add instruction
         </Button>
       </div>
+
+      {partLinks.fields.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <h4 className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+            Linked Parts
+          </h4>
+          {partLinks.fields.map((field, partLinkIndex) => (
+            <PartLinkFields
+              key={field.id}
+              prefix={`${prefix}.partLinks.${partLinkIndex}`}
+              onRemove={() => partLinks.remove(partLinkIndex)}
+              onDetach={(content) => handleDetach(partLinkIndex, content)}
+            />
+          ))}
+        </div>
+      )}
+      <PartAttachPicker
+        containerDishId={containerDishId}
+        containerKind={containerKind}
+        attachableParts={attachableParts}
+        onAttach={(link) => partLinks.append(link)}
+      />
     </div>
   );
 }

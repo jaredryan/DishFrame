@@ -7,6 +7,8 @@ import {
   diffVersionContent,
   normalizeDifficultyValue,
   type SectionInput,
+  type PartLinkInput,
+  type VersionContentInput,
 } from "@/lib/dishes/schema";
 
 function section(overrides: Partial<SectionInput> = {}): SectionInput {
@@ -15,6 +17,7 @@ function section(overrides: Partial<SectionInput> = {}): SectionInput {
     guidanceNote: null,
     ingredients: [],
     instructions: [],
+    partLinks: [],
     ...overrides,
   };
 }
@@ -35,6 +38,24 @@ function ingredient(name = "Salt") {
 
 function instruction(text = "Stir.") {
   return { text };
+}
+
+function partLink(overrides: Partial<PartLinkInput> = {}): PartLinkInput {
+  return {
+    targetDishId: "part-1",
+    targetDishVersionId: "part-1-v1",
+    ...overrides,
+  };
+}
+
+// diffVersionContent takes the whole proposed content (Sections + top-level
+// linked Parts) on each side — this wraps a bare Sections array with no
+// top-level links, the common case most of these tests exercise.
+function content(
+  sections: SectionInput[],
+  partLinks: PartLinkInput[] = [],
+): VersionContentInput {
+  return { sections, partLinks };
 }
 
 describe("removeEmptySections", () => {
@@ -58,6 +79,11 @@ describe("removeEmptySections", () => {
 
   it("returns an empty array when every Section is empty", () => {
     expect(removeEmptySections([section(), section()])).toEqual([]);
+  });
+
+  it("keeps a Section that has only a linked Part (Slice 6, §67.1)", () => {
+    const sections = [section({ partLinks: [partLink()] })];
+    expect(removeEmptySections(sections)).toHaveLength(1);
   });
 });
 
@@ -208,6 +234,15 @@ describe("hasMinimumContent", () => {
     expect(hasMinimumContent(sections)).toBe(true);
   });
 
+  it("is true when a Section has only a linked Part (Slice 6)", () => {
+    const sections = [section({ partLinks: [partLink()] })];
+    expect(hasMinimumContent(sections)).toBe(true);
+  });
+
+  it("is true for a top-level linked Part with no local Section content (Slice 6, §67.1)", () => {
+    expect(hasMinimumContent([section()], [partLink()])).toBe(true);
+  });
+
   it("is false for a single unnamed empty default Section", () => {
     expect(hasMinimumContent([section()])).toBe(false);
   });
@@ -230,6 +265,7 @@ describe("diffVersionContent after a reorder (drag or otherwise)", () => {
         lineageId: "section-1",
         name: null,
         guidanceNote: null,
+        partLinks: [],
         ingredients: [
           { lineageId: "ing-1", ...ingredient("Salt") },
           { lineageId: "ing-2", ...ingredient("Pepper") },
@@ -244,6 +280,7 @@ describe("diffVersionContent after a reorder (drag or otherwise)", () => {
         lineageId: "section-1",
         name: null,
         guidanceNote: null,
+        partLinks: [],
         ingredients: [
           { lineageId: "ing-2", ...ingredient("Pepper") },
           { lineageId: "ing-1", ...ingredient("Salt") },
@@ -253,8 +290,8 @@ describe("diffVersionContent after a reorder (drag or otherwise)", () => {
     ];
 
     const { cookingChanged, sectionOrganizationChanged } = diffVersionContent(
-      base,
-      edited,
+      content(base),
+      content(edited),
     );
     expect(cookingChanged).toBe(true);
     expect(sectionOrganizationChanged).toBe(false);
@@ -266,6 +303,7 @@ describe("diffVersionContent after a reorder (drag or otherwise)", () => {
         lineageId: "section-1",
         name: null,
         guidanceNote: null,
+        partLinks: [],
         ingredients: [{ lineageId: "ing-1", ...ingredient("Salt") }],
         instructions: [
           { lineageId: "step-1", ...instruction("Boil water.") },
@@ -278,6 +316,7 @@ describe("diffVersionContent after a reorder (drag or otherwise)", () => {
         lineageId: "section-1",
         name: null,
         guidanceNote: null,
+        partLinks: [],
         ingredients: [{ lineageId: "ing-1", ...ingredient("Salt") }],
         instructions: [
           { lineageId: "step-2", ...instruction("Add salt.") },
@@ -286,7 +325,10 @@ describe("diffVersionContent after a reorder (drag or otherwise)", () => {
       },
     ];
 
-    const { cookingChanged } = diffVersionContent(base, edited);
+    const { cookingChanged } = diffVersionContent(
+      content(base),
+      content(edited),
+    );
     expect(cookingChanged).toBe(true);
   });
 
@@ -296,6 +338,7 @@ describe("diffVersionContent after a reorder (drag or otherwise)", () => {
         lineageId: "section-1",
         name: "Sauce",
         guidanceNote: null,
+        partLinks: [],
         ingredients: [{ lineageId: "ing-1", ...ingredient("Soy sauce") }],
         instructions: [],
       },
@@ -303,6 +346,7 @@ describe("diffVersionContent after a reorder (drag or otherwise)", () => {
         lineageId: "section-2",
         name: "Rice",
         guidanceNote: null,
+        partLinks: [],
         ingredients: [{ lineageId: "ing-2", ...ingredient("Rice") }],
         instructions: [],
       },
@@ -314,6 +358,7 @@ describe("diffVersionContent after a reorder (drag or otherwise)", () => {
         lineageId: "section-2",
         name: "Rice",
         guidanceNote: null,
+        partLinks: [],
         ingredients: [{ lineageId: "ing-2", ...ingredient("Rice") }],
         instructions: [],
       },
@@ -321,17 +366,112 @@ describe("diffVersionContent after a reorder (drag or otherwise)", () => {
         lineageId: "section-1",
         name: "Sauce",
         guidanceNote: null,
+        partLinks: [],
         ingredients: [{ lineageId: "ing-1", ...ingredient("Soy sauce") }],
         instructions: [],
       },
     ];
 
     const { cookingChanged, sectionOrganizationChanged } = diffVersionContent(
-      base,
-      edited,
+      content(base),
+      content(edited),
     );
     expect(cookingChanged).toBe(false);
     expect(sectionOrganizationChanged).toBe(true);
+  });
+});
+
+// Slice 6, PRODUCT_SPEC.md §67-70: a linked Part is exactly as
+// "cooking-adjacent" as an Ingredient/Instruction — attaching, detaching,
+// re-targeting, or moving one is a genuine content change, not automatic
+// Section organization.
+describe("diffVersionContent with linked Parts", () => {
+  it("classifies a newly attached top-level Part as a cooking change", () => {
+    const result = diffVersionContent(
+      content([section()], []),
+      content([section()], [partLink()]),
+    );
+    expect(result.cookingChanged).toBe(true);
+  });
+
+  it("classifies a detached (removed) linked Part as a cooking change", () => {
+    const result = diffVersionContent(
+      content([section()], [{ lineageId: "link-1", ...partLink() }]),
+      content([section()], []),
+    );
+    expect(result.cookingChanged).toBe(true);
+  });
+
+  it("classifies choosing a different target Version for the same occurrence as a cooking change", () => {
+    const result = diffVersionContent(
+      content(
+        [section()],
+        [
+          {
+            lineageId: "link-1",
+            ...partLink({ targetDishVersionId: "part-1-v1" }),
+          },
+        ],
+      ),
+      content(
+        [section()],
+        [
+          {
+            lineageId: "link-1",
+            ...partLink({ targetDishVersionId: "part-1-v2" }),
+          },
+        ],
+      ),
+    );
+    expect(result.cookingChanged).toBe(true);
+  });
+
+  it("classifies moving an occurrence from top-level into a Section as a cooking change", () => {
+    const result = diffVersionContent(
+      content(
+        [section({ lineageId: "section-1" })],
+        [{ lineageId: "link-1", ...partLink() }],
+      ),
+      content(
+        [
+          section({
+            lineageId: "section-1",
+            partLinks: [{ lineageId: "link-1", ...partLink() }],
+          }),
+        ],
+        [],
+      ),
+    );
+    expect(result.cookingChanged).toBe(true);
+  });
+
+  it("does not report a change when an unchanged linked Part survives untouched", () => {
+    const unchanged = content(
+      [section()],
+      [{ lineageId: "link-1", ...partLink() }],
+    );
+    const result = diffVersionContent(unchanged, unchanged);
+    expect(result.cookingChanged).toBe(false);
+  });
+
+  it("does not misclassify an unrelated Section rename as a cooking change merely because a linked Part is also present (§O-style false-positive check)", () => {
+    const base = content([
+      section({
+        lineageId: "section-1",
+        name: "Marinade",
+        partLinks: [{ lineageId: "link-1", ...partLink() }],
+      }),
+    ]);
+    const edited = content([
+      section({
+        lineageId: "section-1",
+        name: "Marinade (updated)",
+        partLinks: [{ lineageId: "link-1", ...partLink() }],
+      }),
+    ]);
+    const result = diffVersionContent(base, edited);
+    expect(result.cookingChanged).toBe(false);
+    expect(result.sectionOrganizationChanged).toBe(true);
   });
 });
 

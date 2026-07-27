@@ -61,3 +61,11 @@ Requires Docker Desktop running with the local Postgres container up
 Never run `git status`, `git diff`, `git log`, or any other git
 inspection/mutation command (commit, push, pull, branch, PR) unless the
 owner explicitly asks in that turn. They manage Git state themselves.
+
+# Implementation report policy (DishFrame-specific)
+
+The global `~/.claude/CLAUDE.md` "Token-efficient implementation
+handoffs" policy applies here. DishFrame-specific details (target
+length, what `docs/SLICE_*.md` should and shouldn't contain) live in
+`AGENTS.md`'s "Implementation report policy" section (@-included above)
+— not restated here.

@@ -9,11 +9,13 @@ import {
 } from "@/components/domain/dish/scaled-version-view";
 import { VersionNoteEditor } from "@/components/domain/dish/version-note-editor";
 import { VersionMetadataEditor } from "@/components/domain/dish/version-metadata-editor";
+import { PartUsagePanel } from "@/components/domain/dish/part-usage-panel";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
 import type { DishKindValue } from "@/lib/dishes/schema";
-import type {
-  dishDetailInclude,
-  sectionContentInclude,
+import {
+  listCurrentPartUsages,
+  type dishDetailInclude,
+  type sectionContentInclude,
 } from "@/lib/dishes/queries";
 import { decimalToNumber } from "@/lib/dishes/format";
 
@@ -70,7 +72,7 @@ function toDisplaySections(sections: VersionSectionRow[]): ScaledSectionRow[] {
   }));
 }
 
-export function DishDetailView({
+export async function DishDetailView({
   dish,
   kind,
 }: {
@@ -79,6 +81,10 @@ export function DishDetailView({
 }) {
   const version = dish.currentVersion;
   const label = kind === "PART" ? "Part" : "Recipe";
+  // PRODUCT_SPEC.md §71: only meaningful for a Part — a Recipe is never a
+  // PartLink target, so it can never have "usages" of its own.
+  const usages =
+    kind === "PART" ? await listCurrentPartUsages(dish.ownerId, dish.id) : null;
 
   if (!version) {
     return (
@@ -119,7 +125,7 @@ export function DishDetailView({
         )}
 
         <VersionMetadataEditor
-          key={version.id}
+          key={`metadata-${version.id}`}
           kind={kind}
           dishId={dish.id}
           versionId={version.id}
@@ -161,12 +167,19 @@ export function DishDetailView({
         </div>
 
         <VersionNoteEditor
-          key={version.id}
+          key={`note-${version.id}`}
           kind={kind}
           dishId={dish.id}
           versionId={version.id}
           note={version.versionNote}
         />
+
+        {kind === "PART" && (
+          <PartUsagePanel
+            usages={usages ?? []}
+            currentVersionId={dish.currentVersionId}
+          />
+        )}
       </div>
 
       <ScaledVersionView

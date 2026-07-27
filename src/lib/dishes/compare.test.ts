@@ -44,6 +44,7 @@ function section(overrides: Partial<SectionInput> = {}): SectionInput {
     guidanceNote: null,
     ingredients: [],
     instructions: [],
+    partLinks: [],
     ...overrides,
   };
 }

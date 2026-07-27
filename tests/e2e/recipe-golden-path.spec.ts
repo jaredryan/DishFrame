@@ -85,7 +85,10 @@ test.describe("Recipes: create, view, edit, archive, restore, duplicate, delete"
     // pass fixed: a fully-unused substitute used to fail Zod validation).
     await page.getByRole("button", { name: "Add substitute" }).click();
 
-    await page.getByRole("button", { name: "Save" }).click();
+    // exact: true — a Section's "Save as reusable Part" trigger (Slice 6)
+    // also has an accessible name containing "Save", which Playwright's
+    // default substring name matching would otherwise also match.
+    await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect(page).toHaveURL(/\/recipes\/[^/]+$/);
     await expect(page.getByRole("heading", { name: title })).toBeVisible();
     await expect(page.getByText("Idea")).toBeVisible();
@@ -103,7 +106,7 @@ test.describe("Recipes: create, view, edit, archive, restore, duplicate, delete"
     await page
       .getByRole("textbox", { name: "Instruction 1" })
       .fill("Grate the ginger.");
-    await page.getByRole("button", { name: "Save" }).click();
+    await page.getByRole("button", { name: "Save", exact: true }).click();
 
     await expect(
       page.getByText("How should this change be saved?"),
@@ -134,6 +137,12 @@ test.describe("Recipes: create, view, edit, archive, restore, duplicate, delete"
       .getByRole("dialog")
       .getByRole("button", { name: "Restore" })
       .click();
+    // The dialog's own Select defaults to "Active" the moment it opens, so
+    // getByText("Active") alone would already be satisfied by that label
+    // and wouldn't prove the restore mutation actually completed. Wait for
+    // the dialog to close first — it only does so after the Server Action
+    // resolves — so the subsequent goto("/recipes") can't race ahead of it.
+    await expect(page.getByRole("dialog")).not.toBeVisible();
     await expect(page.getByText("Active")).toBeVisible();
 
     await page.goto("/recipes");
@@ -195,7 +204,8 @@ test.describe("Recipes: create, view, edit, archive, restore, duplicate, delete"
     await page.getByRole("button", { name: "Add substitute" }).click();
     await page.getByLabel("Substitute name").fill("Chicken broth");
 
-    await page.getByRole("button", { name: "Save" }).click();
+    // exact: true — see the "golden path" test above for why.
+    await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect(page).toHaveURL(/\/recipes\/[^/]+$/);
     // "1 1/2" parses to the decimal 1.5, formatted plainly on the detail
     // page (fraction *display* is Slice 5 scaling/formatting scope, not
@@ -214,7 +224,7 @@ test.describe("Recipes: create, view, edit, archive, restore, duplicate, delete"
     const nameInput = page.getByLabel("Ingredient name");
     await nameInput.fill("");
     await nameInput.fill("Roasted vegetable broth");
-    await page.getByRole("button", { name: "Save" }).click();
+    await page.getByRole("button", { name: "Save", exact: true }).click();
 
     await expect(
       page.getByText("How should this change be saved?"),

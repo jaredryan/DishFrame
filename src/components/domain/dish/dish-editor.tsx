@@ -39,6 +39,12 @@ import { NumberField } from "@/components/domain/dish/number-field";
 import { SectionFields } from "@/components/domain/dish/section-fields";
 import { CuisineField } from "@/components/domain/dish/cuisine-field";
 import { ImageField } from "@/components/domain/dish/image-field";
+import { PartLinkFields } from "@/components/domain/dish/part-link-fields";
+import {
+  PartAttachPicker,
+  type AttachablePartOption,
+} from "@/components/domain/dish/part-attach-picker";
+import type { DetachedContent } from "@/lib/sections/service";
 import { useUnsavedChangesGuard } from "@/components/domain/dish/use-unsaved-changes-guard";
 import { useReorderSensors } from "@/lib/dnd/sensors";
 import { createReorderAnnouncements } from "@/lib/dnd/announcements";
@@ -70,6 +76,7 @@ export function DishEditor({
   kind,
   dish,
   cuisineOptions = [],
+  attachableParts = [],
 }: {
   kind: DishKindValue;
   dish?: {
@@ -98,6 +105,10 @@ export function DishEditor({
     values: DishFormValues;
   };
   cuisineOptions?: string[];
+  // Slice 6, PRODUCT_SPEC.md §68: candidate Parts this owner may attach —
+  // fetched server-side (the same pattern as `cuisineOptions`), excluding
+  // this Dish itself when editing an existing Part.
+  attachableParts?: AttachablePartOption[];
 }) {
   const router = useRouter();
   const [serverError, setServerError] = React.useState<string | null>(null);
@@ -111,7 +122,23 @@ export function DishEditor({
   const { control, register, handleSubmit, formState, setError, getValues } =
     form;
   const sections = useFieldArray({ control, name: "sections" });
+  const topLevelPartLinks = useFieldArray({ control, name: "partLinks" });
   const sectionSensors = useReorderSensors();
+
+  // Slice 6, PRODUCT_SPEC.md §70.1: a top-level detach keeps each of the
+  // target Part Version's own Sections intact as brand-new top-level
+  // Sections (there's room for real nesting here, unlike inside a single
+  // Section — see `SectionFields`'s own detach handler for that case), and
+  // promotes the target's own top-level linked Parts into this container's
+  // top-level linked Parts.
+  function handleTopLevelDetach(
+    partLinkIndex: number,
+    content: DetachedContent,
+  ) {
+    content.sections.forEach((section) => sections.append(section));
+    content.partLinks.forEach((link) => topLevelPartLinks.append(link));
+    topLevelPartLinks.remove(partLinkIndex);
+  }
 
   function handleSectionDragEnd(event: DragEndEvent) {
     const { active, over } = event;
@@ -217,9 +244,14 @@ export function DishEditor({
       return;
     }
 
-    if (!hasMinimumContent(removeEmptySections(cleaned.sections))) {
+    if (
+      !hasMinimumContent(
+        removeEmptySections(cleaned.sections),
+        cleaned.partLinks,
+      )
+    ) {
       setServerError(
-        "Add at least one ingredient or instruction before saving.",
+        "Add at least one ingredient, instruction, or linked Part before saving.",
       );
       return;
     }
@@ -228,8 +260,8 @@ export function DishEditor({
     // new Dish always starts at V1.0, nothing to diff against.
     if (dish) {
       const { cookingChanged } = diffVersionContent(
-        dish.values.sections,
-        cleaned.sections,
+        { sections: dish.values.sections, partLinks: dish.values.partLinks },
+        { sections: cleaned.sections, partLinks: cleaned.partLinks },
       );
       if (cookingChanged) {
         setPendingCookingChange(cleaned);
@@ -443,6 +475,10 @@ export function DishEditor({
                     id={field.id}
                     sectionIndex={sectionIndex}
                     onRemove={() => sections.remove(sectionIndex)}
+                    containerDishId={dish?.id ?? null}
+                    containerKind={kind}
+                    attachableParts={attachableParts}
+                    baseVersionId={dish?.baseVersionId ?? null}
                   />
                 ))}
               </SortableContext>
@@ -457,11 +493,36 @@ export function DishEditor({
                   guidanceNote: null,
                   ingredients: [],
                   instructions: [],
+                  partLinks: [],
                 })
               }
             >
               <Plus /> Add section
             </Button>
+          </div>
+
+          <div className="flex flex-col gap-4">
+            <h2 className="font-heading text-lg font-medium">Linked Parts</h2>
+            <p className="text-muted-foreground -mt-2 text-sm">
+              Parts attached directly to this {kindLabel.toLowerCase()}, not
+              inside a specific section.
+            </p>
+            {topLevelPartLinks.fields.map((field, partLinkIndex) => (
+              <PartLinkFields
+                key={field.id}
+                prefix={`partLinks.${partLinkIndex}`}
+                onRemove={() => topLevelPartLinks.remove(partLinkIndex)}
+                onDetach={(content) =>
+                  handleTopLevelDetach(partLinkIndex, content)
+                }
+              />
+            ))}
+            <PartAttachPicker
+              containerDishId={dish?.id ?? null}
+              containerKind={kind}
+              attachableParts={attachableParts}
+              onAttach={(link) => topLevelPartLinks.append(link)}
+            />
           </div>
 
           {serverError && (

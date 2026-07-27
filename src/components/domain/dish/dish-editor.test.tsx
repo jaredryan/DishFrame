@@ -68,8 +68,10 @@ const existingDish: {
           },
         ],
         instructions: [],
+        partLinks: [],
       },
     ],
+    partLinks: [],
   },
 };
 
@@ -346,7 +348,7 @@ describe("DishEditor minimum-content validation", () => {
 
     expect(
       await screen.findByText(
-        "Add at least one ingredient or instruction before saving.",
+        "Add at least one ingredient, instruction, or linked Part before saving.",
       ),
     ).toBeInTheDocument();
     expect(mockedCreateDish).not.toHaveBeenCalled();
