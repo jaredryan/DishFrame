@@ -103,7 +103,13 @@ minted for every Section/Ingredient/Instruction row.
 
 ## Immutable Version-edit behavior
 
-Save on `/edit` calls `editDish`: creates a new minor Version within the
+**Superseded, in two layers — see `docs/SLICE_3_FOLLOWUP.md`'s Gate 2
+classification rule, itself later revised by `docs/SLICE_5.md`'s
+Version-trigger and Slice 5 image correction pass.** This section
+describes Slice 3's original always-creates-a-Version behavior, which no
+longer holds: a stable-metadata-only save (title, Stage, cuisine) or a
+mutable-Version-metadata-only save (description, image) creates no
+Version at all. Save on `/edit` calls `editDish`: creates a new minor Version within the
 current major line (`majorVersion` unchanged, `minorVersion` incremented),
 leaves the prior Version's rows untouched, and updates
 `Dish.currentVersionId`/`currentTitle`/`currentStructuralSearchText`/Stage

@@ -6,7 +6,13 @@ import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import {
   getOwnedDishOrThrow,
   getDishScopedVersionContentOrThrow,
+  getDishScopedVersionMetaOrThrow,
 } from "@/lib/dishes/queries";
+import {
+  assertImageAssetAttachable,
+  deleteImageAssetIfOrphaned,
+  bestEffortDeleteBlob,
+} from "@/lib/images/service";
 import { decimalToNumber } from "@/lib/dishes/format";
 import { sectionRowsToInput } from "@/lib/dishes/mappers";
 import {
@@ -33,23 +39,34 @@ import {
  * Framework-agnostic domain functions (ARCHITECTURE_PROPOSAL.md §K.4) — see
  * src/lib/tasters/service.ts for the same rationale.
  *
- * Only two entry points ever create DishVersion content
- * (ARCHITECTURE_PROPOSAL.md §F.10/§F.5): `createDish` (V1.0) and `editDish`.
- * DishVersion rows are never updated or deleted directly outside these
- * functions and `duplicateDish`.
+ * `createDish` (V1.0) and `editDish` are the only entry points that create
+ * DishVersion content. `editDish`'s/`updateVersionMetadata`'s in-place
+ * `applyVersionMetadataUpdate` (below) is the one sanctioned exception to
+ * "DishVersion rows are never updated directly" — see its own doc comment.
  *
- * `editDish`'s settled Gate 2 classification (docs/SLICE_3.md) — determined
- * independently here, never trusting a client claim:
- *   - Stable Dish metadata only (Stage, cuisine, archive/restore) or a
- *     true no-op: no Version created, `Dish` updated in place (or not at
- *     all, for a genuine no-op).
- *   - Version-owned but non-cooking content (title, description, yield,
- *     prep/cook time, difficulty, Section naming/reordering that leaves
- *     every Ingredient/Instruction's own content, Section, and position
- *     untouched): exactly one minor Version, created automatically.
+ * `editDish`'s settled classification (docs/SLICE_3.md's Gate 2 pass,
+ * corrected by the Version-trigger and Slice 5 image correction pass —
+ * PRODUCT_SPEC.md §7.1/§7.2/§13.1/§13.2a) — determined independently here,
+ * never trusting a client claim:
+ *   - Stable Dish metadata (Stage, cuisine, title) or a true no-op: no
+ *     Version created, `Dish` updated in place (or not at all, for a
+ *     genuine no-op). Title moved into this bucket in the correction pass
+ *     — it is stable Dish identity, not Version-owned content.
+ *   - Version-associated but mutable metadata (description, image) with no
+ *     material change alongside it: no Version created — the selected
+ *     Version is updated in place instead (`applyVersionMetadataUpdate`).
+ *   - Version-owned non-cooking content (yield, prep/cook time, difficulty,
+ *     Section naming/reordering that leaves every Ingredient/Instruction's
+ *     own content, Section, and position untouched): exactly one minor
+ *     Version, created automatically.
  *   - Any Ingredient/Instruction add, remove, edit, or reorder: requires
  *     the caller to have already resolved the minor/major choice
  *     (`versionChoice`); throws `ValidationError` if it's missing.
+ *   - A save that combines a metadata-only bucket with a Version-creating
+ *     bucket lands its title change on the stable Dish and its
+ *     description/image values on the newly created Version — the Version
+ *     is created only because of the material/non-cooking change, never
+ *     because of the metadata fields riding along with it.
  */
 
 function nextArchivedAt(
@@ -317,6 +334,12 @@ export async function createDish(
 ): Promise<string> {
   const sections = sanitizedSectionsOrThrow(input);
 
+  // Version-trigger and Slice 5 image correction pass §4: a client-supplied
+  // imageAssetId must never be trusted merely because the row exists.
+  if (input.imageAssetId) {
+    await assertImageAssetAttachable(prisma, ownerId, input.imageAssetId);
+  }
+
   return prisma.$transaction(async (tx) => {
     const dish = await tx.dish.create({
       data: {
@@ -344,6 +367,10 @@ export async function createDish(
         // retired Easy/Medium/Hard value (directly, bypassing the editor's
         // Select) still lands on the current approved set.
         difficulty: normalizeDifficultyValue(input.difficulty),
+        // Slice 5, PRODUCT_SPEC.md §12: an image may already have been
+        // uploaded (and its ImageAsset row reserved via
+        // `requestImageUploadUrl`) before the very first save.
+        imageAssetId: input.imageAssetId ?? null,
       },
     });
 
@@ -402,9 +429,24 @@ export async function editDish(
 
   const sections = sanitizedSectionsOrThrow(input);
 
-  const nonCookingScalarChanged =
-    base.title !== input.title ||
+  // Version-trigger correction pass, PRODUCT_SPEC.md §7.1: title is stable
+  // Dish identity, not Version-owned — grouped with Stage/cuisine, compared
+  // against the Dish's own denormalized title rather than the base
+  // Version's `title` column (which is written at Version-creation time but
+  // never itself the source of truth once title can change independently).
+  const stableChanged =
+    input.stage !== dish.stage ||
+    (input.cuisine || null) !== (dish.cuisine ?? null) ||
+    input.title !== (dish.currentTitle ?? "");
+
+  // Version-trigger correction pass, PRODUCT_SPEC.md §7.2: description and
+  // image are Version-associated but mutable — a change to either, alone,
+  // updates the selected Version in place rather than creating a new one.
+  const versionMetadataChanged =
     (base.description ?? null) !== (input.description || null) ||
+    (base.imageAssetId ?? null) !== (input.imageAssetId ?? null);
+
+  const nonCookingScalarChanged =
     decimalToNumber(base.yieldQuantity) !== (input.yieldQuantity ?? null) ||
     (base.yieldUnit ?? null) !== (input.yieldUnit || null) ||
     (base.prepTimeMinutes ?? null) !== (input.prepTimeMinutes ?? null) ||
@@ -418,18 +460,29 @@ export async function editDish(
   const nonCookingVersionChanged =
     nonCookingScalarChanged || sectionOrganizationChanged;
 
-  const stableChanged =
-    input.stage !== dish.stage ||
-    (input.cuisine || null) !== (dish.cuisine ?? null);
-
   if (cookingChanged && !versionChoice) {
     throw new ValidationError(
       "Choose whether to save this within the current version or start a new version.",
     );
   }
 
+  // Version-trigger and Slice 5 image correction pass §4: authorize a
+  // *new* image attachment regardless of which branch below actually
+  // writes it — an in-place metadata update and a newly created Version
+  // are both real attachments, and a malicious/stale client must not be
+  // able to attach an image it doesn't own through either path.
+  if (
+    input.imageAssetId &&
+    input.imageAssetId !== (base.imageAssetId ?? null)
+  ) {
+    await assertImageAssetAttachable(prisma, ownerId, input.imageAssetId);
+  }
+
   if (!cookingChanged && !nonCookingVersionChanged) {
-    // Stable-metadata-only edit, or a true no-op — never creates a Version.
+    // No material or non-cooking Version-owned change — never allocates a
+    // Version number. Stable Dish metadata (Stage/cuisine/title) and
+    // mutable Version metadata (description/image) are applied directly,
+    // independently of each other; a save with neither is a true no-op.
     if (stableChanged) {
       await prisma.dish.update({
         where: { id: dish.id },
@@ -437,7 +490,14 @@ export async function editDish(
           stage: input.stage,
           cuisine: input.cuisine || null,
           archivedAt: nextArchivedAt(dish.stage, dish.archivedAt, input.stage),
+          currentTitle: input.title,
         },
+      });
+    }
+    if (versionMetadataChanged) {
+      await applyVersionMetadataUpdate(base, {
+        description: input.description || null,
+        imageAssetId: input.imageAssetId ?? null,
       });
     }
     return dish.id;
@@ -498,6 +558,12 @@ export async function editDish(
         // retired Easy/Medium/Hard value (directly, bypassing the editor's
         // Select) still lands on the current approved set.
         difficulty: normalizeDifficultyValue(input.difficulty),
+        // PRODUCT_SPEC.md §12.2: inherits the base Version's image by
+        // default (the form's own initial value, from `dishToFormValues`)
+        // unless the editor explicitly replaced or removed it — either way
+        // `input.imageAssetId` already reflects the intended final value,
+        // the same as every other Version-owned scalar field here.
+        imageAssetId: input.imageAssetId ?? null,
         // ARCHITECTURE_PROPOSAL.md §F.4 / §13.6: a new major Version's
         // source relationship is stored structurally, not just as note
         // text. An ordinary sequential minor refinement leaves it unset
@@ -526,10 +592,14 @@ export async function editDish(
         stage: input.stage,
         cuisine: input.cuisine || null,
         archivedAt: nextArchivedAt(dish.stage, dish.archivedAt, input.stage),
+        // Version-trigger correction pass: title is stable Dish identity
+        // (§7.1), applied unconditionally — independent of whether this
+        // particular save's Version becomes current, exactly like Stage
+        // and cuisine already are above.
+        currentTitle: input.title,
         ...(becomesCurrent
           ? {
               currentVersionId: version.id,
-              currentTitle: input.title,
               currentStructuralSearchText: sectionNames.join(" ") || null,
             }
           : {}),
@@ -537,6 +607,82 @@ export async function editDish(
     });
 
     return dish.id;
+  });
+}
+
+/**
+ * Version-trigger correction pass, PRODUCT_SPEC.md §7.2: description and
+ * image are Version-associated but mutable — this updates the selected
+ * `DishVersion` row directly, the one sanctioned exception (alongside
+ * `versionNote`) to "DishVersion content is never mutated in place." Never
+ * creates a Version, never touches `Dish.currentVersionId`, `sourceVersionId`,
+ * version numbering, or any Section/Ingredient/Instruction content — and
+ * works identically whether `version` is the Dish's current Version or an
+ * arbitrary historical one, since neither field's mutability depends on
+ * that distinction.
+ *
+ * Runs the row update and the old image's orphan check in one transaction
+ * (PRODUCT_SPEC.md §90.2's cleanup requirement) so a failure partway
+ * through can't leave a `DishVersion` pointing at an image whose orphan
+ * check never ran. The actual Blob delete stays best-effort, after commit,
+ * matching every other external side effect in this file.
+ */
+async function applyVersionMetadataUpdate(
+  version: { id: string; imageAssetId: string | null },
+  data: { description: string | null; imageAssetId: string | null },
+): Promise<void> {
+  const priorImageAssetId = version.imageAssetId;
+  const imageChanged = priorImageAssetId !== data.imageAssetId;
+
+  const orphanedStorageKey = await prisma.$transaction(async (tx) => {
+    await tx.dishVersion.update({
+      where: { id: version.id },
+      data: {
+        description: data.description,
+        imageAssetId: data.imageAssetId,
+      },
+    });
+
+    // Only the *old* asset can possibly have been orphaned by this write —
+    // the new one (if any) is, by definition, still referenced by this
+    // very row. Guards against a no-op "replace" where old and new happen
+    // to be the same id, which must never be treated as freed.
+    if (imageChanged && priorImageAssetId) {
+      return deleteImageAssetIfOrphaned(tx, priorImageAssetId);
+    }
+    return null;
+  });
+
+  if (orphanedStorageKey) {
+    await bestEffortDeleteBlob(orphanedStorageKey);
+  }
+}
+
+/**
+ * PRODUCT_SPEC.md §7.2 / Version-trigger correction pass §2: lets the user
+ * edit description/image on any selected Version — current or historical —
+ * without branching or creating a refinement. Distinct from `editDish`
+ * because it never touches title/Stage/cuisine/yield/prep/cook/difficulty/
+ * Ingredients/Instructions, and never needs `versionChoice` or content
+ * diffing — it's a pure metadata update on one already-identified row.
+ */
+export async function updateVersionMetadata(
+  ownerId: string,
+  dishId: string,
+  versionId: string,
+  input: { description: string | null; imageAssetId: string | null },
+  kind?: DishKindValue,
+): Promise<void> {
+  const dish = await getOwnedDishOrThrow(ownerId, dishId, kind);
+  const version = await getDishScopedVersionMetaOrThrow(dish.id, versionId);
+
+  if (input.imageAssetId && input.imageAssetId !== version.imageAssetId) {
+    await assertImageAssetAttachable(prisma, ownerId, input.imageAssetId);
+  }
+
+  await applyVersionMetadataUpdate(version, {
+    description: input.description,
+    imageAssetId: input.imageAssetId,
   });
 }
 
@@ -550,7 +696,14 @@ export async function editDish(
  * promoting is itself the meaningful action, not something diffed against
  * prior content. `Dish.stage`/`cuisine` are deliberately left untouched
  * (§13.9 — Stage belongs to the stable Dish, promoting Version content
- * does not change it).
+ * does not change it) — and, per the Version-trigger correction pass, so
+ * is `Dish.currentTitle`: title is stable Dish identity now, not Version
+ * content, so promoting a historical direction's *content* never reverts
+ * the Dish's own title back to whatever it was when that Version was
+ * created. The new Version's own `title` column mirrors the Dish's current
+ * title (its only remaining purpose is an inert historical mirror — see
+ * `applyVersionMetadataUpdate`'s doc comment) rather than the base
+ * Version's, which may be stale after an intervening title edit.
  */
 export async function promoteHistoricalVersion(
   ownerId: string,
@@ -561,6 +714,7 @@ export async function promoteHistoricalVersion(
   const dish = await getOwnedDishOrThrow(ownerId, dishId, kind);
   const base = await getDishScopedVersionContentOrThrow(dish.id, versionId);
   const sections = sectionRowsToInput(base.sections);
+  const stableTitle = dish.currentTitle ?? base.title;
 
   return withVersionAllocation(async (tx) => {
     const preEditHighestMajor = await highestMajorVersion(tx, dish.id);
@@ -572,13 +726,17 @@ export async function promoteHistoricalVersion(
         dishId: dish.id,
         majorVersion,
         minorVersion: 0,
-        title: base.title,
+        title: stableTitle,
         description: base.description,
         yieldQuantity: base.yieldQuantity,
         yieldUnit: base.yieldUnit,
         prepTimeMinutes: base.prepTimeMinutes,
         cookTimeMinutes: base.cookTimeMinutes,
         difficulty: base.difficulty,
+        // Verbatim copy, same as every other content field here — a
+        // promotion is defined as an exact copy of the historical
+        // Version's content (§13.2/§13.7), image included.
+        imageAssetId: base.imageAssetId,
         sourceVersionId: base.id,
         versionNote: seedMajorVersionNote(
           base.majorVersion,
@@ -597,7 +755,9 @@ export async function promoteHistoricalVersion(
       where: { id: dish.id },
       data: {
         currentVersionId: version.id,
-        currentTitle: base.title,
+        // Deliberately no `currentTitle` write here — see the doc comment
+        // above. Promotion changes which content is current; it never
+        // changes the Dish's own stable title.
         currentStructuralSearchText: sectionNames.join(" ") || null,
       },
     });
@@ -625,6 +785,68 @@ export async function updateVersionNote(
   await prisma.dishVersion.update({
     where: { id: versionId },
     data: { versionNote: normalizeVersionNote(note) },
+  });
+}
+
+/**
+ * PRODUCT_SPEC.md §51.4: "Save as default" persists a temporary scale as
+ * the stable Dish's own default batch presentation — never creates a
+ * Version, never touches the authored Version's own `yieldQuantity`/
+ * `yieldUnit`. Passing `null` resets it back to the authored Version
+ * yield (§51.4's "remains resettable").
+ */
+export async function setDefaultBatchScale(
+  ownerId: string,
+  dishId: string,
+  defaultBatchQuantity: number | null,
+  defaultBatchUnit: string | null,
+  kind?: DishKindValue,
+): Promise<void> {
+  const dish = await getOwnedDishOrThrow(ownerId, dishId, kind);
+  await prisma.dish.update({
+    where: { id: dish.id },
+    data: {
+      defaultBatchQuantity,
+      defaultBatchUnit: defaultBatchQuantity == null ? null : defaultBatchUnit,
+    },
+  });
+}
+
+/**
+ * PRODUCT_SPEC.md §53.6 / Build Plan Correction 6: targets one specific
+ * Ingredient lineage, never a blanket per-Dish setting — matches
+ * `PreferredUnitOverride`'s `@@unique([dishId, ingredientLineageId])`
+ * (upsert, so re-saving a different unit for the same lineage replaces it
+ * rather than erroring on the unique constraint).
+ */
+export async function savePreferredUnitOverride(
+  ownerId: string,
+  dishId: string,
+  ingredientLineageId: string,
+  unit: string,
+  kind?: DishKindValue,
+): Promise<void> {
+  const dish = await getOwnedDishOrThrow(ownerId, dishId, kind);
+  await prisma.preferredUnitOverride.upsert({
+    where: {
+      dishId_ingredientLineageId: { dishId: dish.id, ingredientLineageId },
+    },
+    create: { dishId: dish.id, ingredientLineageId, unit },
+    update: { unit },
+  });
+}
+
+/** §53.6: "remains reversible" — clears a saved override back to the
+ * ingredient's own authored unit. */
+export async function clearPreferredUnitOverride(
+  ownerId: string,
+  dishId: string,
+  ingredientLineageId: string,
+  kind?: DishKindValue,
+): Promise<void> {
+  const dish = await getOwnedDishOrThrow(ownerId, dishId, kind);
+  await prisma.preferredUnitOverride.deleteMany({
+    where: { dishId: dish.id, ingredientLineageId },
   });
 }
 
@@ -696,7 +918,14 @@ export async function duplicateDish(
 
   const sections: SectionInput[] = sectionRowsToInput(sourceVersion.sections);
 
-  const title = `Copy of ${sourceVersion.title}`;
+  // Version-trigger correction pass: title is stable Dish identity, not
+  // Version content — the duplicate's suggested title (and the frozen
+  // `sourceTitle` snapshot, §19.1) should reflect the source item's actual
+  // current title, not whatever text happened to be written into this
+  // specific historical Version's `title` column, which may be stale after
+  // an intervening title-only edit.
+  const stableSourceTitle = dish.currentTitle ?? sourceVersion.title;
+  const title = `Copy of ${stableSourceTitle}`;
   const sourceLabel = `V${sourceVersion.majorVersion}.${sourceVersion.minorVersion}`;
 
   return prisma.$transaction(async (tx) => {
@@ -710,7 +939,7 @@ export async function duplicateDish(
         sourceKind: "DUPLICATE",
         sourceDishId: dish.id,
         sourceDishVersionLabel: sourceLabel,
-        sourceTitle: sourceVersion.title,
+        sourceTitle: stableSourceTitle,
       },
     });
 
@@ -726,6 +955,12 @@ export async function duplicateDish(
         prepTimeMinutes: sourceVersion.prepTimeMinutes,
         cookTimeMinutes: sourceVersion.cookTimeMinutes,
         difficulty: sourceVersion.difficulty,
+        // ARCHITECTURE_PROPOSAL.md §D.2a: the duplicate's V1.0 shares the
+        // same ImageAsset row (and Blob object) as its source rather than
+        // copying bytes — explicitly sanctioned to work across the
+        // account boundary too (a different owner's accepted copy may
+        // legitimately reference the same asset).
+        imageAssetId: sourceVersion.imageAssetId,
       },
     });
 
@@ -760,7 +995,18 @@ export async function deleteDish(
 ): Promise<void> {
   const dish = await getOwnedDishOrThrow(ownerId, dishId, kind);
 
-  await prisma.$transaction(async (tx) => {
+  // Slice 5, ARCHITECTURE_PROPOSAL.md §D.2a: every distinct ImageAsset any
+  // of this Dish's own Versions reference, gathered *before* the cascading
+  // delete below removes those DishVersion rows — the reference-counted
+  // check afterward needs a candidate list to check, not a live query
+  // against rows that no longer exist.
+  const referencedImageAssets = await prisma.dishVersion.findMany({
+    where: { dishId: dish.id, imageAssetId: { not: null } },
+    select: { imageAssetId: true },
+    distinct: ["imageAssetId"],
+  });
+
+  const orphanedStorageKeys = await prisma.$transaction(async (tx) => {
     const now = new Date();
     await tx.shareLink.updateMany({
       where: {
@@ -774,5 +1020,24 @@ export async function deleteDish(
       data: { status: "CANCELED" },
     });
     await tx.dish.delete({ where: { id: dish.id } });
+
+    // Only now (after the cascade above already deleted every DishVersion
+    // that belonged to this Dish) does the reference count reflect reality
+    // — an ImageAsset shared with a surviving Version on a *different*
+    // Dish (this owner's duplicate, or another account's accepted copy,
+    // §D.2a) correctly comes back non-zero and is left alone.
+    const keys: string[] = [];
+    for (const { imageAssetId } of referencedImageAssets) {
+      if (!imageAssetId) continue;
+      const storageKey = await deleteImageAssetIfOrphaned(tx, imageAssetId);
+      if (storageKey) keys.push(storageKey);
+    }
+    return keys;
   });
+
+  // Best-effort, after-commit external side effect (Arch §I) — never
+  // allowed to roll back the already-committed deletion above.
+  await Promise.all(
+    orphanedStorageKeys.map((key) => bestEffortDeleteBlob(key)),
+  );
 }

@@ -38,6 +38,7 @@ import {
 import { NumberField } from "@/components/domain/dish/number-field";
 import { SectionFields } from "@/components/domain/dish/section-fields";
 import { CuisineField } from "@/components/domain/dish/cuisine-field";
+import { ImageField } from "@/components/domain/dish/image-field";
 import { useUnsavedChangesGuard } from "@/components/domain/dish/use-unsaved-changes-guard";
 import { useReorderSensors } from "@/lib/dnd/sensors";
 import { createReorderAnnouncements } from "@/lib/dnd/announcements";
@@ -314,6 +315,7 @@ export function DishEditor({
 
           <div className="border-border bg-card flex flex-col gap-4 rounded-xl border p-4">
             <h2 className="text-foreground text-sm font-semibold">Details</h2>
+            <ImageField dishId={dish?.id ?? null} />
             <div className="grid gap-4 sm:grid-cols-2">
               <Field>
                 <FieldLabel htmlFor="dish-stage">Status</FieldLabel>

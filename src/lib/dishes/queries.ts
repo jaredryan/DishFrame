@@ -53,6 +53,10 @@ export const dishDetailInclude = {
       sections: sectionContentInclude,
     },
   },
+  // Slice 5, PRODUCT_SPEC.md §53.6: needed so the detail view can apply a
+  // saved per-ingredient preferred unit consistently on load, not just
+  // after an in-session "accept" action.
+  preferredUnitOverrides: true,
 } as const;
 
 export function listDishes(
@@ -109,6 +113,28 @@ export async function getDishScopedVersionContentOrThrow(
   const version = await prisma.dishVersion.findFirst({
     where: { id: versionId, dishId },
     include: { sections: sectionContentInclude },
+  });
+  if (!version) {
+    throw new NotFoundError("Version not found.");
+  }
+  return version;
+}
+
+/**
+ * Version-trigger correction pass: a lighter-weight sibling of
+ * `getDishScopedVersionContentOrThrow` for callers that only need to read
+ * or update a Version's own mutable metadata (description/imageAssetId) —
+ * `updateVersionMetadata` (service.ts) doesn't need that Version's full
+ * Section/Ingredient/Instruction content just to validate it belongs to
+ * this Dish and read its current description/image.
+ */
+export async function getDishScopedVersionMetaOrThrow(
+  dishId: string,
+  versionId: string,
+) {
+  const version = await prisma.dishVersion.findFirst({
+    where: { id: versionId, dishId },
+    select: { id: true, description: true, imageAssetId: true },
   });
   if (!version) {
     throw new NotFoundError("Version not found.");

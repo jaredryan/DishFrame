@@ -17,6 +17,61 @@ This version has breaking changes — APIs, conventions, and file structure may 
   in that turn. Leave changes staged/unstaged for the user to review and
   commit themselves.
 
+# Product spec authority
+
+Slice reports (`docs/SLICE_*.md`, follow-up reports, and any other
+implementation handoff document) are records of what was built and why at
+the time — they are not product authority. Before changing or restating
+product behavior, consult the relevant canonical documents directly, not
+a prior slice report's summary of them.
+
+**Why:** a correction pass found that product behavior had drifted from
+the spec because prior sessions trusted slice-report summaries/decisions
+over the actual canonical documents, silently compounding across slices
+until a manual review caught it.
+
+**Authority order** when documents conflict (highest wins):
+
+1. Your explicit current decision (made in this conversation).
+2. `docs/PRODUCT_SPEC.md` and `docs/BRANDING.md` — co-equal with each
+   other: PRODUCT_SPEC governs product behavior, BRANDING governs
+   visual/brand identity; neither outranks the other since they cover
+   different domains and shouldn't normally conflict.
+3. `docs/ARCHITECTURE_PROPOSAL.md`
+4. `docs/BUILD_PLAN.md`
+5. Slice reports (`docs/SLICE_*.md`, follow-ups, and other implementation
+   handoff documents).
+6. Existing code/tests.
+
+`docs/PRODUCT_ROADMAP.md` is forward-looking context (what's planned),
+not authority over current spec'd behavior — don't rank it against the
+list above; consult it for direction, not for resolving a conflict.
+
+**How to apply:**
+
+- If a lower-ranked document and a higher-ranked one disagree, the
+  higher-ranked one wins unless the owner has explicitly overridden it in
+  this conversation.
+- If the canonical documents are themselves ambiguous, silent, or
+  conflict with each other at the same rank, flag the ambiguity to the
+  owner rather than resolving it silently by inferring intent from a
+  slice report or existing code.
+- This applies whether a lower-ranked document is being read directly or
+  recalled via summary (e.g., by another assistant/tool relaying prior
+  session context).
+
+**Deviating from a canonical document.** Having a good reason to deviate
+from `PRODUCT_SPEC.md`, `BRANDING.md`, `ARCHITECTURE_PROPOSAL.md`, or
+`BUILD_PLAN.md` is not, by itself, license to implement the deviation.
+Raise it with the owner and get a decision _before_ implementing —
+propose the deviation and the reasoning, don't silently build it and
+report it as a fait accompli. Only if raising it first genuinely isn't
+practical in the moment, implement conservatively and call out the
+deviation explicitly and prominently in the report (not buried in a
+changelog bullet) so the owner can reverse it easily. Silent deviation —
+implementing without either asking first or flagging clearly afterward —
+is the failure mode this whole section exists to prevent.
+
 # Owner intervention and manual-review policy
 
 The project uses layered review. The owner does not manually re-verify

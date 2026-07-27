@@ -253,7 +253,9 @@ model Dish {
 
 **Note on search (§44) — corrected to cover every required field, and to refresh correctly (round-2 Correction 10, revised by round-3 Correction 6):** ordinary library search inspects "the current stable Recipe and current Recipe Version" across title, cuisine, Flavor profiles, tags, Section names, and linked Part names — never historical Versions, never ingredient text. Round 2 added one combined `currentSearchText` field covering all of cuisine/tags/Flavor-profiles/Section-names/Part-names, refreshed only at version-creation time — but cuisine, tags, and Flavor profiles can all change **without** a new Version (§46.1, §45.2, §79.2), which would have left that field silently stale after, e.g., an unrelated cuisine edit.
 
-The corrected design (round-3 Correction 6) **splits genuinely-Version-owned structural content from stable relational metadata, and stops denormalizing the latter at all**: `Dish.currentTitle` (title only) and `Dish.currentStructuralSearchText` (Section names + the titles of the *exact* Part Versions referenced by the current Version's `PartLink`s — resolved from each link's own target Version, never from the target Part's current title, so a Recipe still referencing an older Part Version is never misrepresented) are both refreshed **only** by the version-creation transaction, since both are genuinely tied to Version content and cannot change any other way. Cuisine, tags, and Flavor profiles are **not denormalized at all** — they already live directly on `Dish` (`cuisine`) or in small, well-indexed, owner-scoped join tables (`DishTag`/`Tag`, `DishFlavorProfile`/`FlavorProfileValue`), so querying them live at search time is cheap and instantly correct, with zero mutation paths to remember. Ranking (§44.5) becomes a small ranked union of independently-scoped queries — `currentTitle` first (tiers 1–3), then a live cuisine query (tier 4), then a live Flavor-profile join (tier 5), then a live tag join (tier 6), then `currentStructuralSearchText` (tier 7) — rather than one mega-query or a weighted full-text-search setup. Full detail in `PRISMA_SCHEMA_PROPOSAL.md` §7.
+The corrected design (round-3 Correction 6) **splits genuinely-Version-owned structural content from stable relational metadata, and stops denormalizing the latter at all**: `Dish.currentStructuralSearchText` (Section names + the titles of the *exact* Part Versions referenced by the current Version's `PartLink`s — resolved from each link's own target Version, never from the target Part's current title, so a Recipe still referencing an older Part Version is never misrepresented) is refreshed **only** by the version-creation transaction, since it is genuinely tied to Version content and cannot change any other way. **Corrected by the Version-trigger and Slice 5 image correction pass:** `Dish.currentTitle` is *not* Version-owned after all — title turned out to be stable Recipe/Part identity (§E below), not content that lives on a `DishVersion` row at all — so it is written directly by every mutation that changes the title (an ordinary metadata-only save, same as `stage`/`cuisine`), in addition to being carried forward unconditionally whenever a Version-creating save also changes it. It is no longer true that `currentTitle` "cannot change any other way" than at version-creation time. Cuisine, tags, and Flavor profiles are **not denormalized at all** — they already live directly on `Dish` (`cuisine`) or in small, well-indexed, owner-scoped join tables (`DishTag`/`Tag`, `DishFlavorProfile`/`FlavorProfileValue`), so querying them live at search time is cheap and instantly correct, with zero mutation paths to remember. Ranking (§44.5) becomes a small ranked union of independently-scoped queries — `currentTitle` first (tiers 1–3), then a live cuisine query (tier 4), then a live Flavor-profile join (tier 5), then a live tag join (tier 6), then `currentStructuralSearchText` (tier 7) — rather than one mega-query or a weighted full-text-search setup. Full detail in `PRISMA_SCHEMA_PROPOSAL.md` §7.
+
+**Settled by the owner (closes the Slice 5/6 open question on linked-Part title resolution):** the "resolved from each link's own target Version, never from the target Part's current title" clause above is now superseded — `PRODUCT_SPEC.md` §68.5 settles that a linked Part's *displayed* name always resolves from the target Part's live `Dish.currentTitle`, including in structural search (`currentStructuralSearchText`, tier 7), the same as every other place a Recipe/Part's identity is shown. `PartLink.targetDishVersionId` still pins the exact linked *content* (Ingredients/Instructions/etc.), unaffected by this. One consequence Slice 6 must account for: renaming a Part is now a new mutation path that has to refresh `currentStructuralSearchText` on every Recipe/Part whose current Version links to it, in addition to the existing version-creation refresh — it is no longer true that version-creation is "the one and only mutation path" for that field. Full detail in `PRISMA_SCHEMA_PROPOSAL.md` §7.
 
 ### D.2 Immutable content: `DishVersion`
 
@@ -264,9 +266,12 @@ model DishVersion {
   majorVersion    Int
   minorVersion    Int
 
-  title           String
-  description     String?
-  imageAssetId    String?   // FK -> ImageAsset (D.2a, Correction 7) — never a raw URL/key duplicated per Version
+  title           String    // Version-trigger correction pass: inert historical mirror only — title is
+                             // stable Dish identity (D.1/E), never read back per-Version; kept in sync
+                             // only at Version-creation time, never itself the source of truth
+  description     String?   // mutable Version metadata — see the note below the model block
+  imageAssetId    String?   // FK -> ImageAsset (D.2a, Correction 7) — never a raw URL/key duplicated per
+                             // Version; mutable Version metadata — see the note below the model block
 
   yieldQuantity   Decimal?
   yieldUnit       String?   // "servings" | "cups" | free label, per §24.1
@@ -300,6 +305,8 @@ model DishVersion {
 }
 ```
 
+**Version-trigger and Slice 5 image correction pass — a second sanctioned mutable-in-place exception.** `description` and `imageAssetId` are Version-associated but mutable, alongside `versionNote` — not governed by Correction 5's "no third exception" below, which is scoped specifically to nutrition. Editing either field, on the current Version or any historical one, is an ordinary `UPDATE` to the already-saved row (`applyVersionMetadataUpdate`, `src/lib/dishes/service.ts`) and never creates a new Version. This was a genuine design error in the original Slice 5 implementation — both fields were initially treated as ordinary immutable content requiring a new (automatic minor) Version for any change — corrected once the product rule was settled explicitly: Version association does not imply immutability for fields the product intends to be editable independent of cooking-content evolution.
+
 **Correction 5 — nutrition immutability, no third exception.** `nutritionSourceProvider`/`nutritionSourceId`/`calories`/`protein`/`carbs`/`fat`/`moreNutrients` are ordinary immutable `DishVersion` content columns, governed by exactly the same rule as every other field on this row (§F.10) — **not** a second documented mutable exception alongside `versionNote`. Selecting an FDC result, editing a value, or detaching from a source may happen freely while a Version is still being composed in the editor (nothing is persisted yet, so there is nothing to mutate). Once a `DishVersion` row has been saved, changing a nutrition value or detaching its source is an ordinary content edit and goes through `createSmallUpdate`/`createNewVersion` (§F.5) like any other change — it is never applied as an in-place `UPDATE` to an already-saved row. This was already implied by the original proposal's single-exception design; it is stated explicitly here because §54.4's "may be detached and converted to fully manual data" reads ambiguously enough to invite a second exception, which this proposal deliberately declines to add.
 
 ### D.2a `ImageAsset` (Correction 7 — reference-aware, cross-account-safe image cleanup)
@@ -318,6 +325,8 @@ model ImageAsset {
 ```
 
 No `url` column: because the recommended Blob store is **private** (Correction 11), a raw stored URL would not be independently fetchable anyway — every read goes through an authenticated (or valid-share-token) DishFrame image route that resolves `storageKey` to a short-lived signed read on demand (§L/§M). **Authorization to read an image is derived entirely from the requesting user's access to some `DishVersion` that references the asset** (they own that `DishVersion`'s Dish, or hold a valid unrevoked `ShareLink`/accepted-share context for it) — never from `uploadedByUserId`, which is display attribution only ("uploaded by...").
+
+**Attach-time authorization is a separate, earlier check** (Version-trigger and Slice 5 image correction pass §4, `assertImageAssetAttachable` in `src/lib/images/service.ts`): *before* any `createDish`/`editDish`/`applyVersionMetadataUpdate` write sets a `DishVersion.imageAssetId` to a client-supplied value, the service layer verifies the caller may actually use that asset — they uploaded it (`uploadedByUserId` matches), or a `DishVersion` they already own references it (the legitimate cross-account-sharing case this section sanctions). A client-supplied `imageAssetId` is never trusted merely because the row exists; an unrelated user cannot attach another account's unreferenced uploaded asset by guessing or otherwise obtaining its id. This is distinct from, and runs earlier than, the read-authorization check above — read authorization only ever asks "does some Version I own already reference this," which is exactly what attach authorization exists to gate in the first place.
 
 **Reference strategy — query-based, not a maintained counter.** `DishVersion.imageAssetId` is the *only* place an `ImageAsset` is referenced (a `ShareLink.frozenSnapshot`, if it embeds image data at all, embeds a resolved display value at freeze time, never a live FK — see §H — so it never blocks cleanup). Because a new Version inherits the prior Version's `imageAssetId` by default (§F.8) rather than copying bytes, many `DishVersion` rows across many Versions of the same Dish **and, now explicitly, across *different* Dishes owned by *different* accounts after duplication or an accepted share** — the round-1 proposal assumed duplication always deep-copied underlying data, but the corrected design (§D.2a here, full rationale in `PRISMA_SCHEMA_PROPOSAL.md` §6) deliberately shares the image reference across the copy boundary instead, since re-uploading or physically duplicating an immutable image on every copy would be wasteful and would introduce a Blob-copy failure window the shared-reference approach avoids entirely — can legitimately point at one `ImageAsset` row.
 
@@ -888,6 +897,7 @@ Exhaustive mapping, matching `PRODUCT_SPEC.md` §7.1/§7.2/§66.1 field-for-fiel
 |---|---|---|
 | Owner | Stable identity | `Dish.ownerId` |
 | Current Version pointer | Stable identity (denormalized) | `Dish.currentVersionId` |
+| Title | Stable identity (Version-trigger correction pass — moved from "Immutable Version content" below; see the note under the table) | `Dish.currentTitle` |
 | Stage | Stable identity | `Dish.stage` |
 | Cuisine | Stable identity | `Dish.cuisine` |
 | Flavor profiles | Stable identity | `DishFlavorProfile` join |
@@ -897,14 +907,14 @@ Exhaustive mapping, matching `PRODUCT_SPEC.md` §7.1/§7.2/§66.1 field-for-fiel
 | Archive state | Stable identity | `Dish.archivedAt` |
 | Duplication/source relationship | Stable identity (frozen snapshot) | `Dish.sourceKind/sourceDishId/sourceDishVersionLabel/sourceAggregateRating/...` |
 | Created/updated timestamps | Stable identity | `Dish.createdAt/updatedAt` |
-| Title, description, image | Immutable Version content | `DishVersion.title/description/imageAssetId` |
+| Description, image | Version-associated but mutable (Version-trigger correction pass — see the note under the table; not immutable content) | `DishVersion.description/imageAssetId` |
 | Authored yield | Immutable Version content | `DishVersion.yieldQuantity/yieldUnit` |
 | Prep/cook time, difficulty | Immutable Version content | `DishVersion.prepTimeMinutes/cookTimeMinutes/difficulty` |
 | Nutrition | Immutable Version content | `DishVersion.calories/protein/carbs/fat/...` |
 | Sections, ingredients, instructions | Immutable Version content | `Section`/`Ingredient`/`Instruction` rows scoped to `dishVersionId` |
 | Linked Part-Version references | Immutable Version content | `PartLink.targetDishVersionId` |
 | Source Version (restore/promote/propagation) | Immutable Version content (structural) | `DishVersion.sourceVersionId` |
-| **Version note** | **Mutable annotation on immutable content — the one documented exception** | `DishVersion.versionNote` |
+| **Version note** | **Mutable annotation on immutable content — one of two documented exceptions (see description/image above)** | `DishVersion.versionNote` |
 | User preferences (measurement system, fractions, rating display, timer sound, review prompt) | User preference | `UserPreference.*` |
 | Cooking Session content selection, checkoffs, timers, scale-used | Session snapshot (references immutable rows + session-owned overlay) | `CookingSession`/`CookingSessionUnit`/`CookingSessionChecklistItem`/`Timer` |
 | Share fixed snapshot | Share/public snapshot | `ShareLink.frozenSnapshot` (+ `dishVersionId`) |
@@ -913,7 +923,7 @@ Exhaustive mapping, matching `PRODUCT_SPEC.md` §7.1/§7.2/§66.1 field-for-fiel
 
 **Note on lineage identity (Correction 1):** `Section.lineageId`/`Ingredient.lineageId`/`Instruction.lineageId`/`PartLink.lineageId` are themselves ordinary immutable Version content (they live on rows scoped to one `dishVersionId`, same as everything else in that category) — they do not need their own row in the table above. What makes them worth calling out separately is that their *value* is deliberately carried forward, unchanged, across Versions where the underlying content survives, which is what makes cross-Version identity (comparison, reordering-vs-remove-and-add, per-ingredient preferences, occurrence-specific propagation) possible without treating "the same ingredient across two Versions" as an unanswerable question.
 
-**How the architecture enforces this distinction:** the domain service layer (§K) exposes exactly one function capable of writing to `DishVersion` content columns — the version-creation transaction (§F) — and it never accepts a `dishVersionId` to update; it only ever inserts a new row. Every other mutation path (Stage change, tag change, archive, favorite) writes to `Dish` only and is a plain update with no version side effect. This is enforced procedurally (no other code path exists) and verified by tests (§O) rather than relying on a database trigger to block updates — Prisma's generated client naturally makes "update this historical row" simply not a function anyone calls, as long as the domain layer never exposes one.
+**How the architecture enforces this distinction (revised by the Version-trigger and Slice 5 image correction pass):** the domain service layer (§K) exposes exactly one function capable of writing to `DishVersion` **cooking-content** columns (Sections/Ingredients/Instructions, yield, prep/cook time, difficulty, nutrition) — the version-creation transaction (§F) — and it never accepts a `dishVersionId` to update those columns; it only ever inserts a new row. A second, narrower function, `applyVersionMetadataUpdate` (`src/lib/dishes/service.ts`), is the one sanctioned exception: it accepts an existing `dishVersionId` and updates only `description`/`imageAssetId` (`versionNote`'s existing update path is separate and equally narrow). Every other mutation path (Stage change, tag change, archive, favorite, title) writes to `Dish` only and is a plain update with no version side effect. This is enforced procedurally — exactly two narrow, purpose-built update paths exist for `DishVersion`, both scoped to the specific mutable fields they're allowed to touch, never a general-purpose `updateDishVersion(...)` — and verified by tests (§O) rather than relying on a database trigger to block updates.
 
 ---
 
@@ -952,21 +962,30 @@ createNewVersion(dishId, baseVersionId, content)   → majorVersion = MAX(major 
 
 Both run inside one transaction: insert `DishVersion` (+ its `Section`/`Ingredient`/`Instruction`/`PartLink` children) → conditionally update `Dish.currentVersionId`/denormalized search fields → done. **The Recipe/Part editor's "Save small update" / "Save new version" choice is the only place in the entire product that decides which of these two functions is called** — propagation, restore, and duplication all reduce to calling one of these two with computed inputs, never a third path.
 
-### F.5a Settled scope-narrowing of the user-facing choice (Slice 3 Gate 2 correction)
+### F.5a Settled scope-narrowing of the user-facing choice (Slice 3 Gate 2 correction, revised by the Version-trigger and Slice 5 image correction pass)
 
 F.5 described the small-update/new-version choice as "the only place in
 the entire product that decides which of these two functions is called."
 That remains true, but Gate 2 settled *when the editor actually shows it*:
 `editDish` (`src/lib/dishes/service.ts`) independently classifies every
-save via `diffVersionContent` (`src/lib/dishes/schema.ts`) into stable
-metadata / non-cooking Version-owned / cooking content (PRODUCT_SPEC.md
-§13.2a), and only calls `createSmallUpdate`/`createNewVersion` — i.e., only
-consults a `versionChoice` at all — for the third bucket. A non-cooking
-Version-owned edit still calls `createSmallUpdate` exactly as F.5
-describes, just without the user ever choosing so; a stable-metadata-only
-or no-op save calls neither, and updates (or doesn't touch) the `Dish` row
-directly. This is a narrower *presentation* rule, not a new code path: the
-same two functions, the same transaction shape.
+save via `diffVersionContent` (`src/lib/dishes/schema.ts`) plus its own
+stable-metadata/mutable-metadata scalar comparisons, into one of four
+buckets (PRODUCT_SPEC.md §13.2a) — stable Recipe/Part metadata (title,
+Stage, cuisine), mutable Version metadata (description, image), non-
+cooking Version-owned content (yield, prep/cook time, difficulty, Section
+naming), and cooking content (Ingredients/Instructions) — and only calls
+`createSmallUpdate`/`createNewVersion` — i.e., only consults a
+`versionChoice` at all — for the last bucket. A non-cooking Version-owned
+edit still calls `createSmallUpdate` exactly as F.5 describes, just
+without the user ever choosing so; a stable-metadata-only or no-op save
+calls neither and updates (or doesn't touch) the `Dish` row directly; a
+mutable-Version-metadata-only save also calls neither — it calls
+`applyVersionMetadataUpdate` instead (F.10), an in-place update to the
+already-existing `DishVersion` row, never a new-Version-creating function.
+This is a narrower *presentation* rule for the cooking-content bucket, not
+a new code path there; the metadata-only buckets are a genuine addition
+(the Slice 5 original implementation mis-classified description and image
+into the non-cooking bucket, which this pass corrects).
 
 ### F.6 Propagation-only Recipe updates
 
@@ -974,19 +993,21 @@ A propagation update is: take the current content of the affected Recipe/Part, r
 
 ### F.7 Version comparison data
 
-Computed on demand by diffing two `DishVersion` rows (+ their `Section`/`Ingredient`/`Instruction`/`PartLink` children) at read time — no comparison-specific storage. Because both sides of any comparison are immutable, this is a pure, cacheable read function; no risk of the compared content changing mid-view.
+Computed on demand by diffing two `DishVersion` rows (+ their `Section`/`Ingredient`/`Instruction`/`PartLink` children) at read time — no comparison-specific storage. Because cooking content and yield/time/difficulty are immutable, comparing them is a pure, cacheable read with no risk of the compared content changing mid-view. **Revised by the Version-trigger and Slice 5 image correction pass:** title and image are excluded from the comparison snapshot entirely (`VersionMetadataSnapshot`, `src/lib/dishes/compare.ts`) — title because it is not Version-owned at all (nothing to diff), image because it is mutable Version metadata that can be edited in place after either side was saved, so diffing it would report whatever happens to be true *now* on each side rather than a material difference in recipe content between the two Versions. Description remains in the comparison snapshot — it is genuinely Version-associated content each side actually carries, even though (like image) it can also be edited in place later; excluding it was not part of this correction.
 
 ### F.8 Image inheritance
 
 `createSmallUpdate`/`createNewVersion` default `imageAssetId` to the base version's value unless the caller explicitly supplies a replacement or an explicit "remove image" flag (§12.2) — implemented as an ordinary default-parameter behavior in the service function, not a database default (since the "default" is "whatever the previous version had," not a fixed value). Because inheritance simply copies an FK value rather than blob bytes, a single `ImageAsset` naturally ends up referenced by many Versions over time, which is exactly what §D.2a's query-based reference-counted cleanup is designed for.
 
+Inheritance at Version-creation time is only one source of a shared reference now — **Version-trigger and Slice 5 image correction pass:** `applyVersionMetadataUpdate` (F.10) can also reassign an *existing* Version's `imageAssetId` in place, which can both create a new shared reference (attaching an image already used elsewhere) and free an old one (replacing/removing an image the edited Version previously held). §D.2a's reference-counted cleanup runs from both triggers now, not only Version creation and Dish deletion.
+
 ### F.9 Transaction behavior when creating a Version
 
 One Postgres transaction per version creation: insert `DishVersion` row → bulk-insert its `Section`/`Ingredient`/`Instruction`/`PartLink` children → update `Dish.currentVersionId` (if applicable) and denormalized search fields → commit. A partial version (e.g., `DishVersion` row exists but its Sections don't) must never be observable — the transaction boundary is exactly this unit of work, no smaller.
 
-### F.10 Protection against accidental in-place content mutation
+### F.10 Protection against accidental in-place cooking-content mutation
 
-Procedural, not just conventional: the domain layer's `queries.ts`/`service.ts` modules for Dish content expose only `createDishVersion(...)` (never `updateDishVersion(...)`) and `updateDishMetadata(...)` (Stage/tags/cuisine/archive/Favorite — `Dish` columns only). A repo-wide lint rule (a simple `no-restricted-syntax` ESLint rule forbidding `prisma.dishVersion.update(` / `.updateMany(` / `.delete(` outside one explicitly allow-listed file — the Part-deletion materialization function, §D.6/§J) turns "immutability" from a convention developers must remember into something CI enforces.
+Procedural, not just conventional: the domain layer's `queries.ts`/`service.ts` modules for Dish content expose only `createDishVersion(...)` (never a general `updateDishVersion(...)`) for cooking content (Sections/Ingredients/Instructions, yield, prep/cook time, difficulty, nutrition), and `updateDishMetadata(...)` (Stage/tags/cuisine/archive/Favorite/title — `Dish` columns only). **Revised by the Version-trigger and Slice 5 image correction pass:** two narrow, purpose-built exceptions exist, each scoped to exactly the mutable fields it's allowed to touch — `updateVersionNote(...)` (`versionNote` only, pre-existing) and `applyVersionMetadataUpdate(...)` (`description`/`imageAssetId` only, added by this pass) — never a general-purpose row update. Neither ever touches cooking-content columns, version numbering, `sourceVersionId`, or `Dish.currentVersionId`. A repo-wide lint rule (a `no-restricted-syntax` ESLint rule forbidding `prisma.dishVersion.update(` / `.updateMany(` / `.delete(` outside a small explicitly allow-listed set of files — the Part-deletion materialization function (§D.6/§J), `updateVersionNote`, and `applyVersionMetadataUpdate`) would turn "cooking content is immutable" from a convention developers must remember into something CI enforces; not yet implemented in this codebase, tracked as a gap rather than assumed present.
 
 ---
 

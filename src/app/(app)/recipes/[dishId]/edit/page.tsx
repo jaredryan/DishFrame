@@ -75,6 +75,7 @@ export default async function EditRecipePage({
         values: dishToFormValues({
           stage: dish.stage,
           cuisine: dish.cuisine,
+          currentTitle: dish.currentTitle,
           version,
         }),
       }}

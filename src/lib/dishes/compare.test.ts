@@ -53,14 +53,12 @@ function snapshot(
 ): VersionCompareInput {
   return {
     metadata: {
-      title: "Ginger Soy Bowl",
       description: null,
       yieldQuantity: 4,
       yieldUnit: "servings",
       prepTimeMinutes: 10,
       cookTimeMinutes: 20,
       difficulty: "Easy",
-      imageAssetId: null,
     },
     nutrition: { calories: null, protein: null, carbs: null, fat: null },
     sections: [],
@@ -354,17 +352,17 @@ describe("compareDishVersions", () => {
     const after = snapshot({
       metadata: {
         ...before.metadata,
-        title: "Ginger Soy Bowl (Weeknight)",
+        description: "Weeknight-friendly version.",
         yieldQuantity: 6,
       },
     });
     const result = compareDishVersions(before, after);
     expect(result.metadata).toEqual([
       {
-        field: "title",
-        label: "Title",
-        before: "Ginger Soy Bowl",
-        after: "Ginger Soy Bowl (Weeknight)",
+        field: "description",
+        label: "Description",
+        before: null,
+        after: "Weeknight-friendly version.",
       },
       {
         field: "yield",
@@ -373,6 +371,20 @@ describe("compareDishVersions", () => {
         after: "6 servings",
       },
     ]);
+  });
+
+  // Version-trigger and Slice 5 image correction pass §3: image is
+  // Version-associated but mutable metadata (editable in place after a
+  // Version is saved), not material recipe content — comparison must not
+  // report it, unlike description (which stays included).
+  it("does not include title or image in VersionMetadataSnapshot at all — nothing to accidentally diff", () => {
+    const before = snapshot();
+    const after = snapshot();
+    const keys = Object.keys(before.metadata);
+    expect(keys).not.toContain("title");
+    expect(keys).not.toContain("imageAssetId");
+    const result = compareDishVersions(before, after);
+    expect(result.metadata).toEqual([]);
   });
 });
 

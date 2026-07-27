@@ -373,6 +373,8 @@ The stable Recipe owns:
 
 - owner;
 - current Recipe Version reference;
+- display title (Version-trigger and Slice 5 image correction pass — moved
+  here from §7.2; title is stable identity, not Version content);
 - Recipe Stage;
 - cuisine;
 - Flavor profiles;
@@ -386,13 +388,12 @@ The stable Recipe owns:
 - creation timestamp;
 - update timestamp.
 
+Editing the title updates the Recipe directly. It never creates a Version, and it never depends on which Version is current or being edited — the title is one value for the whole Recipe, not a per-Version snapshot.
+
 ## 7.2 Version-owned properties
 
 The Recipe Version owns:
 
-- display title;
-- description;
-- image;
 - authored yield, including quantity and unit/label;
 - preparation time;
 - cooking time;
@@ -405,27 +406,19 @@ The Recipe Version owns:
 - source Version when restored or branched;
 - creation timestamp.
 
+**Description and image are Version-associated but mutable** (Version-trigger and Slice 5 image correction pass): each Version has its own description and image, but editing either — on the current Version or on any historical Version — updates that Version’s stored value directly and never creates a new Version. Version association does not imply immutability for these two fields; every other field in this list remains part of the ordinary immutable cooking-content snapshot, changed only by creating a new Version.
+
+When a material change creates a new Version, the new Version initially copies the selected base Version’s description and image, unless the same save intentionally supplies a different value for one or both.
+
 A Version may also have one mutable explanatory Version-note annotation. The annotation is not part of the immutable cooking-content snapshot and is never the sole structural record of a relationship.
 
-## 7.3 Historical titles and descriptions
+## 7.3 Historical descriptions
 
-Historical Recipe Versions preserve their historical titles and descriptions.
+Historical Recipe Versions preserve their own description and image — as mutable metadata, not frozen content. A historical Version’s description or image may be edited in place at any time (§7.2); nothing about being historical makes them read-only.
 
-If a Recipe changes from:
+Title is not part of this section at all (Version-trigger and Slice 5 image correction pass): it is stable Recipe identity (§7.1), not Version-owned, so there is no “historical title” to preserve — every Version, current or historical, is understood against the Recipe’s one current title.
 
-```text
-Japanese Bowl
-```
-
-to:
-
-```text
-Ginger Soy Mirin Bowl
-```
-
-the historical Version remains titled `Japanese Bowl`.
-
-The Recipe library displays the current Version’s title.
+The Recipe library, detail pages, breadcrumbs, history pages, and search all display the current title.
 
 ## 7.4 Recipe Stage is not versioned
 
@@ -870,15 +863,15 @@ Tier 1 does not support:
 
 ## 12.2 Version inheritance
 
-A new Recipe Version inherits the current Version’s image by default.
+A new Recipe Version inherits the selected base Version’s image by default (§7.2).
 
-The user may:
+The user may, on the Version being saved:
 
 - retain it;
 - replace it;
 - remove it.
 
-Historical Versions preserve the image they had when saved.
+An image is Version-associated but mutable (§7.2, Version-trigger and Slice 5 image correction pass): the image on any Version — current or historical — may also be added, replaced, or removed directly, in place, at any later time. This never creates a Version and never changes which content that Version’s image edit was made on. “Inherits by default” describes what a *new* Version starts with; it does not mean a Version’s image is frozen once saved.
 
 ## 12.3 No-image behavior
 
@@ -896,6 +889,7 @@ Every successful Recipe or Part **content** save creates a new immutable Version
 
 The following stable metadata or presentation-preference changes do not create a Version:
 
+- title (Version-trigger and Slice 5 image correction pass — stable Recipe identity, §7.1);
 - Stage;
 - cuisine;
 - Flavor profiles;
@@ -905,12 +899,16 @@ The following stable metadata or presentation-preference changes do not create a
 - saved default batch scale;
 - preferred compatible display units.
 
+Description and image are Version-associated but mutable (§7.2): editing either alone, on the current or on any historical Version, also creates no Version — it updates that Version’s stored value in place instead.
+
 DishFrame does not:
 
-- mutate an existing Version in place;
+- mutate an existing Version's cooking content (Sections/ingredients/instructions/yield/prep-cook time/difficulty/nutrition) in place;
 - maintain hidden correction revisions;
 - rewrite content associated with an old Cooking Session;
 - classify a change automatically.
+
+Description and image (§7.2) are the sanctioned exception to "mutate in place," alongside the Version note (§14.1) — deliberately mutable metadata, not cooking content.
 
 ## 13.2 User save choices
 
@@ -945,30 +943,41 @@ Examples:
 
 DishFrame may visually emphasize **Save new version**, but it never forces the classification.
 
-## 13.2a Settled automatic classification (Slice 3 Gate 2 correction)
+## 13.2a Settled automatic classification (Slice 3 Gate 2 correction, revised by the Version-trigger and Slice 5 image correction pass)
 
 §13.1's "every successful content save creates a Version" and §13.2's "the
 user chooses" are refined by a settled implementation decision: the
 explicit **Save small update / Save new version** choice (in the editor,
 worded as **Save as a refinement / Start a new version**) is presented
 **only** when an Ingredient or Instruction actually changed. Every save is
-classified into exactly one of three buckets, determined server-side —
+classified into exactly one of four buckets, determined server-side —
 never trusting a client-supplied claim:
 
-### No new Version
+### No new Version — stable Recipe/Part metadata
 
+- title-only change (moved here by the Version-trigger correction pass —
+  title is stable identity, §7.1, not Version content);
 - Stage-only change;
 - cuisine-only change;
 - archive or restore;
 - a true no-op save (nothing at all changed).
 
+Applies directly to the stable Recipe/Part record.
+
+### No new Version — mutable Version metadata
+
+Description and/or image changed, alone (no other bucket's field also
+changed): updates the selected Version's own stored description/image
+directly, in place — on the current Version or on any historical Version.
+Added by the Version-trigger and Slice 5 image correction pass; both
+fields were previously misclassified into "automatic small update" below,
+which incorrectly created a Version for a metadata-only change.
+
 ### Automatic small update — no prompt
 
-Version-owned information that changes the Recipe/Part record or its
-presentation but does not itself change cooking content:
+Version-owned cooking-adjacent content that changes the Recipe/Part
+record but does not itself change cooking content:
 
-- title;
-- description;
 - Makes / serving-size information;
 - preparation time;
 - cooking time;
@@ -988,9 +997,17 @@ Any Ingredient or Instruction:
 - movement between Sections.
 
 Only this bucket shows the choice described in §13.2. A save combining a
-bucket-two field (e.g. title) with a bucket-three change (e.g. an
-Ingredient edit) still only prompts once, for the Ingredient/Instruction
-change, and both changes land in the one Version that choice creates.
+metadata-only field (title, description, image) or an automatic-small-
+update field (Makes, prep/cook time, difficulty, Section naming) with an
+Ingredient/Instruction change still only prompts once, for the
+Ingredient/Instruction change. Title lands on the stable Recipe/Part
+record regardless; description and image land on the newly created
+Version (inheriting the selected base Version's values unless this same
+save intentionally supplies different ones, §7.2); every other changed
+field lands in the one Version that choice creates. The Version is
+created only because of the Ingredient/Instruction (or automatic-small-
+update) change — never because a metadata field happened to change in the
+same save.
 
 Nutrition, scaling, and the Version-history comparison UI (§94) remain
 future-slice scope; this section only settles which bucket a change falls
@@ -1531,8 +1548,11 @@ Recipe Foundation is implementation-ready when all of the following behaviors ar
 ## Images
 
 - Each Version supports zero or one image.
-- New Versions inherit the source image by default.
-- Historical images remain preserved.
+- New Versions inherit the source Version's image by default.
+- Image is Version-associated but mutable: it may be added, replaced, or
+  removed in place on the current Version or any historical Version,
+  without creating a new Version (Version-trigger and Slice 5 image
+  correction pass).
 
 ## Unsaved changes
 
@@ -4684,6 +4704,22 @@ For one-Recipe customization, the user may:
 - choose another Part Version;
 - add local Recipe content around the Part.
 
+## 68.5 Linked Part display name (settled decision, closes the Slice 5 open question)
+
+A linked Part's *displayed name* and its *linked content* resolve from two different sources, and must not be confused:
+
+- **Displayed name**: the target Part's stable current identity — `Dish.currentTitle` — the same live value used everywhere else the Part's own identity is shown (§7.1). This is a live lookup, not something pinned at attach time.
+- **Linked content**: the exact selected `DishVersion` (§68.1) — Ingredients, Instructions, and every other Version-owned property. This remains pinned exactly as before and never changes when the Part is renamed.
+
+Example:
+
+- a Recipe links to Part Version V1.2;
+- the Part is later renamed from "Sauce" to "Smoky Tomato Sauce";
+- the Recipe now displays "Smoky Tomato Sauce" as the linked Part's name;
+- its linked Ingredients, Instructions, quantities, and other Version-associated content still come from exact Part Version V1.2, unchanged.
+
+This applies everywhere a linked Part's name is shown, including inside search results and structural search matching (§44) — never from `DishVersion.title`, which is stable-identity-era legacy content, not a per-Version name snapshot (§7.1, §7.3). A Part rename does not create a Version, does not change which Part Version any Recipe link targets, and does not rewrite any linked Recipe's or parent Part's own content or Version.
+
 ---
 
 # 69. Creating a Part from Local Content
@@ -5793,8 +5829,23 @@ Users can revoke or cancel sharing without locating the item first.
 DishFrame must:
 
 - identify which Recipe or Part Version uses an image;
-- allow replacement or removal through the owning item;
-- avoid orphaned uploads when Versions or items are deleted;
+- allow replacement or removal through the owning item, in place, on the
+  current Version or any historical Version (§7.2, §12.2 — image is
+  Version-associated but mutable, not frozen once saved);
+- authorize attaching an image to a Version by verifying the signed-in
+  user is actually allowed to use that asset — they uploaded it, or a
+  `DishVersion` they already own references it (Version-trigger and
+  Slice 5 image correction pass §4) — never merely because a
+  client-supplied asset id exists;
+- authorize reading a private image by the signed-in user owning at least
+  one `DishVersion` that references the asset, not only by original
+  upload attribution, since duplication/accepted-share intentionally
+  reuses the same asset across accounts; a public `ShareLink`-token read
+  path is deferred until the sharing slice (Tier 2), not built early as a
+  placeholder;
+- avoid orphaned uploads when Versions or items are deleted, **and** when
+  an image is replaced or removed in place on a surviving Version —
+  reference-counted cleanup runs in both cases, not deletion alone;
 - preserve appropriate image references or files in backup/export.
 
 A separate media library is optional.
@@ -5989,11 +6040,10 @@ This is a priority hierarchy rather than an inflexible rendering order.
 
 Comparison can show:
 
-- title and description changes;
+- description changes;
 - yield changes;
 - time changes;
-- image changes;
-- Version-owned metadata such as title, description, image, yield, times, and difficulty;
+- Version-owned metadata such as description, yield, times, and difficulty;
 - mutable Version-note annotations;
 - Section additions, removals, and reordering;
 - linked Part additions, removals, Version changes, and reordering;
@@ -6002,6 +6052,17 @@ Comparison can show:
 - preparation-note changes;
 - instruction additions, removals, changes, and reordering;
 - nutrition changes.
+
+Comparison deliberately excludes title and image (Version-trigger and
+Slice 5 image correction pass): title is stable Recipe/Part identity
+(§7.1), never Version-owned, so there is nothing to diff between two
+Versions of the same item. Image is Version-associated but mutable (§7.2)
+— it can be edited in place independently of Version content, so diffing
+it would report whatever happens to be true *now* on each side rather
+than a material difference in recipe content between the two Versions.
+Description remains included: unlike title and image, it is genuinely
+Version-associated content each Version actually carries, even though it
+too can be edited in place afterward.
 
 Examples:
 

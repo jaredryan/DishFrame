@@ -168,6 +168,12 @@ export const dishContentSchema = z.object({
   prepTimeMinutes: z.number().int().min(0).nullable().optional(),
   cookTimeMinutes: z.number().int().min(0).nullable().optional(),
   difficulty: z.string().trim().max(40).nullable().optional(),
+  // Slice 5, PRODUCT_SPEC.md §12: always explicit, never `undefined` — the
+  // editor's form state always carries the current value forward (loaded
+  // from the base Version by `dishToFormValues`), so "the user didn't
+  // touch it" and "inherit the base Version's image" are the same thing
+  // (§12.2) without needing a separate undefined-vs-null distinction.
+  imageAssetId: z.string().nullable().default(null),
   sections: z.array(sectionInputSchema),
 });
 export type DishContentInput = z.infer<typeof dishContentSchema>;
@@ -395,11 +401,45 @@ export const promoteHistoricalVersionSchema = z.object({
   versionId: z.string().min(1),
 });
 
+// Version-trigger correction pass: description/image are Version-associated
+// but mutable — this schema backs `updateVersionMetadata`, which edits
+// either field in place on any selected (current or historical) Version
+// without creating a new one. `imageAssetId: null` means "no image."
+export const updateVersionMetadataSchema = z.object({
+  dishId: z.string().min(1),
+  versionId: z.string().min(1),
+  description: z.string().trim().max(4000).nullable(),
+  imageAssetId: z.string().nullable(),
+});
+
 export const updateVersionNoteSchema = z.object({
   dishId: z.string().min(1),
   versionId: z.string().min(1),
   // §14.1: the note is optional — an empty string clears it back to unset.
   note: z.string().trim().max(500).nullable(),
+});
+
+// PRODUCT_SPEC.md §51.4: "Save as default" persists a temporary scale as
+// the stable Dish's default batch presentation — a `null` quantity clears
+// it back to the authored Version yield (§51.4's "remains resettable").
+export const setDefaultBatchScaleSchema = z.object({
+  dishId: z.string().min(1),
+  defaultBatchQuantity: z.number().gt(0).nullable(),
+  defaultBatchUnit: z.string().trim().max(40).nullable(),
+});
+
+// PRODUCT_SPEC.md §53.6, Build Plan Correction 6: targets one specific
+// ingredient lineage, never a blanket per-Dish setting — matches
+// `PreferredUnitOverride`'s `@@unique([dishId, ingredientLineageId])`.
+export const savePreferredUnitOverrideSchema = z.object({
+  dishId: z.string().min(1),
+  ingredientLineageId: z.string().min(1),
+  unit: z.string().min(1),
+});
+
+export const clearPreferredUnitOverrideSchema = z.object({
+  dishId: z.string().min(1),
+  ingredientLineageId: z.string().min(1),
 });
 
 export type ActionState = {

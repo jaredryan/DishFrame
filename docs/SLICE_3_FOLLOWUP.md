@@ -37,7 +37,15 @@ buckets — it never trusts a client-supplied "this is metadata-only" claim:
   quantity/unit, prep/cook time, difficulty; Section add/remove/rename/
   reorder that leaves every Ingredient's and Instruction's own content,
   owning Section, and position untouched): **exactly one minor Version**,
-  created automatically — no user prompt.
+  created automatically — no user prompt. **[Corrected by the later
+  Version-trigger and Slice 5 image correction pass — see
+  `docs/SLICE_5.md`'s labeled correction section.]** Title and description
+  no longer belong in this bucket: title is stable Dish/Part identity
+  (never Version-owned, never triggers a Version) and description is
+  Version-associated but mutable (updates the selected Version in place,
+  also never triggering a Version). Only yield quantity/unit, prep/cook
+  time, difficulty, and Section naming/organization remain in this
+  automatic-minor bucket.
 - **Any Ingredient or Instruction add, remove, edit, or reorder**: requires
   an explicit `versionChoice` (`"MINOR"` or `"MAJOR"`) from the caller.
   Missing it throws `ValidationError`. `"MINOR"` preserves the current
@@ -94,8 +102,11 @@ a new dialog instead of saving immediately:
 > [Start a new version] [Save in this version]
 
 Clicking either button calls the same `performSave` path with the chosen
-`versionChoice`. A non-cooking-only edit (e.g. just the title) saves
-directly with no dialog. This mirrors the button-ordering convention
+`versionChoice`. A non-cooking-only edit (e.g. just the prep time) saves
+directly with no dialog — a title-only or description-only edit also
+saves directly with no dialog, but (per the later correction pass noted
+above) creates no Version at all, rather than an automatic minor one.
+This mirrors the button-ordering convention
 already established by the unsaved-changes dialog in the same file
 (less-common/more-consequential action first, safe default last).
 
@@ -222,6 +233,11 @@ create/archive/restore/duplicate/delete coverage kept intact:
 3. true no-op save → no Version (asserts `Dish.updatedAt` is literally
    unchanged, not just that no Version exists).
 4. non-cooking Version-owned change (title) → exactly one minor Version.
+   **[Superseded by the later Version-trigger and Slice 5 image correction
+   pass — see `docs/SLICE_5.md`. This scenario and the fixture it
+   describes were rewritten: title-only no longer triggers a Version at
+   all, and the "non-cooking automatic minor" scenario is now tested with
+   a genuine non-cooking field such as prep time.]**
 5. Ingredient change saved as `"MINOR"` → minor number incremented,
    lineageId carried forward for the unchanged row, freshly minted for the
    new one.
@@ -232,8 +248,15 @@ create/archive/restore/duplicate/delete coverage kept intact:
    any of the three rejected attempts.
 8. combined Stage/cuisine change + title change in one save → both the
    stable field and the new minor Version's title update correctly.
+   **[Superseded — see the note on scenario 4. A stable-field + title-only
+   combination now creates no Version at all; the "stable field + a
+   Version-triggering field in one save" scenario is now tested with a
+   genuine non-cooking field.]**
 9. the original Version's `title` is provably unchanged after a
-   subsequent edit creates a new one.
+   subsequent edit creates a new one. **[Superseded — see the note on
+   scenario 4; this immutability check is now demonstrated with a genuine
+   non-cooking field, since a title-only edit no longer creates a new
+   Version to compare against.]**
 
 Plus a new "Ingredient field persistence" suite (2 tests) proving a fully-
 populated Ingredient (range, approximate, unit, prep note, optional) and a

@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { StageBadge } from "@/components/domain/dish/stage-badge";
 import { VersionSectionsView } from "@/components/domain/dish/version-sections-view";
 import { VersionNoteEditor } from "@/components/domain/dish/version-note-editor";
+import { VersionMetadataEditor } from "@/components/domain/dish/version-metadata-editor";
 import { VersionSelector } from "@/components/domain/dish/version-selector";
 import { PromoteVersionButton } from "@/components/domain/dish/promote-version-button";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
@@ -61,13 +62,17 @@ export default async function RecipeVersionPage({
 
   const basePath = dishBasePath("RECIPE");
   const versionLabel = `V${version.majorVersion}.${version.minorVersion}`;
+  // Version-trigger correction pass: title is stable Dish identity
+  // (PRODUCT_SPEC.md §7.1), not Version content — every historical Version
+  // page shows the Dish's one current title, not a per-Version snapshot.
+  const displayTitle = dish.currentTitle || version.title;
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
       <Breadcrumbs
         items={[
           { label: "Recipes", href: basePath },
-          { label: version.title, href: `${basePath}/${dish.id}` },
+          { label: displayTitle, href: `${basePath}/${dish.id}` },
           { label: versionLabel },
         ]}
       />
@@ -75,7 +80,7 @@ export default async function RecipeVersionPage({
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="font-heading text-foreground text-2xl font-semibold">
-            {version.title}
+            {displayTitle}
           </h1>
           <span className="text-muted-foreground text-xs tabular-nums">
             {versionLabel}
@@ -85,8 +90,21 @@ export default async function RecipeVersionPage({
         <p className="text-muted-foreground text-sm">
           {isCurrent
             ? "This is the current version."
-            : "This is a historical version — its content never changes."}
+            : "This is a historical version — its content never changes, but its description and photo can still be edited (PRODUCT_SPEC.md §7.2)."}
         </p>
+
+        {/* PRODUCT_SPEC.md §7.2/§12.2: description and image are
+            Version-associated but mutable — editable in place on any
+            selected Version, current or historical, without creating a
+            refinement. */}
+        <VersionMetadataEditor
+          key={version.id}
+          kind="RECIPE"
+          dishId={dish.id}
+          versionId={version.id}
+          description={version.description}
+          imageAssetId={version.imageAssetId}
+        />
 
         {sourceVersion && (
           <p className="text-muted-foreground text-sm">

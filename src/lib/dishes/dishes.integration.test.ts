@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { prisma } from "@/lib/db/prisma";
 import { createTestUser, deleteTestUser } from "@/test/factories";
 import * as dishService from "@/lib/dishes/service";
@@ -9,7 +9,20 @@ import {
   type DishContentInput,
   type SectionInput,
 } from "@/lib/dishes/schema";
-import { NotFoundError, ValidationError } from "@/lib/errors";
+import {
+  AuthorizationError,
+  NotFoundError,
+  ValidationError,
+} from "@/lib/errors";
+import { decimalToNumber } from "@/lib/dishes/format";
+
+// Slice 5: `deleteDish`'s reference-counted image cleanup calls
+// `bestEffortDeleteBlob` (`src/lib/images/service.ts`), which calls
+// `@vercel/blob`'s `del()`. These tests create `ImageAsset` rows directly
+// against Postgres (no real Blob upload), so the real network call is
+// mocked here — an integration test for domain/database behavior should
+// never depend on, or exercise, a live external API call.
+vi.mock("@vercel/blob", () => ({ del: vi.fn(async () => {}) }));
 
 function content(overrides: Partial<DishContentInput> = {}): DishContentInput {
   return {
@@ -22,6 +35,7 @@ function content(overrides: Partial<DishContentInput> = {}): DishContentInput {
     prepTimeMinutes: null,
     cookTimeMinutes: null,
     difficulty: null,
+    imageAssetId: null,
     sections: [
       {
         name: null,
@@ -220,7 +234,10 @@ describe("dishes service", () => {
       expect(await versionCount(dishId)).toBe(1);
     });
 
-    it("creates exactly one minor Version for a non-cooking Version-owned change (title)", async () => {
+    // Version-trigger correction pass, PRODUCT_SPEC.md §7.1: title is
+    // stable Dish identity, not Version-owned content — a title-only edit
+    // must never allocate a Version, unlike the pre-correction behavior.
+    it("creates no Version for a title-only change, and updates Dish.currentTitle directly", async () => {
       const user = await createTestUser();
       userId = user.id;
 
@@ -239,9 +256,37 @@ describe("dishes service", () => {
       );
 
       const after = await loadDishWithVersion(dishId);
+      expect(after.currentTitle).toBe("Ginger Soy Bowl (updated)");
+      expect(after.currentVersionId).toBe(before.currentVersionId);
+      expect(await versionCount(dishId)).toBe(1);
+      // The current Version's own `title` column is an inert historical
+      // mirror now — it is deliberately left untouched by a metadata-only
+      // save, since only Version creation ever writes it.
+      expect(after.currentVersion?.title).toBe("Ginger Soy Bowl");
+    });
+
+    it("creates exactly one minor Version for a non-cooking Version-owned change (prep time)", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+
+      const dishId = await dishService.createDish(userId, "RECIPE", content());
+      const before = await loadDishWithVersion(dishId);
+
+      await dishService.editDish(
+        userId,
+        dishId,
+        before.currentVersionId!,
+        content({
+          prepTimeMinutes: 15,
+          sections: unchangedSections(before),
+        }),
+        undefined,
+      );
+
+      const after = await loadDishWithVersion(dishId);
       expect(after.currentVersion?.majorVersion).toBe(1);
       expect(after.currentVersion?.minorVersion).toBe(1);
-      expect(after.currentVersion?.title).toBe("Ginger Soy Bowl (updated)");
+      expect(after.currentVersion?.prepTimeMinutes).toBe(15);
       expect(after.currentVersionId).not.toBe(before.currentVersionId);
       expect(await versionCount(dishId)).toBe(2);
       // Slice 4 correction pass §2: an ordinary sequential minor refinement
@@ -443,7 +488,7 @@ describe("dishes service", () => {
         before.currentVersionId!,
         content({
           cuisine: "Thai",
-          title: "Ginger Soy Bowl (v2)",
+          prepTimeMinutes: 20,
           sections: unchangedSections(before),
         }),
         undefined,
@@ -451,8 +496,37 @@ describe("dishes service", () => {
 
       const after = await loadDishWithVersion(dishId);
       expect(after.cuisine).toBe("Thai");
-      expect(after.currentVersion?.title).toBe("Ginger Soy Bowl (v2)");
+      expect(after.currentVersion?.prepTimeMinutes).toBe(20);
       expect(after.currentVersion?.minorVersion).toBe(1);
+      expect(await versionCount(dishId)).toBe(2);
+    });
+
+    // Version-trigger correction pass: a title change riding along with a
+    // Version-creating (non-cooking) change lands on the stable Dish, not
+    // on the newly created Version's own inert `title` mirror column — the
+    // Version is created only because of the non-cooking field, never
+    // because of the title change itself.
+    it("a title change combined with a non-cooking change updates the Dish title without a second cause for the Version", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+
+      const dishId = await dishService.createDish(userId, "RECIPE", content());
+      const before = await loadDishWithVersion(dishId);
+
+      await dishService.editDish(
+        userId,
+        dishId,
+        before.currentVersionId!,
+        content({
+          title: "Ginger Soy Bowl (v2)",
+          prepTimeMinutes: 20,
+          sections: unchangedSections(before),
+        }),
+        undefined,
+      );
+
+      const after = await loadDishWithVersion(dishId);
+      expect(after.currentTitle).toBe("Ginger Soy Bowl (v2)");
       expect(await versionCount(dishId)).toBe(2);
     });
 
@@ -469,7 +543,7 @@ describe("dishes service", () => {
         dishId,
         originalVersionId,
         content({
-          title: "Ginger Soy Bowl (updated)",
+          prepTimeMinutes: 25,
           sections: unchangedSections(before),
         }),
         undefined,
@@ -478,7 +552,7 @@ describe("dishes service", () => {
       const originalVersion = await prisma.dishVersion.findUniqueOrThrow({
         where: { id: originalVersionId },
       });
-      expect(originalVersion.title).toBe("Ginger Soy Bowl");
+      expect(originalVersion.prepTimeMinutes).toBeNull();
     });
 
     // Slice 4 correction pass §1: a superseded (non-latest) Version is not
@@ -498,7 +572,10 @@ describe("dishes service", () => {
         userId,
         dishId,
         v1Id,
-        content({ title: "First edit", sections: unchangedSections(dish) }),
+        content({
+          prepTimeMinutes: 5,
+          sections: unchangedSections(dish),
+        }),
         undefined,
       );
 
@@ -510,7 +587,7 @@ describe("dishes service", () => {
         dishId,
         v1Id,
         content({
-          title: "Branched from V1.0",
+          prepTimeMinutes: 10,
           sections: unchangedSections(dish),
         }),
         undefined,
@@ -520,7 +597,7 @@ describe("dishes service", () => {
       const after = await loadDishWithVersion(dishId);
       expect(after.currentVersion?.majorVersion).toBe(1);
       expect(after.currentVersion?.minorVersion).toBe(2);
-      expect(after.currentVersion?.title).toBe("Branched from V1.0");
+      expect(after.currentVersion?.prepTimeMinutes).toBe(10);
       // Non-sequential minor branch (the base wasn't the latest minor in
       // its line at save time) — its true source is recorded structurally.
       expect(after.currentVersion?.sourceVersionId).toBe(v1Id);
@@ -644,15 +721,18 @@ describe("dishes service", () => {
         include: { sections: { include: { ingredients: true } } },
       });
 
-      // Title-only change (no versionChoice needed — this is the bucket-two
-      // "automatic small update" path, PRODUCT_SPEC.md §13.2a) against the
-      // unchanged, real-lineageId content of the historical line.
+      // Prep-time-only change (no versionChoice needed — this is the
+      // non-cooking "automatic minor" bucket, PRODUCT_SPEC.md §13.2a)
+      // against the unchanged, real-lineageId content of the historical
+      // line. (Title is no longer part of this bucket — Version-trigger
+      // correction pass, §7.1 — so a genuine non-cooking field is used
+      // here instead.)
       await dishService.editDish(
         userId,
         dishId,
         v1Id,
         content({
-          title: "Ginger Soy Bowl (annotated)",
+          prepTimeMinutes: 12,
           sections: [
             {
               lineageId: historicalBase.sections[0].lineageId,
@@ -680,9 +760,7 @@ describe("dishes service", () => {
         orderBy: { minorVersion: "asc" },
       });
       expect(historicalLineVersions.map((v) => v.minorVersion)).toEqual([0, 1]);
-      expect(historicalLineVersions[1].title).toBe(
-        "Ginger Soy Bowl (annotated)",
-      );
+      expect(historicalLineVersions[1].prepTimeMinutes).toBe(12);
     });
 
     it("a MAJOR save from a historical major line creates the next-overall major, sets sourceVersionId, and moves current", async () => {
@@ -841,13 +919,19 @@ describe("dishes service", () => {
       const after = await loadDishWithVersion(dishId);
       expect(after.currentVersion?.majorVersion).toBe(3);
       expect(after.currentVersion?.minorVersion).toBe(0);
-      expect(after.currentVersion?.title).toBe("Ginger Soy Bowl");
+      // Version-trigger correction pass, PRODUCT_SPEC.md §7.1/§13.9: title
+      // is stable Dish identity now, exactly like Stage — promoting V1's
+      // *content* must not revert the Dish's title back to what V1 was
+      // called. The current title ("A different direction", set by the
+      // intervening V2.0 edit) survives the promotion untouched, and the
+      // newly created V3.0's own inert `title` mirror reflects it too.
+      expect(after.currentVersion?.title).toBe("A different direction");
       expect(after.currentVersion?.sourceVersionId).toBe(v1Id);
       // Slice 4 correction pass §4: promoting a historical direction seeds
       // source → result wording ending in "Revival", same as a major
       // created directly from a historical base.
       expect(after.currentVersion?.versionNote).toBe("V1.0 → V3.0: Revival");
-      expect(after.currentTitle).toBe("Ginger Soy Bowl");
+      expect(after.currentTitle).toBe("A different direction");
       // Stage is unaffected by promotion.
       expect(after.stage).toBe("ACTIVE");
 
@@ -1701,6 +1785,897 @@ describe("dishes service", () => {
       await expect(dishService.deleteDish(intruder.id, dishId)).rejects.toThrow(
         NotFoundError,
       );
+
+      await deleteTestUser(intruder.id);
+    });
+  });
+
+  describe("editDish — imageAssetId (Version-trigger and Slice 5 image correction pass)", () => {
+    it("does not create a Version when imageAssetId is unchanged", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      const dishId = await dishService.createDish(userId, "RECIPE", content());
+      const dish = await loadDishWithVersion(dishId);
+
+      await dishService.editDish(
+        userId,
+        dishId,
+        dish.currentVersionId!,
+        content({ sections: unchangedSections(dish) }),
+        undefined,
+      );
+
+      expect(await versionCount(dishId)).toBe(1);
+    });
+
+    it("adding an image creates no Version — updates the selected Version in place", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      const dishId = await dishService.createDish(userId, "RECIPE", content());
+      const dish = await loadDishWithVersion(dishId);
+      const image = await prisma.imageAsset.create({
+        data: {
+          storageKey: `images/test/${randomUUID()}.jpg`,
+          uploadedByUserId: user.id,
+        },
+      });
+      const originalVersionId = dish.currentVersionId!;
+
+      await dishService.editDish(
+        userId,
+        dishId,
+        originalVersionId,
+        content({
+          sections: unchangedSections(dish),
+          imageAssetId: image.id,
+        }),
+        undefined,
+      );
+
+      expect(await versionCount(dishId)).toBe(1);
+      const reloaded = await loadDishWithVersion(dishId);
+      expect(reloaded.currentVersionId).toBe(originalVersionId);
+      expect(reloaded.currentVersion?.imageAssetId).toBe(image.id);
+    });
+
+    it("replacing an image creates no Version, and the old image survives while another Version still references it", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      const oldImage = await prisma.imageAsset.create({
+        data: {
+          storageKey: `images/test/${randomUUID()}.jpg`,
+          uploadedByUserId: user.id,
+        },
+      });
+      const newImage = await prisma.imageAsset.create({
+        data: {
+          storageKey: `images/test/${randomUUID()}.jpg`,
+          uploadedByUserId: user.id,
+        },
+      });
+      const dishId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({ imageAssetId: oldImage.id }),
+      );
+      const dish = await loadDishWithVersion(dishId);
+      // A second Dish still references oldImage — it must survive the
+      // replacement below.
+      await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({ imageAssetId: oldImage.id }),
+      );
+
+      await dishService.editDish(
+        userId,
+        dishId,
+        dish.currentVersionId!,
+        content({
+          sections: unchangedSections(dish),
+          imageAssetId: newImage.id,
+        }),
+        undefined,
+      );
+
+      expect(await versionCount(dishId)).toBe(1);
+      const reloaded = await loadDishWithVersion(dishId);
+      expect(reloaded.currentVersionId).toBe(dish.currentVersionId);
+      expect(reloaded.currentVersion?.imageAssetId).toBe(newImage.id);
+
+      const survivingOldImage = await prisma.imageAsset.findUnique({
+        where: { id: oldImage.id },
+      });
+      expect(survivingOldImage).not.toBeNull();
+    });
+
+    it("removing an image creates no Version, and the old image is cleaned up once its last reference is gone", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      const image = await prisma.imageAsset.create({
+        data: {
+          storageKey: `images/test/${randomUUID()}.jpg`,
+          uploadedByUserId: user.id,
+        },
+      });
+      const dishId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({ imageAssetId: image.id }),
+      );
+      const dish = await loadDishWithVersion(dishId);
+
+      await dishService.editDish(
+        userId,
+        dishId,
+        dish.currentVersionId!,
+        content({ sections: unchangedSections(dish), imageAssetId: null }),
+        undefined,
+      );
+
+      expect(await versionCount(dishId)).toBe(1);
+      const reloaded = await loadDishWithVersion(dishId);
+      expect(reloaded.currentVersionId).toBe(dish.currentVersionId);
+      expect(reloaded.currentVersion?.imageAssetId).toBeNull();
+
+      const orphaned = await prisma.imageAsset.findUnique({
+        where: { id: image.id },
+      });
+      expect(orphaned).toBeNull();
+    });
+
+    it("a material Ingredient change combined with an image change creates exactly one Version, inheriting only where not overridden", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      const baseImage = await prisma.imageAsset.create({
+        data: {
+          storageKey: `images/test/${randomUUID()}.jpg`,
+          uploadedByUserId: user.id,
+        },
+      });
+      const newImage = await prisma.imageAsset.create({
+        data: {
+          storageKey: `images/test/${randomUUID()}.jpg`,
+          uploadedByUserId: user.id,
+        },
+      });
+      const dishId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({ imageAssetId: baseImage.id }),
+      );
+      const dish = await loadDishWithVersion(dishId);
+      const section = dish.currentVersion!.sections[0];
+      const ingredient = section.ingredients[0];
+
+      await dishService.editDish(
+        userId,
+        dishId,
+        dish.currentVersionId!,
+        content({
+          imageAssetId: newImage.id,
+          sections: [
+            {
+              lineageId: section.lineageId,
+              name: null,
+              guidanceNote: null,
+              ingredients: [
+                {
+                  lineageId: ingredient.lineageId,
+                  ...blankIngredient("Kosher salt"),
+                },
+              ],
+              instructions: [],
+            },
+          ],
+        }),
+        "MINOR",
+      );
+
+      expect(await versionCount(dishId)).toBe(2);
+      const reloaded = await loadDishWithVersion(dishId);
+      expect(reloaded.currentVersion?.imageAssetId).toBe(newImage.id);
+      // The base Version keeps its own original image, untouched.
+      const baseVersion = await prisma.dishVersion.findUniqueOrThrow({
+        where: { id: dish.currentVersionId! },
+      });
+      expect(baseVersion.imageAssetId).toBe(baseImage.id);
+    });
+
+    it("a material Version with no explicit image override inherits the selected base Version's image", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      const image = await prisma.imageAsset.create({
+        data: {
+          storageKey: `images/test/${randomUUID()}.jpg`,
+          uploadedByUserId: user.id,
+        },
+      });
+      const dishId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({ imageAssetId: image.id }),
+      );
+      const dish = await loadDishWithVersion(dishId);
+      const section = dish.currentVersion!.sections[0];
+      const ingredient = section.ingredients[0];
+
+      await dishService.editDish(
+        userId,
+        dishId,
+        dish.currentVersionId!,
+        content({
+          imageAssetId: image.id, // untouched — same as the base's own value
+          sections: [
+            {
+              lineageId: section.lineageId,
+              name: null,
+              guidanceNote: null,
+              ingredients: [
+                {
+                  lineageId: ingredient.lineageId,
+                  ...blankIngredient("Kosher salt"),
+                },
+              ],
+              instructions: [],
+            },
+          ],
+        }),
+        "MINOR",
+      );
+
+      const reloaded = await loadDishWithVersion(dishId);
+      expect(reloaded.currentVersion?.imageAssetId).toBe(image.id);
+    });
+  });
+
+  describe("editDish/createDish — image attach authorization (Version-trigger and Slice 5 image correction pass §4)", () => {
+    it("rejects attaching another user's unreferenced uploaded asset on create", async () => {
+      const owner = await createTestUser();
+      const uploader = await createTestUser();
+      userId = owner.id;
+      const foreignImage = await prisma.imageAsset.create({
+        data: {
+          storageKey: `images/test/${randomUUID()}.jpg`,
+          uploadedByUserId: uploader.id,
+        },
+      });
+
+      await expect(
+        dishService.createDish(
+          owner.id,
+          "RECIPE",
+          content({ imageAssetId: foreignImage.id }),
+        ),
+      ).rejects.toThrow(AuthorizationError);
+
+      await deleteTestUser(uploader.id);
+    });
+
+    it("rejects attaching another user's unreferenced uploaded asset on edit", async () => {
+      const owner = await createTestUser();
+      const uploader = await createTestUser();
+      userId = owner.id;
+      const dishId = await dishService.createDish(
+        owner.id,
+        "RECIPE",
+        content(),
+      );
+      const dish = await loadDishWithVersion(dishId);
+      const foreignImage = await prisma.imageAsset.create({
+        data: {
+          storageKey: `images/test/${randomUUID()}.jpg`,
+          uploadedByUserId: uploader.id,
+        },
+      });
+
+      await expect(
+        dishService.editDish(
+          owner.id,
+          dishId,
+          dish.currentVersionId!,
+          content({
+            sections: unchangedSections(dish),
+            imageAssetId: foreignImage.id,
+          }),
+          undefined,
+        ),
+      ).rejects.toThrow(AuthorizationError);
+      expect(await versionCount(dishId)).toBe(1);
+
+      await deleteTestUser(uploader.id);
+    });
+
+    it("allows a legitimate cross-account duplicate owner to reuse an already-referenced shared asset", async () => {
+      const original = await createTestUser();
+      const duplicator = await createTestUser();
+      userId = duplicator.id;
+      const image = await prisma.imageAsset.create({
+        data: {
+          storageKey: `images/test/${randomUUID()}.jpg`,
+          uploadedByUserId: original.id,
+        },
+      });
+      await dishService.createDish(
+        original.id,
+        "RECIPE",
+        content({ imageAssetId: image.id }),
+      );
+
+      // Tier 1 has no cross-account duplication/accept-share flow yet
+      // (PRODUCT_SPEC.md §18/§95.2 — that's Tier 2 scope); `duplicateDish`
+      // is strictly intra-account, since its `ownerId` param must already
+      // own the source Dish. To exercise the cross-account branch of
+      // `assertImageAssetAttachable` (a DishVersion this owner owns already
+      // references the asset, even though a different user uploaded it),
+      // construct that precondition directly at the data level, simulating
+      // what a future accepted cross-account share/duplicate would produce.
+      const duplicatedDish = await prisma.dish.create({
+        data: {
+          ownerId: duplicator.id,
+          kind: "RECIPE",
+          currentTitle: "Copy of Ginger Soy Bowl",
+        },
+      });
+      const duplicatedVersion = await prisma.dishVersion.create({
+        data: {
+          dishId: duplicatedDish.id,
+          majorVersion: 1,
+          minorVersion: 0,
+          title: "Copy of Ginger Soy Bowl",
+          imageAssetId: image.id,
+        },
+      });
+      await prisma.dish.update({
+        where: { id: duplicatedDish.id },
+        data: { currentVersionId: duplicatedVersion.id },
+      });
+      const duplicatedDishId = duplicatedDish.id;
+
+      // A second, brand-new Recipe by the same duplicator may now legitimately
+      // reuse that same shared asset via ordinary create — allowed because a
+      // DishVersion this owner owns already references it.
+      const secondDishId = await dishService.createDish(
+        duplicator.id,
+        "RECIPE",
+        content({ imageAssetId: image.id }),
+      );
+
+      const secondDish = await loadDishWithVersion(secondDishId);
+      expect(secondDish.currentVersion?.imageAssetId).toBe(image.id);
+
+      await dishService.deleteDish(duplicator.id, duplicatedDishId);
+      await dishService.deleteDish(duplicator.id, secondDishId);
+      await deleteTestUser(original.id);
+    });
+  });
+
+  describe("editDish — description (Version-trigger correction pass, PRODUCT_SPEC.md §7.2)", () => {
+    it("a description-only change through the full editor creates no Version", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      const dishId = await dishService.createDish(userId, "RECIPE", content());
+      const dish = await loadDishWithVersion(dishId);
+
+      await dishService.editDish(
+        userId,
+        dishId,
+        dish.currentVersionId!,
+        content({
+          description: "A weeknight favorite.",
+          sections: unchangedSections(dish),
+        }),
+        undefined,
+      );
+
+      expect(await versionCount(dishId)).toBe(1);
+      const reloaded = await prisma.dishVersion.findUniqueOrThrow({
+        where: { id: dish.currentVersionId! },
+      });
+      expect(reloaded.description).toBe("A weeknight favorite.");
+    });
+
+    it("a material Ingredient change combined with a description change creates exactly one Version carrying the new description, leaving the base Version's own description untouched", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      const dishId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({ description: "Original description." }),
+      );
+      const dish = await loadDishWithVersion(dishId);
+      const section = dish.currentVersion!.sections[0];
+      const ingredient = section.ingredients[0];
+
+      await dishService.editDish(
+        userId,
+        dishId,
+        dish.currentVersionId!,
+        content({
+          description: "Updated for the new direction.",
+          sections: [
+            {
+              lineageId: section.lineageId,
+              name: null,
+              guidanceNote: null,
+              ingredients: [
+                {
+                  lineageId: ingredient.lineageId,
+                  ...blankIngredient("Kosher salt"),
+                },
+              ],
+              instructions: [],
+            },
+          ],
+        }),
+        "MINOR",
+      );
+
+      expect(await versionCount(dishId)).toBe(2);
+      const reloaded = await loadDishWithVersion(dishId);
+      expect(reloaded.currentVersion?.description).toBe(
+        "Updated for the new direction.",
+      );
+      const baseVersion = await prisma.dishVersion.findUniqueOrThrow({
+        where: { id: dish.currentVersionId! },
+      });
+      expect(baseVersion.description).toBe("Original description.");
+    });
+
+    it("a material Version with no explicit description override inherits the selected base Version's description", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      const dishId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({ description: "Carried forward." }),
+      );
+      const dish = await loadDishWithVersion(dishId);
+      const section = dish.currentVersion!.sections[0];
+      const ingredient = section.ingredients[0];
+
+      await dishService.editDish(
+        userId,
+        dishId,
+        dish.currentVersionId!,
+        content({
+          description: "Carried forward.", // untouched — same as the base's own value
+          sections: [
+            {
+              lineageId: section.lineageId,
+              name: null,
+              guidanceNote: null,
+              ingredients: [
+                {
+                  lineageId: ingredient.lineageId,
+                  ...blankIngredient("Kosher salt"),
+                },
+              ],
+              instructions: [],
+            },
+          ],
+        }),
+        "MINOR",
+      );
+
+      const reloaded = await loadDishWithVersion(dishId);
+      expect(reloaded.currentVersion?.description).toBe("Carried forward.");
+    });
+  });
+
+  describe("promoteHistoricalVersion — imageAssetId (Slice 5)", () => {
+    it("copies the historical Version's image verbatim", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      const image = await prisma.imageAsset.create({
+        data: {
+          storageKey: `images/test/${randomUUID()}.jpg`,
+          uploadedByUserId: user.id,
+        },
+      });
+      const dishId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({ imageAssetId: image.id }),
+      );
+      const dish = await loadDishWithVersion(dishId);
+
+      await dishService.promoteHistoricalVersion(
+        userId,
+        dishId,
+        dish.currentVersionId!,
+      );
+
+      const reloaded = await loadDishWithVersion(dishId);
+      expect(reloaded.currentVersion?.imageAssetId).toBe(image.id);
+    });
+  });
+
+  describe("duplicateDish — imageAssetId (Slice 5)", () => {
+    it("shares the same ImageAsset row as its source rather than copying it", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      const image = await prisma.imageAsset.create({
+        data: {
+          storageKey: `images/test/${randomUUID()}.jpg`,
+          uploadedByUserId: user.id,
+        },
+      });
+      const dishId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({ imageAssetId: image.id }),
+      );
+
+      const newDishId = await dishService.duplicateDish(
+        userId,
+        dishId,
+        undefined,
+      );
+
+      const duplicated = await loadDishWithVersion(newDishId);
+      expect(duplicated.currentVersion?.imageAssetId).toBe(image.id);
+    });
+  });
+
+  describe("deleteDish — image reference-counted cleanup (Slice 5)", () => {
+    it("deletes the ImageAsset once its last referencing Dish is deleted", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      const image = await prisma.imageAsset.create({
+        data: {
+          storageKey: `images/test/${randomUUID()}.jpg`,
+          uploadedByUserId: user.id,
+        },
+      });
+      const dishId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({ imageAssetId: image.id }),
+      );
+
+      await dishService.deleteDish(userId, dishId);
+
+      const reloadedImage = await prisma.imageAsset.findUnique({
+        where: { id: image.id },
+      });
+      expect(reloadedImage).toBeNull();
+    });
+
+    it("does not delete an ImageAsset still referenced by a surviving duplicate", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      const image = await prisma.imageAsset.create({
+        data: {
+          storageKey: `images/test/${randomUUID()}.jpg`,
+          uploadedByUserId: user.id,
+        },
+      });
+      const dishId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({ imageAssetId: image.id }),
+      );
+      const duplicateDishId = await dishService.duplicateDish(
+        userId,
+        dishId,
+        undefined,
+      );
+
+      await dishService.deleteDish(userId, dishId);
+
+      const stillReferenced = await prisma.imageAsset.findUnique({
+        where: { id: image.id },
+      });
+      expect(stillReferenced).not.toBeNull();
+
+      await dishService.deleteDish(userId, duplicateDishId);
+
+      const nowOrphaned = await prisma.imageAsset.findUnique({
+        where: { id: image.id },
+      });
+      expect(nowOrphaned).toBeNull();
+    });
+  });
+
+  describe("updateVersionMetadata (Version-trigger correction pass, PRODUCT_SPEC.md §7.2)", () => {
+    it("updates the current Version's description in place, creating no Version", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      const dishId = await dishService.createDish(userId, "RECIPE", content());
+      const dish = await loadDishWithVersion(dishId);
+
+      await dishService.updateVersionMetadata(
+        userId,
+        dishId,
+        dish.currentVersionId!,
+        {
+          description: "Tastes best the next day.",
+          imageAssetId: null,
+        },
+      );
+
+      expect(await versionCount(dishId)).toBe(1);
+      const reloaded = await prisma.dishVersion.findUniqueOrThrow({
+        where: { id: dish.currentVersionId! },
+      });
+      expect(reloaded.description).toBe("Tastes best the next day.");
+    });
+
+    it("updates a historical Version's description in place without mutating its Ingredients/Instructions/Sections, or moving currentVersionId", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      const dishId = await dishService.createDish(userId, "RECIPE", content());
+      const v1 = await loadDishWithVersion(dishId);
+      const v1Id = v1.currentVersionId!;
+      const originalIngredientLineageId =
+        v1.currentVersion!.sections[0].ingredients[0].lineageId;
+
+      // Advance to V2.0 (a material change) so v1Id becomes historical.
+      await dishService.editDish(
+        userId,
+        dishId,
+        v1Id,
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              ingredients: [blankIngredient("Ginger")],
+              instructions: [],
+            },
+          ],
+        }),
+        "MAJOR",
+      );
+      const afterMajor = await loadDishWithVersion(dishId);
+      expect(afterMajor.currentVersionId).not.toBe(v1Id);
+
+      await dishService.updateVersionMetadata(userId, dishId, v1Id, {
+        description: "The original direction.",
+        imageAssetId: null,
+      });
+
+      const stillCurrent = await loadDishWithVersion(dishId);
+      expect(stillCurrent.currentVersionId).toBe(afterMajor.currentVersionId);
+      expect(await versionCount(dishId)).toBe(2);
+
+      const historicalVersion = await prisma.dishVersion.findUniqueOrThrow({
+        where: { id: v1Id },
+        include: { sections: { include: { ingredients: true } } },
+      });
+      expect(historicalVersion.description).toBe("The original direction.");
+      expect(historicalVersion.sections[0].ingredients[0].lineageId).toBe(
+        originalIngredientLineageId,
+      );
+      expect(historicalVersion.sections[0].ingredients[0].name).toBe("Salt");
+    });
+
+    it("replacing the image does not change currentVersionId, sourceVersionId, or version numbering", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      const oldImage = await prisma.imageAsset.create({
+        data: {
+          storageKey: `images/test/${randomUUID()}.jpg`,
+          uploadedByUserId: user.id,
+        },
+      });
+      const newImage = await prisma.imageAsset.create({
+        data: {
+          storageKey: `images/test/${randomUUID()}.jpg`,
+          uploadedByUserId: user.id,
+        },
+      });
+      const dishId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({ imageAssetId: oldImage.id }),
+      );
+      const before = await loadDishWithVersion(dishId);
+
+      await dishService.updateVersionMetadata(
+        userId,
+        dishId,
+        before.currentVersionId!,
+        { description: null, imageAssetId: newImage.id },
+      );
+
+      const after = await loadDishWithVersion(dishId);
+      expect(after.currentVersionId).toBe(before.currentVersionId);
+      expect(after.currentVersion?.sourceVersionId).toBeNull();
+      expect(after.currentVersion?.majorVersion).toBe(1);
+      expect(after.currentVersion?.minorVersion).toBe(0);
+      expect(after.currentVersion?.imageAssetId).toBe(newImage.id);
+    });
+
+    it("rejects an unrelated user's unreferenced image on a metadata update", async () => {
+      const owner = await createTestUser();
+      const uploader = await createTestUser();
+      userId = owner.id;
+      const dishId = await dishService.createDish(
+        owner.id,
+        "RECIPE",
+        content(),
+      );
+      const dish = await loadDishWithVersion(dishId);
+      const foreignImage = await prisma.imageAsset.create({
+        data: {
+          storageKey: `images/test/${randomUUID()}.jpg`,
+          uploadedByUserId: uploader.id,
+        },
+      });
+
+      await expect(
+        dishService.updateVersionMetadata(
+          owner.id,
+          dishId,
+          dish.currentVersionId!,
+          {
+            description: null,
+            imageAssetId: foreignImage.id,
+          },
+        ),
+      ).rejects.toThrow(AuthorizationError);
+
+      await deleteTestUser(uploader.id);
+    });
+
+    it("rejects cross-user metadata edits with NotFoundError", async () => {
+      const owner = await createTestUser();
+      const intruder = await createTestUser();
+      userId = owner.id;
+      const dishId = await dishService.createDish(
+        owner.id,
+        "RECIPE",
+        content(),
+      );
+      const dish = await loadDishWithVersion(dishId);
+
+      await expect(
+        dishService.updateVersionMetadata(
+          intruder.id,
+          dishId,
+          dish.currentVersionId!,
+          {
+            description: "Not yours",
+            imageAssetId: null,
+          },
+        ),
+      ).rejects.toThrow(NotFoundError);
+
+      await deleteTestUser(intruder.id);
+    });
+  });
+
+  describe("setDefaultBatchScale (Slice 5)", () => {
+    it("sets and resets the Dish's default batch scale without creating a Version", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      const dishId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({ yieldQuantity: 6, yieldUnit: "servings" }),
+      );
+
+      await dishService.setDefaultBatchScale(userId, dishId, 9, "servings");
+      let dish = await prisma.dish.findUniqueOrThrow({ where: { id: dishId } });
+      expect(decimalToNumber(dish.defaultBatchQuantity)).toBe(9);
+      expect(dish.defaultBatchUnit).toBe("servings");
+      expect(await versionCount(dishId)).toBe(1);
+
+      await dishService.setDefaultBatchScale(userId, dishId, null, null);
+      dish = await prisma.dish.findUniqueOrThrow({ where: { id: dishId } });
+      expect(dish.defaultBatchQuantity).toBeNull();
+      expect(dish.defaultBatchUnit).toBeNull();
+    });
+
+    it("rejects cross-user access with NotFoundError", async () => {
+      const owner = await createTestUser();
+      const intruder = await createTestUser();
+      userId = owner.id;
+      const dishId = await dishService.createDish(
+        owner.id,
+        "RECIPE",
+        content(),
+      );
+
+      await expect(
+        dishService.setDefaultBatchScale(intruder.id, dishId, 9, null),
+      ).rejects.toThrow(NotFoundError);
+
+      await deleteTestUser(intruder.id);
+    });
+  });
+
+  describe("savePreferredUnitOverride / clearPreferredUnitOverride (Slice 5)", () => {
+    it("upserts by (dishId, ingredientLineageId) and clears back to the authored unit", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      const dishId = await dishService.createDish(userId, "RECIPE", content());
+      const dish = await loadDishWithVersion(dishId);
+      const lineageId =
+        dish.currentVersion!.sections[0].ingredients[0].lineageId;
+
+      await dishService.savePreferredUnitOverride(
+        userId,
+        dishId,
+        lineageId,
+        "cup",
+      );
+      let overrides = await prisma.preferredUnitOverride.findMany({
+        where: { dishId },
+      });
+      expect(overrides).toHaveLength(1);
+      expect(overrides[0].unit).toBe("cup");
+
+      await dishService.savePreferredUnitOverride(
+        userId,
+        dishId,
+        lineageId,
+        "tbsp",
+      );
+      overrides = await prisma.preferredUnitOverride.findMany({
+        where: { dishId },
+      });
+      expect(overrides).toHaveLength(1);
+      expect(overrides[0].unit).toBe("tbsp");
+
+      await dishService.clearPreferredUnitOverride(userId, dishId, lineageId);
+      overrides = await prisma.preferredUnitOverride.findMany({
+        where: { dishId },
+      });
+      expect(overrides).toHaveLength(0);
+    });
+
+    it("targets one ingredient lineage without affecting a different one", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      const dishId = await dishService.createDish(userId, "RECIPE", content());
+      const dish = await loadDishWithVersion(dishId);
+      const lineageId =
+        dish.currentVersion!.sections[0].ingredients[0].lineageId;
+
+      await dishService.savePreferredUnitOverride(
+        userId,
+        dishId,
+        lineageId,
+        "cup",
+      );
+      await dishService.savePreferredUnitOverride(
+        userId,
+        dishId,
+        "a-different-ingredient-lineage-id",
+        "kg",
+      );
+
+      const overrides = await prisma.preferredUnitOverride.findMany({
+        where: { dishId },
+        orderBy: { unit: "asc" },
+      });
+      expect(overrides.map((o) => o.unit)).toEqual(["cup", "kg"]);
+    });
+
+    it("rejects cross-user access with NotFoundError", async () => {
+      const owner = await createTestUser();
+      const intruder = await createTestUser();
+      userId = owner.id;
+      const dishId = await dishService.createDish(
+        owner.id,
+        "RECIPE",
+        content(),
+      );
+      const dish = await loadDishWithVersion(dishId);
+      const lineageId =
+        dish.currentVersion!.sections[0].ingredients[0].lineageId;
+
+      await expect(
+        dishService.savePreferredUnitOverride(
+          intruder.id,
+          dishId,
+          lineageId,
+          "cup",
+        ),
+      ).rejects.toThrow(NotFoundError);
 
       await deleteTestUser(intruder.id);
     });

@@ -3,18 +3,71 @@ import Link from "next/link";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { StageBadge } from "@/components/domain/dish/stage-badge";
 import { DishDetailActions } from "@/components/domain/dish/dish-detail-actions";
-import { VersionSectionsView } from "@/components/domain/dish/version-sections-view";
+import {
+  ScaledVersionView,
+  type ScaledSectionRow,
+} from "@/components/domain/dish/scaled-version-view";
 import { VersionNoteEditor } from "@/components/domain/dish/version-note-editor";
+import { VersionMetadataEditor } from "@/components/domain/dish/version-metadata-editor";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
 import type { DishKindValue } from "@/lib/dishes/schema";
-import type { dishDetailInclude } from "@/lib/dishes/queries";
+import type {
+  dishDetailInclude,
+  sectionContentInclude,
+} from "@/lib/dishes/queries";
 import { decimalToNumber } from "@/lib/dishes/format";
 
 type DishDetail = Prisma.DishGetPayload<{ include: typeof dishDetailInclude }>;
+type VersionSectionRow = Prisma.SectionGetPayload<{
+  include: typeof sectionContentInclude.include;
+}>;
 
 function formatQuantity(value: Prisma.Decimal | null): string | null {
   const number = decimalToNumber(value);
   return number == null ? null : String(number);
+}
+
+/**
+ * `ScaledVersionView` is a Client Component, so its `sections` prop must
+ * be plain, serializable data — a raw `Prisma.Decimal` cannot cross the
+ * Server→Client boundary (it arrives as a non-functional plain object,
+ * not a real `Decimal` instance). This Server Component does the
+ * Decimal→number conversion once, here, before handing sections down.
+ */
+function toDisplaySections(sections: VersionSectionRow[]): ScaledSectionRow[] {
+  return sections.map((section) => ({
+    id: section.id,
+    name: section.name,
+    guidanceNote: section.guidanceNote,
+    ingredients: section.ingredients.map((ingredient) => ({
+      id: ingredient.id,
+      lineageId: ingredient.lineageId,
+      name: ingredient.name,
+      quantity: decimalToNumber(ingredient.quantity),
+      quantityEnd: decimalToNumber(ingredient.quantityEnd),
+      isApproximate: ingredient.isApproximate,
+      unit: ingredient.unit,
+      displayText: ingredient.displayText,
+      preparationNote: ingredient.preparationNote,
+      isOptional: ingredient.isOptional,
+      substituteForIngredientId: ingredient.substituteForIngredientId,
+      substitute: ingredient.substitute
+        ? {
+            name: ingredient.substitute.name,
+            quantity: decimalToNumber(ingredient.substitute.quantity),
+            quantityEnd: decimalToNumber(ingredient.substitute.quantityEnd),
+            isApproximate: ingredient.substitute.isApproximate,
+            unit: ingredient.substitute.unit,
+            displayText: ingredient.substitute.displayText,
+            preparationNote: ingredient.substitute.preparationNote,
+          }
+        : null,
+    })),
+    instructions: section.instructions.map((instruction) => ({
+      id: instruction.id,
+      text: instruction.text,
+    })),
+  }));
 }
 
 export function DishDetailView({
@@ -37,19 +90,24 @@ export function DishDetailView({
 
   const versionLabel = `V${version.majorVersion}.${version.minorVersion}`;
   const collectionLabel = kind === "PART" ? "Parts" : "Recipes";
+  // Version-trigger correction pass: title is stable Dish identity
+  // (PRODUCT_SPEC.md §7.1), not Version content — `dish.currentTitle` is
+  // the source of truth, not the current Version's own `title` column
+  // (an inert historical mirror since title can now change independently).
+  const displayTitle = dish.currentTitle || version.title;
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
       <Breadcrumbs
         items={[
           { label: collectionLabel, href: dishBasePath(kind) },
-          { label: version.title },
+          { label: displayTitle },
         ]}
       />
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="font-heading text-foreground text-2xl font-semibold">
-            {version.title}
+            {displayTitle}
           </h1>
           <StageBadge stage={dish.stage} />
           <span className="text-muted-foreground text-xs tabular-nums">
@@ -59,7 +117,15 @@ export function DishDetailView({
         {dish.cuisine && (
           <p className="text-muted-foreground text-sm">{dish.cuisine}</p>
         )}
-        {version.description && <p>{version.description}</p>}
+
+        <VersionMetadataEditor
+          key={version.id}
+          kind={kind}
+          dishId={dish.id}
+          versionId={version.id}
+          description={version.description}
+          imageAssetId={version.imageAssetId}
+        />
 
         <div className="text-muted-foreground flex flex-wrap gap-4 text-sm">
           {version.yieldQuantity && (
@@ -103,7 +169,16 @@ export function DishDetailView({
         />
       </div>
 
-      <VersionSectionsView sections={version.sections} />
+      <ScaledVersionView
+        kind={kind}
+        dishId={dish.id}
+        sections={toDisplaySections(version.sections)}
+        yieldQuantity={decimalToNumber(version.yieldQuantity)}
+        yieldUnit={version.yieldUnit}
+        defaultBatchQuantity={decimalToNumber(dish.defaultBatchQuantity)}
+        defaultBatchUnit={dish.defaultBatchUnit}
+        preferredUnitOverrides={dish.preferredUnitOverrides}
+      />
     </div>
   );
 }

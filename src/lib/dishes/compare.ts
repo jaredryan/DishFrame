@@ -21,17 +21,29 @@ import { formatIngredientLine } from "@/lib/dishes/format";
  * No linked-Parts group exists here (BUILD_PLAN.md's Slice 4 note):
  * `PartLink` isn't wired up until Slice 6, so there is nothing to diff yet
  * — this file intentionally has no placeholder for it.
+ *
+ * Version-trigger correction pass, PRODUCT_SPEC.md §7.1/§7.2/§94.4: title
+ * and image are deliberately absent from `VersionMetadataSnapshot`/
+ * `metadataChanges` below. Title is stable Dish identity now, not
+ * Version-owned content — it never varies between two Versions of the
+ * same Dish, so there is nothing to diff. Image is Version-associated but
+ * mutable metadata that can be edited in place after a Version is saved
+ * (`updateVersionMetadata`, service.ts) — comparing it would report
+ * whatever happens to be true *now* on each side, not a material
+ * difference in recipe content between the two Versions, so it's excluded
+ * from this material-recipe-evolution comparison rather than silently
+ * left in and quietly wrong. Description remains included: unlike title
+ * and image, it's genuinely Version-associated content each side actually
+ * carries, even though it too can be edited in place.
  */
 
 export type VersionMetadataSnapshot = {
-  title: string;
   description: string | null;
   yieldQuantity: number | null;
   yieldUnit: string | null;
   prepTimeMinutes: number | null;
   cookTimeMinutes: number | null;
   difficulty: string | null;
-  imageAssetId: string | null;
 };
 
 export type VersionNutritionSnapshot = {
@@ -126,7 +138,6 @@ function metadataChanges(
   after: VersionMetadataSnapshot,
 ): FieldChange[] {
   const changes: FieldChange[] = [];
-  pushIfChanged(changes, "title", "Title", before.title, after.title);
   pushIfChanged(
     changes,
     "description",
@@ -161,13 +172,6 @@ function metadataChanges(
     "Difficulty",
     before.difficulty,
     after.difficulty,
-  );
-  pushIfChanged(
-    changes,
-    "image",
-    "Image",
-    before.imageAssetId ? "Has an image" : null,
-    after.imageAssetId ? "Has an image" : null,
   );
   return changes;
 }

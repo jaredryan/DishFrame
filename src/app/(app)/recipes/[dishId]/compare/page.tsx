@@ -37,14 +37,12 @@ async function toCompareInput(
     minorVersion: version.minorVersion,
     input: {
       metadata: {
-        title: version.title,
         description: version.description,
         yieldQuantity: decimalToNumber(version.yieldQuantity),
         yieldUnit: version.yieldUnit,
         prepTimeMinutes: version.prepTimeMinutes,
         cookTimeMinutes: version.cookTimeMinutes,
         difficulty: version.difficulty,
-        imageAssetId: version.imageAssetId,
       },
       nutrition: {
         calories: decimalToNumber(version.calories),

@@ -11,6 +11,10 @@ import {
   versionChoiceSchema,
   promoteHistoricalVersionSchema,
   updateVersionNoteSchema,
+  updateVersionMetadataSchema,
+  setDefaultBatchScaleSchema,
+  savePreferredUnitOverrideSchema,
+  clearPreferredUnitOverrideSchema,
   type DishActionState,
   type DishContentInput,
   type DishKindValue,
@@ -168,6 +172,116 @@ export async function updateVersionNote(
     await dishService.updateVersionNote(userId, dishId, versionId, note, kind);
 
     revalidateVersion(kind, dishId, versionId);
+    return { status: "success", dishId };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+/**
+ * Version-trigger correction pass, PRODUCT_SPEC.md §7.2: edits description/
+ * image in place on any selected Version — current or historical — without
+ * creating a new one. Backs `VersionMetadataEditor`, rendered on both the
+ * current-Version detail page and historical Version-history pages.
+ */
+export async function updateVersionMetadata(
+  kind: DishKindValue,
+  values: {
+    dishId: string;
+    versionId: string;
+    description: string | null;
+    imageAssetId: string | null;
+  },
+): Promise<DishActionState> {
+  try {
+    const userId = await requireUserId();
+    const { dishId, versionId, description, imageAssetId } =
+      updateVersionMetadataSchema.parse(values);
+
+    await dishService.updateVersionMetadata(
+      userId,
+      dishId,
+      versionId,
+      { description, imageAssetId },
+      kind,
+    );
+
+    revalidateVersion(kind, dishId, versionId);
+    return { status: "success", dishId };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export async function setDefaultBatchScale(
+  kind: DishKindValue,
+  values: {
+    dishId: string;
+    defaultBatchQuantity: number | null;
+    defaultBatchUnit: string | null;
+  },
+): Promise<DishActionState> {
+  try {
+    const userId = await requireUserId();
+    const { dishId, defaultBatchQuantity, defaultBatchUnit } =
+      setDefaultBatchScaleSchema.parse(values);
+
+    await dishService.setDefaultBatchScale(
+      userId,
+      dishId,
+      defaultBatchQuantity,
+      defaultBatchUnit,
+      kind,
+    );
+
+    revalidateDish(kind, dishId);
+    return { status: "success", dishId };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export async function savePreferredUnitOverride(
+  kind: DishKindValue,
+  values: { dishId: string; ingredientLineageId: string; unit: string },
+): Promise<DishActionState> {
+  try {
+    const userId = await requireUserId();
+    const { dishId, ingredientLineageId, unit } =
+      savePreferredUnitOverrideSchema.parse(values);
+
+    await dishService.savePreferredUnitOverride(
+      userId,
+      dishId,
+      ingredientLineageId,
+      unit,
+      kind,
+    );
+
+    revalidateDish(kind, dishId);
+    return { status: "success", dishId };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export async function clearPreferredUnitOverride(
+  kind: DishKindValue,
+  values: { dishId: string; ingredientLineageId: string },
+): Promise<DishActionState> {
+  try {
+    const userId = await requireUserId();
+    const { dishId, ingredientLineageId } =
+      clearPreferredUnitOverrideSchema.parse(values);
+
+    await dishService.clearPreferredUnitOverride(
+      userId,
+      dishId,
+      ingredientLineageId,
+      kind,
+    );
+
+    revalidateDish(kind, dishId);
     return { status: "success", dishId };
   } catch (error) {
     return { status: "error", message: toActionErrorMessage(error) };

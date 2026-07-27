@@ -47,6 +47,7 @@ const existingDish: {
     prepTimeMinutes: null,
     cookTimeMinutes: null,
     difficulty: null,
+    imageAssetId: null,
     sections: [
       {
         lineageId: "section-1",
@@ -424,7 +425,7 @@ describe("DishEditor minor/major version choice", () => {
     mockedEditDish.mockResolvedValue({ status: "success", dishId: "dish-1" });
   });
 
-  it("saves directly, without the choice dialog, when only a non-cooking field changed", async () => {
+  it("saves directly, without the choice dialog, when only a metadata field (title) changed", async () => {
     const user = userEvent.setup();
     render(<DishEditor kind="RECIPE" dish={existingDish} />);
 

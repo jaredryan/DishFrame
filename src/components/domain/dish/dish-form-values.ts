@@ -22,20 +22,23 @@ type VersionDetail = Prisma.DishVersionGetPayload<{
  * Maps a loaded Version's content into the editor's form shape, preserving
  * each row's `lineageId` so `editDish` carries lineage identity forward for
  * unchanged content (ARCHITECTURE_PROPOSAL.md §D.-1) instead of treating
- * every row as brand new on every edit. Stage/cuisine come from the Dish
- * separately (§13.9 — they belong to the stable Dish, not any one Version,
- * so they're always the Dish's *current* stable values regardless of which
- * historical Version's content is loaded here).
+ * every row as brand new on every edit. Stage/cuisine/title all come from
+ * the Dish, not the loaded Version (§13.9 / Version-trigger correction pass
+ * §7.1 — they belong to the stable Dish, so they're always the Dish's
+ * *current* stable values regardless of which historical Version's content
+ * is loaded here). `version.title` is only a fallback for the rare case a
+ * pre-correction Dish somehow has no `currentTitle` yet.
  */
 export function dishToFormValues(input: {
   stage: StageValue;
   cuisine: string | null;
+  currentTitle: string | null;
   version: VersionDetail;
 }): DishFormValues {
-  const { stage, cuisine, version } = input;
+  const { stage, cuisine, currentTitle, version } = input;
 
   return {
-    title: version.title,
+    title: currentTitle || version.title,
     stage,
     cuisine,
     description: version.description,
@@ -47,6 +50,11 @@ export function dishToFormValues(input: {
     // Easy/Medium/Hard set forward to Easy/Moderate/Challenging so it
     // still loads with a matching Select option.
     difficulty: normalizeDifficultyValue(version.difficulty),
+    // Slice 5, PRODUCT_SPEC.md §12.2: loading any Version's own
+    // `imageAssetId` as the form's starting value is exactly how "a new
+    // Version inherits the current Version's image by default" is
+    // satisfied — an untouched form re-saves the same id unchanged.
+    imageAssetId: version.imageAssetId,
     sections: version.sections.map((section) => ({
       lineageId: section.lineageId,
       name: section.name,
@@ -95,6 +103,7 @@ export function blankDishFormValues(): DishFormValues {
     prepTimeMinutes: null,
     cookTimeMinutes: null,
     difficulty: null,
+    imageAssetId: null,
     sections: [
       { name: null, guidanceNote: null, ingredients: [], instructions: [] },
     ],
