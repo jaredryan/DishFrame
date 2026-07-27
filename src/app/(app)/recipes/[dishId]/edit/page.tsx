@@ -2,7 +2,10 @@ import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth/session";
 import {
-  getOwnedDishDetailOrThrow,
+  getOwnedDishOrThrow,
+  getDishScopedVersionContentOrThrow,
+  getHighestMajorVersion,
+  getHighestMinorVersion,
   listDistinctCuisines,
 } from "@/lib/dishes/queries";
 import { NotFoundError } from "@/lib/errors";
@@ -15,8 +18,10 @@ export const metadata: Metadata = {
 
 export default async function EditRecipePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ dishId: string }>;
+  searchParams: Promise<{ versionId?: string }>;
 }) {
   const session = await getServerSession();
   if (!session) {
@@ -24,10 +29,24 @@ export default async function EditRecipePage({
   }
 
   const { dishId } = await params;
+  const { versionId } = await searchParams;
 
-  let dish;
+  let dish, version, highestMajorVersion, highestMinorInBaseLine;
   try {
-    dish = await getOwnedDishDetailOrThrow(session.user.id, dishId, "RECIPE");
+    dish = await getOwnedDishOrThrow(session.user.id, dishId, "RECIPE");
+    const targetVersionId = versionId || dish.currentVersionId;
+    if (!targetVersionId) {
+      throw new NotFoundError("Recipe not found.");
+    }
+    version = await getDishScopedVersionContentOrThrow(
+      dish.id,
+      targetVersionId,
+    );
+    highestMajorVersion = await getHighestMajorVersion(dish.id);
+    highestMinorInBaseLine = await getHighestMinorVersion(
+      dish.id,
+      version.majorVersion,
+    );
   } catch (error) {
     if (error instanceof NotFoundError) {
       notFound();
@@ -43,10 +62,21 @@ export default async function EditRecipePage({
       cuisineOptions={cuisineOptions}
       dish={{
         id: dish.id,
-        currentVersionId: dish.currentVersionId!,
-        currentMajorVersion: dish.currentVersion!.majorVersion,
-        currentMinorVersion: dish.currentVersion!.minorVersion,
-        values: dishToFormValues(dish),
+        baseVersionId: version.id,
+        baseMajorVersion: version.majorVersion,
+        baseMinorVersion: version.minorVersion,
+        highestMajorVersion,
+        // Slice 4 correction pass §1: the next minor is MAX(minorVersion)
+        // in the base's own major line + 1 — not `baseMinorVersion + 1` —
+        // since the base may be an older saved minor with later ones
+        // already existing in the same line.
+        nextMinorVersion: highestMinorInBaseLine + 1,
+        isCurrent: version.id === dish.currentVersionId,
+        values: dishToFormValues({
+          stage: dish.stage,
+          cuisine: dish.cuisine,
+          version,
+        }),
       }}
     />
   );

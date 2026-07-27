@@ -1,0 +1,172 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+import { notFound, redirect } from "next/navigation";
+import { getServerSession } from "@/lib/auth/session";
+import {
+  getOwnedVersionDetailOrThrow,
+  listDishVersionSummaries,
+} from "@/lib/dishes/queries";
+import { NotFoundError } from "@/lib/errors";
+import { Breadcrumbs } from "@/components/ui/breadcrumbs";
+import { Button } from "@/components/ui/button";
+import { StageBadge } from "@/components/domain/dish/stage-badge";
+import { VersionSectionsView } from "@/components/domain/dish/version-sections-view";
+import { VersionNoteEditor } from "@/components/domain/dish/version-note-editor";
+import { VersionSelector } from "@/components/domain/dish/version-selector";
+import { PromoteVersionButton } from "@/components/domain/dish/promote-version-button";
+import { dishBasePath } from "@/components/domain/dish/dish-card";
+
+export const metadata: Metadata = {
+  title: "Version history",
+};
+
+export default async function PartVersionPage({
+  params,
+}: {
+  params: Promise<{ dishId: string; versionId: string }>;
+}) {
+  const session = await getServerSession();
+  if (!session) {
+    redirect("/sign-in");
+  }
+
+  const { dishId, versionId } = await params;
+
+  let dish, version;
+  try {
+    const result = await getOwnedVersionDetailOrThrow(
+      session.user.id,
+      dishId,
+      versionId,
+      "PART",
+    );
+    dish = result.dish;
+    version = result.version;
+  } catch (error) {
+    if (error instanceof NotFoundError) {
+      notFound();
+    }
+    throw error;
+  }
+
+  const versions = await listDishVersionSummaries(dish.id);
+  const highestMajor = versions.reduce(
+    (max, v) => Math.max(max, v.majorVersion),
+    0,
+  );
+  const isCurrent = version.id === dish.currentVersionId;
+  const sourceVersion = version.sourceVersionId
+    ? versions.find((v) => v.id === version.sourceVersionId)
+    : null;
+
+  const basePath = dishBasePath("PART");
+  const versionLabel = `V${version.majorVersion}.${version.minorVersion}`;
+
+  return (
+    <div className="mx-auto flex max-w-3xl flex-col gap-6">
+      <Breadcrumbs
+        items={[
+          { label: "Parts", href: basePath },
+          { label: version.title, href: `${basePath}/${dish.id}` },
+          { label: versionLabel },
+        ]}
+      />
+
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="font-heading text-foreground text-2xl font-semibold">
+            {version.title}
+          </h1>
+          <span className="text-muted-foreground text-xs tabular-nums">
+            {versionLabel}
+          </span>
+        </div>
+
+        <p className="text-muted-foreground text-sm">
+          {isCurrent
+            ? "This is the current version."
+            : "This is a historical version — its content never changes."}
+        </p>
+
+        {sourceVersion && (
+          <p className="text-muted-foreground text-sm">
+            Based on{" "}
+            <Link
+              href={`${basePath}/${dish.id}/versions/${sourceVersion.id}`}
+              className="text-primary hover:underline"
+            >
+              V{sourceVersion.majorVersion}.{sourceVersion.minorVersion}
+            </Link>
+          </p>
+        )}
+
+        {/* Slice 4 correction pass §6: Stage/cuisine belong to the stable
+            Dish, not to this immutable Version snapshot (PRODUCT_SPEC.md
+            §13.9) — kept in its own labeled block so it never reads as
+            though this historical Version stored these values itself. */}
+        <div className="border-border bg-muted/40 flex flex-col gap-1 rounded-lg border px-3 py-2">
+          <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+            Current part details
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <StageBadge stage={dish.stage} />
+            {dish.cuisine && (
+              <span className="text-muted-foreground text-sm">
+                {dish.cuisine}
+              </span>
+            )}
+          </div>
+          <p className="text-muted-foreground text-xs">
+            Reflects the part now, not this version&apos;s snapshot.
+          </p>
+        </div>
+
+        <VersionSelector
+          kind="PART"
+          dishId={dish.id}
+          currentVersionId={dish.currentVersionId}
+          versions={versions}
+          activeVersionId={version.id}
+        />
+
+        <VersionNoteEditor
+          key={version.id}
+          kind="PART"
+          dishId={dish.id}
+          versionId={version.id}
+          note={version.versionNote}
+        />
+
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Slice 4 correction pass §1: any saved Version may be an
+              editing base or a promotion source — not only a major line's
+              latest minor. */}
+          <Button variant="outline" asChild>
+            <Link href={`${basePath}/${dish.id}/edit?versionId=${version.id}`}>
+              Edit this version
+            </Link>
+          </Button>
+          {!isCurrent && (
+            <PromoteVersionButton
+              kind="PART"
+              dishId={dish.id}
+              versionId={version.id}
+              newMajorLabel={`V${highestMajor + 1}.0`}
+            />
+          )}
+          <Button variant="outline" asChild>
+            <Link
+              href={`${basePath}/${dish.id}/compare?from=${version.id}&to=${
+                dish.currentVersionId ?? version.id
+              }`}
+            >
+              Compare versions
+            </Link>
+          </Button>
+        </div>
+      </div>
+
+      <VersionSectionsView sections={version.sections} />
+    </div>
+  );
+}

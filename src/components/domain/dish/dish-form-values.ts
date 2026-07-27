@@ -1,7 +1,8 @@
 import { Prisma } from "@/generated/prisma/client";
-import type { dishDetailInclude } from "@/lib/dishes/queries";
+import type { sectionContentInclude } from "@/lib/dishes/queries";
 import { normalizeDifficultyValue } from "@/lib/dishes/schema";
-import type { DishContentInput } from "@/lib/dishes/schema";
+import type { DishContentInput, StageValue } from "@/lib/dishes/schema";
+import { decimalToNumber } from "@/lib/dishes/format";
 
 // Deliberately not a "use client" module: Server Component edit pages call
 // `dishToFormValues` directly (a Client Component's exports cannot be
@@ -10,28 +11,33 @@ import type { DishContentInput } from "@/lib/dishes/schema";
 // these for any client-side callers.
 export type DishFormValues = DishContentInput;
 
-type DishDetail = Prisma.DishGetPayload<{ include: typeof dishDetailInclude }>;
-
-function decimalToNumber(value: Prisma.Decimal | null): number | null {
-  return value ? value.toNumber() : null;
-}
+// Any single Version's full content — the current Version (Slice 3) or,
+// as of Slice 4, an arbitrary historical Version loaded as the editor's
+// base (PRODUCT_SPEC.md §13.4/§13.7).
+type VersionDetail = Prisma.DishVersionGetPayload<{
+  include: { sections: typeof sectionContentInclude };
+}>;
 
 /**
- * Maps loaded current-Version content into the editor's form shape,
- * preserving each row's `lineageId` so `editDish` carries lineage identity
- * forward for unchanged content (ARCHITECTURE_PROPOSAL.md §D.-1) instead of
- * treating every row as brand new on every edit.
+ * Maps a loaded Version's content into the editor's form shape, preserving
+ * each row's `lineageId` so `editDish` carries lineage identity forward for
+ * unchanged content (ARCHITECTURE_PROPOSAL.md §D.-1) instead of treating
+ * every row as brand new on every edit. Stage/cuisine come from the Dish
+ * separately (§13.9 — they belong to the stable Dish, not any one Version,
+ * so they're always the Dish's *current* stable values regardless of which
+ * historical Version's content is loaded here).
  */
-export function dishToFormValues(dish: DishDetail): DishFormValues {
-  const version = dish.currentVersion;
-  if (!version) {
-    throw new Error("Cannot edit a Dish with no current Version.");
-  }
+export function dishToFormValues(input: {
+  stage: StageValue;
+  cuisine: string | null;
+  version: VersionDetail;
+}): DishFormValues {
+  const { stage, cuisine, version } = input;
 
   return {
     title: version.title,
-    stage: dish.stage,
-    cuisine: dish.cuisine,
+    stage,
+    cuisine,
     description: version.description,
     yieldQuantity: decimalToNumber(version.yieldQuantity),
     yieldUnit: version.yieldUnit,

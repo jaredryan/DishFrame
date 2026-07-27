@@ -1,44 +1,20 @@
 import { Prisma } from "@/generated/prisma/client";
-import { Card, CardContent } from "@/components/ui/card";
+import Link from "next/link";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { StageBadge } from "@/components/domain/dish/stage-badge";
 import { DishDetailActions } from "@/components/domain/dish/dish-detail-actions";
+import { VersionSectionsView } from "@/components/domain/dish/version-sections-view";
+import { VersionNoteEditor } from "@/components/domain/dish/version-note-editor";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
 import type { DishKindValue } from "@/lib/dishes/schema";
 import type { dishDetailInclude } from "@/lib/dishes/queries";
+import { decimalToNumber } from "@/lib/dishes/format";
 
 type DishDetail = Prisma.DishGetPayload<{ include: typeof dishDetailInclude }>;
 
 function formatQuantity(value: Prisma.Decimal | null): string | null {
-  return value ? value.toNumber().toString() : null;
-}
-
-function formatIngredientLine(ingredient: {
-  quantity: Prisma.Decimal | null;
-  quantityEnd: Prisma.Decimal | null;
-  isApproximate: boolean;
-  unit: string | null;
-  displayText: string | null;
-  name: string;
-  preparationNote: string | null;
-}): string {
-  const parts: string[] = [];
-  const quantity = formatQuantity(ingredient.quantity);
-  const quantityEnd = formatQuantity(ingredient.quantityEnd);
-
-  if (ingredient.displayText) {
-    parts.push(ingredient.displayText);
-  } else if (quantity) {
-    parts.push(ingredient.isApproximate ? `about ${quantity}` : quantity);
-    if (quantityEnd) parts.push(`–${quantityEnd}`);
-  }
-  if (ingredient.unit) parts.push(ingredient.unit);
-  parts.push(ingredient.name);
-
-  const line = parts.join(" ").replace(/ –/, "–");
-  return ingredient.preparationNote
-    ? `${line}, ${ingredient.preparationNote}`
-    : line;
+  const number = decimalToNumber(value);
+  return number == null ? null : String(number);
 }
 
 export function DishDetailView({
@@ -102,65 +78,32 @@ export function DishDetailView({
         </div>
 
         <DishDetailActions dishId={dish.id} kind={kind} stage={dish.stage} />
+
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          <Link
+            href={`${dishBasePath(kind)}/${dish.id}/versions/${version.id}`}
+            className="text-primary hover:underline"
+          >
+            Version history
+          </Link>
+          <Link
+            href={`${dishBasePath(kind)}/${dish.id}/compare`}
+            className="text-primary hover:underline"
+          >
+            Compare versions
+          </Link>
+        </div>
+
+        <VersionNoteEditor
+          key={version.id}
+          kind={kind}
+          dishId={dish.id}
+          versionId={version.id}
+          note={version.versionNote}
+        />
       </div>
 
-      <div className="flex flex-col gap-4">
-        {version.sections.map((section) => {
-          return (
-            <Card key={section.id}>
-              <CardContent className="flex flex-col gap-3">
-                {section.name && (
-                  <h2 className="font-heading text-lg font-medium">
-                    {section.name}
-                  </h2>
-                )}
-                {section.guidanceNote && (
-                  <p className="text-muted-foreground text-sm italic">
-                    {section.guidanceNote}
-                  </p>
-                )}
-
-                {section.ingredients.length > 0 && (
-                  <ul className="flex flex-col gap-1.5">
-                    {section.ingredients
-                      .filter((i) => i.substituteForIngredientId === null)
-                      .map((ingredient) => (
-                        <li key={ingredient.id} className="text-sm">
-                          {formatIngredientLine(ingredient)}
-                          {ingredient.isOptional && (
-                            <span className="text-muted-foreground">
-                              {" "}
-                              (optional)
-                            </span>
-                          )}
-                          {ingredient.substitute && (
-                            <span className="text-muted-foreground block pl-4 text-xs">
-                              Substitute:{" "}
-                              {formatIngredientLine(ingredient.substitute)}
-                            </span>
-                          )}
-                        </li>
-                      ))}
-                  </ul>
-                )}
-
-                {section.instructions.length > 0 && (
-                  <ol className="flex flex-col gap-2">
-                    {section.instructions.map((instruction, i) => (
-                      <li key={instruction.id} className="flex gap-2 text-sm">
-                        <span className="text-muted-foreground tabular-nums">
-                          {i + 1}.
-                        </span>
-                        <span>{instruction.text}</span>
-                      </li>
-                    ))}
-                  </ol>
-                )}
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
+      <VersionSectionsView sections={version.sections} />
     </div>
   );
 }

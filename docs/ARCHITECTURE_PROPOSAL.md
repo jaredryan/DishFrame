@@ -929,14 +929,15 @@ Computed once, at write time, and cached as `Dish.currentVersionId` (§D.1's rat
 
 ### F.3 Historical-major refinement
 
-"Save small update" from a historical major line increments that line's own highest minor (`majorVersion` fixed, `minorVersion = MAX(minorVersion WHERE majorVersion = X) + 1`) and **never** touches `Dish.currentVersionId` unless `X` happens to already be the highest major in existence.
+"Save small update" from a historical major line increments that line's own highest minor (`majorVersion` fixed, `minorVersion = MAX(minorVersion WHERE majorVersion = X) + 1`) and **never** touches `Dish.currentVersionId` unless `X` happens to already be the highest major in existence. The selected base need not itself be that line's latest minor (§13.4's revised correction-pass example, `V2.1 → V2.3`) — `minorVersion` is always computed from the `MAX` aggregate, never from `base.minorVersion + 1`, so branching from an older saved minor while later ones already exist still allocates the line's true next number rather than colliding with one of them.
 
 ### F.4 Source-Version relationships
 
-`DishVersion.sourceVersionId` records three distinct product situations with one column, disambiguated by context (never needs its own enum, because the calling service function already knows which situation it's in and writes the seeded `versionNote` prefix accordingly, per §14.2):
+`DishVersion.sourceVersionId` records four distinct product situations with one column, disambiguated by context (never needs its own enum, because the calling service function already knows which situation it's in and writes the seeded `versionNote` prefix accordingly, per §14.2):
 1. **New major from a historical line** (§13.6): `sourceVersionId` = the historical version being promoted.
 2. **Propagation-only update** (§73): `sourceVersionId` = the prior current version of the same Dish (a "propagation" is really just an ordinary "save small update" whose only content delta is one or more `PartLink.targetDishVersionId` pointers — see F.6).
 3. **Restore of an old direction as the next current major**: identical mechanism to (1).
+4. **Non-sequential minor refinement** (§13.4/§13.6, added by the Slice 4 correction pass): `sourceVersionId` = the specific minor selected as base, recorded only when that base was *not* the major line's latest minor at save time. An ordinary sequential refinement — from a line's own current latest minor — leaves `sourceVersionId` unset, since consecutive numbering already implies the relationship without a stored one.
 
 ### F.5 Small update vs. new major Version (the one user-facing choice, everywhere)
 
@@ -1086,7 +1087,7 @@ This was already settled in `PRODUCT_SPEC.md` and is restated here as the govern
 
 **On external side effects (Resend emails):** always performed **after** the owning transaction commits, never inside it — a failed email send must never roll back a successful DB mutation (e.g., a direct-share notification failing to send should not un-create the share). Failures are logged, not silently swallowed, and never block the user-visible success state.
 
-**On optimistic concurrency for the editor:** because every save creates a new version rather than overwriting, classic lost-update corruption is avoided by design. The one remaining case — two devices editing "the current Version" concurrently, expecting to extend the same base — is handled by having the editor record which `DishVersion.id` it was opened against, and having the save transaction verify that id is still what `Dish.currentVersionId` (or the relevant historical major's latest minor) actually points to; if it has moved, the save is rejected with a friendly "this changed elsewhere, please review" message rather than silently basing the new version on stale content.
+**On concurrency for the editor (revised by the Slice 4 correction pass):** because every save creates a new version rather than overwriting, classic lost-update corruption is avoided by design. Any immutable Version belonging to the Dish — current or historical, latest minor in its line or not — is always a valid editing base; a Version never becomes "stale" merely because a later Version was saved after it (§13.4). Two devices editing from the same base concurrently are therefore not rejected up front. Instead, concurrency is handled entirely at version-*allocation* time: the version-creation transaction runs at `Serializable` isolation with a small bounded retry (recomputing the next minor/major fresh on each attempt) on a recognized write conflict or on the `@@unique([dishId, majorVersion, minorVersion])` backstop firing; only after retries are exhausted does the save surface a friendly `ConflictError` ("this changed elsewhere, please try again") rather than a raw database error. This replaces the original proposal's up-front "must still be the latest minor" rejection, which incorrectly treated an older, still-perfectly-valid historical Version as unusable.
 
 ---
 

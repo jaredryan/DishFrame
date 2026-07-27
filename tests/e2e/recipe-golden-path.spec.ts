@@ -222,7 +222,9 @@ test.describe("Recipes: create, view, edit, archive, restore, duplicate, delete"
     await page.getByRole("button", { name: "Start a new version" }).click();
 
     await expect(page).toHaveURL(dishUrl);
-    await expect(page.getByText("V2.0")).toBeVisible();
+    // exact: true — the seeded Version note ("V1.0 → V2.0:", Slice 4) also
+    // contains "V2.0" as a substring, so a non-exact match is ambiguous.
+    await expect(page.getByText("V2.0", { exact: true })).toBeVisible();
     await expect(page.getByText(/Roasted vegetable broth/)).toBeVisible();
     // The substitute survives the edit unchanged.
     await expect(page.getByText(/Substitute: Chicken broth/)).toBeVisible();

@@ -36,7 +36,7 @@ export const dishCardSelect = {
   updatedAt: true,
 } as const;
 
-const sectionContentInclude = {
+export const sectionContentInclude = {
   orderBy: { position: "asc" as const },
   include: {
     ingredients: {
@@ -93,6 +93,96 @@ export function getVersionContent(dishVersionId: string) {
     where: { id: dishVersionId },
     include: { sections: sectionContentInclude },
   });
+}
+
+/**
+ * A specific Version's full content, scoped by `dishId` (not just its own
+ * `id`) so a versionId from one Dish can never resolve against another —
+ * the actual ownership guard, shared by every Slice 4 caller that needs a
+ * *specific* (not necessarily current) Version: `editDish`'s base-version
+ * resolution (service.ts) and the version-detail/compare routes below.
+ */
+export async function getDishScopedVersionContentOrThrow(
+  dishId: string,
+  versionId: string,
+) {
+  const version = await prisma.dishVersion.findFirst({
+    where: { id: versionId, dishId },
+    include: { sections: sectionContentInclude },
+  });
+  if (!version) {
+    throw new NotFoundError("Version not found.");
+  }
+  return version;
+}
+
+/**
+ * Combines the ownership guard (§K.6) with the dish-scoped version lookup
+ * above — used by the version-detail and comparison routes, which need
+ * both the owning Dish (stage, currentVersionId, cuisine) and one specific
+ * Version's full content.
+ */
+export async function getOwnedVersionDetailOrThrow(
+  ownerId: string,
+  dishId: string,
+  versionId: string,
+  kind?: DishKindValue,
+) {
+  const dish = await getOwnedDishOrThrow(ownerId, dishId, kind);
+  const version = await getDishScopedVersionContentOrThrow(dish.id, versionId);
+  return { dish, version };
+}
+
+// Ordered ascending by version number (chronological, since major/minor only
+// ever increase) — backs the Version selector/pager (PRODUCT_SPEC.md §13.8)
+// and the comparison picker's version lists.
+export function listDishVersionSummaries(dishId: string) {
+  return prisma.dishVersion.findMany({
+    where: { dishId },
+    select: {
+      id: true,
+      majorVersion: true,
+      minorVersion: true,
+      title: true,
+      versionNote: true,
+      sourceVersionId: true,
+      createdAt: true,
+    },
+    orderBy: [{ majorVersion: "asc" }, { minorVersion: "asc" }],
+  });
+}
+export type DishVersionSummary = Awaited<
+  ReturnType<typeof listDishVersionSummaries>
+>[number];
+
+// PRODUCT_SPEC.md §13.5: current = highest major, then highest minor within
+// it — the highest existing majorVersion alone tells the editor which line
+// is current, needed to label "Start a new version" correctly regardless of
+// which major line is being edited (Arch §F.5).
+export async function getHighestMajorVersion(dishId: string): Promise<number> {
+  const result = await prisma.dishVersion.aggregate({
+    where: { dishId },
+    _max: { majorVersion: true },
+  });
+  return result._max.majorVersion ?? 0;
+}
+
+/**
+ * Slice 4 correction pass §1: the editor's "Saves as VX.Y" projected label
+ * must reflect `MAX(minorVersion) + 1` within the selected base's major
+ * line — not `base.minorVersion + 1` — since branching from an older saved
+ * minor (when later ones already exist) still allocates the line's next
+ * overall minor, never renumbering or colliding with an existing one.
+ */
+export async function getHighestMinorVersion(
+  dishId: string,
+  majorVersion: number,
+): Promise<number> {
+  const result = await prisma.dishVersion.aggregate({
+    where: { dishId, majorVersion },
+    _max: { minorVersion: true },
+  });
+  return result._max.minorVersion ?? 0;
 }
 
 /**

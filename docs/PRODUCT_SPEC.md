@@ -1061,6 +1061,23 @@ Creating `V2.3` does not replace `V5.3` as the current Recipe.
 
 Creating `V6.0` does replace `V5.3` as the current Recipe.
 
+A small update may also be based on an earlier saved minor within the same
+major line, even when later minors already exist in that line — an
+immutable Version does not stop being a valid editing base just because a
+later Version was saved after it.
+
+Example, continuing from `V2.0 → V2.1 → V2.2` above:
+
+```text
+Selected base: V2.1
+Save small update: creates V2.3
+```
+
+The new minor is always the line's next overall number — `MAX(minor
+segment already used in that major) + 1` — never `(selected base's minor)
++ 1`. Selecting `V2.1` here still creates `V2.3`, not `V2.2` again, since
+`V2.2` already exists.
+
 ## 13.5 Current Version
 
 The current Recipe or Part Version is:
@@ -1090,10 +1107,12 @@ When a new major Version is based on historical content, DishFrame stores that s
 Example:
 
 ```text
-V6.0 from V2.3
+V2.3 → V6.0
 ```
 
-The Version note may use the same concise prefix, but the note is not the only record of the relationship.
+The Version note may use the same source → result wording ("V2.3 → V6.0: Revival"), but the note is not the only record of the relationship.
+
+A minor Version may also record a source relationship: refining an earlier saved minor while later minors already exist in the same major line (§13.4's `V2.1 → V2.3` example) records that specific selected minor as the source, since consecutive numbering alone no longer implies which Version it was actually based on. An ordinary sequential refinement — from a line's own current latest minor — does not need this, because consecutive numbering already implies it without a stored relationship.
 
 ## 13.7 Restoring historical content
 
@@ -1149,20 +1168,20 @@ Editing or deleting the note:
 
 ## 14.2 Suggested note prefixes
 
-DishFrame may seed concise editable text.
+DishFrame may seed concise editable text, always in source → result order.
 
 Examples:
 
-Ordinary change:
+Ordinary change, from what was already the current direction:
 
 ```text
-V2.0 → V3.0:
+V2.0 → V3.0: Revision
 ```
 
-Historical source:
+Major created from (or promoted from) a historical direction:
 
 ```text
-V3.0 from V1.4:
+V1.4 → V3.0: Revival
 ```
 
 Part propagation:

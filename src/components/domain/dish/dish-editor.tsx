@@ -73,9 +73,27 @@ export function DishEditor({
   kind: DishKindValue;
   dish?: {
     id: string;
-    currentVersionId: string;
-    currentMajorVersion: number;
-    currentMinorVersion: number;
+    // The Version this edit is based on — any saved Version belonging to
+    // the Dish (Slice 4 correction pass §1: not restricted to the current
+    // Version or to a major line's latest minor), reached from that
+    // Version's own detail page (PRODUCT_SPEC.md §13.4/§13.7).
+    baseVersionId: string;
+    baseMajorVersion: number;
+    baseMinorVersion: number;
+    // The Dish's highest existing major, independent of which line is
+    // being edited — "Start a new version" always creates the *next*
+    // major overall (Arch §F.5), not `baseMajorVersion + 1`, which would
+    // be wrong whenever the base isn't already the current line.
+    highestMajorVersion: number;
+    // MAX(minorVersion) + 1 within the base's own major line — not
+    // `baseMinorVersion + 1` (Slice 4 correction pass §1): branching from
+    // an older saved minor while later ones already exist still allocates
+    // the line's next overall minor.
+    nextMinorVersion: number;
+    // Whether `baseVersionId` is the Dish's current Version — used only to
+    // decide whether to show the "you're not editing the current version"
+    // banner below, independent of which major line it's in.
+    isCurrent: boolean;
     values: DishFormValues;
   };
   cuisineOptions?: string[];
@@ -134,7 +152,7 @@ export function DishEditor({
       ? await editDish(
           kind,
           dish.id,
-          dish.currentVersionId,
+          dish.baseVersionId,
           cleaned,
           versionChoice,
         )
@@ -228,16 +246,21 @@ export function DishEditor({
     void performSave(cleaned, versionChoice);
   }
 
-  // Slice 3 has no UI path to reach a historical major (see the module doc
-  // comment in service.ts), so the currently-loaded Version is always the
-  // highest minor within its major line — the next minor is always exactly
-  // one past it.
+  // Slice 4 correction pass §1: any saved Version may be the edit base, not
+  // just a major line's latest minor, so the next minor is `MAX(minorVersion)
+  // + 1` within the base's own line (`dish.nextMinorVersion`, computed
+  // server-side) — never `baseMinorVersion + 1`, which is only correct when
+  // the base already happens to be that line's latest minor. "Start a new
+  // version" always creates the *next major overall* (Arch §F.5), computed
+  // from the Dish's highest existing major — not from whichever line is
+  // being edited, which matters as soon as that line is historical.
   const versionChoiceLabels = dish
     ? {
-        major: `Starts V${dish.currentMajorVersion + 1}.0`,
-        minor: `Saves as V${dish.currentMajorVersion}.${dish.currentMinorVersion + 1}`,
+        major: `Starts V${dish.highestMajorVersion + 1}.0`,
+        minor: `Saves as V${dish.baseMajorVersion}.${dish.nextMinorVersion}`,
       }
     : null;
+  const editingNonCurrentVersion = !!dish && !dish.isCurrent;
 
   const editorHeading = `${dish ? "Edit" : "New"} ${kindLabel.toLowerCase()}`;
   const collectionLabel = kind === "PART" ? "Parts" : "Recipes";
@@ -262,6 +285,14 @@ export function DishEditor({
         <h1 className="font-heading text-foreground text-2xl font-semibold">
           {editorHeading}
         </h1>
+        {editingNonCurrentVersion && dish && (
+          <p className="border-border bg-card text-muted-foreground rounded-lg border px-3 py-2 text-sm">
+            You&apos;re editing V{dish.baseMajorVersion}.{dish.baseMinorVersion}
+            , not the current version. Saving as a refinement adds V
+            {dish.baseMajorVersion}.{dish.nextMinorVersion} to this direction;
+            starting a new version makes it the current version.
+          </p>
+        )}
 
         <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-6">
           <Field>

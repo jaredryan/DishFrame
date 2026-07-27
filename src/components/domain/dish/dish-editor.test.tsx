@@ -22,15 +22,21 @@ const mockedEditDish = vi.mocked(editDish);
 
 const existingDish: {
   id: string;
-  currentVersionId: string;
-  currentMajorVersion: number;
-  currentMinorVersion: number;
+  baseVersionId: string;
+  baseMajorVersion: number;
+  baseMinorVersion: number;
+  highestMajorVersion: number;
+  nextMinorVersion: number;
+  isCurrent: boolean;
   values: DishFormValues;
 } = {
   id: "dish-1",
-  currentVersionId: "version-1",
-  currentMajorVersion: 1,
-  currentMinorVersion: 0,
+  baseVersionId: "version-1",
+  baseMajorVersion: 1,
+  baseMinorVersion: 0,
+  highestMajorVersion: 1,
+  nextMinorVersion: 1,
+  isCurrent: true,
   values: {
     title: "Ginger Bowl",
     stage: "IDEA",

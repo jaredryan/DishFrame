@@ -203,7 +203,14 @@ export const versionChoiceValues = ["MINOR", "MAJOR"] as const;
 export type VersionChoiceValue = (typeof versionChoiceValues)[number];
 export const versionChoiceSchema = z.enum(versionChoiceValues);
 
-function ingredientContentSignature(ingredient: IngredientInput): string {
+// Exported so `compare.ts` can use the exact same "what counts as a
+// content change" rule `diffVersionContent` already uses (one shared
+// definition, not a second one that could silently drift from it) — the
+// classification dialog and the comparison view must never disagree about
+// whether two Ingredient/Instruction rows are the same content.
+export function ingredientContentSignature(
+  ingredient: IngredientInput,
+): string {
   const substitute = ingredient.substitute
     ? {
         name: ingredient.substitute.name,
@@ -228,7 +235,9 @@ function ingredientContentSignature(ingredient: IngredientInput): string {
   });
 }
 
-function instructionContentSignature(instruction: InstructionInput): string {
+export function instructionContentSignature(
+  instruction: InstructionInput,
+): string {
   return JSON.stringify({ text: instruction.text });
 }
 
@@ -379,6 +388,18 @@ export const duplicateDishSchema = z.object({
 export const restoreDishSchema = z.object({
   dishId: z.string().min(1),
   stage: z.enum(restorableStageValues),
+});
+
+export const promoteHistoricalVersionSchema = z.object({
+  dishId: z.string().min(1),
+  versionId: z.string().min(1),
+});
+
+export const updateVersionNoteSchema = z.object({
+  dishId: z.string().min(1),
+  versionId: z.string().min(1),
+  // §14.1: the note is optional — an empty string clears it back to unset.
+  note: z.string().trim().max(500).nullable(),
 });
 
 export type ActionState = {

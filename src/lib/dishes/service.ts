@@ -3,7 +3,16 @@ import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/db/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
-import { getOwnedDishOrThrow, getVersionContent } from "@/lib/dishes/queries";
+import {
+  getOwnedDishOrThrow,
+  getDishScopedVersionContentOrThrow,
+} from "@/lib/dishes/queries";
+import { decimalToNumber } from "@/lib/dishes/format";
+import { sectionRowsToInput } from "@/lib/dishes/mappers";
+import {
+  seedMajorVersionNote,
+  normalizeVersionNote,
+} from "@/lib/dishes/version-note";
 import {
   removeEmptySections,
   hasMinimumContent,
@@ -54,68 +63,18 @@ function nextArchivedAt(
   return null;
 }
 
-function decimalToNumber(value: Prisma.Decimal | null): number | null {
-  return value ? value.toNumber() : null;
-}
-
-type IngredientWithSubstitute = Prisma.IngredientGetPayload<{
-  include: { substitute: true };
-}>;
-
-// Always includes `lineageId` — safe for every current caller: `duplicateDish`
-// passes the result through `insertSections(..., {mintFreshLineage: true})`,
-// which ignores any supplied `lineageId` and mints a fresh one regardless;
-// `editDish`'s content-diffing needs the real `lineageId` to match rows.
-function toIngredientInput(
-  ingredient: IngredientWithSubstitute,
-): IngredientInput {
-  return {
-    lineageId: ingredient.lineageId,
-    name: ingredient.name,
-    quantity: decimalToNumber(ingredient.quantity),
-    quantityEnd: decimalToNumber(ingredient.quantityEnd),
-    isApproximate: ingredient.isApproximate,
-    unit: ingredient.unit,
-    displayText: ingredient.displayText,
-    preparationNote: ingredient.preparationNote,
-    isOptional: ingredient.isOptional,
-    substitute: ingredient.substitute
-      ? {
-          lineageId: ingredient.substitute.lineageId,
-          name: ingredient.substitute.name,
-          quantity: decimalToNumber(ingredient.substitute.quantity),
-          quantityEnd: decimalToNumber(ingredient.substitute.quantityEnd),
-          isApproximate: ingredient.substitute.isApproximate,
-          unit: ingredient.substitute.unit,
-          displayText: ingredient.substitute.displayText,
-          preparationNote: ingredient.substitute.preparationNote,
-        }
-      : null,
-  };
-}
-
-type VersionSectionRow = Prisma.SectionGetPayload<{
-  include: {
-    ingredients: { include: { substitute: true } };
-    instructions: true;
-  };
-}>;
-
-// Shared by `duplicateDish` (source content → a fresh Version) and
-// `editDish` (base content → content-diffing against the proposed edit).
-function sectionRowsToInput(sections: VersionSectionRow[]): SectionInput[] {
-  return sections.map((section) => ({
-    lineageId: section.lineageId,
-    name: section.name,
-    guidanceNote: section.guidanceNote,
-    ingredients: section.ingredients
-      .filter((ingredient) => ingredient.substituteForIngredientId === null)
-      .map(toIngredientInput),
-    instructions: section.instructions.map((instruction) => ({
-      lineageId: instruction.lineageId,
-      text: instruction.text,
-    })),
-  }));
+// ARCHITECTURE_PROPOSAL.md §F.2: "current" is always the highest major, and
+// within it the highest minor — so the highest existing majorVersion alone
+// (no minor needed) tells us which major line is currently current.
+async function highestMajorVersion(
+  tx: Prisma.TransactionClient,
+  dishId: string,
+): Promise<number> {
+  const result = await tx.dishVersion.aggregate({
+    where: { dishId },
+    _max: { majorVersion: true },
+  });
+  return result._max.majorVersion ?? 0;
 }
 
 async function nextVersionNumbers(
@@ -125,7 +84,8 @@ async function nextVersionNumbers(
   bump: VersionChoiceValue,
 ): Promise<{ majorVersion: number; minorVersion: number }> {
   if (bump === "MAJOR") {
-    return { majorVersion: baseMajorVersion + 1, minorVersion: 0 };
+    const currentHighestMajor = await highestMajorVersion(tx, dishId);
+    return { majorVersion: currentHighestMajor + 1, minorVersion: 0 };
   }
   const highestMinor = await tx.dishVersion.aggregate({
     where: { dishId, majorVersion: baseMajorVersion },
@@ -135,6 +95,58 @@ async function nextVersionNumbers(
     majorVersion: baseMajorVersion,
     minorVersion: (highestMinor._max.minorVersion ?? 0) + 1,
   };
+}
+
+// Slice 4 correction pass §7: recognized transaction/write conflicts that a
+// bounded retry can reasonably resolve by recomputing the next version
+// number — never a domain error (validation/authorization/not-found), which
+// must always surface immediately, unretried.
+const MAX_VERSION_ALLOCATION_ATTEMPTS = 3;
+
+function isRecognizedAllocationConflict(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false;
+  // P2002: the `@@unique([dishId, majorVersion, minorVersion])` backstop
+  // fired — two concurrent saves computed the same next number. P2034: a
+  // serializable-isolation write conflict inside the interactive
+  // transaction itself. Both are exactly the "someone else allocated a
+  // version number at the same time" case a retry can resolve; nothing
+  // else is.
+  return error.code === "P2002" || error.code === "P2034";
+}
+
+/**
+ * Runs a version-creation transaction with serializable isolation and a
+ * small bounded retry on a recognized allocation conflict — the database's
+ * unique constraint remains the final backstop, but a concurrent save
+ * should not surface a raw Prisma error to the user (Slice 4 correction
+ * pass §7). Each retry re-runs `fn` inside a brand-new transaction, so the
+ * next available minor/major is recomputed fresh every attempt rather than
+ * reusing a stale read from a failed one.
+ */
+async function withVersionAllocation<T>(
+  fn: (tx: Prisma.TransactionClient) => Promise<T>,
+): Promise<T> {
+  for (let attempt = 1; attempt <= MAX_VERSION_ALLOCATION_ATTEMPTS; attempt++) {
+    try {
+      return await prisma.$transaction(fn, {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      });
+    } catch (error) {
+      if (
+        attempt === MAX_VERSION_ALLOCATION_ATTEMPTS ||
+        !isRecognizedAllocationConflict(error)
+      ) {
+        if (isRecognizedAllocationConflict(error)) {
+          throw new ConflictError(
+            "Another change was saved to this item at the same time. Please try again.",
+          );
+        }
+        throw error;
+      }
+    }
+  }
+  // Unreachable — the loop above always returns or throws.
+  throw new ConflictError("Could not save. Please try again.");
 }
 
 /**
@@ -352,12 +364,18 @@ export async function createDish(
 }
 
 /**
- * "Save" from the Recipe/Part editor for an already-existing Dish. Slice 3
- * has no UI path to reach a historical major (Slice 4), so `baseVersionId`
- * is required to still equal `Dish.currentVersionId`
- * (ARCHITECTURE_PROPOSAL.md §I's optimistic-concurrency check for the
- * editor) — any edit that does create a Version is therefore always still
- * "current" per §F.2, whether it bumps the minor or the major number.
+ * "Save" from the Recipe/Part editor for an already-existing Dish.
+ * `baseVersionId` may be the Dish's current Version, or (Slice 4) a
+ * historical major line's latest minor, reached from that Version's own
+ * detail page — PRODUCT_SPEC.md §13.4/§13.7: editing a historical major
+ * either continues that line (a minor bump, never touching
+ * `Dish.currentVersionId`) or starts a new major from it (which always
+ * does). Either way, `baseVersionId` must still be the *latest* minor
+ * within its own major line at save time — the generalized form of Slice
+ * 3's optimistic-concurrency check (ARCHITECTURE_PROPOSAL.md §I): editing
+ * from a minor that's since been superseded within the same line, whether
+ * that line is current or historical, throws `ConflictError` exactly the
+ * same way.
  *
  * See the module doc comment above for the settled stable/non-cooking/
  * cooking classification. `versionChoice` is only consulted when the
@@ -374,13 +392,14 @@ export async function editDish(
   kind?: DishKindValue,
 ): Promise<string> {
   const dish = await getOwnedDishOrThrow(ownerId, dishId, kind);
-  if (dish.currentVersionId !== baseVersionId) {
-    throw new ConflictError(
-      "This changed elsewhere. Refresh the page and review before saving again.",
-    );
-  }
+  // Slice 4 correction pass §1: any immutable Version belonging to the Dish
+  // may be selected as an editing base — including an older minor when
+  // newer minors already exist in the same major line. An immutable
+  // historical Version does not become "stale" just because later Versions
+  // exist; concurrency is handled at allocation time (`withVersionAllocation`
+  // below), not by rejecting an otherwise-valid base here.
+  const base = await getDishScopedVersionContentOrThrow(dish.id, baseVersionId);
 
-  const base = await getVersionContent(baseVersionId);
   const sections = sanitizedSectionsOrThrow(input);
 
   const nonCookingScalarChanged =
@@ -426,13 +445,43 @@ export async function editDish(
 
   const bump: VersionChoiceValue = cookingChanged ? versionChoice! : "MINOR";
 
-  return prisma.$transaction(async (tx) => {
+  return withVersionAllocation(async (tx) => {
+    const preEditHighestMajor = await highestMajorVersion(tx, dish.id);
+    const baseWasAlreadyCurrentLine = base.majorVersion === preEditHighestMajor;
+
     const { majorVersion, minorVersion } = await nextVersionNumbers(
       tx,
       dish.id,
       base.majorVersion,
       bump,
     );
+
+    // PRODUCT_SPEC.md §13.5: current = highest major, then highest minor
+    // within it. A MAJOR bump's new majorVersion is always higher than any
+    // existing one, so it's always current. A MINOR bump only becomes
+    // current when the line being edited was already the highest major —
+    // a small update to a historical major line (§13.4's "Creating V2.3
+    // does not replace V5.3 as current") must never move the pointer just
+    // because it happens to be the most recently written row.
+    const becomesCurrent = bump === "MAJOR" || baseWasAlreadyCurrentLine;
+
+    // Slice 4 correction pass §2: `nextVersionNumbers` always computes the
+    // next minor as `MAX(minorVersion) + 1` within the selected major, not
+    // `base.minorVersion + 1` — so `minorVersion - 1` is exactly the
+    // highest minor that existed before this insert. When the selected
+    // base isn't that highest minor, this is a non-sequential branch (the
+    // user picked an earlier saved minor even though later ones exist),
+    // and its true source is recorded structurally rather than left only
+    // implied by consecutive numbering.
+    const isSequentialMinorRefinement =
+      bump === "MINOR" && base.minorVersion === minorVersion - 1;
+
+    const sourceVersionId =
+      bump === "MAJOR"
+        ? base.id
+        : bump === "MINOR" && !isSequentialMinorRefinement
+          ? base.id
+          : null;
 
     const version = await tx.dishVersion.create({
       data: {
@@ -449,6 +498,21 @@ export async function editDish(
         // retired Easy/Medium/Hard value (directly, bypassing the editor's
         // Select) still lands on the current approved set.
         difficulty: normalizeDifficultyValue(input.difficulty),
+        // ARCHITECTURE_PROPOSAL.md §F.4 / §13.6: a new major Version's
+        // source relationship is stored structurally, not just as note
+        // text. An ordinary sequential minor refinement leaves it unset
+        // (implied by consecutive numbering); a non-sequential minor
+        // branch (see above) records its real source explicitly.
+        sourceVersionId,
+        versionNote:
+          bump === "MAJOR"
+            ? seedMajorVersionNote(
+                base.majorVersion,
+                base.minorVersion,
+                majorVersion,
+                baseWasAlreadyCurrentLine,
+              )
+            : null,
       },
     });
 
@@ -462,13 +526,105 @@ export async function editDish(
         stage: input.stage,
         cuisine: input.cuisine || null,
         archivedAt: nextArchivedAt(dish.stage, dish.archivedAt, input.stage),
+        ...(becomesCurrent
+          ? {
+              currentVersionId: version.id,
+              currentTitle: input.title,
+              currentStructuralSearchText: sectionNames.join(" ") || null,
+            }
+          : {}),
+      },
+    });
+
+    return dish.id;
+  });
+}
+
+/**
+ * §13.2's "revival of a useful historical direction as the next main
+ * Recipe" / §13.7's "promote the historical direction into the next major
+ * Version" — a verbatim copy of a historical Version's content into a
+ * brand-new major Version, with no content edits. Distinct from `editDish`
+ * because a no-op content "edit" would fall into the no-Version bucket
+ * (§13.2a); this path always creates a Version, unconditionally, since
+ * promoting is itself the meaningful action, not something diffed against
+ * prior content. `Dish.stage`/`cuisine` are deliberately left untouched
+ * (§13.9 — Stage belongs to the stable Dish, promoting Version content
+ * does not change it).
+ */
+export async function promoteHistoricalVersion(
+  ownerId: string,
+  dishId: string,
+  versionId: string,
+  kind?: DishKindValue,
+): Promise<string> {
+  const dish = await getOwnedDishOrThrow(ownerId, dishId, kind);
+  const base = await getDishScopedVersionContentOrThrow(dish.id, versionId);
+  const sections = sectionRowsToInput(base.sections);
+
+  return withVersionAllocation(async (tx) => {
+    const preEditHighestMajor = await highestMajorVersion(tx, dish.id);
+    const baseWasAlreadyCurrentLine = base.majorVersion === preEditHighestMajor;
+    const majorVersion = preEditHighestMajor + 1;
+
+    const version = await tx.dishVersion.create({
+      data: {
+        dishId: dish.id,
+        majorVersion,
+        minorVersion: 0,
+        title: base.title,
+        description: base.description,
+        yieldQuantity: base.yieldQuantity,
+        yieldUnit: base.yieldUnit,
+        prepTimeMinutes: base.prepTimeMinutes,
+        cookTimeMinutes: base.cookTimeMinutes,
+        difficulty: base.difficulty,
+        sourceVersionId: base.id,
+        versionNote: seedMajorVersionNote(
+          base.majorVersion,
+          base.minorVersion,
+          majorVersion,
+          baseWasAlreadyCurrentLine,
+        ),
+      },
+    });
+
+    const { sectionNames } = await insertSections(tx, version.id, sections, {
+      mintFreshLineage: false,
+    });
+
+    await tx.dish.update({
+      where: { id: dish.id },
+      data: {
         currentVersionId: version.id,
-        currentTitle: input.title,
+        currentTitle: base.title,
         currentStructuralSearchText: sectionNames.join(" ") || null,
       },
     });
 
     return dish.id;
+  });
+}
+
+/**
+ * §14.1: a mutable annotation on otherwise-immutable Version content —
+ * never creates a Version, never touches ingredients/instructions/yield/
+ * nutrition/provenance. Owner-scoped via the Dish, then verified against
+ * that specific dish (a versionId from a different Dish — even one this
+ * same owner owns — must not resolve).
+ */
+export async function updateVersionNote(
+  ownerId: string,
+  dishId: string,
+  versionId: string,
+  note: string | null,
+  kind?: DishKindValue,
+): Promise<void> {
+  const dish = await getOwnedDishOrThrow(ownerId, dishId, kind);
+  await getDishScopedVersionContentOrThrow(dish.id, versionId);
+  await prisma.dishVersion.update({
+    where: { id: versionId },
+    data: { versionNote: normalizeVersionNote(note) },
   });
 }
 

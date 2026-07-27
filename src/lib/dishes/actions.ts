@@ -9,6 +9,8 @@ import {
   duplicateDishSchema,
   restoreDishSchema,
   versionChoiceSchema,
+  promoteHistoricalVersionSchema,
+  updateVersionNoteSchema,
   type DishActionState,
   type DishContentInput,
   type DishKindValue,
@@ -24,7 +26,17 @@ function revalidateDish(kind: DishKindValue, dishId?: string) {
   if (dishId) {
     revalidatePath(`${basePath(kind)}/${dishId}`);
     revalidatePath(`${basePath(kind)}/${dishId}/edit`);
+    revalidatePath(`${basePath(kind)}/${dishId}/compare`);
   }
+}
+
+function revalidateVersion(
+  kind: DishKindValue,
+  dishId: string,
+  versionId: string,
+) {
+  revalidateDish(kind, dishId);
+  revalidatePath(`${basePath(kind)}/${dishId}/versions/${versionId}`);
 }
 
 export async function createDish(
@@ -123,6 +135,40 @@ export async function duplicateDish(
 
     revalidateDish(kind, newDishId);
     return { status: "success", dishId: newDishId };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export async function promoteHistoricalVersion(
+  kind: DishKindValue,
+  values: { dishId: string; versionId: string },
+): Promise<DishActionState> {
+  try {
+    const userId = await requireUserId();
+    const { dishId, versionId } = promoteHistoricalVersionSchema.parse(values);
+
+    await dishService.promoteHistoricalVersion(userId, dishId, versionId, kind);
+
+    revalidateVersion(kind, dishId, versionId);
+    return { status: "success", dishId, message: "Promoted to a new version." };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export async function updateVersionNote(
+  kind: DishKindValue,
+  values: { dishId: string; versionId: string; note: string | null },
+): Promise<DishActionState> {
+  try {
+    const userId = await requireUserId();
+    const { dishId, versionId, note } = updateVersionNoteSchema.parse(values);
+
+    await dishService.updateVersionNote(userId, dishId, versionId, note, kind);
+
+    revalidateVersion(kind, dishId, versionId);
+    return { status: "success", dishId };
   } catch (error) {
     return { status: "error", message: toActionErrorMessage(error) };
   }

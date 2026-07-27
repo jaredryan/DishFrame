@@ -13,8 +13,14 @@ than saving it.
 
 # Verification and Git policy (DishFrame-specific)
 
-Full policy lives in the global `~/.claude/CLAUDE.md` "General development
-preferences" section; this is the DishFrame-scoped summary.
+Full policy lives in `AGENTS.md`'s "Owner intervention and manual-review
+policy" section (@-included above — write tests, never run them or any
+verification/Git command on your own initiative during a normal pass; the
+owner runs everything; the only self-initiated exception is debugging an
+owner-reported failure; manual UI review is separate from, and rarer
+than, automated verification) and, as the cross-project default, the
+global `~/.claude/CLAUDE.md` "General development preferences" section.
+This section is only the DishFrame-scoped script reference.
 
 ## Verification scripts (current meanings — renamed/consolidated 2026-07-26)
 
@@ -33,21 +39,18 @@ Requires Docker Desktop running with the local Postgres container up
 
 ## When to run these
 
-- **Do not** run any of the above, or lint/typecheck/tests/Playwright/
-  Prisma validate/migration scans/build individually, during an ordinary
-  implementation pass. A narrowly targeted diagnostic command is fine only
-  when genuinely necessary to implement something safely — say why.
-- The owner runs `pnpm run verify:all` themselves, normally right after
-  each completed implementation pass. Don't run it for them, and don't
-  repeat the "here are the commands to run" reminder after every pass once
-  it's already established — mention it only when something changed
-  (new/renamed script, new prerequisite).
-- **Exception:** when the owner reports a specific failing verification
-  command and explicitly asks for it to be debugged, run the relevant
-  failing subcommand(s) while diagnosing, then run the full command once
-  at the end to confirm the repair. Identify the first genuine failure
-  before treating any later, possibly-cascading failure as a separate
-  issue.
+- The owner runs `pnpm run verify:all` themselves after each completed
+  implementation pass. Never run any of the scripts above, or
+  lint/typecheck/tests/Playwright/Prisma validate/migration scans/build
+  individually, on your own initiative — not even a "narrowly targeted
+  diagnostic" or a check you judge "genuinely necessary." Write tests;
+  don't execute them. Report what was written and what remains for the
+  owner to verify instead.
+- **Debugging exception (the only one):** when the owner has already run
+  verification, reports a specific failure, and explicitly asks for it to
+  be debugged, run the relevant failing subcommand(s) while diagnosing,
+  then run the full reported command once at the end to confirm the
+  repair. This never extends to unrelated or broad suites.
 - Write/update tests only for behavior stable enough not to be
   substantially redesigned soon (domain rules, service-boundary
   contracts, fixed regressions, persistence). Defer tests for UI/flows

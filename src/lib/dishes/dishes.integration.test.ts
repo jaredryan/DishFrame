@@ -9,7 +9,7 @@ import {
   type DishContentInput,
   type SectionInput,
 } from "@/lib/dishes/schema";
-import { NotFoundError, ConflictError, ValidationError } from "@/lib/errors";
+import { NotFoundError, ValidationError } from "@/lib/errors";
 
 function content(overrides: Partial<DishContentInput> = {}): DishContentInput {
   return {
@@ -244,6 +244,11 @@ describe("dishes service", () => {
       expect(after.currentVersion?.title).toBe("Ginger Soy Bowl (updated)");
       expect(after.currentVersionId).not.toBe(before.currentVersionId);
       expect(await versionCount(dishId)).toBe(2);
+      // Slice 4 correction pass §2: an ordinary sequential minor refinement
+      // (from the line's own current latest minor) leaves sourceVersionId
+      // unset — the relationship is already implied by consecutive
+      // numbering, unlike a non-sequential branch (see below).
+      expect(after.currentVersion?.sourceVersionId).toBeNull();
     });
 
     it("carries an existing row's lineageId forward and mints a fresh one for a newly-added row, saved as minor", async () => {
@@ -329,6 +334,10 @@ describe("dishes service", () => {
       const updated = await loadDishWithVersion(dishId);
       expect(updated.currentVersion?.majorVersion).toBe(2);
       expect(updated.currentVersion?.minorVersion).toBe(0);
+      // Slice 4 correction pass §4: an ordinary major bump from what was
+      // already the current line seeds source → result wording ending in
+      // "Revision".
+      expect(updated.currentVersion?.versionNote).toBe("V1.0 → V2.0: Revision");
     });
 
     it("requires an explicit minor/major choice for add, remove, and reorder Ingredient changes", async () => {
@@ -472,33 +481,52 @@ describe("dishes service", () => {
       expect(originalVersion.title).toBe("Ginger Soy Bowl");
     });
 
-    it("throws ConflictError when baseVersionId is stale", async () => {
+    // Slice 4 correction pass §1: a superseded (non-latest) Version is not
+    // "stale" merely because a later Version now exists — it remains a
+    // valid, selectable editing base. This replaces the old rule that
+    // rejected any base but a major line's latest minor.
+    it("allows editing from a superseded Version rather than rejecting it as stale, and records its true source", async () => {
       const user = await createTestUser();
       userId = user.id;
 
       const dishId = await dishService.createDish(userId, "RECIPE", content());
       const dish = await loadDishWithVersion(dishId);
-      const staleVersionId = dish.currentVersionId!;
+      const v1Id = dish.currentVersionId!;
 
-      // A real edit moves currentVersionId forward...
+      // Advances to V1.1 — v1Id (V1.0) is now superseded within its line.
       await dishService.editDish(
         userId,
         dishId,
-        staleVersionId,
+        v1Id,
         content({ title: "First edit", sections: unchangedSections(dish) }),
         undefined,
       );
 
-      // ...so retrying against the now-stale id must conflict.
-      await expect(
-        dishService.editDish(
-          userId,
-          dishId,
-          staleVersionId,
-          content({ title: "Second attempt" }),
-          undefined,
-        ),
-      ).rejects.toThrow(ConflictError);
+      // Branching from the superseded V1.0 still succeeds, and allocates
+      // the line's next overall minor — MAX(minorVersion) + 1 = 2 — never
+      // `v1Id.minorVersion + 1`, which would collide with V1.1.
+      const newDishId = await dishService.editDish(
+        userId,
+        dishId,
+        v1Id,
+        content({
+          title: "Branched from V1.0",
+          sections: unchangedSections(dish),
+        }),
+        undefined,
+      );
+      expect(newDishId).toBe(dishId);
+
+      const after = await loadDishWithVersion(dishId);
+      expect(after.currentVersion?.majorVersion).toBe(1);
+      expect(after.currentVersion?.minorVersion).toBe(2);
+      expect(after.currentVersion?.title).toBe("Branched from V1.0");
+      // Non-sequential minor branch (the base wasn't the latest minor in
+      // its line at save time) — its true source is recorded structurally.
+      expect(after.currentVersion?.sourceVersionId).toBe(v1Id);
+      // Major 1 is still the Dish's only/highest major line, so the branch
+      // becomes current, same as any other minor bump on the highest line.
+      expect(after.currentVersionId).toBe(after.currentVersion!.id);
     });
 
     it("rejects cross-user edits with NotFoundError", async () => {
@@ -524,6 +552,459 @@ describe("dishes service", () => {
       ).rejects.toThrow(NotFoundError);
 
       await deleteTestUser(intruder.id);
+    });
+  });
+
+  // Slice 4 (docs/BUILD_PLAN.md): editing from a specifically-selected
+  // historical Version, rather than always assuming the current Version.
+  // PRODUCT_SPEC.md §13.4/§13.5/§13.7.
+  describe("editDish — historical major lines (Slice 4)", () => {
+    async function createTwoMajorLines(userId: string) {
+      const dishId = await dishService.createDish(userId, "RECIPE", content());
+      const v1 = await loadDishWithVersion(dishId);
+      const v1Id = v1.currentVersionId!;
+
+      // A cooking-content change with an explicit MAJOR choice creates V2.0
+      // and moves it to current.
+      await dishService.editDish(
+        userId,
+        dishId,
+        v1Id,
+        content({
+          title: "Ginger Soy Bowl (remix)",
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              ingredients: [blankIngredient("Ginger")],
+              instructions: [],
+            },
+          ],
+        }),
+        "MAJOR",
+      );
+      const v2 = await loadDishWithVersion(dishId);
+      return { dishId, v1Id, v2Id: v2.currentVersionId! };
+    }
+
+    it("a MINOR save from a historical major line stays historical and does not move Dish.currentVersionId", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      const { dishId, v1Id, v2Id } = await createTwoMajorLines(userId);
+
+      const historicalBase = await prisma.dishVersion.findUniqueOrThrow({
+        where: { id: v1Id },
+        include: { sections: { include: { ingredients: true } } },
+      });
+
+      const newDishId = await dishService.editDish(
+        userId,
+        dishId,
+        v1Id,
+        content({
+          sections: [
+            {
+              lineageId: historicalBase.sections[0].lineageId,
+              name: null,
+              guidanceNote: null,
+              ingredients: [
+                {
+                  lineageId:
+                    historicalBase.sections[0].ingredients[0].lineageId,
+                  ...blankIngredient("Kosher salt"),
+                },
+              ],
+              instructions: [],
+            },
+          ],
+        }),
+        "MINOR",
+      );
+      expect(newDishId).toBe(dishId);
+
+      const after = await loadDishWithVersion(dishId);
+      // Dish.currentVersionId is still the V2.0 line, untouched.
+      expect(after.currentVersionId).toBe(v2Id);
+
+      const historicalLineVersions = await prisma.dishVersion.findMany({
+        where: { dishId, majorVersion: 1 },
+        orderBy: { minorVersion: "asc" },
+      });
+      expect(historicalLineVersions.map((v) => v.minorVersion)).toEqual([0, 1]);
+      expect(historicalLineVersions[1].sourceVersionId).toBeNull();
+    });
+
+    it("an automatic (non-cooking) minor bump from a historical major line also stays historical", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      const { dishId, v1Id, v2Id } = await createTwoMajorLines(userId);
+
+      const historicalBase = await prisma.dishVersion.findUniqueOrThrow({
+        where: { id: v1Id },
+        include: { sections: { include: { ingredients: true } } },
+      });
+
+      // Title-only change (no versionChoice needed — this is the bucket-two
+      // "automatic small update" path, PRODUCT_SPEC.md §13.2a) against the
+      // unchanged, real-lineageId content of the historical line.
+      await dishService.editDish(
+        userId,
+        dishId,
+        v1Id,
+        content({
+          title: "Ginger Soy Bowl (annotated)",
+          sections: [
+            {
+              lineageId: historicalBase.sections[0].lineageId,
+              name: null,
+              guidanceNote: null,
+              ingredients: [
+                {
+                  lineageId:
+                    historicalBase.sections[0].ingredients[0].lineageId,
+                  ...blankIngredient("Salt"),
+                },
+              ],
+              instructions: [],
+            },
+          ],
+        }),
+        undefined,
+      );
+
+      const after = await loadDishWithVersion(dishId);
+      expect(after.currentVersionId).toBe(v2Id);
+
+      const historicalLineVersions = await prisma.dishVersion.findMany({
+        where: { dishId, majorVersion: 1 },
+        orderBy: { minorVersion: "asc" },
+      });
+      expect(historicalLineVersions.map((v) => v.minorVersion)).toEqual([0, 1]);
+      expect(historicalLineVersions[1].title).toBe(
+        "Ginger Soy Bowl (annotated)",
+      );
+    });
+
+    it("a MAJOR save from a historical major line creates the next-overall major, sets sourceVersionId, and moves current", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      const { dishId, v1Id } = await createTwoMajorLines(userId);
+
+      await dishService.editDish(
+        userId,
+        dishId,
+        v1Id,
+        content({ title: "Revived direction" }),
+        "MAJOR",
+      );
+
+      const after = await loadDishWithVersion(dishId);
+      // Highest existing major was 2 — the revived major must be 3, not 2
+      // (v1's own major + 1), since "current" always advances from the
+      // Dish's global highest major (Arch §F.5), not the edited line's own.
+      expect(after.currentVersion?.majorVersion).toBe(3);
+      expect(after.currentVersion?.minorVersion).toBe(0);
+      expect(after.currentVersion?.sourceVersionId).toBe(v1Id);
+      // Slice 4 correction pass §4: a major created from a historical
+      // direction seeds source → result wording ending in "Revival".
+      expect(after.currentVersion?.versionNote).toBe("V1.0 → V3.0: Revival");
+      expect(after.currentVersionId).toBe(after.currentVersion!.id);
+    });
+
+    // Slice 4 correction pass §1/§2/§7: repeatedly branching from the same
+    // historical base never collides — each save allocates the line's next
+    // overall minor fresh, and a base that's no longer the latest in its
+    // own line has its true source recorded rather than being rejected.
+    it("allows repeated branching from the same historical Version, always allocating the line's next minor and recording provenance", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      const { dishId, v1Id, v2Id } = await createTwoMajorLines(userId);
+
+      // Branch #1 from v1Id (V1.0) — at this point V1.0 is still the
+      // latest minor in its line, so this is an ordinary sequential
+      // refinement: sourceVersionId stays unset.
+      await dishService.editDish(
+        userId,
+        dishId,
+        v1Id,
+        content({ title: "V1 refined once" }),
+        "MINOR",
+      );
+      const afterFirst = await prisma.dishVersion.findMany({
+        where: { dishId, majorVersion: 1 },
+        orderBy: { minorVersion: "asc" },
+      });
+      expect(afterFirst.map((v) => v.minorVersion)).toEqual([0, 1]);
+      expect(afterFirst[1].sourceVersionId).toBeNull();
+
+      // Branch #2, again from v1Id (V1.0) — V1.1 now exists, so this is a
+      // non-sequential branch: it still succeeds, allocates V1.2 rather
+      // than colliding with V1.1, and records its true source.
+      await dishService.editDish(
+        userId,
+        dishId,
+        v1Id,
+        content({ title: "V1 branched again" }),
+        "MINOR",
+      );
+      const afterSecond = await prisma.dishVersion.findMany({
+        where: { dishId, majorVersion: 1 },
+        orderBy: { minorVersion: "asc" },
+      });
+      expect(afterSecond.map((v) => v.minorVersion)).toEqual([0, 1, 2]);
+      expect(afterSecond[2].sourceVersionId).toBe(v1Id);
+      expect(afterSecond[2].title).toBe("V1 branched again");
+
+      // Neither branch touched the current V2.0 line.
+      const after = await loadDishWithVersion(dishId);
+      expect(after.currentVersionId).toBe(v2Id);
+    });
+
+    // Slice 4 correction pass §7: same reliable "fire genuinely concurrent
+    // operations, assert the database-enforced invariant" pattern already
+    // used by src/lib/account/init.integration.test.ts, rather than a
+    // timing-fragile test that depends on forcing a specific interleaving.
+    // Whether or not this particular run actually triggers a real
+    // allocation conflict, the invariant — unique, gap-free version
+    // numbers, no raw database error surfaced, the unrelated current line
+    // untouched — must hold either way.
+    it("concurrent minor branches from the same historical base still leave unique, gap-free version numbers", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      const { dishId, v1Id, v2Id } = await createTwoMajorLines(userId);
+
+      await Promise.all([
+        dishService.editDish(
+          userId,
+          dishId,
+          v1Id,
+          content({ title: "Branch A" }),
+          "MINOR",
+        ),
+        dishService.editDish(
+          userId,
+          dishId,
+          v1Id,
+          content({ title: "Branch B" }),
+          "MINOR",
+        ),
+        dishService.editDish(
+          userId,
+          dishId,
+          v1Id,
+          content({ title: "Branch C" }),
+          "MINOR",
+        ),
+      ]);
+
+      const majorOneVersions = await prisma.dishVersion.findMany({
+        where: { dishId, majorVersion: 1 },
+        orderBy: { minorVersion: "asc" },
+      });
+      // V1.0 plus the three concurrent branches — unique, gap-free minors.
+      expect(majorOneVersions.map((v) => v.minorVersion)).toEqual([0, 1, 2, 3]);
+
+      const after = await loadDishWithVersion(dishId);
+      expect(after.currentVersionId).toBe(v2Id);
+    });
+  });
+
+  describe("promoteHistoricalVersion (Slice 4)", () => {
+    it("copies a historical Version's content verbatim into a new current major, carrying lineage forward", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+
+      const dishId = await dishService.createDish(userId, "RECIPE", content());
+      const v1 = await loadDishWithVersion(dishId);
+      const v1Id = v1.currentVersionId!;
+      const originalIngredientLineageId =
+        v1.currentVersion!.sections[0].ingredients[0].lineageId;
+
+      await dishService.editDish(
+        userId,
+        dishId,
+        v1Id,
+        content({ title: "A different direction" }),
+        "MAJOR",
+      );
+      // Stage change, independent of Version content — promote must not
+      // touch it (PRODUCT_SPEC.md §13.9).
+      await dishService.updateDishStage(userId, dishId, "ACTIVE");
+
+      const newDishId = await dishService.promoteHistoricalVersion(
+        userId,
+        dishId,
+        v1Id,
+      );
+      expect(newDishId).toBe(dishId);
+
+      const after = await loadDishWithVersion(dishId);
+      expect(after.currentVersion?.majorVersion).toBe(3);
+      expect(after.currentVersion?.minorVersion).toBe(0);
+      expect(after.currentVersion?.title).toBe("Ginger Soy Bowl");
+      expect(after.currentVersion?.sourceVersionId).toBe(v1Id);
+      // Slice 4 correction pass §4: promoting a historical direction seeds
+      // source → result wording ending in "Revival", same as a major
+      // created directly from a historical base.
+      expect(after.currentVersion?.versionNote).toBe("V1.0 → V3.0: Revival");
+      expect(after.currentTitle).toBe("Ginger Soy Bowl");
+      // Stage is unaffected by promotion.
+      expect(after.stage).toBe("ACTIVE");
+
+      const promotedIngredient =
+        after.currentVersion!.sections[0].ingredients[0];
+      expect(promotedIngredient.lineageId).toBe(originalIngredientLineageId);
+    });
+
+    it("rejects cross-user promotion with NotFoundError", async () => {
+      const owner = await createTestUser();
+      const intruder = await createTestUser();
+      userId = owner.id;
+
+      const dishId = await dishService.createDish(
+        owner.id,
+        "RECIPE",
+        content(),
+      );
+      const dish = await loadDishWithVersion(dishId);
+
+      await expect(
+        dishService.promoteHistoricalVersion(
+          intruder.id,
+          dishId,
+          dish.currentVersionId!,
+        ),
+      ).rejects.toThrow(NotFoundError);
+
+      await deleteTestUser(intruder.id);
+    });
+  });
+
+  describe("updateVersionNote (Slice 4)", () => {
+    it("updates the note without creating a Version", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+
+      const dishId = await dishService.createDish(userId, "RECIPE", content());
+      const dish = await loadDishWithVersion(dishId);
+      const versionId = dish.currentVersionId!;
+
+      await dishService.updateVersionNote(
+        userId,
+        dishId,
+        versionId,
+        "Tried it with rice vinegar instead.",
+      );
+
+      const version = await prisma.dishVersion.findUniqueOrThrow({
+        where: { id: versionId },
+      });
+      expect(version.versionNote).toBe("Tried it with rice vinegar instead.");
+      expect(await versionCount(dishId)).toBe(1);
+    });
+
+    // Slice 4 correction pass §4: a note left as only the generated
+    // relationship stamp with nothing after the colon reads as visually
+    // unfinished — the colon is dropped when saved.
+    it("strips the trailing colon from a note left as only the generated relationship prefix", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+
+      const dishId = await dishService.createDish(userId, "RECIPE", content());
+      const dish = await loadDishWithVersion(dishId);
+      const versionId = dish.currentVersionId!;
+
+      await dishService.updateVersionNote(
+        userId,
+        dishId,
+        versionId,
+        "V1.0 → V2.0:",
+      );
+
+      const version = await prisma.dishVersion.findUniqueOrThrow({
+        where: { id: versionId },
+      });
+      expect(version.versionNote).toBe("V1.0 → V2.0");
+    });
+
+    it("does not strip a colon that is part of ordinary authored prose", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+
+      const dishId = await dishService.createDish(userId, "RECIPE", content());
+      const dish = await loadDishWithVersion(dishId);
+      const versionId = dish.currentVersionId!;
+
+      await dishService.updateVersionNote(
+        userId,
+        dishId,
+        versionId,
+        "Note: tried a substitution here.",
+      );
+
+      const version = await prisma.dishVersion.findUniqueOrThrow({
+        where: { id: versionId },
+      });
+      expect(version.versionNote).toBe("Note: tried a substitution here.");
+    });
+
+    it("clears the note back to null with blank input", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+
+      const dishId = await dishService.createDish(userId, "RECIPE", content());
+      const dish = await loadDishWithVersion(dishId);
+      const versionId = dish.currentVersionId!;
+
+      await dishService.updateVersionNote(userId, dishId, versionId, "A note");
+      await dishService.updateVersionNote(userId, dishId, versionId, "   ");
+
+      const version = await prisma.dishVersion.findUniqueOrThrow({
+        where: { id: versionId },
+      });
+      expect(version.versionNote).toBeNull();
+    });
+
+    it("rejects cross-user note edits with NotFoundError", async () => {
+      const owner = await createTestUser();
+      const intruder = await createTestUser();
+      userId = owner.id;
+
+      const dishId = await dishService.createDish(
+        owner.id,
+        "RECIPE",
+        content(),
+      );
+      const dish = await loadDishWithVersion(dishId);
+
+      await expect(
+        dishService.updateVersionNote(
+          intruder.id,
+          dishId,
+          dish.currentVersionId!,
+          "Not yours",
+        ),
+      ).rejects.toThrow(NotFoundError);
+
+      await deleteTestUser(intruder.id);
+    });
+
+    it("rejects a versionId that belongs to a different Dish", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+
+      const dishAId = await dishService.createDish(userId, "RECIPE", content());
+      const dishBId = await dishService.createDish(userId, "RECIPE", content());
+      const dishA = await loadDishWithVersion(dishAId);
+
+      await expect(
+        dishService.updateVersionNote(
+          userId,
+          dishBId,
+          dishA.currentVersionId!,
+          "Wrong dish",
+        ),
+      ).rejects.toThrow(NotFoundError);
     });
   });
 
