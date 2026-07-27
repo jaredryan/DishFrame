@@ -9,24 +9,36 @@ import {
   renameTasterSchema,
   tasterIdSchema,
   type ActionState,
+  type CreateTasterActionState,
 } from "@/lib/tasters/schema";
 
 const TASTERS_PATH = "/tasters";
+const SETTINGS_PATH = "/settings";
 
 export async function createTaster(
-  _prevState: ActionState,
+  _prevState: CreateTasterActionState,
   formData: FormData,
-): Promise<ActionState> {
+): Promise<CreateTasterActionState> {
   try {
     const userId = await requireUserId();
     const { name } = createTasterSchema.parse({
       name: formData.get("name"),
     });
 
-    await tasterService.createTaster(userId, name);
+    const taster = await tasterService.createTaster(userId, name);
 
     revalidatePath(TASTERS_PATH);
-    return { status: "success", message: `Added ${name}.` };
+    revalidatePath(SETTINGS_PATH);
+    return {
+      status: "success",
+      message: `Added ${name}.`,
+      taster: {
+        id: taster.id,
+        name: taster.name,
+        isOwner: taster.isOwner,
+        archivedAt: taster.archivedAt,
+      },
+    };
   } catch (error) {
     return { status: "error", message: toActionErrorMessage(error) };
   }
@@ -46,6 +58,7 @@ export async function renameTaster(
     await tasterService.renameTaster(userId, id, name);
 
     revalidatePath(TASTERS_PATH);
+    revalidatePath(SETTINGS_PATH);
     return { status: "success", message: "Renamed." };
   } catch (error) {
     return { status: "error", message: toActionErrorMessage(error) };
@@ -63,6 +76,7 @@ export async function archiveTaster(
     await tasterService.archiveTaster(userId, id);
 
     revalidatePath(TASTERS_PATH);
+    revalidatePath(SETTINGS_PATH);
     return { status: "success", message: "Archived." };
   } catch (error) {
     return { status: "error", message: toActionErrorMessage(error) };
@@ -80,6 +94,7 @@ export async function restoreTaster(
     await tasterService.restoreTaster(userId, id);
 
     revalidatePath(TASTERS_PATH);
+    revalidatePath(SETTINGS_PATH);
     return { status: "success", message: "Restored." };
   } catch (error) {
     return { status: "error", message: toActionErrorMessage(error) };
@@ -97,6 +112,7 @@ export async function deleteTaster(
     await tasterService.deleteTaster(userId, id);
 
     revalidatePath(TASTERS_PATH);
+    revalidatePath(SETTINGS_PATH);
     return { status: "success", message: "Deleted." };
   } catch (error) {
     return { status: "error", message: toActionErrorMessage(error) };

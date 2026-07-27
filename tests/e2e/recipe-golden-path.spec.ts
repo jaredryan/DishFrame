@@ -78,7 +78,12 @@ test.describe("Recipes: create, view, edit, archive, restore, duplicate, delete"
 
     await page.getByLabel("Recipe title").fill(title);
     await page.getByRole("button", { name: "Add ingredient" }).click();
-    await page.getByPlaceholder("Ingredient (e.g. Soy sauce)").fill("Ginger");
+    await page.getByLabel("Ingredient name").fill("Ginger");
+
+    // A substitute clicked open and then left entirely blank must not
+    // block creation (Gate 2 remediation — this is the exact bug this
+    // pass fixed: a fully-unused substitute used to fail Zod validation).
+    await page.getByRole("button", { name: "Add substitute" }).click();
 
     await page.getByRole("button", { name: "Save" }).click();
     await expect(page).toHaveURL(/\/recipes\/[^/]+$/);
@@ -175,18 +180,20 @@ test.describe("Recipes: create, view, edit, archive, restore, duplicate, delete"
     await page.getByLabel("Recipe title").fill(title);
     await page.getByRole("button", { name: "Add ingredient" }).click();
 
-    await page
-      .getByPlaceholder("Ingredient (e.g. Soy sauce)")
-      .fill("Vegetable broth");
+    await page.getByLabel("Ingredient name").fill("Vegetable broth");
     await page.getByLabel("Quantity", { exact: true }).fill("1 1/2");
-    await page.getByRole("button", { name: "Range" }).click();
-    await page.getByLabel("Quantity end").fill("2");
-    await page.getByPlaceholder("Unit").fill("cup");
+    await page.getByLabel("Amount", { exact: true }).click();
+    await page.getByRole("option", { name: "Range" }).click();
+    await page.getByLabel("To", { exact: true }).fill("2");
+    await page.getByLabel("Unit", { exact: true }).fill("cup");
     await page.getByRole("checkbox", { name: "Approximate" }).check();
     await page.getByRole("checkbox", { name: "Optional" }).check();
-    await page
-      .getByPlaceholder("Preparation note (e.g. finely chopped)")
-      .fill("warmed");
+    await page.getByLabel("Preparation note", { exact: true }).fill("warmed");
+
+    // A complete substitute (Gate 2 remediation: substitutes now use the
+    // same explicit amount-entry pattern) must persist and display.
+    await page.getByRole("button", { name: "Add substitute" }).click();
+    await page.getByLabel("Substitute name").fill("Chicken broth");
 
     await page.getByRole("button", { name: "Save" }).click();
     await expect(page).toHaveURL(/\/recipes\/[^/]+$/);
@@ -197,15 +204,16 @@ test.describe("Recipes: create, view, edit, archive, restore, duplicate, delete"
       page.getByText(/about 1\.5–2 cup Vegetable broth/),
     ).toBeVisible();
     await expect(page.getByText("(optional)")).toBeVisible();
+    await expect(page.getByText(/Substitute: Chicken broth/)).toBeVisible();
 
     const dishUrl = page.url();
 
     // --- Edit the ingredient's name (a cooking-content change) and start
     // a new major Version ---
     await page.getByRole("link", { name: "Edit" }).click();
-    const nameInput = page.getByPlaceholder("Ingredient (e.g. Soy sauce)");
+    const nameInput = page.getByLabel("Ingredient name");
     await nameInput.fill("");
-    await nameInput.fill("Chicken broth");
+    await nameInput.fill("Roasted vegetable broth");
     await page.getByRole("button", { name: "Save" }).click();
 
     await expect(
@@ -215,7 +223,9 @@ test.describe("Recipes: create, view, edit, archive, restore, duplicate, delete"
 
     await expect(page).toHaveURL(dishUrl);
     await expect(page.getByText("V2.0")).toBeVisible();
-    await expect(page.getByText(/Chicken broth/)).toBeVisible();
+    await expect(page.getByText(/Roasted vegetable broth/)).toBeVisible();
+    // The substitute survives the edit unchanged.
+    await expect(page.getByText(/Substitute: Chicken broth/)).toBeVisible();
 
     // --- Library grid/list toggle: same Recipe visible in both views ---
     await page.goto("/recipes");

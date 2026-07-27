@@ -10,3 +10,51 @@ work. This also keeps total token usage lower, not higher: a spawned agent
 starts cold and re-derives context (re-reading files, re-establishing task
 context) that this session already has loaded, duplicating spend rather
 than saving it.
+
+# Verification and Git policy (DishFrame-specific)
+
+Full policy lives in the global `~/.claude/CLAUDE.md` "General development
+preferences" section; this is the DishFrame-scoped summary.
+
+## Verification scripts (current meanings — renamed/consolidated 2026-07-26)
+
+- `pnpm run verify:frontend` — frontend/code-quality only: format check,
+  lint, typecheck, unit/component tests, production build (alias for the
+  pre-existing `check` script).
+- `pnpm run verify:backend` — database, integration, and E2E checks:
+  `db:verify:local`, `db:scan-migrations`, `test:integration`, then the
+  full Chromium Playwright suite pinned to one worker (avoids the known
+  shared-local-Postgres/dev-server parallelism flake).
+- `pnpm run verify:fullstack` — `verify:frontend` then `verify:backend`.
+- `pnpm run verify:all` — `format` (auto-fix) then `verify:fullstack`.
+
+Requires Docker Desktop running with the local Postgres container up
+(`pnpm run db:docker:up`) for anything touching `verify:backend`.
+
+## When to run these
+
+- **Do not** run any of the above, or lint/typecheck/tests/Playwright/
+  Prisma validate/migration scans/build individually, during an ordinary
+  implementation pass. A narrowly targeted diagnostic command is fine only
+  when genuinely necessary to implement something safely — say why.
+- The owner runs `pnpm run verify:all` themselves, normally right after
+  each completed implementation pass. Don't run it for them, and don't
+  repeat the "here are the commands to run" reminder after every pass once
+  it's already established — mention it only when something changed
+  (new/renamed script, new prerequisite).
+- **Exception:** when the owner reports a specific failing verification
+  command and explicitly asks for it to be debugged, run the relevant
+  failing subcommand(s) while diagnosing, then run the full command once
+  at the end to confirm the repair. Identify the first genuine failure
+  before treating any later, possibly-cascading failure as a separate
+  issue.
+- Write/update tests only for behavior stable enough not to be
+  substantially redesigned soon (domain rules, service-boundary
+  contracts, fixed regressions, persistence). Defer tests for UI/flows
+  still under active visual design.
+
+## Git
+
+Never run `git status`, `git diff`, `git log`, or any other git
+inspection/mutation command (commit, push, pull, branch, PR) unless the
+owner explicitly asks in that turn. They manage Git state themselves.

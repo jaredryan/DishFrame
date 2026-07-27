@@ -1,7 +1,10 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth/session";
-import { getOwnedDishDetailOrThrow } from "@/lib/dishes/queries";
+import {
+  getOwnedDishDetailOrThrow,
+  listDistinctCuisines,
+} from "@/lib/dishes/queries";
 import { NotFoundError } from "@/lib/errors";
 import { DishEditor } from "@/components/domain/dish/dish-editor";
 import { dishToFormValues } from "@/components/domain/dish/dish-form-values";
@@ -32,21 +35,19 @@ export default async function EditRecipePage({
     throw error;
   }
 
+  const cuisineOptions = await listDistinctCuisines(session.user.id, "RECIPE");
+
   return (
-    <div>
-      <h1 className="font-heading text-foreground mb-6 text-2xl font-semibold">
-        Edit recipe
-      </h1>
-      <DishEditor
-        kind="RECIPE"
-        dish={{
-          id: dish.id,
-          currentVersionId: dish.currentVersionId!,
-          currentMajorVersion: dish.currentVersion!.majorVersion,
-          currentMinorVersion: dish.currentVersion!.minorVersion,
-          values: dishToFormValues(dish),
-        }}
-      />
-    </div>
+    <DishEditor
+      kind="RECIPE"
+      cuisineOptions={cuisineOptions}
+      dish={{
+        id: dish.id,
+        currentVersionId: dish.currentVersionId!,
+        currentMajorVersion: dish.currentVersion!.majorVersion,
+        currentMinorVersion: dish.currentVersion!.minorVersion,
+        values: dishToFormValues(dish),
+      }}
+    />
   );
 }

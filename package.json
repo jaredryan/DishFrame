@@ -19,6 +19,10 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "check": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run build",
+    "verify:frontend": "pnpm run check",
+    "verify:backend": "pnpm run db:verify:local && pnpm run db:scan-migrations && pnpm run test:integration && playwright test --project=chromium --workers=1",
+    "verify:fullstack": "pnpm run verify:frontend && pnpm run verify:backend",
+    "verify:all": "pnpm run format && pnpm run verify:fullstack",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
@@ -36,6 +40,9 @@
     "dev:production-db": "node scripts/dev-production-db.mjs"
   },
   "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
     "@neondatabase/serverless": "^1.1.0",
     "@prisma/adapter-neon": "^7.9.0",
     "@prisma/adapter-pg": "^7.9.0",

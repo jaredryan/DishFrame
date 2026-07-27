@@ -1,7 +1,9 @@
 import { Prisma } from "@/generated/prisma/client";
 import { Card, CardContent } from "@/components/ui/card";
+import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { StageBadge } from "@/components/domain/dish/stage-badge";
 import { DishDetailActions } from "@/components/domain/dish/dish-detail-actions";
+import { dishBasePath } from "@/components/domain/dish/dish-card";
 import type { DishKindValue } from "@/lib/dishes/schema";
 import type { dishDetailInclude } from "@/lib/dishes/queries";
 
@@ -58,9 +60,16 @@ export function DishDetailView({
   }
 
   const versionLabel = `V${version.majorVersion}.${version.minorVersion}`;
+  const collectionLabel = kind === "PART" ? "Parts" : "Recipes";
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
+      <Breadcrumbs
+        items={[
+          { label: collectionLabel, href: dishBasePath(kind) },
+          { label: version.title },
+        ]}
+      />
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="font-heading text-foreground text-2xl font-semibold">

@@ -9,6 +9,8 @@ import {
   hasMinimumContent,
   diffVersionContent,
   normalizeQuantity,
+  normalizeDifficultyValue,
+  isBlankSubstitute,
   type DishContentInput,
   type SectionInput,
   type IngredientInput,
@@ -238,22 +240,33 @@ function normalizeNullableQuantity(
 // precision here — the server-side sanitization boundary both `createDish`
 // and `editDish` always pass through — so a direct Server Action or service
 // call cannot bypass the rule the client's own parser already applies.
+//
+// Gate 2 final correction pass: also strips a fully-blank substitute to
+// `null` here, using the same `isBlankSubstitute` predicate the Zod
+// preprocess step in `schema.ts` uses — one shared definition of "blank",
+// not two. This matters because `createDish`/`editDish` are called
+// directly (bypassing `dishContentSchema.parse`, which is how most of this
+// file's own integration tests exercise them, and how any future caller
+// could too) — without this, a blank substitute reaching this far would
+// have been inserted as a real, empty-named Ingredient row instead of
+// being rejected or dropped.
 function normalizeIngredientQuantities(
   ingredient: IngredientInput,
 ): IngredientInput {
+  const substitute = isBlankSubstitute(ingredient.substitute)
+    ? null
+    : ingredient.substitute;
   return {
     ...ingredient,
     quantity: normalizeNullableQuantity(ingredient.quantity),
     quantityEnd: normalizeNullableQuantity(ingredient.quantityEnd),
-    substitute: ingredient.substitute
+    substitute: substitute
       ? {
-          ...ingredient.substitute,
-          quantity: normalizeNullableQuantity(ingredient.substitute.quantity),
-          quantityEnd: normalizeNullableQuantity(
-            ingredient.substitute.quantityEnd,
-          ),
+          ...substitute,
+          quantity: normalizeNullableQuantity(substitute.quantity),
+          quantityEnd: normalizeNullableQuantity(substitute.quantityEnd),
         }
-      : ingredient.substitute,
+      : substitute,
   };
 }
 
@@ -262,6 +275,21 @@ function sanitizedSectionsOrThrow(input: DishContentInput): SectionInput[] {
     ...section,
     ingredients: section.ingredients.map(normalizeIngredientQuantities),
   }));
+
+  // A substitute surviving `normalizeIngredientQuantities` (i.e. not
+  // blank) but still missing a name is a genuinely incomplete substitute —
+  // reject it here too, so a caller bypassing `dishContentSchema.parse`
+  // can't silently persist an empty-named substitute Ingredient row.
+  for (const section of sections) {
+    for (const ingredient of section.ingredients) {
+      if (ingredient.substitute && !ingredient.substitute.name.trim()) {
+        throw new ValidationError(
+          "Enter a name for the substitute, or remove it.",
+        );
+      }
+    }
+  }
+
   if (!hasMinimumContent(sections)) {
     throw new ValidationError(
       "Add at least one ingredient or instruction before saving.",
@@ -300,7 +328,10 @@ export async function createDish(
         yieldUnit: input.yieldUnit || null,
         prepTimeMinutes: input.prepTimeMinutes ?? null,
         cookTimeMinutes: input.cookTimeMinutes ?? null,
-        difficulty: input.difficulty || null,
+        // Gate 2 final correction pass: normalized so a caller writing a
+        // retired Easy/Medium/Hard value (directly, bypassing the editor's
+        // Select) still lands on the current approved set.
+        difficulty: normalizeDifficultyValue(input.difficulty),
       },
     });
 
@@ -414,7 +445,10 @@ export async function editDish(
         yieldUnit: input.yieldUnit || null,
         prepTimeMinutes: input.prepTimeMinutes ?? null,
         cookTimeMinutes: input.cookTimeMinutes ?? null,
-        difficulty: input.difficulty || null,
+        // Gate 2 final correction pass: normalized so a caller writing a
+        // retired Easy/Medium/Hard value (directly, bypassing the editor's
+        // Select) still lands on the current approved set.
+        difficulty: normalizeDifficultyValue(input.difficulty),
       },
     });
 

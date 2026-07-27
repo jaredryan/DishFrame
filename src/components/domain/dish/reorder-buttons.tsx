@@ -1,42 +1,45 @@
+import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-// Up/down reorder controls — keyboard- and mobile-friendly by construction,
-// mirroring GroceryCategoryManager's existing pattern rather than
-// introducing a drag-and-drop gesture (see src/components/app/grocery-category-manager.tsx).
-export function ReorderButtons({
+// Consistent per-item toolbar (Gate 2 remediation, final correction pass)
+// for Section/Ingredient/Instruction rows: a local Collapse/Edit toggle and
+// Remove. Reordering now lives on a separate drag handle rendered by each
+// row itself (`DragHandle`, `src/components/ui/drag-handle.tsx`) — no
+// move-up/move-down buttons here anymore. Every control carries both an
+// accessible name and a hover tooltip (`title`).
+export function ItemToolbar({
   label,
-  isFirst,
-  isLast,
-  onMoveUp,
-  onMoveDown,
+  collapsed,
+  onToggleCollapsed,
+  onRemove,
 }: {
   label: string;
-  isFirst: boolean;
-  isLast: boolean;
-  onMoveUp: () => void;
-  onMoveDown: () => void;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
+  onRemove: () => void;
 }) {
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex items-center gap-0.5">
       <Button
         type="button"
         variant="ghost"
-        size="icon-sm"
-        disabled={isFirst}
-        onClick={onMoveUp}
-        aria-label={`Move ${label} up`}
+        size="sm"
+        onClick={onToggleCollapsed}
+        aria-label={collapsed ? `Edit ${label}` : `Collapse ${label}`}
+        title={collapsed ? `Edit ${label}` : `Collapse ${label}`}
       >
-        ↑
+        {collapsed ? "Edit" : "Collapse"}
       </Button>
       <Button
         type="button"
         variant="ghost"
         size="icon-sm"
-        disabled={isLast}
-        onClick={onMoveDown}
-        aria-label={`Move ${label} down`}
+        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+        onClick={onRemove}
+        aria-label={`Remove ${label}`}
+        title={`Remove ${label}`}
       >
-        ↓
+        <Trash2 className="size-4" aria-hidden="true" />
       </Button>
     </div>
   );

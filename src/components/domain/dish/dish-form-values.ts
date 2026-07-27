@@ -1,5 +1,6 @@
 import { Prisma } from "@/generated/prisma/client";
 import type { dishDetailInclude } from "@/lib/dishes/queries";
+import { normalizeDifficultyValue } from "@/lib/dishes/schema";
 import type { DishContentInput } from "@/lib/dishes/schema";
 
 // Deliberately not a "use client" module: Server Component edit pages call
@@ -36,7 +37,10 @@ export function dishToFormValues(dish: DishDetail): DishFormValues {
     yieldUnit: version.yieldUnit,
     prepTimeMinutes: version.prepTimeMinutes,
     cookTimeMinutes: version.cookTimeMinutes,
-    difficulty: version.difficulty,
+    // Gate 2 final correction pass: maps a Dish saved under the retired
+    // Easy/Medium/Hard set forward to Easy/Moderate/Challenging so it
+    // still loads with a matching Select option.
+    difficulty: normalizeDifficultyValue(version.difficulty),
     sections: version.sections.map((section) => ({
       lineageId: section.lineageId,
       name: section.name,

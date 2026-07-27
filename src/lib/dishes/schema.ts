@@ -13,6 +13,35 @@ export type StageValue = (typeof stageValues)[number];
 export const dishKindValues = ["RECIPE", "PART"] as const;
 export type DishKindValue = (typeof dishKindValues)[number];
 
+// Gate 2 remediation: a concise, approved Difficulty set for the editor's
+// dropdown, replacing the old arbitrary free-text input. `Dish.difficulty`
+// stays a plain string column (no migration) — this constrains new entries
+// at the UI layer rather than the Zod schema, so a Dish already carrying an
+// older free-text value (from before this pass) still loads and displays
+// without failing validation on an unrelated field's edit.
+//
+// Final correction pass: the set changed from Easy/Medium/Hard to
+// Easy/Moderate/Challenging. `legacyDifficultyMap`/`normalizeDifficultyValue`
+// keep a Dish already saved under the old set editable — the old value
+// maps forward to its new equivalent instead of silently failing to match
+// any Select option (which would otherwise look like "Not set" and risk
+// being overwritten with `null` on the next save without the user
+// intending to clear it).
+export const difficultyValues = ["Easy", "Moderate", "Challenging"] as const;
+export type DifficultyValue = (typeof difficultyValues)[number];
+
+export const legacyDifficultyMap: Record<string, DifficultyValue> = {
+  Medium: "Moderate",
+  Hard: "Challenging",
+};
+
+export function normalizeDifficultyValue(
+  value: string | null | undefined,
+): string | null {
+  if (!value) return null;
+  return legacyDifficultyMap[value] ?? value;
+}
+
 // Ingredient.quantity/quantityEnd are `Decimal @db.Decimal(12, 3)`
 // (prisma/schema.prisma) — the database itself can only ever hold 3 places
 // after the decimal point, rounding anything finer on write. Normalizing to
@@ -45,9 +74,9 @@ export type RestorableStageValue = (typeof restorableStageValues)[number];
 // `substituteForIngredientId`) — one level only, per PRODUCT_SPEC.md §11.4
 // ("a substitute cannot contain another substitute"), so this is
 // deliberately not recursive.
-const substituteSchema = z.object({
+export const substituteInputSchema = z.object({
   lineageId: z.string().min(1).optional(),
-  name: z.string().trim().min(1, "Enter a name."),
+  name: z.string().trim().min(1, "Enter a name for the substitute."),
   quantity: z.number().min(0).nullable().optional(),
   quantityEnd: z.number().min(0).nullable().optional(),
   isApproximate: z.boolean().default(false),
@@ -55,6 +84,45 @@ const substituteSchema = z.object({
   displayText: z.string().trim().max(120).nullable().optional(),
   preparationNote: z.string().trim().max(200).nullable().optional(),
 });
+export type SubstituteInput = z.infer<typeof substituteInputSchema>;
+
+/**
+ * A substitute row with no meaningful content at all — the shape left
+ * behind by clicking "Add substitute" and then never filling anything in.
+ * Loosely typed (`unknown`-ish field access) because this also runs as a
+ * Zod `preprocess` step, ahead of the real schema, on a value that hasn't
+ * been validated yet (Gate 2 correction: this used to reach
+ * `substituteInputSchema`'s `name` check as a hard failure — see
+ * `docs/GATE_2_REMEDIATION.md`).
+ */
+export function isBlankSubstitute(
+  substitute: Partial<SubstituteInput> | null | undefined,
+): boolean {
+  if (!substitute) return false;
+  return (
+    !substitute.name?.trim() &&
+    substitute.quantity == null &&
+    substitute.quantityEnd == null &&
+    !substitute.unit?.trim() &&
+    !substitute.displayText?.trim() &&
+    !substitute.preparationNote?.trim() &&
+    !substitute.isApproximate
+  );
+}
+
+// Strips a fully-blank substitute object down to `null` before the real
+// schema ever sees it, so an abandoned "Add substitute" click can never by
+// itself fail validation — only a *partially* filled-in substitute (some
+// field set, but no name) still fails, with `substituteInputSchema`'s own
+// "Enter a name for the substitute." message surfacing that clearly rather
+// than being swallowed as a generic error.
+const nullableSubstituteSchema = z.preprocess(
+  (value) =>
+    isBlankSubstitute(value as Partial<SubstituteInput> | null | undefined)
+      ? null
+      : value,
+  substituteInputSchema.nullable().optional(),
+);
 
 export const ingredientInputSchema = z.object({
   // Present when this row was loaded from an existing Version and should
@@ -70,7 +138,7 @@ export const ingredientInputSchema = z.object({
   displayText: z.string().trim().max(120).nullable().optional(),
   preparationNote: z.string().trim().max(200).nullable().optional(),
   isOptional: z.boolean().default(false),
-  substitute: substituteSchema.nullable().optional(),
+  substitute: nullableSubstituteSchema,
 });
 export type IngredientInput = z.infer<typeof ingredientInputSchema>;
 

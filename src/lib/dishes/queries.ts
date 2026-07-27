@@ -94,3 +94,24 @@ export function getVersionContent(dishVersionId: string) {
     include: { sections: sectionContentInclude },
   });
 }
+
+/**
+ * Every distinct cuisine this owner has already used on this Dish kind,
+ * newest first — backs the editor's Cuisine combobox (Gate 2 remediation:
+ * PRODUCT_SPEC.md §46.3's "free-text values with suggestions based on the
+ * user's existing values", not a rigid taxonomy).
+ */
+export async function listDistinctCuisines(
+  ownerId: string,
+  kind: DishKindValue,
+): Promise<string[]> {
+  const rows = await prisma.dish.findMany({
+    where: { ownerId, kind, cuisine: { not: null } },
+    select: { cuisine: true },
+    distinct: ["cuisine"],
+    orderBy: { updatedAt: "desc" },
+  });
+  return rows
+    .map((row) => row.cuisine)
+    .filter((cuisine): cuisine is string => !!cuisine);
+}

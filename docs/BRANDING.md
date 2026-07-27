@@ -1108,13 +1108,21 @@ Use simple empty text such as:
 - Home
 - Recipes
 - Parts
+- Settings
 - Help
 
 ## Account menu
 
 - Profile
-- Theme
 - Sign out
+
+Settled deviation (Slice 3 Gate 2 remediation, `docs/GATE_2_REMEDIATION.md`):
+Settings and the Light/Dark/System theme selector were both removed from
+this dropdown. Settings already lives in the signed-in left navigation
+(§17's own "Signed-in navigation" list did not include it, so the dropdown
+copy was the only place it was duplicated), and a wide three-option
+selector didn't fit a dropdown menu row well. The complete Appearance
+setting (the same `ThemeToggle` control) now lives in `/settings` instead.
 
 Prefer `/home` over `/dashboard`.
 

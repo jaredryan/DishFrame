@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DishEditor } from "@/components/domain/dish/dish-editor";
 import { createDish, editDish } from "@/lib/dishes/actions";
@@ -66,6 +66,21 @@ const existingDish: {
   },
 };
 
+describe("DishEditor heading", () => {
+  it("shows a New heading with no dish, and an Edit heading with one", () => {
+    const { unmount } = render(<DishEditor kind="RECIPE" />);
+    expect(
+      screen.getByRole("heading", { name: "New recipe", level: 1 }),
+    ).toBeInTheDocument();
+    unmount();
+
+    render(<DishEditor kind="PART" dish={existingDish} />);
+    expect(
+      screen.getByRole("heading", { name: "Edit part", level: 1 }),
+    ).toBeInTheDocument();
+  });
+});
+
 describe("DishEditor unsaved-changes guard", () => {
   beforeEach(() => {
     push.mockClear();
@@ -127,8 +142,7 @@ describe("DishEditor Sections", () => {
     const user = userEvent.setup();
     render(<DishEditor kind="RECIPE" />);
 
-    const nameField = () =>
-      screen.getAllByPlaceholderText("Section name (optional, e.g. Sauce)");
+    const nameField = () => screen.getAllByLabelText("Section name");
 
     expect(nameField()).toHaveLength(1);
 
@@ -143,32 +157,41 @@ describe("DishEditor Sections", () => {
     const user = userEvent.setup();
     render(<DishEditor kind="RECIPE" />);
 
-    const input = screen.getByPlaceholderText(
-      "Section name (optional, e.g. Sauce)",
-    );
+    const input = screen.getByLabelText("Section name");
     await user.type(input, "Sauce");
 
     expect(input).toHaveValue("Sauce");
   });
 
-  it("reorders Sections", async () => {
+  // Reordering itself is now drag-and-drop (dnd-kit), not a Move up/down
+  // button — real pointer/keyboard drag gestures aren't reliably
+  // simulable in jsdom (dnd-kit's sensors depend on real layout
+  // measurement), so per this pass's testing policy, drag *mechanics* are
+  // left to manual QA. What's still a stable, testable contract is that
+  // every Section row exposes a correctly labeled drag handle.
+  it("exposes an accessible drag handle for reordering a Section", async () => {
     const user = userEvent.setup();
     render(<DishEditor kind="RECIPE" />);
 
-    await user.click(screen.getByRole("button", { name: "Add section" }));
-    const [first, second] = screen.getAllByPlaceholderText(
-      "Section name (optional, e.g. Sauce)",
-    );
-    await user.type(first, "Sauce");
-    await user.type(second, "Rice");
+    await user.type(screen.getByLabelText("Section name"), "Sauce");
 
-    await user.click(screen.getByRole("button", { name: "Move Rice up" }));
+    expect(
+      screen.getByRole("button", { name: "Drag to reorder Sauce" }),
+    ).toBeInTheDocument();
+  });
 
-    const reordered = screen.getAllByPlaceholderText(
-      "Section name (optional, e.g. Sauce)",
-    );
-    expect(reordered[0]).toHaveValue("Rice");
-    expect(reordered[1]).toHaveValue("Sauce");
+  it("collapses a Section into a summary and expands it again", async () => {
+    const user = userEvent.setup();
+    render(<DishEditor kind="RECIPE" />);
+
+    await user.type(screen.getByLabelText("Section name"), "Sauce");
+    await user.click(screen.getByRole("button", { name: "Collapse Sauce" }));
+
+    expect(screen.queryByLabelText("Section name")).not.toBeInTheDocument();
+    expect(screen.getByText("Sauce")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Edit Sauce" }));
+    expect(screen.getByLabelText("Section name")).toBeInTheDocument();
   });
 });
 
@@ -177,8 +200,7 @@ describe("DishEditor Ingredients", () => {
     const user = userEvent.setup();
     render(<DishEditor kind="RECIPE" />);
 
-    const nameField = () =>
-      screen.queryAllByPlaceholderText("Ingredient (e.g. Soy sauce)");
+    const nameField = () => screen.queryAllByLabelText("Ingredient name");
 
     expect(nameField()).toHaveLength(0);
 
@@ -190,25 +212,85 @@ describe("DishEditor Ingredients", () => {
     expect(nameField()).toHaveLength(0);
   });
 
-  it("reorders Ingredients", async () => {
+  // See the Sections describe block above for why drag *mechanics* aren't
+  // simulated here — this checks the same stable contract (an accessible
+  // drag handle exists) for an Ingredient row.
+  it("exposes an accessible drag handle for reordering an Ingredient", async () => {
     const user = userEvent.setup();
     render(<DishEditor kind="RECIPE" />);
 
     await user.click(screen.getByRole("button", { name: "Add ingredient" }));
+    await user.type(screen.getByLabelText("Ingredient name"), "Salt");
+
+    expect(
+      screen.getByRole("button", { name: "Drag to reorder Salt" }),
+    ).toBeInTheDocument();
+  });
+
+  it("defaults to Single amount mode and switches to Range, exposing From/To fields", async () => {
+    const user = userEvent.setup();
+    render(<DishEditor kind="RECIPE" />);
+
     await user.click(screen.getByRole("button", { name: "Add ingredient" }));
-    const [first, second] = screen.getAllByPlaceholderText(
-      "Ingredient (e.g. Soy sauce)",
-    );
-    await user.type(first, "Salt");
-    await user.type(second, "Pepper");
+    expect(screen.getByLabelText("Quantity")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Move Pepper up" }));
+    await user.click(screen.getByLabelText("Amount"));
+    await user.click(await screen.findByRole("option", { name: "Range" }));
 
-    const reordered = screen.getAllByPlaceholderText(
-      "Ingredient (e.g. Soy sauce)",
+    expect(screen.queryByLabelText("Quantity")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("From")).toBeInTheDocument();
+    expect(screen.getByLabelText("To")).toBeInTheDocument();
+  });
+
+  it("switching back from Range to Single clears the stale quantityEnd", async () => {
+    const user = userEvent.setup();
+    render(<DishEditor kind="RECIPE" />);
+
+    await user.click(screen.getByRole("button", { name: "Add ingredient" }));
+    await user.click(screen.getByLabelText("Amount"));
+    await user.click(await screen.findByRole("option", { name: "Range" }));
+    await user.type(screen.getByLabelText("From"), "1");
+    await user.type(screen.getByLabelText("To"), "2");
+
+    await user.click(screen.getByLabelText("Amount"));
+    await user.click(
+      await screen.findByRole("option", { name: "Single amount" }),
     );
-    expect(reordered[0]).toHaveValue("Pepper");
-    expect(reordered[1]).toHaveValue("Salt");
+
+    expect(screen.getByLabelText("Quantity")).toHaveValue("1");
+
+    // Switch to Range again — the earlier "To" value must not silently
+    // reappear; it was cleared, not just hidden.
+    await user.click(screen.getByLabelText("Amount"));
+    await user.click(await screen.findByRole("option", { name: "Range" }));
+    expect(screen.getByLabelText("To")).toHaveValue("");
+  });
+
+  it("To taste and As needed modes show no amount inputs", async () => {
+    const user = userEvent.setup();
+    render(<DishEditor kind="RECIPE" />);
+
+    await user.click(screen.getByRole("button", { name: "Add ingredient" }));
+    await user.click(screen.getByLabelText("Amount"));
+    await user.click(await screen.findByRole("option", { name: "To taste" }));
+
+    expect(screen.queryByLabelText("Quantity")).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/To taste — no amount to enter/),
+    ).toBeInTheDocument();
+  });
+
+  it("Free text mode exposes a text box for the amount description", async () => {
+    const user = userEvent.setup();
+    render(<DishEditor kind="RECIPE" />);
+
+    await user.click(screen.getByRole("button", { name: "Add ingredient" }));
+    await user.click(screen.getByLabelText("Amount"));
+    await user.click(await screen.findByRole("option", { name: "Free text" }));
+
+    const describeField = screen.getByLabelText("Describe the amount");
+    await user.type(describeField, "a splash");
+    expect(describeField).toHaveValue("a splash");
   });
 });
 
@@ -228,21 +310,18 @@ describe("DishEditor Instructions", () => {
     expect(screen.queryByLabelText("Instruction 1")).not.toBeInTheDocument();
   });
 
-  it("reorders Instructions", async () => {
+  // See the Sections describe block above for why drag *mechanics* aren't
+  // simulated here — this checks the same stable contract (an accessible
+  // drag handle exists) for an Instruction row.
+  it("exposes an accessible drag handle for reordering an Instruction", async () => {
     const user = userEvent.setup();
     render(<DishEditor kind="RECIPE" />);
 
     await user.click(screen.getByRole("button", { name: "Add instruction" }));
-    await user.click(screen.getByRole("button", { name: "Add instruction" }));
-    await user.type(screen.getByLabelText("Instruction 1"), "Step A");
-    await user.type(screen.getByLabelText("Instruction 2"), "Step B");
 
-    await user.click(
-      screen.getByRole("button", { name: "Move instruction 2 up" }),
-    );
-
-    expect(screen.getByLabelText("Instruction 1")).toHaveValue("Step B");
-    expect(screen.getByLabelText("Instruction 2")).toHaveValue("Step A");
+    expect(
+      screen.getByRole("button", { name: "Drag to reorder instruction 1" }),
+    ).toBeInTheDocument();
   });
 });
 
@@ -261,6 +340,72 @@ describe("DishEditor minimum-content validation", () => {
     expect(
       await screen.findByText(
         "Add at least one ingredient or instruction before saving.",
+      ),
+    ).toBeInTheDocument();
+    expect(mockedCreateDish).not.toHaveBeenCalled();
+  });
+});
+
+describe("DishEditor substitute handling", () => {
+  beforeEach(() => {
+    mockedCreateDish.mockClear();
+    mockedCreateDish.mockResolvedValue({ status: "success", dishId: "dish-1" });
+  });
+
+  it("creates successfully when 'Add substitute' was clicked but left entirely blank", async () => {
+    const user = userEvent.setup();
+    render(<DishEditor kind="RECIPE" />);
+
+    await user.type(screen.getByLabelText("Recipe title"), "Ginger Bowl");
+    await user.click(screen.getByRole("button", { name: "Add ingredient" }));
+    await user.type(screen.getByLabelText("Ingredient name"), "Salt");
+    await user.click(screen.getByRole("button", { name: "Add substitute" }));
+
+    // Leave the substitute name blank, then save.
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(mockedCreateDish).toHaveBeenCalledTimes(1);
+    const [, submitted] = mockedCreateDish.mock.calls[0];
+    expect(submitted.sections[0].ingredients[0].substitute).toBeNull();
+  });
+
+  it("persists a fully completed substitute", async () => {
+    const user = userEvent.setup();
+    render(<DishEditor kind="RECIPE" />);
+
+    await user.type(screen.getByLabelText("Recipe title"), "Ginger Bowl");
+    await user.click(screen.getByRole("button", { name: "Add ingredient" }));
+    await user.type(screen.getByLabelText("Ingredient name"), "Soy sauce");
+    await user.click(screen.getByRole("button", { name: "Add substitute" }));
+    await user.type(screen.getByLabelText("Substitute name"), "Honey");
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(mockedCreateDish).toHaveBeenCalledTimes(1);
+    const [, submitted] = mockedCreateDish.mock.calls[0];
+    expect(submitted.sections[0].ingredients[0].substitute).toMatchObject({
+      name: "Honey",
+    });
+  });
+
+  it("blocks save and shows a field-level error for a partially completed substitute", async () => {
+    const user = userEvent.setup();
+    render(<DishEditor kind="RECIPE" />);
+
+    await user.type(screen.getByLabelText("Recipe title"), "Ginger Bowl");
+    await user.click(screen.getByRole("button", { name: "Add ingredient" }));
+    await user.type(screen.getByLabelText("Ingredient name"), "Soy sauce");
+    await user.click(screen.getByRole("button", { name: "Add substitute" }));
+
+    // Fill in the substitute's unit but leave its name blank.
+    const substituteGroup = screen.getByRole("group", { name: "Substitute" });
+    await user.type(within(substituteGroup).getByLabelText("Unit"), "tbsp");
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(
+      await screen.findByText(
+        "Enter a substitute name, or remove the substitute.",
       ),
     ).toBeInTheDocument();
     expect(mockedCreateDish).not.toHaveBeenCalled();
@@ -292,9 +437,7 @@ describe("DishEditor minor/major version choice", () => {
     const user = userEvent.setup();
     render(<DishEditor kind="RECIPE" dish={existingDish} />);
 
-    const nameInput = screen.getByPlaceholderText(
-      "Ingredient (e.g. Soy sauce)",
-    );
+    const nameInput = screen.getByLabelText("Ingredient name");
     await user.clear(nameInput);
     await user.type(nameInput, "Kosher salt");
     await user.click(screen.getByRole("button", { name: "Save" }));
@@ -318,9 +461,7 @@ describe("DishEditor minor/major version choice", () => {
     const user = userEvent.setup();
     render(<DishEditor kind="RECIPE" dish={existingDish} />);
 
-    const nameInput = screen.getByPlaceholderText(
-      "Ingredient (e.g. Soy sauce)",
-    );
+    const nameInput = screen.getByLabelText("Ingredient name");
     await user.clear(nameInput);
     await user.type(nameInput, "Kosher salt");
     await user.click(screen.getByRole("button", { name: "Save" }));

@@ -38,4 +38,18 @@ describe("AccountMenu", () => {
     expect(signOut).toHaveBeenCalled();
     expect(push).toHaveBeenCalledWith("/");
   });
+
+  it("does not duplicate Settings or expose the theme selector (Gate 2 remediation — Settings lives in the sidebar, Appearance lives in /settings)", async () => {
+    const events = userEvent.setup();
+    render(<AccountMenu user={user} />);
+
+    await events.click(screen.getByRole("button", { name: "Account menu" }));
+    await screen.findByText("Jamie Rivera");
+
+    expect(screen.queryByText("Settings")).not.toBeInTheDocument();
+    expect(screen.queryByText("Theme")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("radiogroup", { name: "Theme" }),
+    ).not.toBeInTheDocument();
+  });
 });

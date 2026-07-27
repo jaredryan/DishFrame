@@ -3,11 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import {
-  LogOut,
-  Settings as SettingsIcon,
-  User as UserIcon,
-} from "lucide-react";
+import { LogOut, User as UserIcon } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -17,7 +13,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { signOut } from "@/lib/auth/client";
 import { cn } from "@/lib/utils";
 
@@ -62,7 +57,7 @@ export function AccountMenu({
         <button
           type="button"
           className={cn(
-            "focus-visible:ring-ring/50 flex items-center gap-2 rounded-full focus-visible:ring-2 focus-visible:outline-none",
+            "focus-visible:ring-ring/50 flex cursor-pointer items-center gap-2 rounded-full focus-visible:ring-2 focus-visible:outline-none",
             className,
           )}
           aria-label="Account menu"
@@ -89,17 +84,6 @@ export function AccountMenu({
             Profile
           </Link>
         </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <Link href="/settings">
-            <SettingsIcon />
-            Settings
-          </Link>
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <div className="flex items-center justify-between gap-2 px-1.5 py-1.5">
-          <span className="text-foreground text-sm">Theme</span>
-          <ThemeToggle />
-        </div>
         <DropdownMenuSeparator />
         <DropdownMenuItem
           variant="destructive"

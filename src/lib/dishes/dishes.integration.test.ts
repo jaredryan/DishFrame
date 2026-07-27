@@ -655,6 +655,270 @@ describe("dishes service", () => {
     });
   });
 
+  // Gate 2 remediation (docs/GATE_2_REMEDIATION.md): a completely unused
+  // "Add substitute" click used to be submitted as `{ name: "", ... }` and
+  // fail `dishContentSchema.parse()` outright, breaking Recipe/Part
+  // creation. `substituteInputSchema`'s `z.preprocess` step now strips a
+  // fully-blank substitute to `null` before validation runs; a *partially*
+  // filled-in one (something set, but no name) still fails — deliberately,
+  // since that's a real incomplete-input case, not an abandoned click.
+  describe("Substitute handling (Gate 2 remediation)", () => {
+    it("a completely blank substitute does not fail validation, and persists as no substitute", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+
+      const payload = content({
+        sections: [
+          {
+            name: null,
+            guidanceNote: null,
+            ingredients: [
+              {
+                name: "Soy sauce",
+                quantity: null,
+                quantityEnd: null,
+                isApproximate: false,
+                unit: null,
+                displayText: null,
+                preparationNote: null,
+                isOptional: false,
+                substitute: {
+                  name: "",
+                  quantity: null,
+                  quantityEnd: null,
+                  isApproximate: false,
+                  unit: null,
+                  displayText: null,
+                  preparationNote: null,
+                },
+              },
+            ],
+            instructions: [],
+          },
+        ],
+      });
+
+      const validated = dishContentSchema.parse(payload);
+      expect(validated.sections[0].ingredients[0].substitute).toBeNull();
+
+      const dishId = await dishService.createDish(user.id, "RECIPE", validated);
+      const created = await loadDishWithVersion(dishId);
+      const ingredients = await prisma.ingredient.findMany({
+        where: { dishVersionId: created.currentVersionId! },
+      });
+      expect(ingredients).toHaveLength(1);
+      expect(ingredients[0].substituteForIngredientId).toBeNull();
+    });
+
+    it("a partially completed substitute (no name) still fails validation, distinctly from a generic error", () => {
+      const payload = content({
+        sections: [
+          {
+            name: null,
+            guidanceNote: null,
+            ingredients: [
+              {
+                name: "Soy sauce",
+                quantity: null,
+                quantityEnd: null,
+                isApproximate: false,
+                unit: null,
+                displayText: null,
+                preparationNote: null,
+                isOptional: false,
+                substitute: {
+                  name: "",
+                  quantity: null,
+                  quantityEnd: null,
+                  isApproximate: false,
+                  unit: "tbsp",
+                  displayText: null,
+                  preparationNote: null,
+                },
+              },
+            ],
+            instructions: [],
+          },
+        ],
+      });
+
+      expect(() => dishContentSchema.parse(payload)).toThrow(
+        /Enter a name for the substitute\./,
+      );
+    });
+
+    it("a fully completed substitute persists and survives reload", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+
+      const payload = content({
+        sections: [
+          {
+            name: null,
+            guidanceNote: null,
+            ingredients: [
+              {
+                name: "Soy sauce",
+                quantity: 2,
+                quantityEnd: null,
+                isApproximate: false,
+                unit: "tbsp",
+                displayText: null,
+                preparationNote: null,
+                isOptional: false,
+                substitute: {
+                  name: "Tamari",
+                  quantity: 2,
+                  quantityEnd: null,
+                  isApproximate: false,
+                  unit: "tbsp",
+                  displayText: null,
+                  preparationNote: "gluten-free",
+                },
+              },
+            ],
+            instructions: [],
+          },
+        ],
+      });
+
+      const validated = dishContentSchema.parse(payload);
+      const dishId = await dishService.createDish(user.id, "RECIPE", validated);
+
+      const created = await loadDishWithVersion(dishId);
+      const substitute = await prisma.ingredient.findFirstOrThrow({
+        where: {
+          dishVersionId: created.currentVersionId!,
+          substituteForIngredientId: { not: null },
+        },
+      });
+      expect(substitute.name).toBe("Tamari");
+      expect(substitute.quantity?.toNumber()).toBe(2);
+      expect(substitute.unit).toBe("tbsp");
+      expect(substitute.preparationNote).toBe("gluten-free");
+    });
+
+    // Final Gate 2 correction pass: the three tests above all go through
+    // `dishContentSchema.parse()` first, so they only prove the Zod
+    // preprocess step works — not that `dishService.createDish`/`editDish`
+    // are safe when called directly with unparsed input (bypassing Zod
+    // entirely), which is exactly what a caller other than the one Server
+    // Action path could do. These three call the service directly instead,
+    // proving `normalizeIngredientQuantities`/`sanitizedSectionsOrThrow`'s
+    // own `isBlankSubstitute` check (service.ts) — the same shared
+    // predicate the Zod preprocess step uses, not a second definition —
+    // covers this boundary too.
+    describe("direct service calls, bypassing dishContentSchema entirely", () => {
+      it("a blank substitute normalizes to no substitute, never reaching the database", async () => {
+        const user = await createTestUser();
+        userId = user.id;
+
+        const dishId = await dishService.createDish(user.id, "RECIPE", {
+          ...content(),
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              ingredients: [
+                {
+                  ...blankIngredient("Soy sauce"),
+                  substitute: {
+                    name: "",
+                    quantity: null,
+                    quantityEnd: null,
+                    isApproximate: false,
+                    unit: null,
+                    displayText: null,
+                    preparationNote: null,
+                  },
+                },
+              ],
+              instructions: [],
+            },
+          ],
+        });
+
+        const created = await loadDishWithVersion(dishId);
+        const ingredients = await prisma.ingredient.findMany({
+          where: { dishVersionId: created.currentVersionId! },
+        });
+        expect(ingredients).toHaveLength(1);
+        expect(ingredients[0].substituteForIngredientId).toBeNull();
+      });
+
+      it("a partial substitute (no name) is rejected, not silently written as an empty-named row", async () => {
+        const user = await createTestUser();
+        userId = user.id;
+
+        await expect(
+          dishService.createDish(user.id, "RECIPE", {
+            ...content(),
+            sections: [
+              {
+                name: null,
+                guidanceNote: null,
+                ingredients: [
+                  {
+                    ...blankIngredient("Soy sauce"),
+                    substitute: {
+                      name: "",
+                      quantity: null,
+                      quantityEnd: null,
+                      isApproximate: false,
+                      unit: "tbsp",
+                      displayText: null,
+                      preparationNote: null,
+                    },
+                  },
+                ],
+                instructions: [],
+              },
+            ],
+          }),
+        ).rejects.toThrow(/Enter a name for the substitute/);
+      });
+
+      it("a valid substitute is unaffected", async () => {
+        const user = await createTestUser();
+        userId = user.id;
+
+        const dishId = await dishService.createDish(user.id, "RECIPE", {
+          ...content(),
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              ingredients: [
+                {
+                  ...blankIngredient("Soy sauce"),
+                  substitute: {
+                    name: "Tamari",
+                    quantity: null,
+                    quantityEnd: null,
+                    isApproximate: false,
+                    unit: null,
+                    displayText: null,
+                    preparationNote: null,
+                  },
+                },
+              ],
+              instructions: [],
+            },
+          ],
+        });
+
+        const created = await loadDishWithVersion(dishId);
+        const substitute = await prisma.ingredient.findFirstOrThrow({
+          where: {
+            dishVersionId: created.currentVersionId!,
+            substituteForIngredientId: { not: null },
+          },
+        });
+        expect(substitute.name).toBe("Tamari");
+      });
+    });
+  });
+
   // Gate 2 polish pass (docs/SLICE_3_FOLLOWUP.md): Ingredient.quantity/
   // quantityEnd are `Decimal @db.Decimal(12, 3)` — normalization to 3
   // decimal places happens in `sanitizedSectionsOrThrow` (service.ts),

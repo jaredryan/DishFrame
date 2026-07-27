@@ -26,3 +26,16 @@ export type ActionState = {
 };
 
 export const initialActionState: ActionState = { status: "idle" };
+
+export type TasterDto = {
+  id: string;
+  name: string;
+  isOwner: boolean;
+  archivedAt: Date | null;
+};
+
+export type CreateTasterActionState = ActionState & { taster?: TasterDto };
+
+export const initialCreateTasterActionState: CreateTasterActionState = {
+  status: "idle",
+};

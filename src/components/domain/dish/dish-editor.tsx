@@ -10,10 +10,16 @@ import {
   useForm,
 } from "react-hook-form";
 import { AlertCircle, Plus } from "lucide-react";
+import { DndContext, closestCenter, type DragEndEvent } from "@dnd-kit/core";
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Field, FieldError, FieldLabel } from "@/components/ui/field";
+import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import {
   Select,
   SelectContent,
@@ -31,7 +37,10 @@ import {
 } from "@/components/ui/dialog";
 import { NumberField } from "@/components/domain/dish/number-field";
 import { SectionFields } from "@/components/domain/dish/section-fields";
+import { CuisineField } from "@/components/domain/dish/cuisine-field";
 import { useUnsavedChangesGuard } from "@/components/domain/dish/use-unsaved-changes-guard";
+import { useReorderSensors } from "@/lib/dnd/sensors";
+import { createReorderAnnouncements } from "@/lib/dnd/announcements";
 import {
   blankDishFormValues,
   type DishFormValues,
@@ -41,7 +50,9 @@ import {
   removeEmptySections,
   hasMinimumContent,
   diffVersionContent,
+  isBlankSubstitute,
   stageValues,
+  difficultyValues,
   type DishKindValue,
   type VersionChoiceValue,
 } from "@/lib/dishes/schema";
@@ -57,6 +68,7 @@ const STAGE_LABEL: Record<(typeof stageValues)[number], string> = {
 export function DishEditor({
   kind,
   dish,
+  cuisineOptions = [],
 }: {
   kind: DishKindValue;
   dish?: {
@@ -66,6 +78,7 @@ export function DishEditor({
     currentMinorVersion: number;
     values: DishFormValues;
   };
+  cuisineOptions?: string[];
 }) {
   const router = useRouter();
   const [serverError, setServerError] = React.useState<string | null>(null);
@@ -76,8 +89,35 @@ export function DishEditor({
   const form = useForm<DishFormValues>({
     defaultValues: dish ? dish.values : blankDishFormValues(),
   });
-  const { control, register, handleSubmit, formState } = form;
+  const { control, register, handleSubmit, formState, setError, getValues } =
+    form;
   const sections = useFieldArray({ control, name: "sections" });
+  const sectionSensors = useReorderSensors();
+
+  function handleSectionDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = sections.fields.findIndex((f) => f.id === active.id);
+    const newIndex = sections.fields.findIndex((f) => f.id === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+    sections.move(oldIndex, newIndex);
+  }
+
+  const sectionAnnouncements = createReorderAnnouncements(
+    (id) => {
+      const index = sections.fields.findIndex((f) => f.id === id);
+      const name =
+        index >= 0
+          ? (getValues(`sections.${index}.name` as never) as unknown as
+              string | null)
+          : null;
+      return name || `section ${index + 1}`;
+    },
+    (id) => ({
+      index: sections.fields.findIndex((f) => f.id === id),
+      total: sections.fields.length,
+    }),
+  );
 
   const guard = useUnsavedChangesGuard(formState.isDirty && !isSubmitting);
 
@@ -117,14 +157,46 @@ export function DishEditor({
       ...values,
       sections: values.sections.map((section) => ({
         ...section,
-        ingredients: section.ingredients.filter(
-          (ingredient) => ingredient.name.trim().length > 0,
-        ),
+        ingredients: section.ingredients
+          .filter((ingredient) => ingredient.name.trim().length > 0)
+          .map((ingredient) => ({
+            ...ingredient,
+            // A completely unused "Add substitute" click (every field still
+            // blank) must never itself fail validation — drop it here so
+            // the server never sees it (Gate 2 remediation). A *partially*
+            // filled-in substitute (something set, but no name) is not
+            // blank, and is instead caught as a field-level error below.
+            substitute: isBlankSubstitute(ingredient.substitute)
+              ? null
+              : ingredient.substitute,
+          })),
         instructions: section.instructions.filter(
           (instruction) => instruction.text.trim().length > 0,
         ),
       })),
     };
+
+    let hasPartialSubstitute = false;
+    cleaned.sections.forEach((section, sectionIndex) => {
+      section.ingredients.forEach((ingredient, ingredientIndex) => {
+        if (ingredient.substitute && !ingredient.substitute.name.trim()) {
+          hasPartialSubstitute = true;
+          setError(
+            `sections.${sectionIndex}.ingredients.${ingredientIndex}.substitute.name` as never,
+            {
+              type: "manual",
+              message: "Enter a substitute name, or remove the substitute.",
+            },
+          );
+        }
+      });
+    });
+    if (hasPartialSubstitute) {
+      setServerError(
+        "Fix the highlighted substitute before saving — enter a name, or remove it.",
+      );
+      return;
+    }
 
     if (!hasMinimumContent(removeEmptySections(cleaned.sections))) {
       setServerError(
@@ -167,158 +239,218 @@ export function DishEditor({
       }
     : null;
 
+  const editorHeading = `${dish ? "Edit" : "New"} ${kindLabel.toLowerCase()}`;
+  const collectionLabel = kind === "PART" ? "Parts" : "Recipes";
+  const breadcrumbItems = dish
+    ? [
+        { label: collectionLabel, href: basePath },
+        {
+          label: dish.values.title || `Untitled ${kindLabel.toLowerCase()}`,
+          href: `${basePath}/${dish.id}`,
+        },
+        { label: "Edit" },
+      ]
+    : [
+        { label: collectionLabel, href: basePath },
+        { label: `New ${kindLabel.toLowerCase()}` },
+      ];
+
   return (
     <FormProvider {...form}>
-      <form
-        onSubmit={handleSubmit(onSubmit)}
-        className="mx-auto flex max-w-3xl flex-col gap-6 pb-24"
-      >
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="dish-title">{kindLabel} title</Label>
-          <Input
-            id="dish-title"
-            placeholder={
-              kind === "PART" ? "e.g. Nuoc Cham" : "e.g. Ginger Soy Mirin Bowl"
-            }
-            aria-invalid={!!formState.errors.title}
-            {...register("title", { required: true })}
-          />
-          {formState.errors.title && (
-            <p className="text-destructive text-sm">Enter a title.</p>
-          )}
-        </div>
+      <div className="mx-auto flex max-w-3xl flex-col gap-6 pb-24">
+        <Breadcrumbs items={breadcrumbItems} />
+        <h1 className="font-heading text-foreground text-2xl font-semibold">
+          {editorHeading}
+        </h1>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="dish-stage">Status</Label>
-            <Controller
-              control={control}
-              name="stage"
-              render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
-                  <SelectTrigger id="dish-stage" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {stageValues.map((value) => (
-                      <SelectItem key={value} value={value}>
-                        {STAGE_LABEL[value]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="dish-cuisine">Cuisine</Label>
+        <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-6">
+          <Field>
+            <FieldLabel htmlFor="dish-title">{kindLabel} title</FieldLabel>
             <Input
-              id="dish-cuisine"
-              placeholder="Optional"
-              {...register("cuisine")}
+              id="dish-title"
+              placeholder={
+                kind === "PART"
+                  ? "e.g. Nuoc Cham"
+                  : "e.g. Ginger Soy Mirin Bowl"
+              }
+              aria-invalid={!!formState.errors.title}
+              {...register("title", { required: true })}
             />
-          </div>
-        </div>
+            <FieldError>
+              {formState.errors.title && "Enter a title."}
+            </FieldError>
+          </Field>
 
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="dish-description">Description</Label>
-          <Textarea
-            id="dish-description"
-            placeholder="Optional"
-            {...register("description")}
-          />
-        </div>
+          <div className="border-border bg-card flex flex-col gap-4 rounded-xl border p-4">
+            <h2 className="text-foreground text-sm font-semibold">Details</h2>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field>
+                <FieldLabel htmlFor="dish-stage">Status</FieldLabel>
+                <Controller
+                  control={control}
+                  name="stage"
+                  render={({ field }) => (
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <SelectTrigger id="dish-stage" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {stageValues.map((value) => (
+                          <SelectItem key={value} value={value}>
+                            {STAGE_LABEL[value]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+              </Field>
+              <CuisineField options={cuisineOptions} />
+            </div>
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="dish-yield-quantity">Makes</Label>
-            <div className="flex gap-2">
-              <NumberField
-                name="yieldQuantity"
-                id="dish-yield-quantity"
-                placeholder="Qty"
-                step="any"
+            <Field>
+              <FieldLabel htmlFor="dish-description">Description</FieldLabel>
+              <Textarea
+                id="dish-description"
+                placeholder="Optional"
+                {...register("description")}
               />
-              <Input placeholder="servings" {...register("yieldUnit")} />
+            </Field>
+
+            <div className="flex flex-wrap gap-4">
+              <Field>
+                <FieldLabel htmlFor="dish-yield-quantity">Yield</FieldLabel>
+                <div className="flex gap-2">
+                  <NumberField
+                    name="yieldQuantity"
+                    id="dish-yield-quantity"
+                    placeholder="Amount"
+                    step="any"
+                    aria-label="Yield amount"
+                    className="w-24"
+                  />
+                  <Input
+                    placeholder="Unit, e.g. servings"
+                    aria-label="Yield unit"
+                    className="w-40"
+                    {...register("yieldUnit")}
+                  />
+                </div>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="dish-prep-time">
+                  Prep time (minutes)
+                </FieldLabel>
+                <NumberField
+                  name="prepTimeMinutes"
+                  id="dish-prep-time"
+                  placeholder="Optional"
+                  className="w-24"
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="dish-cook-time">
+                  Cook time (minutes)
+                </FieldLabel>
+                <NumberField
+                  name="cookTimeMinutes"
+                  id="dish-cook-time"
+                  placeholder="Optional"
+                  className="w-24"
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="dish-difficulty">Difficulty</FieldLabel>
+                <Controller
+                  control={control}
+                  name="difficulty"
+                  render={({ field }) => (
+                    <Select
+                      value={field.value ?? "UNSET"}
+                      onValueChange={(value) =>
+                        field.onChange(value === "UNSET" ? null : value)
+                      }
+                    >
+                      <SelectTrigger id="dish-difficulty" className="w-36">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="UNSET">Not set</SelectItem>
+                        {difficultyValues.map((value) => (
+                          <SelectItem key={value} value={value}>
+                            {value}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+              </Field>
             </div>
           </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="dish-prep-time">Prep time (min)</Label>
-            <NumberField
-              name="prepTimeMinutes"
-              id="dish-prep-time"
-              placeholder="Optional"
-            />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="dish-cook-time">Cook time (min)</Label>
-            <NumberField
-              name="cookTimeMinutes"
-              id="dish-cook-time"
-              placeholder="Optional"
-            />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="dish-difficulty">Difficulty</Label>
-            <Input
-              id="dish-difficulty"
-              placeholder="Optional"
-              {...register("difficulty")}
-            />
-          </div>
-        </div>
 
-        <div className="flex flex-col gap-4">
-          <div className="flex items-center justify-between">
-            <h3 className="font-heading text-lg font-medium">Sections</h3>
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <h2 className="font-heading text-lg font-medium">Sections</h2>
+            </div>
+            <DndContext
+              id="dish-sections"
+              sensors={sectionSensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleSectionDragEnd}
+              accessibility={{ announcements: sectionAnnouncements }}
+            >
+              <SortableContext
+                items={sections.fields.map((field) => field.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                {sections.fields.map((field, sectionIndex) => (
+                  <SectionFields
+                    key={field.id}
+                    id={field.id}
+                    sectionIndex={sectionIndex}
+                    onRemove={() => sections.remove(sectionIndex)}
+                  />
+                ))}
+              </SortableContext>
+            </DndContext>
+            <Button
+              type="button"
+              variant="outline"
+              className="self-start"
+              onClick={() =>
+                sections.append({
+                  name: null,
+                  guidanceNote: null,
+                  ingredients: [],
+                  instructions: [],
+                })
+              }
+            >
+              <Plus /> Add section
+            </Button>
           </div>
-          {sections.fields.map((field, sectionIndex) => (
-            <SectionFields
-              key={field.id}
-              sectionIndex={sectionIndex}
-              isFirst={sectionIndex === 0}
-              isLast={sectionIndex === sections.fields.length - 1}
-              onMoveUp={() => sections.move(sectionIndex, sectionIndex - 1)}
-              onMoveDown={() => sections.move(sectionIndex, sectionIndex + 1)}
-              onRemove={() => sections.remove(sectionIndex)}
-            />
-          ))}
-          <Button
-            type="button"
-            variant="outline"
-            className="self-start"
-            onClick={() =>
-              sections.append({
-                name: null,
-                guidanceNote: null,
-                ingredients: [],
-                instructions: [],
-              })
-            }
-          >
-            <Plus /> Add section
-          </Button>
-        </div>
 
-        {serverError && (
-          <p
-            role="alert"
-            className="border-destructive/30 bg-destructive/10 text-destructive flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"
-          >
-            <AlertCircle className="size-4 shrink-0" aria-hidden="true" />
-            <span>{serverError}</span>
-          </p>
-        )}
+          {serverError && (
+            <p
+              role="alert"
+              className="border-destructive/30 bg-destructive/10 text-destructive flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"
+            >
+              <AlertCircle className="size-4 shrink-0" aria-hidden="true" />
+              <span>{serverError}</span>
+            </p>
+          )}
 
-        <div className="bg-background/95 sticky bottom-0 flex items-center justify-end gap-2 border-t py-4 backdrop-blur-sm">
-          <Button variant="outline" asChild>
-            <Link href={cancelHref}>Cancel</Link>
-          </Button>
-          <Button type="submit" disabled={isSubmitting}>
-            {isSubmitting ? "Saving…" : "Save"}
-          </Button>
-        </div>
-      </form>
+          <div className="bg-background/95 sticky bottom-0 flex items-center justify-end gap-2 border-t py-4 backdrop-blur-sm">
+            <Button variant="outline" asChild>
+              <Link href={cancelHref}>Cancel</Link>
+            </Button>
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? "Saving…" : "Save"}
+            </Button>
+          </div>
+        </form>
+      </div>
 
       <Dialog
         open={guard.isPromptOpen}
