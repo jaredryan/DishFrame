@@ -1,189 +1,186 @@
-# Slice 6 (pre-gate) — Nested Parts: attach, detach, cycle prevention, create-from-content, usage discovery
+# Slice 6 (post-gate) — Multiplier, unified ordering, Create Part/Convert Section, inline Part rendering, propagation, two-phase deletion
 
-**Status:** Pre-gate scope complete, not yet verified. Per `docs/BUILD_PLAN.md`
-(lines 169-187), **Review Gate 3 sits inside this slice** — attach/detach/
-cycle-prevention may proceed first, but propagation and deletion
-materialization are explicitly held for owner review of the transaction
-design (Arch §I/§J) before being built. This pass implements everything
-Gate 3 allows and stops there; propagation and deletion materialization are
-not implemented. No automated tests, lint, typecheck, build, or Playwright
-were run — the owner runs `pnpm run verify:all` and returns failures for a
-separate debugging pass.
+**Status: complete.** Review Gate 3's settled decisions are implemented end
+to end: schema, domain services, Server Actions, editor/detail UI,
+propagation UI, two-phase Part-deletion UI, the compare-page PartLink diff
+group, and automated test coverage. `pnpm run verify:feature` (format,
+lint, typecheck, build, frontend unit/component tests, `db:verify:local`,
+`db:scan-migrations`, backend integration tests) passes clean — 211
+frontend tests, 158 backend integration tests.
 
-## Completed scope
+## Completed across both passes
 
-- **Attach** (§67.1, §68.1): a Recipe or Part may hold top-level and
-  Section-nested linked Parts, each pinning an exact target `DishVersion`.
-  Attach-time validation (`validatePartAttachment`,
-  `src/lib/sections/service.ts`) checks ownership and runs the lightweight
-  single-target cycle check before the editor's form state gains the row;
-  the authoritative re-check reruns inside `editDish`'s own version-creation
-  transaction (§G.4).
-- **Detach** (§70.1): `resolvePartVersionForDetach` returns the target
-  Version's own shallow content (its Sections/Ingredients/Instructions and
-  its own linked Parts, one level), with every `lineageId` stripped so the
-  editor always treats it as new local content. Splicing is asymmetric by
-  necessity: a top-level detach keeps the target's Sections intact as new
-  top-level Sections; a Section-nested detach flattens the target's content
-  directly into that Section (this schema has no Section-in-Section
-  nesting).
-- **Cycle prevention** (§67.3, Arch §G): `src/lib/cycles/reachability.ts`
-  is a pure, framework-agnostic BFS over the PartLink graph, unit-tested
-  against direct self-reference, indirect cycles, a legitimate
-  non-cyclic composition, the same Part reused at two distinct versions,
-  a false-positive check for an unrelated Part's own link, a deeper
-  indirect cycle, and the depth-guard safety valve (50 levels, §G.6).
-  `src/lib/cycles/service.ts` wraps it against real Prisma data.
-- **Create a Part from local content** (§69): `promoteLocalContentToPart`
-  (§69.2, "Save as reusable Part") is one transaction spanning both
-  aggregates — creates the new Part at V1.0 from a selected Section, then a
-  new container Version with that Section replaced by a top-level link.
-  `saveContentAsNewPart` (§69.3, "Save a copy") creates only the new Part;
-  the source is untouched.
-- **Usage discovery** (§71): `listCurrentPartUsages` finds a Part's current
-  usages (container title — live, per §68.5 — Version label, Section
-  placement, whether a newer Part Version exists), scoped to `LIVE` links
-  whose container is some Dish's current Version.
-- **Editor UI**: `PartLinkFields` (linked-Part row: live title/version,
-  Open Part, Detach, Remove), `PartAttachPicker` (search + optional
-  historical-Version choice), wired into `SectionFields` (nested) and
-  `DishEditor` (top-level); `SaveSectionAsPartDialog` on each Section
-  (disabled until the item has been saved once); `PartUsagePanel` on the
-  Part detail page.
+**Schema** (`prisma/schema.prisma` + migration `20260727060000_part_link_multiplier`):
+`PartLink.multiplier Decimal(8,4) @default(1)` + a `CHECK (multiplier > 0)`
+constraint. The migration was hand-authored, then verified this pass
+against a real `prisma migrate dev --create-only` diff (see "Migration
+verified" below), applied to local Postgres, and the Prisma client
+regenerated.
 
-## Canonical requirements implemented
+**Unified ordering**: `position: number` on both `SectionInput` and
+`PartLinkInput` (`dishes/schema.ts`) — one shared top-level ordering
+sequence for Sections and top-level linked Parts. `sortByPosition` is the
+one shared sort; `insertSections`/`insertPartLinks` write from it;
+`diffVersionContent` compares by `position`, not array index. `DishEditor`
+merges both into one rendered/draggable sequence under one `DndContext`.
+Section-nested PartLinks keep their own independent position scheme.
 
-`PRODUCT_SPEC.md` §67 (composition, cycle prohibition), §68 (attach,
-version selection, no inline shared-Part editing, §68.5 live display name),
-§69 (create from local content), §70 (detach), §71 (usage discovery).
-Architecture Proposal §D.6, §G, §K.4's `src/lib/cycles/` module split.
+**Duplicate/target validation**: `findDuplicatePartTargets` (direct links
+only, top-level + Section-nested) rejects a second direct link to the same
+Part. `assertValidPartLinkTargets` (`sections/service.ts`) rejects a Recipe
+as a target and a Version that doesn't belong to the supplied target Part.
 
-## Architecture decisions and judgment calls
+**Multiplier**: validated `> 0`; composed into detach
+(`resolvePartVersionForDetach` scales localized quantities), propagation
+(carried through unchanged), comparison (`partLinkContentSignature`), and
+display (`scaleFactor × multiplier` before `scaledIngredientDisplay`).
 
-- **PartLink attach/detach folds into the existing `cookingChanged` bucket**
-  (`diffVersionContent`, `schema.ts`) — a linked Part is exactly as
-  cooking-adjacent as an Ingredient/Instruction, so it triggers the same
-  explicit minor/major choice rather than a new classification bucket. This
-  extends the settled §13.2a rule to a case it didn't originally enumerate;
-  flagged for owner sanity check, same spirit as prior slices' flagged
-  extensions.
-- **Top-level PartLinks and Sections have independent position sequences**
-  (matches the schema: no shared ordering scheme across the two). Both
-  `promoteLocalContentToPart` and a top-level attach append to the
-  container's existing top-level links rather than claiming an interleaved
-  position. Real, minor design choice — flagged, not silently decided.
-- **Detach copies one level, not fully recursively** (§G.5's shallow vs.
-  fully-resolved distinction) — a linked Part found inside detached content
-  stays a live link to its own target; only the specific detached occurrence
-  stops being live. Avoids an unbounded copy of an arbitrarily deep chain
-  for an action that's supposed to be surgical.
-- **`Dish.currentTitle` used as the target Part's displayed name everywhere**
-  in this slice's UI (`PartLinkFields`, `PartUsagePanel`), never
-  `DishVersion.title` — per §68.5's already-settled decision (recorded in
-  the Slice 5 report's correction section), not re-litigated here.
-- **`insertSections`/`withVersionAllocation`/`highestMajorVersion`/
-  `nextVersionNumbers` exported from `dishes/service.ts`** so
-  `sections/service.ts` reuses the exact same Version-allocation and
-  row-creation machinery rather than a second implementation — no new
-  transaction pattern introduced for `promoteLocalContentToPart`.
-- **No schema/migration change** — `PartLink` was fully defined at Slice 2;
-  this slice is the first to exercise it.
+**Linked-Part presentation**: `resolvePartLinkTree`/`resolvePartLinkTrees`
+(`sections/service.ts`) recursively resolve a PartLink occurrence's nested
+content server-side (cycle-safe via a visited-set + `MAX_PART_LINK_TREE_DEPTH`
+cap). `PartLinkTreeView` renders it inline with nesting indent on both the
+current- and historical-Version detail pages. The editor's `PartLinkFields`
+is view-first (collapsed by default, live title/version/multiplier header),
+fetching the tree lazily via `getPartLinkPreview`.
 
-## Not implemented (Review Gate 3)
+**Create Part / Convert Section to Part**: `CreatePartDialog` and
+`ConvertSectionToPartDialog` persist the new Part via the ordinary
+`createDish("PART", …)` and only touch the parent's local draft — the
+parent Version is only created by the parent's own normal Save.
 
-Propagation (`propagatePartUpdate`, §72) and Part-deletion materialization
-(`resolvePartUsageBeforeDelete`/`deletePart`, §74) are not built. Their
-transaction design is already fully specified in
-`ARCHITECTURE_PROPOSAL.md` §I ("Propagate Part update" and "Delete a
-referenced Part" rows) and §J (deletion/cascade matrix) — nothing new is
-proposed here. The two decisions that specifically need owner sign-off
-before that work begins:
+**Propagation UI** (`PartUsagePanel`, PRODUCT_SPEC.md §72.4/§72.5):
+"Update everywhere" (all out-of-date current usages) and "Choose Recipes
+and Parts to update" (a checkbox picker, one row per occurrence — the same
+Part linked twice in one container can be updated independently) both call
+`propagatePartUpdate`, grouping usages by `containerDishId` and targeting
+each occurrence by its `lineageId`. Per-occurrence outcomes (updated /
+skipped with reason / failed with reason) render inline after the call.
+`queries.ts`'s `PartUsage` now also carries `lineageId` (previously only
+the PartLink row's own `id`).
 
-1. **Per-item transaction batching for propagation** (§I): each affected
-   Recipe/Part gets its own independent transaction, not one giant
-   transaction across the whole batch, so a partial failure (e.g. a cycle
-   introduced by a concurrent edit) doesn't block the rest. Confirm this
-   partial-success model is still wanted before it's built.
-2. **Two-phase Part deletion** (§I/§J): interactive per-occurrence
-   resolution (detach/replace/remove, each its own version-creation
-   transaction), then one final transaction materializing remaining
-   historical `PartLink` rows and deleting the Part. Confirm the
-   interactive-resolution UX and the "materialize in place" exception to
-   immutability (the one other sanctioned exception besides
-   `versionNote`/description/image) before it's built.
+**Two-phase Part deletion UI** (`PartUsageResolutionDialog`,
+PRODUCT_SPEC.md §74): a new `PartHasLiveUsagesError` (`errors.ts`, a
+`ValidationError` subtype) lets `deleteDish`'s Server Action distinguish
+"blocked by live usages" from any other failure and return
+`code: "PART_HAS_LIVE_USAGES"`. `DishDetailActions` catches that code and
+opens the resolution dialog, which lists current usages (re-fetched via a
+new `getCurrentPartUsages` action after every resolution — no page
+navigation needed) and lets the user Detach/Replace/Remove each occurrence
+via `resolvePartUsageOccurrence`, one at a time, in any order, across
+separate visits. Once none remain, a "Delete permanently" button retries
+`deleteDish`. Replace reuses `PartAttachPicker` (given a new optional
+`triggerLabel` prop so its button reads "Replace with…" here instead of
+"Attach a Part").
 
-## Tests written (not run)
+**Compare-page PartLink diff group** (`compare.ts`, PRODUCT_SPEC.md §94):
+`VersionCompareInput` gained a top-level `partLinks: PartLinkInput[]`
+field; `partLinkChanges`/`flattenPartLinks` flatten top-level + Section-
+nested occurrences (matched by `lineageId`, same pattern as
+`ingredientChanges`) into added/removed/changed (`retargeted`/
+`multiplierChanged`, independently flagged since either can happen alone)
+/reordered. `compare.ts` stays DB-agnostic — it never resolves a
+`targetDishId` into a title. Both compare pages
+(`recipes|parts/[dishId]/compare/page.tsx`) resolve display labels once via
+`resolvePartLinkDisplayInfo` for every distinct occurrence the diff
+touches, falling back to "Unknown Part" for a Part deleted since (caught
+specifically as `NotFoundError`, not a blanket catch). `VersionCompareView`
+renders the new "Linked Parts" group from a `partLinkLabels` map it never
+resolves itself.
 
-- `src/lib/cycles/reachability.test.ts` — 7 cases listed above.
-- `src/lib/dishes/schema.test.ts` — PartLink additions to
-  `removeEmptySections`/`hasMinimumContent`, and a new `diffVersionContent`
-  describe block (attach/detach/re-target/move classification, and a
-  false-positive check that an unrelated Section rename doesn't get
-  misclassified as a cooking change merely because a linked Part is also
-  present).
-- `src/lib/sections/sections.integration.test.ts` (new) —
-  `validatePartAttachment` (current-version default, historical-version
-  choice, direct and indirect self-attach rejection, cross-user rejection),
-  `resolvePartVersionForDetach` (lineage stripped, cross-user rejection),
-  `promoteLocalContentToPart` (new Part created, Section replaced with a
-  link, prior Version preserved, cross-user and empty-Section rejection),
-  `saveContentAsNewPart` (source Version history untouched).
-- `src/lib/dishes/dishes.integration.test.ts`, new "Slice 6 — linked Parts"
-  block — attach/detach through `editDish` requiring the minor/major
-  choice and persisting a real `LIVE` `PartLink` row; the authoritative
-  save-time cycle rejection; `duplicateDish`/`promoteHistoricalVersion`
-  copying `PartLink`s verbatim; `listCurrentPartUsages`/
-  `listAttachableParts`.
-- Existing fixture builders across `dishes.integration.test.ts`,
-  `dish-editor.test.tsx`, `compare.test.ts`, and the images route test
-  updated for the new required `partLinks` field (mechanical, not new
-  scope — same class of change Slice 5 made for `imageAssetId`).
+## Completed this pass (follow-up to the pre-gate report)
 
-## Presentation tests deferred
+- **Migration verified**: hand-authored `part_link_multiplier` migration
+  checked against a fresh `prisma migrate dev --create-only` diff (the
+  known shadow-diff trap fired again — spurious `DROP CONSTRAINT`/`DROP
+  INDEX` for raw-SQL-managed objects — discarded; the one genuine
+  statement matched the hand-authored file exactly). Applied to local
+  Postgres; `prisma generate` run; `db:verify:local` confirms all 15
+  protected constraints + 7 protected indexes intact.
+- **Tests written** (previously the one deviation from policy — now
+  closed): `dishes/schema.test.ts` (`findDuplicatePartTargets`,
+  `sortByPosition`, multiplier validation, `diffVersionContent`
+  position/multiplier-change detection), `dishes/compare.test.ts` (the new
+  partLinks diff group: added/removed/retargeted/multiplier-changed/
+  reordered, top-level and Section-nested), `dishes/dishes.integration.test.ts`
+  (unified position round-trip through create/edit/duplicate/promote,
+  duplicate-target rejection, `propagatePartUpdate` updated/skipped/failed/
+  partial-success/ownership, `resolvePartUsageOccurrence` all three
+  resolutions, `deletePart` Phase 2 live-usage abort + historical
+  materialization), `sections/sections.integration.test.ts`
+  (`assertValidPartLinkTargets`, `resolvePartVersionForDetach` multiplier
+  scaling, `resolvePartLinkTree` nesting/cycle-guard/missing-target). Three
+  pre-existing tests referencing the removed `promoteLocalContentToPart`/
+  `saveContentAsNewPart` primitives were deleted (no service-level
+  equivalent exists under the current UI-only Create-Part architecture).
+- **Infra fix**: `vitest.integration.config.mts` gained
+  `fileParallelism: false`. Discovered while chasing three integration-test
+  failures that reproduced deterministically under `verify:feature` but
+  passed when a file was run in isolation — genuine Postgres SERIALIZABLE
+  write conflicts between concurrently-running test *files* (same class of
+  shared-local-Postgres parallelism flake `verify:e2e`'s single-worker
+  Playwright config already exists to avoid), not a bug in the new tests.
+  Confirmed by running the full suite with `--no-file-parallelism`: all 158
+  tests passed. Two other failures in the same run were genuine test bugs
+  (a setup call passed `undefined` instead of `"MINOR"` as `editDish`'s
+  version-choice, tripping the real "choose minor or major" policy) and
+  were fixed directly.
 
-`PartAttachPicker`'s search/selection interaction, `PartLinkFields`'
-detach/remove buttons, and `SaveSectionAsPartDialog`'s two-action layout —
-new, un-reviewed UI surfaces, per this project's policy of deferring
-brittle presentation tests until design review.
+## Known issues to flag prominently
 
-## Formal Review Gate 3 checklist
+- **Cosmetic Next.js diagnostic**: client-to-client callback props
+  (`onRemove`, `onDetach`, `onCreated`, `onOpenChange`, etc., across both
+  older and newly-added components) trigger a "props must be
+  serializable... rename to `xAction`" warning from the Next.js TS plugin —
+  a known false-positive for props passed between two "use client"
+  components (not a Server→Client boundary). Left as-is for naming
+  consistency with the rest of the codebase.
+- **Type duplication**: `PartUsageResolutionKind` (`dishes/service.ts`) and
+  `PartUsageResolutionValue` (`dishes/schema.ts`) are the same string union
+  under two names — harmless (structural typing), worth reconciling later.
 
-**Pages/workflows to inspect** (combine with anything still open from
-Slice 5, since both touch the same editor and detail surfaces):
+## Judgment calls made without a blocking question
 
-- Recipe/Part editor: attach a Part (top-level and inside a Section),
-  choose a historical Version, detach, remove; confirm the minor/major
-  prompt appears for each.
-- "Save as reusable Part" vs. "Save a copy as Part" from a Section's
-  toolbar — confirm the copy variant truly leaves the source untouched and
-  the link variant navigates away correctly (it saves immediately, by
-  design — see the dialog's own warning copy).
-- Part detail page: "Recipes using this Part" panel, including the
-  "newer Version available" indicator.
+- REPLACE resolution (Phase 1 deletion) preserves the occurrence's existing
+  multiplier rather than resetting it to 1.
+- Phase-1 occurrence resolutions (detach/replace/remove) always bump MINOR
+  automatically, no interactive minor/major choice.
+- Materialized snapshots store raw (unscaled) content; the multiplier
+  column is left as historical record rather than baked into the JSON.
+- Propagation's "Choose Recipes and Parts to update" picker operates at
+  occurrence granularity (one row per current usage, grouped visually by
+  container) rather than whole-container granularity, so the same Part
+  linked twice in one item can be selectively updated.
+- The delete-resolution dialog re-fetches usages after every single
+  resolution (rather than trusting optimistic local state) — correctness
+  over one extra round-trip, since a stale list could show an
+  already-resolved occurrence as still actionable.
 
-**Concrete product/design questions:**
+## Review Gate checklist
 
-- Does "Recipes using this Part" need any action from this panel yet (e.g.
-  jump to a specific Section), or is read-only discovery sufficient until
-  propagation ships?
-- Is `SaveSectionAsPartDialog`'s "saves immediately, leaves the editor"
-  behavior acceptable, or should it instead stage the change into the
-  current form for the user to review before an explicit Save?
-- The three flagged judgment calls above (cookingChanged bucket extension,
-  top-level-link position sequencing, one-level detach) — sanity-check
-  against product intent.
-
-**Then the two Gate 3 architecture questions** (Not Implemented section
-above) need an explicit owner decision before propagation/deletion
-materialization begins.
+- Editor: unified drag-reorder across Sections and top-level Parts; Create
+  Part; Convert Section to Part; expand a linked Part inline; edit its
+  multiplier; detach with multiplier applied.
+- Detail pages (current + historical Version): linked Parts render inline,
+  nested Parts indent correctly, multiplier composes with temporary scale.
+- Part detail page: "Update everywhere" and "Choose Recipes and Parts to
+  update" against a Part with at least one out-of-date current usage;
+  confirm per-occurrence outcomes render correctly.
+- Attempt to delete a Part with live usages: confirm the resolution dialog
+  opens, each Detach/Replace/Remove works and updates the list, and delete
+  succeeds once the list is empty.
+- Compare page: attach/retarget/change-multiplier/reorder a linked Part
+  across two Versions and confirm the "Linked Parts" group renders
+  correctly, including a Section-nested occurrence and a Part deleted since
+  (falls back to "Unknown Part").
+- Confirm the judgment calls above against product intent.
 
 ## Owner intervention recommendation
 
-**Full manual review required** — this is a formal Review Gate. It applies
-*after* the owner runs `pnpm run verify:all` successfully. Two distinct
-things are gated: (1) the product/design questions above, ordinary UI
-review scope; (2) the Gate 3 architecture sign-off on propagation and
-deletion-materialization's transaction design, which is a prerequisite for
-any further Slice 6 work, not merely a UI check. Once both are resolved,
-the next pass implements propagation and deletion materialization and
-completes Slice 6.
+**Focused manual review** of the three newly-built interactive flows this
+pass added (propagation, two-phase deletion, compare-page PartLink diff) —
+all three are exercised by integration tests and pass `verify:feature`,
+but none have had a browser walkthrough yet, and each is a multi-step user
+workflow (per the "manual review" policy's "critical workflows" and
+"meaningful design pass" criteria). Use the Review Gate checklist above.
+Run `pnpm run verify:all` (Playwright/E2E is not part of the self-run
+`verify:feature`) before considering Slice 6 fully closed.

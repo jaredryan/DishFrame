@@ -2,7 +2,12 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/db/prisma";
 import { Prisma } from "@/generated/prisma/client";
-import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
+import {
+  ConflictError,
+  NotFoundError,
+  ValidationError,
+  PartHasLiveUsagesError,
+} from "@/lib/errors";
 import {
   getOwnedDishOrThrow,
   getDishScopedVersionContentOrThrow,
@@ -19,14 +24,22 @@ import { decimalToNumber } from "@/lib/dishes/format";
 import { versionContentToInput } from "@/lib/dishes/mappers";
 import {
   seedMajorVersionNote,
+  seedPropagationVersionNote,
   normalizeVersionNote,
+  versionLabel,
 } from "@/lib/dishes/version-note";
 import { assertNoPartCycle } from "@/lib/cycles/service";
 import type { PartLinkEdge } from "@/lib/cycles/reachability";
 import {
+  assertValidPartLinkTargets,
+  resolvePartVersionForDetach,
+} from "@/lib/sections/service";
+import {
   removeEmptySections,
   hasMinimumContent,
   diffVersionContent,
+  findDuplicatePartTargets,
+  sortByPosition,
   normalizeQuantity,
   normalizeDifficultyValue,
   isBlankSubstitute,
@@ -185,10 +198,17 @@ export async function withVersionAllocation<T>(
  * Slice 6: writes one Section's (or the container's own top-level, when
  * `sectionId` is `null`) linked-Part occurrences, in the same
  * lineage-preserving-or-minting style as every other row `insertSections`
- * writes. A PartLink's own position sequence is independent of its
- * Section's Ingredient/Instruction positions — it's a separate ordered
- * list, matching how the schema itself has no single interleaved order
- * across the three row kinds.
+ * writes.
+ *
+ * Slice 6 post-gate (Review Gate 3's "unified authored order"): a
+ * TOP-LEVEL PartLink's `position` is written from its own explicit
+ * `PartLinkInput.position` field — its real slot in the one shared
+ * ordering sequence with top-level Sections (`sectionInputSchema.
+ * position`'s doc comment) — never array iteration order, since the two
+ * top-level arrays aren't assumed to already arrive interleaved. A
+ * Section-nested PartLink keeps the pre-gate convention (its own array
+ * index — Section-nested ordering is unaffected by the unified top-level
+ * sequence).
  */
 async function insertPartLinks(
   tx: Prisma.TransactionClient,
@@ -204,7 +224,8 @@ async function insertPartLinks(
         lineageId: lineageFor(partLink.lineageId),
         containerVersionId,
         sectionId,
-        position: pi,
+        position: sectionId === null ? partLink.position : pi,
+        multiplier: partLink.multiplier,
         targetDishId: partLink.targetDishId,
         targetDishVersionId: partLink.targetDishVersionId,
       },
@@ -227,8 +248,13 @@ export async function insertSections(
 
   await insertPartLinks(tx, dishVersionId, null, topLevelPartLinks, lineageFor);
 
-  for (let si = 0; si < sections.length; si++) {
-    const section = sections[si];
+  // Slice 6 post-gate: sort order doesn't affect what `position` value each
+  // row is written with (that comes from each Section's own explicit
+  // `position` field below, not iteration order) — sorting here only
+  // keeps `sectionNames` (search-text) in true reading order.
+  const orderedSections = sortByPosition(sections);
+  for (let si = 0; si < orderedSections.length; si++) {
+    const section = orderedSections[si];
     if (section.name) sectionNames.push(section.name);
 
     const sectionRow = await tx.section.create({
@@ -237,7 +263,7 @@ export async function insertSections(
         dishVersionId,
         name: section.name || null,
         guidanceNote: section.guidanceNote || null,
-        position: si,
+        position: section.position,
       },
     });
 
@@ -394,6 +420,18 @@ function sanitizedSectionsOrThrow(input: DishContentInput): SectionInput[] {
       "Add at least one ingredient, instruction, or linked Part before saving.",
     );
   }
+
+  // Slice 6 post-gate, settled Review Gate 3 decision (§68, "direct
+  // duplicate rule"): a parent DishVersion may not directly link the same
+  // stable Part more than once, top-level or Section-nested — deliberately
+  // NOT a scan of the complete transitive nested graph (see
+  // `findDuplicatePartTargets`'s own doc comment).
+  if (findDuplicatePartTargets(sections, input.partLinks).length > 0) {
+    throw new ValidationError(
+      "The same Part is already linked here — choose a different Part, or remove the duplicate link.",
+    );
+  }
+
   return sections;
 }
 
@@ -409,6 +447,16 @@ export async function createDish(
   if (input.imageAssetId) {
     await assertImageAssetAttachable(prisma, ownerId, input.imageAssetId);
   }
+
+  // Slice 6 post-gate, settled Review Gate 3 decision: the authoritative
+  // save-time check that every proposed PartLink target is a real, owned
+  // Part with a matching Version — never trusted merely because the client
+  // sent it (mirrors the imageAssetId check just above).
+  await assertValidPartLinkTargets(
+    prisma,
+    ownerId,
+    collectPartLinkEdges(sections, input.partLinks),
+  );
 
   return prisma.$transaction(async (tx) => {
     const dish = await tx.dish.create({
@@ -587,6 +635,17 @@ export async function editDish(
   const bump: VersionChoiceValue = cookingChanged ? versionChoice! : "MINOR";
 
   return withVersionAllocation(async (tx) => {
+    // Slice 6 post-gate: the authoritative save-time PartLink-target check,
+    // re-run here for the same reason the cycle check below is — a client
+    // cannot bypass it, and it closes the race window between the editor's
+    // attach-time validation and this save (e.g. a concurrently-deleted or
+    // -retyped target Part).
+    await assertValidPartLinkTargets(
+      tx,
+      ownerId,
+      collectPartLinkEdges(sections, input.partLinks),
+    );
+
     // Slice 6, ARCHITECTURE_PROPOSAL.md §G.4: the authoritative cycle check,
     // re-run here (inside the version-creation transaction, immediately
     // before the new DishVersion is created) against the *full* final
@@ -878,6 +937,250 @@ export async function promoteHistoricalVersion(
   });
 }
 
+// Slice 6 post-gate, PRODUCT_SPEC.md §72/§73, ARCHITECTURE_PROPOSAL.md §I:
+// "Propagate Part update" row — per-item transaction batching, not one
+// giant transaction across the whole selection, so one failed parent
+// cannot block or roll back the rest.
+
+export type PropagationSelection = {
+  containerDishId: string;
+  // Correction 1/§72.5: targets specific `PartLink.lineageId` occurrences,
+  // not "every link to this Part" — so the same Part appearing twice in
+  // one container can have one occurrence excluded while the other updates.
+  lineageIds: string[];
+};
+
+export type PropagationOutcome =
+  | { containerDishId: string; status: "updated"; newVersionId: string }
+  | { containerDishId: string; status: "skipped"; reason: string }
+  | { containerDishId: string; status: "failed"; reason: string };
+
+async function propagateToOneContainer(
+  ownerId: string,
+  partDishId: string,
+  newTargetVersion: { id: string; majorVersion: number; minorVersion: number },
+  partTitle: string,
+  selection: PropagationSelection,
+  bump: VersionChoiceValue,
+): Promise<PropagationOutcome> {
+  try {
+    const container = await getOwnedDishOrThrow(
+      ownerId,
+      selection.containerDishId,
+    );
+    if (!container.currentVersionId) {
+      return {
+        containerDishId: container.id,
+        status: "skipped",
+        reason: "This item has no saved content yet.",
+      };
+    }
+
+    const base = await getDishScopedVersionContentOrThrow(
+      container.id,
+      container.currentVersionId,
+    );
+    const { sections, partLinks } = versionContentToInput(
+      base.sections,
+      base.partLinks,
+    );
+
+    const selectedSet = new Set(selection.lineageIds);
+    let matchedCount = 0;
+    let changedCount = 0;
+    let previousTargetVersionId: string | null = null;
+
+    function retarget(links: PartLinkInput[]): PartLinkInput[] {
+      return links.map((link) => {
+        if (
+          !link.lineageId ||
+          !selectedSet.has(link.lineageId) ||
+          link.targetDishId !== partDishId
+        ) {
+          return link;
+        }
+        matchedCount++;
+        if (link.targetDishVersionId === newTargetVersion.id) return link;
+        changedCount++;
+        previousTargetVersionId ??= link.targetDishVersionId;
+        return { ...link, targetDishVersionId: newTargetVersion.id };
+      });
+    }
+
+    const retargetedTopLevel = retarget(partLinks);
+    const retargetedSections = sections.map((section) => ({
+      ...section,
+      partLinks: retarget(section.partLinks),
+    }));
+
+    if (matchedCount === 0) {
+      return {
+        containerDishId: container.id,
+        status: "skipped",
+        reason: "This occurrence is no longer present in the current version.",
+      };
+    }
+    if (changedCount === 0) {
+      return {
+        containerDishId: container.id,
+        status: "skipped",
+        reason: "Already current.",
+      };
+    }
+
+    const fromVersion = previousTargetVersionId
+      ? await prisma.dishVersion.findUnique({
+          where: { id: previousTargetVersionId },
+          select: { majorVersion: true, minorVersion: true },
+        })
+      : null;
+
+    return await withVersionAllocation(async (tx) => {
+      // Re-run authoritatively, same reasoning as editDish: closes the race
+      // window between when the propagation batch was assembled and this
+      // specific item's own transaction (e.g. a concurrent edit introduced
+      // a cycle since then).
+      if (container.kind === "PART") {
+        await assertNoPartCycle(
+          tx,
+          container.id,
+          collectPartLinkEdges(retargetedSections, retargetedTopLevel),
+        );
+      }
+
+      // `becomesCurrent` is always true here, unconditionally, unlike
+      // `editDish`'s own guarded version: `base` is always the container's
+      // own *current* Version (loaded via `container.currentVersionId`
+      // above), and current is always on the highest major line (§13.5),
+      // so a MINOR bump from it always stays current too.
+      const { majorVersion, minorVersion } = await nextVersionNumbers(
+        tx,
+        container.id,
+        base.majorVersion,
+        bump,
+      );
+
+      const toLabel = versionLabel(
+        newTargetVersion.majorVersion,
+        newTargetVersion.minorVersion,
+      );
+      const fromLabel = fromVersion
+        ? versionLabel(fromVersion.majorVersion, fromVersion.minorVersion)
+        : toLabel;
+
+      const version = await tx.dishVersion.create({
+        data: {
+          dishId: container.id,
+          majorVersion,
+          minorVersion,
+          title: container.currentTitle ?? base.title,
+          description: base.description,
+          imageAssetId: base.imageAssetId,
+          yieldQuantity: base.yieldQuantity,
+          yieldUnit: base.yieldUnit,
+          prepTimeMinutes: base.prepTimeMinutes,
+          cookTimeMinutes: base.cookTimeMinutes,
+          difficulty: base.difficulty,
+          sourceVersionId: base.id,
+          // PRODUCT_SPEC.md §73.2: a propagation-only change defaults to
+          // "Save small update" regardless of whether the incoming Part
+          // change was itself minor or major — `bump` defaults to MINOR at
+          // the caller, with §73.3's "manual authority" letting the caller
+          // override to MAJOR.
+          versionNote: seedPropagationVersionNote(
+            base.majorVersion,
+            base.minorVersion,
+            majorVersion,
+            minorVersion,
+            partTitle,
+            fromLabel,
+            toLabel,
+          ),
+        },
+      });
+
+      const { sectionNames } = await insertSections(
+        tx,
+        version.id,
+        retargetedSections,
+        retargetedTopLevel,
+        { mintFreshLineage: false },
+      );
+
+      // Always current — see `baseWasAlreadyCurrentLine`'s comment above;
+      // written unconditionally (rather than guarded) for the same reason
+      // it's always true, matching `promoteHistoricalVersion`'s posture.
+      await tx.dish.update({
+        where: { id: container.id },
+        data: {
+          currentVersionId: version.id,
+          currentStructuralSearchText: sectionNames.join(" ") || null,
+        },
+      });
+
+      return {
+        containerDishId: container.id,
+        status: "updated",
+        newVersionId: version.id,
+      } as const;
+    });
+  } catch (error) {
+    const reason =
+      error instanceof NotFoundError ||
+      error instanceof ValidationError ||
+      error instanceof ConflictError
+        ? error.message
+        : "Could not update this item. Please try again.";
+    return {
+      containerDishId: selection.containerDishId,
+      status: "failed",
+      reason,
+    };
+  }
+}
+
+/**
+ * PRODUCT_SPEC.md §72.4/§72.5, ARCHITECTURE_PROPOSAL.md §I: propagates a
+ * newer Part Version to a selected set of parent Recipes/Parts. Each
+ * selected parent is validated and saved in its own independent
+ * transaction (`propagateToOneContainer`) — a failure on one parent (a
+ * cycle introduced by a concurrent edit, a since-removed occurrence, a lost
+ * race with another save) never blocks or rolls back the others. Returns a
+ * per-parent outcome rather than an all-or-nothing result.
+ */
+export async function propagatePartUpdate(
+  ownerId: string,
+  partDishId: string,
+  newTargetVersionId: string,
+  selections: PropagationSelection[],
+  bump: VersionChoiceValue = "MINOR",
+): Promise<PropagationOutcome[]> {
+  const partDish = await getOwnedDishOrThrow(ownerId, partDishId, "PART");
+  const newTargetVersion = await prisma.dishVersion.findFirst({
+    where: { id: newTargetVersionId, dishId: partDish.id },
+    select: { id: true, majorVersion: true, minorVersion: true },
+  });
+  if (!newTargetVersion) {
+    throw new NotFoundError("Version not found.");
+  }
+  const partTitle = partDish.currentTitle ?? "this Part";
+
+  const outcomes: PropagationOutcome[] = [];
+  for (const selection of selections) {
+    outcomes.push(
+      await propagateToOneContainer(
+        ownerId,
+        partDish.id,
+        newTargetVersion,
+        partTitle,
+        selection,
+        bump,
+      ),
+    );
+  }
+  return outcomes;
+}
+
 /**
  * §14.1: a mutable annotation on otherwise-immutable Version content —
  * never creates a Version, never touches ingredients/instructions/yield/
@@ -1097,12 +1400,98 @@ export async function duplicateDish(
 }
 
 /**
- * Permanent deletion (ARCHITECTURE_PROPOSAL.md §I/§H.1): revokes every
- * ShareLink and cancels every pending DirectShare referencing this Dish in
- * the same transaction as the delete itself, before the cascade would
- * otherwise silently null those references. No Slice-3 UI creates
- * ShareLink/DirectShare rows yet, so this is a correct no-op today that
- * does not need to be retrofitted when sharing (Slices 16-17) ships.
+ * ARCHITECTURE_PROPOSAL.md §I/§H.1: revokes every ShareLink and cancels
+ * every pending DirectShare referencing this Dish — shared by both the
+ * ordinary Recipe/Part delete below and the two-phase Part-deletion final
+ * step (Arch §I: "same share-revocation/pending-direct-share-cancellation
+ * step... since a Part is deletable and shareable exactly like a Recipe").
+ */
+async function revokeSharesAndCancelPendingShares(
+  tx: Prisma.TransactionClient,
+  dishId: string,
+): Promise<void> {
+  const now = new Date();
+  await tx.shareLink.updateMany({
+    where: {
+      OR: [{ currentDishId: dishId }, { fixedDishId: dishId }],
+      revokedAt: null,
+    },
+    data: { revokedAt: now },
+  });
+  await tx.directShare.updateMany({
+    where: { dishId, status: "PENDING" },
+    data: { status: "CANCELED" },
+  });
+}
+
+/**
+ * Slice 5, ARCHITECTURE_PROPOSAL.md §D.2a: every distinct ImageAsset any of
+ * this Dish's own Versions reference, gathered *before* the cascading
+ * delete removes those DishVersion rows — the reference-counted check
+ * afterward needs a candidate list to check, not a live query against rows
+ * that no longer exist.
+ */
+async function collectReferencedImageAssetIds(
+  dishId: string,
+): Promise<string[]> {
+  const rows = await prisma.dishVersion.findMany({
+    where: { dishId, imageAssetId: { not: null } },
+    select: { imageAssetId: true },
+    distinct: ["imageAssetId"],
+  });
+  return rows
+    .map((row) => row.imageAssetId)
+    .filter((id): id is string => id !== null);
+}
+
+/**
+ * Only meaningful *after* the owning Dish's cascade delete has already run
+ * (inside the same transaction) — only then does the reference count
+ * reflect reality, since an ImageAsset shared with a surviving Version on a
+ * *different* Dish (this owner's duplicate, or another account's accepted
+ * copy, §D.2a) must correctly come back non-zero and be left alone.
+ */
+async function deleteOrphanedImageAssets(
+  tx: Prisma.TransactionClient,
+  imageAssetIds: string[],
+): Promise<string[]> {
+  const keys: string[] = [];
+  for (const imageAssetId of imageAssetIds) {
+    const storageKey = await deleteImageAssetIfOrphaned(tx, imageAssetId);
+    if (storageKey) keys.push(storageKey);
+  }
+  return keys;
+}
+
+/**
+ * Permanent Recipe deletion (ARCHITECTURE_PROPOSAL.md §I/§H.1/§J's "Recipe"
+ * row): one transaction — a Recipe is never a PartLink target (§D.6), so it
+ * never needs the two-phase current-usage-resolution/materialization flow
+ * `deletePart` below implements; the ordinary cascade is always safe.
+ */
+async function deleteRecipe(ownerId: string, dishId: string): Promise<void> {
+  const dish = await getOwnedDishOrThrow(ownerId, dishId, "RECIPE");
+  const referencedImageAssetIds = await collectReferencedImageAssetIds(dish.id);
+
+  const orphanedStorageKeys = await prisma.$transaction(async (tx) => {
+    await revokeSharesAndCancelPendingShares(tx, dish.id);
+    await tx.dish.delete({ where: { id: dish.id } });
+    return deleteOrphanedImageAssets(tx, referencedImageAssetIds);
+  });
+
+  // Best-effort, after-commit external side effect (Arch §I) — never
+  // allowed to roll back the already-committed deletion above.
+  await Promise.all(
+    orphanedStorageKeys.map((key) => bestEffortDeleteBlob(key)),
+  );
+}
+
+/**
+ * Public delete entry point for both kinds — dispatches to the appropriate
+ * deletion model rather than exposing two differently-named actions.
+ * `deletePart` (below) is the settled two-phase model (Build Plan Review
+ * Gate 3): it aborts cleanly if any *current* usage still exists, leaving
+ * the caller to resolve them via `resolvePartUsageOccurrence` first.
  */
 export async function deleteDish(
   ownerId: string,
@@ -1110,49 +1499,421 @@ export async function deleteDish(
   kind?: DishKindValue,
 ): Promise<void> {
   const dish = await getOwnedDishOrThrow(ownerId, dishId, kind);
+  if (dish.kind === "PART") {
+    return deletePart(ownerId, dish.id);
+  }
+  return deleteRecipe(ownerId, dish.id);
+}
 
-  // Slice 5, ARCHITECTURE_PROPOSAL.md §D.2a: every distinct ImageAsset any
-  // of this Dish's own Versions reference, gathered *before* the cascading
-  // delete below removes those DishVersion rows — the reference-counted
-  // check afterward needs a candidate list to check, not a live query
-  // against rows that no longer exist.
-  const referencedImageAssets = await prisma.dishVersion.findMany({
-    where: { dishId: dish.id, imageAssetId: { not: null } },
-    select: { imageAssetId: true },
-    distinct: ["imageAssetId"],
+// Slice 6 post-gate, PRODUCT_SPEC.md §74.2/§74.3, ARCHITECTURE_PROPOSAL.md
+// §I's "Delete a referenced Part" row: the two-phase deletion model.
+// Phase 1 (`resolvePartUsageOccurrence`) resolves one current usage at a
+// time, each its own material-Version transaction on the affected
+// container, exactly like every other content-changing save in this file.
+// Phase 2 (`deletePart`, above the dispatcher) is the single final
+// transaction: re-query, abort if any current usage remains, materialize
+// every remaining (necessarily historical) LIVE reference, then delete.
+
+export type PartUsageResolutionKind = "DETACH" | "REPLACE" | "REMOVE";
+
+function nextTopLevelPosition(
+  sections: SectionInput[],
+  topLevelPartLinks: PartLinkInput[],
+): number {
+  const positions = [
+    ...sections.map((section) => section.position),
+    ...topLevelPartLinks.map((link) => link.position),
+  ];
+  return positions.length === 0 ? 0 : Math.max(...positions) + 1;
+}
+
+/**
+ * Splices shallow-detached content (`resolvePartVersionForDetach`'s
+ * result) into the container's own TOP-LEVEL sequence — new Sections and
+ * new top-level PartLinks are appended, assigned fresh positions
+ * continuing the unified sequence, in the same relative order they had
+ * inside the detached content itself.
+ */
+function appendDetachedTopLevel(
+  sections: SectionInput[],
+  topLevelPartLinks: PartLinkInput[],
+  detached: { sections: SectionInput[]; partLinks: PartLinkInput[] },
+): { sections: SectionInput[]; partLinks: PartLinkInput[] } {
+  let nextPosition = nextTopLevelPosition(sections, topLevelPartLinks);
+  const merged = [
+    ...detached.sections.map((item) => ({ kind: "section" as const, item })),
+    ...detached.partLinks.map((item) => ({ kind: "partLink" as const, item })),
+  ].sort((a, b) => a.item.position - b.item.position);
+
+  const newSections: SectionInput[] = [];
+  const newPartLinks: PartLinkInput[] = [];
+  for (const entry of merged) {
+    if (entry.kind === "section") {
+      newSections.push({ ...entry.item, position: nextPosition++ });
+    } else {
+      newPartLinks.push({ ...entry.item, position: nextPosition++ });
+    }
+  }
+  return {
+    sections: [...sections, ...newSections],
+    partLinks: [...topLevelPartLinks, ...newPartLinks],
+  };
+}
+
+/**
+ * Splices shallow-detached content into ONE existing Section, flattened —
+ * matching `SectionFields`'s own client-side Section-nested detach
+ * behavior (this schema has no Section-in-Section nesting, so a whole
+ * extracted Part's structure collapses into the one Section it was
+ * attached to).
+ */
+function spliceDetachedIntoSection(
+  section: SectionInput,
+  detached: { sections: SectionInput[]; partLinks: PartLinkInput[] },
+): SectionInput {
+  const newPartLinks = [
+    ...detached.sections.flatMap(
+      (detachedSection) => detachedSection.partLinks,
+    ),
+    ...detached.partLinks,
+  ].map((link, index) => ({
+    ...link,
+    position: section.partLinks.length + index,
+  }));
+  return {
+    ...section,
+    ingredients: [
+      ...section.ingredients,
+      ...detached.sections.flatMap(
+        (detachedSection) => detachedSection.ingredients,
+      ),
+    ],
+    instructions: [
+      ...section.instructions,
+      ...detached.sections.flatMap(
+        (detachedSection) => detachedSection.instructions,
+      ),
+    ],
+    partLinks: [...section.partLinks, ...newPartLinks],
+  };
+}
+
+/**
+ * Phase 1: resolves exactly ONE current usage occurrence (identified by its
+ * stable `lineageId`, matching every other occurrence-scoped Slice 6
+ * operation) — detach, replace, or remove, each its own material-Version
+ * transaction on the affected container (PRODUCT_SPEC.md §74.2: "create
+ * new Versions for changed current items"). Users may resolve occurrences
+ * incrementally, in any order, across separate calls.
+ */
+export async function resolvePartUsageOccurrence(
+  ownerId: string,
+  partDishId: string,
+  containerDishId: string,
+  lineageId: string,
+  resolution: PartUsageResolutionKind,
+  replacement?: { targetDishId: string; targetDishVersionId: string },
+): Promise<{ containerDishId: string; newVersionId: string }> {
+  const partDish = await getOwnedDishOrThrow(ownerId, partDishId, "PART");
+  const container = await getOwnedDishOrThrow(ownerId, containerDishId);
+  if (!container.currentVersionId) {
+    throw new NotFoundError("This item has no saved content.");
+  }
+  const base = await getDishScopedVersionContentOrThrow(
+    container.id,
+    container.currentVersionId,
+  );
+  const { sections, partLinks } = versionContentToInput(
+    base.sections,
+    base.partLinks,
+  );
+
+  const isThisOccurrence = (link: PartLinkInput) =>
+    link.lineageId === lineageId && link.targetDishId === partDish.id;
+
+  const topLevelIndex = partLinks.findIndex(isThisOccurrence);
+  const sectionIndex =
+    topLevelIndex === -1
+      ? sections.findIndex((section) =>
+          section.partLinks.some(isThisOccurrence),
+        )
+      : -1;
+
+  if (topLevelIndex === -1 && sectionIndex === -1) {
+    throw new NotFoundError(
+      "This occurrence is no longer present in the current version.",
+    );
+  }
+
+  const occurrence =
+    topLevelIndex !== -1
+      ? partLinks[topLevelIndex]
+      : sections[sectionIndex].partLinks.find(isThisOccurrence)!;
+
+  const partTitle = partDish.currentTitle ?? "this Part";
+  let updatedTopLevel = partLinks;
+  let updatedSections = sections;
+  let actionNote: string;
+
+  if (resolution === "REMOVE") {
+    if (topLevelIndex !== -1) {
+      updatedTopLevel = partLinks.filter((_, index) => index !== topLevelIndex);
+    } else {
+      updatedSections = sections.map((section, index) =>
+        index === sectionIndex
+          ? {
+              ...section,
+              partLinks: section.partLinks.filter(
+                (link) => !isThisOccurrence(link),
+              ),
+            }
+          : section,
+      );
+    }
+    actionNote = `Removed ${partTitle} (being deleted).`;
+  } else if (resolution === "REPLACE") {
+    if (!replacement) {
+      throw new ValidationError(
+        "Choose a Part to replace this occurrence with.",
+      );
+    }
+    await assertValidPartLinkTargets(prisma, ownerId, [replacement]);
+    const replaceOccurrence = (link: PartLinkInput): PartLinkInput =>
+      isThisOccurrence(link)
+        ? {
+            ...link,
+            targetDishId: replacement.targetDishId,
+            targetDishVersionId: replacement.targetDishVersionId,
+          }
+        : link;
+    if (topLevelIndex !== -1) {
+      updatedTopLevel = partLinks.map(replaceOccurrence);
+    } else {
+      updatedSections = sections.map((section, index) =>
+        index === sectionIndex
+          ? { ...section, partLinks: section.partLinks.map(replaceOccurrence) }
+          : section,
+      );
+    }
+    if (findDuplicatePartTargets(updatedSections, updatedTopLevel).length > 0) {
+      throw new ValidationError(
+        "That Part is already linked elsewhere in this item — choose a different Part.",
+      );
+    }
+    actionNote = `Replaced ${partTitle} (being deleted).`;
+  } else {
+    // DETACH — PRODUCT_SPEC.md §70.1/§74.2, with the occurrence's own
+    // multiplier applied to the localized quantities (PartLink multiplier
+    // requirements: "detachment applies it to localized quantities").
+    const detached = await resolvePartVersionForDetach(
+      ownerId,
+      occurrence.targetDishVersionId,
+      occurrence.multiplier,
+    );
+    if (topLevelIndex !== -1) {
+      const withoutOccurrence = partLinks.filter(
+        (_, index) => index !== topLevelIndex,
+      );
+      const appended = appendDetachedTopLevel(
+        sections,
+        withoutOccurrence,
+        detached,
+      );
+      updatedSections = appended.sections;
+      updatedTopLevel = appended.partLinks;
+    } else {
+      updatedSections = sections.map((section, index) =>
+        index === sectionIndex
+          ? spliceDetachedIntoSection(
+              {
+                ...section,
+                partLinks: section.partLinks.filter(
+                  (link) => !isThisOccurrence(link),
+                ),
+              },
+              detached,
+            )
+          : section,
+      );
+    }
+    actionNote = `Detached ${partTitle} (being deleted).`;
+  }
+
+  const sanitizedSections = removeEmptySections(updatedSections);
+  if (!hasMinimumContent(sanitizedSections, updatedTopLevel)) {
+    throw new ValidationError(
+      "Resolving this occurrence would leave the item with no content — detach or replace instead of removing.",
+    );
+  }
+
+  return withVersionAllocation(async (tx) => {
+    if (container.kind === "PART") {
+      await assertNoPartCycle(
+        tx,
+        container.id,
+        collectPartLinkEdges(sanitizedSections, updatedTopLevel),
+      );
+    }
+
+    const { majorVersion, minorVersion } = await nextVersionNumbers(
+      tx,
+      container.id,
+      base.majorVersion,
+      "MINOR",
+    );
+
+    const version = await tx.dishVersion.create({
+      data: {
+        dishId: container.id,
+        majorVersion,
+        minorVersion,
+        title: container.currentTitle ?? base.title,
+        description: base.description,
+        imageAssetId: base.imageAssetId,
+        yieldQuantity: base.yieldQuantity,
+        yieldUnit: base.yieldUnit,
+        prepTimeMinutes: base.prepTimeMinutes,
+        cookTimeMinutes: base.cookTimeMinutes,
+        difficulty: base.difficulty,
+        sourceVersionId: base.id,
+        versionNote: `${versionLabel(base.majorVersion, base.minorVersion)} → ${versionLabel(majorVersion, minorVersion)}:\n${actionNote}`,
+      },
+    });
+
+    const { sectionNames } = await insertSections(
+      tx,
+      version.id,
+      sanitizedSections,
+      updatedTopLevel,
+      { mintFreshLineage: false },
+    );
+
+    // Always current — `base` is always the container's own current
+    // Version (loaded via `container.currentVersionId` above), same
+    // reasoning as `propagateToOneContainer`.
+    await tx.dish.update({
+      where: { id: container.id },
+      data: {
+        currentVersionId: version.id,
+        currentStructuralSearchText: sectionNames.join(" ") || null,
+      },
+    });
+
+    return { containerDishId: container.id, newVersionId: version.id };
   });
+}
+
+/**
+ * Resolves a target Version's shallow content into a JSON-serializable
+ * snapshot for materialization — the same shallow resolution
+ * `resolvePartVersionForDetach` uses, but without lineage-stripping (a
+ * materialized snapshot is frozen history, never editable local content)
+ * and passed through a JSON round-trip so it's a plain `Prisma.
+ * InputJsonValue`, never a value carrying `undefined`s Prisma's Json
+ * column would reject.
+ */
+async function resolveMaterializedSnapshot(
+  tx: Prisma.TransactionClient,
+  targetDishVersionId: string,
+): Promise<{
+  content: Prisma.InputJsonValue;
+  versionLabelText: string;
+}> {
+  const version = await tx.dishVersion.findUniqueOrThrow({
+    where: { id: targetDishVersionId },
+    include: {
+      sections: sectionContentInclude,
+      partLinks: partLinkContentInclude,
+    },
+  });
+  const content = versionContentToInput(version.sections, version.partLinks);
+  return {
+    content: JSON.parse(JSON.stringify(content)) as Prisma.InputJsonValue,
+    versionLabelText: versionLabel(version.majorVersion, version.minorVersion),
+  };
+}
+
+/**
+ * Phase 2: the final deletion transaction (PRODUCT_SPEC.md §74.3/§74.5,
+ * ARCHITECTURE_PROPOSAL.md §I's "Delete a referenced Part" row, §H's
+ * materialization table). Re-queries every remaining `LIVE` `PartLink`
+ * referencing this Part; aborts cleanly if any of them is a *current*
+ * usage (Phase 1 wasn't completed for it) — every survivor at this point
+ * is therefore historical by construction, and gets converted in place to
+ * a frozen `MATERIALIZED` snapshot (the CHECK constraint on `linkState`,
+ * schema.prisma §D.6, is the database's own backstop that a row can never
+ * carry both live and materialized fields). Only then is the stable Part
+ * (and, via cascade, its own Versions/Sections/standalone Cooking-Session
+ * history) actually deleted, alongside the same share-revocation step
+ * `deleteRecipe` performs (Arch §I: a Part is shareable exactly like a
+ * Recipe).
+ */
+async function deletePart(ownerId: string, partDishId: string): Promise<void> {
+  const partDish = await getOwnedDishOrThrow(ownerId, partDishId, "PART");
+  const partTitle = partDish.currentTitle ?? "Untitled Part";
+  const referencedImageAssetIds = await collectReferencedImageAssetIds(
+    partDish.id,
+  );
 
   const orphanedStorageKeys = await prisma.$transaction(async (tx) => {
-    const now = new Date();
-    await tx.shareLink.updateMany({
-      where: {
-        OR: [{ currentDishId: dish.id }, { fixedDishId: dish.id }],
-        revokedAt: null,
+    // Step 1: re-query all remaining references.
+    const liveLinks = await tx.partLink.findMany({
+      where: { targetDishId: partDish.id, linkState: "LIVE" },
+      select: {
+        id: true,
+        containerVersionId: true,
+        targetDishVersionId: true,
+        containerVersion: {
+          select: { dish: { select: { currentVersionId: true } } },
+        },
       },
-      data: { revokedAt: now },
     });
-    await tx.directShare.updateMany({
-      where: { dishId: dish.id, status: "PENDING" },
-      data: { status: "CANCELED" },
-    });
-    await tx.dish.delete({ where: { id: dish.id } });
 
-    // Only now (after the cascade above already deleted every DishVersion
-    // that belonged to this Dish) does the reference count reflect reality
-    // — an ImageAsset shared with a surviving Version on a *different*
-    // Dish (this owner's duplicate, or another account's accepted copy,
-    // §D.2a) correctly comes back non-zero and is left alone.
-    const keys: string[] = [];
-    for (const { imageAssetId } of referencedImageAssets) {
-      if (!imageAssetId) continue;
-      const storageKey = await deleteImageAssetIfOrphaned(tx, imageAssetId);
-      if (storageKey) keys.push(storageKey);
+    // Step 2: abort cleanly if any CURRENT live usage still exists.
+    const currentUsages = liveLinks.filter(
+      (link) =>
+        link.containerVersion.dish.currentVersionId === link.containerVersionId,
+    );
+    if (currentUsages.length > 0) {
+      throw new PartHasLiveUsagesError(
+        `This Part still has ${currentUsages.length} current usage${
+          currentUsages.length === 1 ? "" : "s"
+        }. Resolve them first.`,
+      );
     }
-    return keys;
+
+    // Step 3: convert every remaining (necessarily historical) LIVE link
+    // into a static materialized snapshot of its exact pinned Part Version.
+    for (const link of liveLinks) {
+      const { content, versionLabelText } = await resolveMaterializedSnapshot(
+        tx,
+        link.targetDishVersionId!,
+      );
+      await tx.partLink.update({
+        where: { id: link.id },
+        data: {
+          linkState: "MATERIALIZED",
+          targetDishId: null,
+          targetDishVersionId: null,
+          materializedTitle: partTitle,
+          materializedVersionLabel: versionLabelText,
+          materializedContent: content,
+        },
+      });
+    }
+
+    // Steps 6-7: share revocation/cancellation, then the actual delete —
+    // cascades this Part's own Versions/Sections/Ingredients/Instructions/
+    // PartLinks and standalone Cooking-Session/Review/Rating history
+    // (PRODUCT_SPEC.md §74.4), same mechanism `deleteRecipe` uses.
+    await revokeSharesAndCancelPendingShares(tx, partDish.id);
+    await tx.dish.delete({ where: { id: partDish.id } });
+
+    return deleteOrphanedImageAssets(tx, referencedImageAssetIds);
   });
 
-  // Best-effort, after-commit external side effect (Arch §I) — never
-  // allowed to roll back the already-committed deletion above.
+  // Step 8 (commit) already happened above; this best-effort external side
+  // effect runs after, same posture as every other delete in this file.
   await Promise.all(
     orphanedStorageKeys.map((key) => bestEffortDeleteBlob(key)),
   );

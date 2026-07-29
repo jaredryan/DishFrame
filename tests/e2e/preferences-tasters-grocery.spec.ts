@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import path from "node:path";
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Locator, type Page } from "@playwright/test";
 
 type SeedCookie = {
   name: string;
@@ -38,6 +38,24 @@ function seed(...args: string[]): string {
 }
 
 /**
+ * GroceryCategoryManager and TasterManager both apply mutations to local
+ * state optimistically, before their Server Action's fetch resolves — so a
+ * client-side visibility assertion right after a click can pass before the
+ * mutation has actually reached the database. That's invisible normally,
+ * but a subsequent `page.reload()` re-fetches server truth, so it must wait
+ * for the real round trip, not just the optimistic render. Waiting for the
+ * action's own POST response here (registered before the click, so it can't
+ * resolve and be missed before we start listening) is what makes it safe to
+ * reload immediately afterward.
+ */
+async function clickAndWaitForServerAction(page: Page, locator: Locator) {
+  await Promise.all([
+    page.waitForResponse((response) => response.request().method() === "POST"),
+    locator.click(),
+  ]);
+}
+
+/**
  * Reorders a row one position up via dnd-kit's `KeyboardSensor` — its
  * standard, first-class accessible interaction (`src/lib/dnd/sensors.ts`
  * uses `sortableKeyboardCoordinates`, dnd-kit's default keyboard pattern):
@@ -65,7 +83,14 @@ async function reorderUpViaKeyboard(page: Page, handleName: string) {
   await page.waitForTimeout(150);
   await page.keyboard.press("ArrowUp");
   await page.waitForTimeout(150);
-  await page.keyboard.press("Space");
+  // The drop is what triggers `onDragEnd` → `persistOrder`'s fetch — wait
+  // for that response rather than a fixed delay, since callers that reload
+  // right after (the Tasters flow below) need the reorder to actually be
+  // persisted first.
+  await Promise.all([
+    page.waitForResponse((response) => response.request().method() === "POST"),
+    page.keyboard.press("Space"),
+  ]);
 }
 
 /**
@@ -133,11 +158,16 @@ test.describe("Settings: Preferences, Grocery Categories, and Tasters", () => {
     // that span (its immediate DOM parent), matching how a real pointer
     // interaction reaches it.
     await fallbackDelete.locator("xpath=..").hover();
+    // A generous timeout here, not the default: this only waits on a local
+    // Radix Tooltip open-delay (300ms), but that delay still runs on the
+    // main thread behind whatever else is happening in the browser tab, so
+    // it can lag well past 5s on a loaded machine without anything actually
+    // being broken.
     await expect(
       page.getByText(
         "Items that cannot be categorized automatically are placed here, so this category cannot be deleted.",
       ),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 15_000 });
 
     // --- Grocery Categories: create, rename, reorder, delete an ordinary one
     // (also exercises the create→rename→delete sequence for the stale-id
@@ -153,7 +183,10 @@ test.describe("Settings: Preferences, Grocery Categories, and Tasters", () => {
 
     await page.getByRole("button", { name: "Rename Spices" }).click();
     await page.getByLabel("Edit name for Spices").fill("Herbs & Spices");
-    await page.getByRole("button", { name: "Save" }).click();
+    await clickAndWaitForServerAction(
+      page,
+      page.getByRole("button", { name: "Save" }),
+    );
     await expect(page.getByText("Herbs & Spices")).toBeVisible();
     // Persisted correctly under the real server id, not a stale local one.
     await page.reload();
@@ -185,7 +218,10 @@ test.describe("Settings: Preferences, Grocery Categories, and Tasters", () => {
     );
     expect(indexAfter).toBe(indexBefore - 1);
 
-    await page.getByRole("button", { name: "Delete Herbs & Spices" }).click();
+    await clickAndWaitForServerAction(
+      page,
+      page.getByRole("button", { name: "Delete Herbs & Spices" }),
+    );
     // Exact match: dnd-kit's own accessibility live region can still
     // contain "Herbs & Spices" as a substring of an earlier reorder
     // announcement even after the row itself is gone, since the region's
@@ -213,11 +249,13 @@ test.describe("Settings: Preferences, Grocery Categories, and Tasters", () => {
     });
     await expect(ownerDelete).toBeDisabled();
     await ownerDelete.locator("xpath=..").hover();
+    // See the matching comment on the Grocery Categories fallback hover
+    // above — same Tooltip open-delay, same generous timeout.
     await expect(
       page.getByText(
         "This is the built-in Taster for your own ratings, so it can't be archived or deleted.",
       ),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 15_000 });
 
     // --- Tasters: create → rename → archive → delete, same session,
     // regression coverage for the stale-created-id bug (Gate 2 remediation)
@@ -283,11 +321,13 @@ test.describe("Settings: Preferences, Grocery Categories, and Tasters", () => {
 
     await page.getByRole("button", { name: "Rename Mom" }).click();
     await page.getByLabel("Edit name for Mom").fill("Mom (renamed)");
-    await page
-      .locator("form")
-      .filter({ has: page.getByLabel("Edit name for Mom") })
-      .getByRole("button", { name: "Save" })
-      .click();
+    await clickAndWaitForServerAction(
+      page,
+      page
+        .locator("form")
+        .filter({ has: page.getByLabel("Edit name for Mom") })
+        .getByRole("button", { name: "Save" }),
+    );
     await expect(page.getByText("Mom (renamed)")).toBeVisible();
     await page.reload();
     // If rename had used a stale (locally fabricated) id, the server-side
@@ -296,12 +336,18 @@ test.describe("Settings: Preferences, Grocery Categories, and Tasters", () => {
     // reload is exactly what catches that regression.
     await expect(page.getByText("Mom (renamed)")).toBeVisible();
 
-    await page.getByRole("button", { name: "Archive Mom (renamed)" }).click();
+    await clickAndWaitForServerAction(
+      page,
+      page.getByRole("button", { name: "Archive Mom (renamed)" }),
+    );
     await expect(page.getByText("Archived")).toBeVisible();
     await page.reload();
     await expect(page.getByText("Archived")).toBeVisible();
 
-    await page.getByRole("button", { name: "Delete Mom (renamed)" }).click();
+    await clickAndWaitForServerAction(
+      page,
+      page.getByRole("button", { name: "Delete Mom (renamed)" }),
+    );
     await expect(page.getByText("Mom (renamed)")).not.toBeVisible();
     await page.reload();
     await expect(page.getByText("Mom (renamed)")).not.toBeVisible();

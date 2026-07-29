@@ -1,6 +1,8 @@
 import { Prisma } from "@/generated/prisma/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { formatIngredientLine, decimalToNumber } from "@/lib/dishes/format";
+import { PartLinkTreeView } from "@/components/domain/dish/part-link-tree-view";
+import type { PartLinkTree } from "@/lib/sections/service";
 
 type VersionSectionRow = Prisma.SectionGetPayload<{
   include: {
@@ -11,18 +13,25 @@ type VersionSectionRow = Prisma.SectionGetPayload<{
 
 /**
  * Renders one Version's Sections/Ingredients/Instructions content — shared
- * by the Recipe/Part detail page (current Version) and the Version-history
- * page (any Version, current or historical), so the two never drift into
- * two slightly-different renderings of the same content shape.
+ * by the Version-history page (any Version, current or historical). Slice 6
+ * post-gate: `sectionPartLinks`/`topLevelPartLinks` are already-resolved
+ * trees, keyed by section index (the caller derives both from the same
+ * ordered `sections` array, so index-alignment is safe — see
+ * `dish-detail-view.tsx`'s `toDisplaySections` for the equivalent current-
+ * Version pattern).
  */
 export function VersionSectionsView({
   sections,
+  sectionPartLinks = [],
+  topLevelPartLinks = [],
 }: {
   sections: VersionSectionRow[];
+  sectionPartLinks?: PartLinkTree[][];
+  topLevelPartLinks?: PartLinkTree[];
 }) {
   return (
     <div className="flex flex-col gap-4">
-      {sections.map((section) => (
+      {sections.map((section, sectionIndex) => (
         <Card key={section.id}>
           <CardContent className="flex flex-col gap-3">
             {section.name && (
@@ -84,8 +93,22 @@ export function VersionSectionsView({
                 ))}
               </ol>
             )}
+
+            {(sectionPartLinks[sectionIndex] ?? []).map((tree) => (
+              <PartLinkTreeView
+                key={`${tree.targetDishId}:${tree.targetDishVersionId}`}
+                tree={tree}
+              />
+            ))}
           </CardContent>
         </Card>
+      ))}
+
+      {topLevelPartLinks.map((tree) => (
+        <PartLinkTreeView
+          key={`${tree.targetDishId}:${tree.targetDishVersionId}`}
+          tree={tree}
+        />
       ))}
     </div>
   );

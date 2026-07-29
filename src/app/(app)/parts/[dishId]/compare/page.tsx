@@ -14,10 +14,13 @@ import {
   compareDishVersions,
   pickDefaultComparisonPair,
   type VersionCompareInput,
+  type VersionComparisonResult,
 } from "@/lib/dishes/compare";
 import { versionContentToInput } from "@/lib/dishes/mappers";
 import { decimalToNumber } from "@/lib/dishes/format";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
+import { resolvePartLinkDisplayInfo } from "@/lib/sections/service";
+import type { PartLinkLabelMap } from "@/components/domain/dish/version-compare-view";
 
 export const metadata: Metadata = {
   title: "Compare versions",
@@ -32,6 +35,7 @@ async function toCompareInput(
   minorVersion: number;
 }> {
   const version = await getDishScopedVersionContentOrThrow(dishId, versionId);
+  const content = versionContentToInput(version.sections, version.partLinks);
   return {
     majorVersion: version.majorVersion,
     minorVersion: version.minorVersion,
@@ -50,10 +54,61 @@ async function toCompareInput(
         carbs: decimalToNumber(version.carbs),
         fat: decimalToNumber(version.fat),
       },
-      sections: versionContentToInput(version.sections, version.partLinks)
-        .sections,
+      sections: content.sections,
+      partLinks: content.partLinks,
     },
   };
+}
+
+/** §68.5: a linked Part's displayed title/Version label is always a live
+ * lookup, never anything pinned at attach time — resolved once here for
+ * every distinct occurrence the comparison touches, gracefully falling back
+ * for a Part deleted since (materialized, no longer resolvable). */
+async function resolvePartLinkLabels(
+  ownerId: string,
+  result: VersionComparisonResult,
+): Promise<PartLinkLabelMap> {
+  const pairs = new Map<
+    string,
+    { targetDishId: string; targetDishVersionId: string }
+  >();
+  function collect(
+    entries: { targetDishId: string; targetDishVersionId: string }[],
+  ) {
+    for (const entry of entries) {
+      pairs.set(`${entry.targetDishId}:${entry.targetDishVersionId}`, entry);
+    }
+  }
+  collect(result.partLinks.added);
+  collect(result.partLinks.removed);
+  collect(result.partLinks.changed.map((change) => change.before));
+  collect(result.partLinks.changed.map((change) => change.after));
+
+  const labels: PartLinkLabelMap = {};
+  await Promise.all(
+    [...pairs.entries()].map(
+      async ([key, { targetDishId, targetDishVersionId }]) => {
+        try {
+          const info = await resolvePartLinkDisplayInfo(
+            ownerId,
+            targetDishId,
+            targetDishVersionId,
+          );
+          labels[key] = {
+            title: info.title,
+            versionLabel: `V${info.majorVersion}.${info.minorVersion}`,
+          };
+        } catch (error) {
+          if (error instanceof NotFoundError) {
+            labels[key] = { title: null, versionLabel: "" };
+          } else {
+            throw error;
+          }
+        }
+      },
+    ),
+  );
+  return labels;
 }
 
 export default async function PartComparePage({
@@ -118,6 +173,7 @@ export default async function PartComparePage({
     toCompareInput(dish.id, toId),
   ]);
   const result = compareDishVersions(fromVersion.input, toVersion.input);
+  const partLinkLabels = await resolvePartLinkLabels(session.user.id, result);
   const fromLabel = `V${fromVersion.majorVersion}.${fromVersion.minorVersion}`;
   const toLabel = `V${toVersion.majorVersion}.${toVersion.minorVersion}`;
 
@@ -140,6 +196,7 @@ export default async function PartComparePage({
         result={result}
         fromLabel={fromLabel}
         toLabel={toLabel}
+        partLinkLabels={partLinkLabels}
       />
     </div>
   );

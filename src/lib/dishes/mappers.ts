@@ -80,6 +80,11 @@ export function toPartLinkInput(partLink: VersionPartLinkRow): PartLinkInput {
     lineageId: partLink.lineageId,
     targetDishId: partLink.targetDishId,
     targetDishVersionId: partLink.targetDishVersionId,
+    position: partLink.position,
+    // Never actually null (schema.prisma default 1, NOT NULL) — the `?? 1`
+    // is defensive typing only, matching decimalToNumber's general nullable
+    // signature.
+    multiplier: decimalToNumber(partLink.multiplier) ?? 1,
   };
 }
 
@@ -121,6 +126,7 @@ export function versionContentToInput(
       lineageId: section.lineageId,
       name: section.name,
       guidanceNote: section.guidanceNote,
+      position: section.position,
       ingredients: section.ingredients
         .filter((ingredient) => ingredient.substituteForIngredientId === null)
         .map(toIngredientInput),

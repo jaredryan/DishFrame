@@ -35,6 +35,20 @@ export class ConflictError extends Error {
   }
 }
 
+/**
+ * PRODUCT_SPEC.md §74.2: thrown by `deletePart` when current usages still
+ * exist — a distinguishable subtype of `ValidationError` (still caught by
+ * every existing `instanceof ValidationError` check/`toActionErrorMessage`)
+ * so `deleteDish`'s action can additionally detect this specific case and
+ * route the UI into the usage-resolution flow instead of a plain error.
+ */
+export class PartHasLiveUsagesError extends ValidationError {
+  constructor(message: string) {
+    super(message);
+    this.name = "PartHasLiveUsagesError";
+  }
+}
+
 export type ActionResult<T = undefined> =
   | ({ ok: true } & (T extends undefined ? object : { data: T }))
   | { ok: false; message: string };

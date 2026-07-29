@@ -14,10 +14,16 @@ import { dishBasePath } from "@/components/domain/dish/dish-card";
 import type { DishKindValue } from "@/lib/dishes/schema";
 import {
   listCurrentPartUsages,
+  listAttachableParts,
   type dishDetailInclude,
   type sectionContentInclude,
 } from "@/lib/dishes/queries";
 import { decimalToNumber } from "@/lib/dishes/format";
+import { versionContentToInput } from "@/lib/dishes/mappers";
+import {
+  resolvePartLinkTrees,
+  type PartLinkTree,
+} from "@/lib/sections/service";
 
 type DishDetail = Prisma.DishGetPayload<{ include: typeof dishDetailInclude }>;
 type VersionSectionRow = Prisma.SectionGetPayload<{
@@ -36,11 +42,15 @@ function formatQuantity(value: Prisma.Decimal | null): string | null {
  * not a real `Decimal` instance). This Server Component does the
  * Decimal→number conversion once, here, before handing sections down.
  */
-function toDisplaySections(sections: VersionSectionRow[]): ScaledSectionRow[] {
-  return sections.map((section) => ({
+function toDisplaySections(
+  sections: VersionSectionRow[],
+  sectionPartLinkTreeLists: PartLinkTree[][],
+): ScaledSectionRow[] {
+  return sections.map((section, index) => ({
     id: section.id,
     name: section.name,
     guidanceNote: section.guidanceNote,
+    partLinks: sectionPartLinkTreeLists[index] ?? [],
     ingredients: section.ingredients.map((ingredient) => ({
       id: ingredient.id,
       lineageId: ingredient.lineageId,
@@ -85,6 +95,10 @@ export async function DishDetailView({
   // PartLink target, so it can never have "usages" of its own.
   const usages =
     kind === "PART" ? await listCurrentPartUsages(dish.ownerId, dish.id) : null;
+  // §74.2: replacement candidates for the delete-resolution flow, excluding
+  // this Part itself.
+  const attachableParts =
+    kind === "PART" ? await listAttachableParts(dish.ownerId, dish.id) : [];
 
   if (!version) {
     return (
@@ -93,6 +107,19 @@ export async function DishDetailView({
       </p>
     );
   }
+
+  // Slice 6 post-gate, §67.4: linked Parts (top-level and Section-nested)
+  // render their full pinned content inline on the detail page — resolved
+  // server-side here, once, rather than as client-side fetches.
+  const { sections: sectionPartLinkInputs, partLinks: topLevelPartLinkInputs } =
+    versionContentToInput(version.sections, version.partLinks);
+  const [topLevelPartLinkTrees, ...sectionPartLinkTreeLists] =
+    await Promise.all([
+      resolvePartLinkTrees(dish.ownerId, topLevelPartLinkInputs),
+      ...sectionPartLinkInputs.map((section) =>
+        resolvePartLinkTrees(dish.ownerId, section.partLinks),
+      ),
+    ]);
 
   const versionLabel = `V${version.majorVersion}.${version.minorVersion}`;
   const collectionLabel = kind === "PART" ? "Parts" : "Recipes";
@@ -149,7 +176,12 @@ export async function DishDetailView({
           {version.difficulty && <span>{version.difficulty}</span>}
         </div>
 
-        <DishDetailActions dishId={dish.id} kind={kind} stage={dish.stage} />
+        <DishDetailActions
+          dishId={dish.id}
+          kind={kind}
+          stage={dish.stage}
+          attachableParts={attachableParts}
+        />
 
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <Link
@@ -178,6 +210,7 @@ export async function DishDetailView({
           <PartUsagePanel
             usages={usages ?? []}
             currentVersionId={dish.currentVersionId}
+            partDishId={dish.id}
           />
         )}
       </div>
@@ -185,7 +218,8 @@ export async function DishDetailView({
       <ScaledVersionView
         kind={kind}
         dishId={dish.id}
-        sections={toDisplaySections(version.sections)}
+        sections={toDisplaySections(version.sections, sectionPartLinkTreeLists)}
+        topLevelPartLinks={topLevelPartLinkTrees}
         yieldQuantity={decimalToNumber(version.yieldQuantity)}
         yieldUnit={version.yieldUnit}
         defaultBatchQuantity={decimalToNumber(dish.defaultBatchQuantity)}

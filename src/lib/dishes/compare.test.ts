@@ -8,6 +8,7 @@ import {
 import type {
   IngredientInput,
   InstructionInput,
+  PartLinkInput,
   SectionInput,
 } from "@/lib/dishes/schema";
 
@@ -45,6 +46,18 @@ function section(overrides: Partial<SectionInput> = {}): SectionInput {
     ingredients: [],
     instructions: [],
     partLinks: [],
+    position: 0,
+    ...overrides,
+  };
+}
+
+function partLink(overrides: Partial<PartLinkInput> = {}): PartLinkInput {
+  return {
+    lineageId: "link-1",
+    targetDishId: "part-1",
+    targetDishVersionId: "part-1-v1",
+    position: 0,
+    multiplier: 1,
     ...overrides,
   };
 }
@@ -63,6 +76,7 @@ function snapshot(
     },
     nutrition: { calories: null, protein: null, carbs: null, fat: null },
     sections: [],
+    partLinks: [],
     ...overrides,
   };
 }
@@ -386,6 +400,168 @@ describe("compareDishVersions", () => {
     expect(keys).not.toContain("imageAssetId");
     const result = compareDishVersions(before, after);
     expect(result.metadata).toEqual([]);
+  });
+
+  // Slice 6 post-gate, PRODUCT_SPEC.md §67-70: linked Parts (top-level and
+  // Section-nested) compare the same way ingredients/instructions do —
+  // matched by lineageId, spanning both `partLinks` and `section.partLinks`.
+  it("reports a PartLink present only in after as added", () => {
+    const before = snapshot({ partLinks: [] });
+    const after = snapshot({ partLinks: [partLink({ lineageId: "link-1" })] });
+    const result = compareDishVersions(before, after);
+    expect(result.partLinks.added).toEqual([
+      {
+        lineageId: "link-1",
+        targetDishId: "part-1",
+        targetDishVersionId: "part-1-v1",
+        multiplier: 1,
+      },
+    ]);
+  });
+
+  it("reports a PartLink present only in before as removed", () => {
+    const before = snapshot({ partLinks: [partLink({ lineageId: "link-1" })] });
+    const after = snapshot({ partLinks: [] });
+    const result = compareDishVersions(before, after);
+    expect(result.partLinks.removed).toEqual([
+      {
+        lineageId: "link-1",
+        targetDishId: "part-1",
+        targetDishVersionId: "part-1-v1",
+        multiplier: 1,
+      },
+    ]);
+  });
+
+  it("reports a retargeted PartLink (same Part, different Version) as changed", () => {
+    const before = snapshot({
+      partLinks: [
+        partLink({ lineageId: "link-1", targetDishVersionId: "part-1-v1" }),
+      ],
+    });
+    const after = snapshot({
+      partLinks: [
+        partLink({ lineageId: "link-1", targetDishVersionId: "part-1-v2" }),
+      ],
+    });
+    const result = compareDishVersions(before, after);
+    expect(result.partLinks.changed).toHaveLength(1);
+    expect(result.partLinks.changed[0].lineageId).toBe("link-1");
+    expect(result.partLinks.changed[0].retargeted).toBe(true);
+    expect(result.partLinks.changed[0].multiplierChanged).toBe(false);
+  });
+
+  it("reports a PartLink retargeted to an entirely different Part as changed", () => {
+    const before = snapshot({
+      partLinks: [partLink({ lineageId: "link-1", targetDishId: "part-1" })],
+    });
+    const after = snapshot({
+      partLinks: [
+        partLink({
+          lineageId: "link-1",
+          targetDishId: "part-2",
+          targetDishVersionId: "part-2-v1",
+        }),
+      ],
+    });
+    const result = compareDishVersions(before, after);
+    expect(result.partLinks.changed).toHaveLength(1);
+    expect(result.partLinks.changed[0].retargeted).toBe(true);
+  });
+
+  it("reports a multiplier-only change as changed, with multiplierChanged true and retargeted false", () => {
+    const before = snapshot({
+      partLinks: [partLink({ lineageId: "link-1", multiplier: 1 })],
+    });
+    const after = snapshot({
+      partLinks: [partLink({ lineageId: "link-1", multiplier: 2 })],
+    });
+    const result = compareDishVersions(before, after);
+    expect(result.partLinks.changed).toHaveLength(1);
+    expect(result.partLinks.changed[0].retargeted).toBe(false);
+    expect(result.partLinks.changed[0].multiplierChanged).toBe(true);
+  });
+
+  it("does not report a change for an unchanged PartLink (no false positive)", () => {
+    const before = snapshot({ partLinks: [partLink({ lineageId: "link-1" })] });
+    const after = snapshot({ partLinks: [partLink({ lineageId: "link-1" })] });
+    const result = compareDishVersions(before, after);
+    expect(result.partLinks.added).toEqual([]);
+    expect(result.partLinks.removed).toEqual([]);
+    expect(result.partLinks.changed).toEqual([]);
+    expect(result.partLinks.reordered).toBe(false);
+  });
+
+  it("reports a PartLink reorder via `reordered`", () => {
+    const before = snapshot({
+      partLinks: [
+        partLink({ lineageId: "link-1", targetDishId: "part-1" }),
+        partLink({
+          lineageId: "link-2",
+          targetDishId: "part-2",
+          targetDishVersionId: "part-2-v1",
+        }),
+      ],
+    });
+    const after = snapshot({
+      partLinks: [
+        partLink({
+          lineageId: "link-2",
+          targetDishId: "part-2",
+          targetDishVersionId: "part-2-v1",
+        }),
+        partLink({ lineageId: "link-1", targetDishId: "part-1" }),
+      ],
+    });
+    const result = compareDishVersions(before, after);
+    expect(result.partLinks.changed).toEqual([]);
+    expect(result.partLinks.reordered).toBe(true);
+  });
+
+  it("detects a Section-nested PartLink the same way as a top-level one", () => {
+    const before = snapshot({
+      sections: [
+        section({
+          partLinks: [partLink({ lineageId: "link-1", multiplier: 1 })],
+        }),
+      ],
+    });
+    const after = snapshot({
+      sections: [
+        section({
+          partLinks: [partLink({ lineageId: "link-1", multiplier: 2 })],
+        }),
+      ],
+    });
+    const result = compareDishVersions(before, after);
+    expect(result.partLinks.changed).toHaveLength(1);
+    expect(result.partLinks.changed[0].multiplierChanged).toBe(true);
+  });
+
+  it("sets hasChanges true when only a partLinks-group change exists", () => {
+    const before = snapshot({ partLinks: [] });
+    const after = snapshot({ partLinks: [partLink({ lineageId: "link-1" })] });
+    const result = compareDishVersions(before, after);
+    expect(result.hasChanges).toBe(true);
+    expect(result.metadata).toEqual([]);
+    expect(result.nutrition).toEqual([]);
+    expect(result.sections).toEqual({
+      added: [],
+      removed: [],
+      reordered: false,
+    });
+    expect(result.ingredients).toEqual({
+      added: [],
+      removed: [],
+      changed: [],
+      reordered: false,
+    });
+    expect(result.instructions).toEqual({
+      added: [],
+      removed: [],
+      changed: [],
+      reordered: false,
+    });
   });
 });
 

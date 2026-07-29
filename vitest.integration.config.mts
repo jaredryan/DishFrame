@@ -27,6 +27,14 @@ export default defineConfig({
     setupFiles: ["./src/test/integration-setup.ts"],
     hookTimeout: 30_000,
     testTimeout: 30_000,
+    // Same shared-local-Postgres parallelism flake `verify:e2e`'s
+    // single-worker Playwright config already works around: separate test
+    // files running concurrently can hit genuine SERIALIZABLE write
+    // conflicts against the same Postgres instance even when they touch
+    // unrelated rows (Postgres's SSI can false-positive on overlapping
+    // predicate/index-range reads). Files within this suite are otherwise
+    // independent, so running them sequentially costs time, not coverage.
+    fileParallelism: false,
   },
   resolve: {
     alias: {

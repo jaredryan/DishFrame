@@ -12,6 +12,8 @@ import {
   savePreferredUnitOverride,
   clearPreferredUnitOverride,
 } from "@/lib/dishes/actions";
+import { PartLinkTreeView } from "@/components/domain/dish/part-link-tree-view";
+import type { PartLinkTree } from "@/lib/sections/service";
 import type { DishKindValue } from "@/lib/dishes/schema";
 
 /**
@@ -54,6 +56,7 @@ export type ScaledSectionRow = {
   guidanceNote: string | null;
   ingredients: ScaledIngredientRow[];
   instructions: { id: string; text: string }[];
+  partLinks: PartLinkTree[];
 };
 
 /**
@@ -76,6 +79,7 @@ export function ScaledVersionView({
   kind,
   dishId,
   sections,
+  topLevelPartLinks,
   yieldQuantity,
   yieldUnit,
   defaultBatchQuantity,
@@ -85,6 +89,7 @@ export function ScaledVersionView({
   kind: DishKindValue;
   dishId: string;
   sections: ScaledSectionRow[];
+  topLevelPartLinks: PartLinkTree[];
   yieldQuantity: number | null;
   yieldUnit: string | null;
   defaultBatchQuantity: number | null;
@@ -385,8 +390,24 @@ export function ScaledVersionView({
                 ))}
               </ol>
             )}
+
+            {section.partLinks.map((tree) => (
+              <PartLinkTreeView
+                key={`${tree.targetDishId}:${tree.targetDishVersionId}`}
+                tree={tree}
+                scaleFactor={scaleFactor}
+              />
+            ))}
           </CardContent>
         </Card>
+      ))}
+
+      {topLevelPartLinks.map((tree) => (
+        <PartLinkTreeView
+          key={`${tree.targetDishId}:${tree.targetDishVersionId}`}
+          tree={tree}
+          scaleFactor={scaleFactor}
+        />
       ))}
     </div>
   );

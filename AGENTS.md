@@ -17,6 +17,27 @@ This version has breaking changes — APIs, conventions, and file structure may 
   in that turn. Leave changes staged/unstaged for the user to review and
   commit themselves.
 
+# Subagent delegation and model selection
+
+General rubric lives in the global `~/.claude/CLAUDE.md` ("Subagent
+usage judgment" and "Subagent model selection"); this section only adds
+DishFrame-specific examples, it doesn't restate the rubric.
+
+- **`verify:feature` is a good Haiku-subagent candidate.** The self-run
+  check (`CLAUDE.md`'s verification section) is mechanical — invoke,
+  parse pass/fail, summarize — and can produce noisy lint/typecheck/
+  test/build output. When a run is expected to be noisy, dispatching a
+  Haiku subagent to run it and return only a pass/fail + failure summary
+  keeps that log out of the main session. This changes _how_ the output
+  reaches this session, not _whether_/_when_ `verify:feature` self-runs.
+- **Reading canonical docs for synthesis stays a capable-model job.**
+  Delegating a read of `docs/PRODUCT_SPEC.md`,
+  `docs/ARCHITECTURE_PROPOSAL.md`, etc. for a conclusion (not a simple
+  lookup) needs Sonnet/Opus doing the reading — a weak model misreading
+  nuance here can silently corrupt a product/architecture decision.
+  Delegate these only for context protection, never to save cost on
+  model tier.
+
 # Product spec authority
 
 Slice reports (`docs/SLICE_*.md`, follow-up reports, and any other
@@ -97,19 +118,37 @@ The implementation agent:
 - writes stable automated tests for domain contracts, validation,
   authorization, integrity rules, and mature workflows;
 - documents which tests were added;
-- does **not** run those tests, broad verification, typechecking,
-  linting, builds, or Playwright during a normal implementation pass;
-- may run a failing subcommand only when the owner explicitly returns a
-  failure and asks for a debugging pass.
+- does **not** run `verify:backend`, `verify:fullstack`, `verify:all`,
+  Playwright, or migration/db scripts on its own initiative during a
+  normal implementation pass;
+- **self-initiated exception (added 2026-07-27):** after completing a
+  major prompt — a slice, or a large polish/revision pass, not a small
+  isolated edit — runs `pnpm run verify:feature` (see `CLAUDE.md` for the
+  script's exact composition) without being asked, since it's the
+  low-cost subset that excludes Playwright. If it fails, fixes the
+  failure narrowly, reruns `verify:feature` to confirm, and reports both
+  the original failure and the fix in the completion report. This does
+  not extend to `verify:backend`/`verify:fullstack`/`verify:all`/
+  Playwright themselves — those stay owner-run. If `verify:feature` fails
+  because Docker Desktop itself isn't running, start it directly and wait
+  for it rather than stopping to ask (see `CLAUDE.md`'s verification
+  section for the exact procedure) — this is autonomous, not something to
+  confirm with the owner first;
+- may also run a failing subcommand narrowly when the owner explicitly
+  returns a _different_ failure (e.g. from a Playwright run) and asks for
+  a debugging pass — never re-running the broader suite or any Playwright
+  test itself under this exception.
 
 The owner:
 
-- runs the broad completion command after the implementation pass;
+- runs the broad completion command (`verify:all`) after the
+  implementation pass;
 - returns failures to the implementation agent for targeted debugging;
 - performs Git inspection, commits, and pushes.
 
-Do not treat tests as having passed until the owner reports the
-verification result.
+Do not treat tests as having passed until either the owner reports the
+verification result, or (for the self-run `verify:feature` check
+specifically) that check has completed and been reported.
 
 ## Manual review is separate from automated verification
 

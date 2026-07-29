@@ -41,6 +41,7 @@ function content(overrides: Partial<DishContentInput> = {}): DishContentInput {
       {
         name: null,
         guidanceNote: null,
+        position: 0,
         ingredients: [
           {
             name: "Salt",

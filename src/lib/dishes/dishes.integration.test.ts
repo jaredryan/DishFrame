@@ -13,12 +13,15 @@ import {
   AuthorizationError,
   NotFoundError,
   ValidationError,
+  PartHasLiveUsagesError,
 } from "@/lib/errors";
 import { decimalToNumber } from "@/lib/dishes/format";
 import {
   listCurrentPartUsages,
   listAttachableParts,
+  getDishScopedVersionContentOrThrow,
 } from "@/lib/dishes/queries";
+import { versionContentToInput } from "@/lib/dishes/mappers";
 
 // Slice 5: `deleteDish`'s reference-counted image cleanup calls
 // `bestEffortDeleteBlob` (`src/lib/images/service.ts`), which calls
@@ -44,6 +47,7 @@ function content(overrides: Partial<DishContentInput> = {}): DishContentInput {
       {
         name: null,
         guidanceNote: null,
+        position: 0,
         ingredients: [
           {
             name: "Salt",
@@ -95,6 +99,15 @@ async function versionCount(dishId: string) {
   return prisma.dishVersion.count({ where: { dishId } });
 }
 
+// Slice 6 post-gate: loads a persisted Version's content back into
+// SectionInput/PartLinkInput shape via the same mapper `service.ts` itself
+// uses for diffing/duplication/promotion — one shared read path, not a
+// second one the new tests below could drift from.
+async function loadContent(dishId: string, versionId: string) {
+  const version = await getDishScopedVersionContentOrThrow(dishId, versionId);
+  return versionContentToInput(version.sections, version.partLinks);
+}
+
 // Rebuilds the single default Section/Ingredient with their real, already-
 // persisted lineageIds — mirroring what `dishToFormValues` sends for
 // content the user left untouched. `content()`'s own default ingredient
@@ -112,6 +125,7 @@ function unchangedSections(
       lineageId: section.lineageId,
       name: null,
       guidanceNote: null,
+      position: 0,
       ingredients: [
         { lineageId: ingredient.lineageId, ...blankIngredient("Salt") },
       ],
@@ -163,6 +177,7 @@ describe("dishes service", () => {
               {
                 name: null,
                 guidanceNote: null,
+                position: 0,
                 ingredients: [],
                 instructions: [],
                 partLinks: [],
@@ -324,6 +339,7 @@ describe("dishes service", () => {
               lineageId: originalSection.lineageId,
               name: null,
               guidanceNote: null,
+              position: 0,
               ingredients: [
                 {
                   lineageId: originalIngredient.lineageId,
@@ -372,6 +388,7 @@ describe("dishes service", () => {
               lineageId: originalSection.lineageId,
               name: null,
               guidanceNote: null,
+              position: 0,
               ingredients: [
                 {
                   lineageId: originalIngredient.lineageId,
@@ -407,6 +424,7 @@ describe("dishes service", () => {
             {
               name: null,
               guidanceNote: null,
+              position: 0,
               ingredients: [blankIngredient("Salt"), blankIngredient("Pepper")],
               instructions: [],
               partLinks: [],
@@ -425,6 +443,7 @@ describe("dishes service", () => {
             lineageId: section.lineageId,
             name: null,
             guidanceNote: null,
+            position: 0,
             ingredients,
             instructions: [],
             partLinks: [],
@@ -665,6 +684,7 @@ describe("dishes service", () => {
             {
               name: null,
               guidanceNote: null,
+              position: 0,
               ingredients: [blankIngredient("Ginger")],
               instructions: [],
               partLinks: [],
@@ -697,6 +717,7 @@ describe("dishes service", () => {
               lineageId: historicalBase.sections[0].lineageId,
               name: null,
               guidanceNote: null,
+              position: 0,
               ingredients: [
                 {
                   lineageId:
@@ -752,6 +773,7 @@ describe("dishes service", () => {
               lineageId: historicalBase.sections[0].lineageId,
               name: null,
               guidanceNote: null,
+              position: 0,
               ingredients: [
                 {
                   lineageId:
@@ -1122,6 +1144,7 @@ describe("dishes service", () => {
           {
             name: null,
             guidanceNote: null,
+            position: 0,
             ingredients: [
               {
                 name: "Broth",
@@ -1169,6 +1192,7 @@ describe("dishes service", () => {
               lineageId: created.currentVersion!.sections[0].lineageId,
               name: null,
               guidanceNote: null,
+              position: 0,
               ingredients: [
                 {
                   lineageId: createdIngredient.lineageId,
@@ -1209,6 +1233,7 @@ describe("dishes service", () => {
           {
             name: null,
             guidanceNote: null,
+            position: 0,
             ingredients: [
               {
                 name: "Salt",
@@ -1255,6 +1280,7 @@ describe("dishes service", () => {
           {
             name: null,
             guidanceNote: null,
+            position: 0,
             ingredients: [
               {
                 name: "Soy sauce",
@@ -1300,6 +1326,7 @@ describe("dishes service", () => {
           {
             name: null,
             guidanceNote: null,
+            position: 0,
             ingredients: [
               {
                 name: "Soy sauce",
@@ -1341,6 +1368,7 @@ describe("dishes service", () => {
           {
             name: null,
             guidanceNote: null,
+            position: 0,
             ingredients: [
               {
                 name: "Soy sauce",
@@ -1405,6 +1433,7 @@ describe("dishes service", () => {
             {
               name: null,
               guidanceNote: null,
+              position: 0,
               ingredients: [
                 {
                   ...blankIngredient("Soy sauce"),
@@ -1444,6 +1473,7 @@ describe("dishes service", () => {
               {
                 name: null,
                 guidanceNote: null,
+                position: 0,
                 ingredients: [
                   {
                     ...blankIngredient("Soy sauce"),
@@ -1476,6 +1506,7 @@ describe("dishes service", () => {
             {
               name: null,
               guidanceNote: null,
+              position: 0,
               ingredients: [
                 {
                   ...blankIngredient("Soy sauce"),
@@ -1529,6 +1560,7 @@ describe("dishes service", () => {
             {
               name: null,
               guidanceNote: null,
+              position: 0,
               ingredients: [
                 {
                   ...blankIngredient("Broth"),
@@ -1569,6 +1601,7 @@ describe("dishes service", () => {
               lineageId: section.lineageId,
               name: null,
               guidanceNote: null,
+              position: 0,
               ingredients: [
                 {
                   lineageId: ingredient.lineageId,
@@ -1604,6 +1637,7 @@ describe("dishes service", () => {
             {
               name: null,
               guidanceNote: null,
+              position: 0,
               ingredients: [{ ...blankIngredient("Broth"), quantity: 1.5 }],
               instructions: [],
               partLinks: [],
@@ -1986,6 +2020,7 @@ describe("dishes service", () => {
               lineageId: section.lineageId,
               name: null,
               guidanceNote: null,
+              position: 0,
               ingredients: [
                 {
                   lineageId: ingredient.lineageId,
@@ -2039,6 +2074,7 @@ describe("dishes service", () => {
               lineageId: section.lineageId,
               name: null,
               guidanceNote: null,
+              position: 0,
               ingredients: [
                 {
                   lineageId: ingredient.lineageId,
@@ -2227,6 +2263,7 @@ describe("dishes service", () => {
               lineageId: section.lineageId,
               name: null,
               guidanceNote: null,
+              position: 0,
               ingredients: [
                 {
                   lineageId: ingredient.lineageId,
@@ -2275,6 +2312,7 @@ describe("dishes service", () => {
               lineageId: section.lineageId,
               name: null,
               guidanceNote: null,
+              position: 0,
               ingredients: [
                 {
                   lineageId: ingredient.lineageId,
@@ -2452,6 +2490,7 @@ describe("dishes service", () => {
             {
               name: null,
               guidanceNote: null,
+              position: 0,
               ingredients: [blankIngredient("Ginger")],
               instructions: [],
               partLinks: [],
@@ -2757,7 +2796,12 @@ describe("Slice 6 — linked Parts", () => {
           {
             ...content({ sections: unchangedSections(dish) }),
             partLinks: [
-              { targetDishId: partDishId, targetDishVersionId: partVersionId },
+              {
+                targetDishId: partDishId,
+                targetDishVersionId: partVersionId,
+                position: 0,
+                multiplier: 1,
+              },
             ],
           },
           undefined,
@@ -2771,7 +2815,12 @@ describe("Slice 6 — linked Parts", () => {
         {
           ...content({ sections: unchangedSections(dish) }),
           partLinks: [
-            { targetDishId: partDishId, targetDishVersionId: partVersionId },
+            {
+              targetDishId: partDishId,
+              targetDishVersionId: partVersionId,
+              position: 0,
+              multiplier: 1,
+            },
           ],
         },
         "MINOR",
@@ -2811,7 +2860,12 @@ describe("Slice 6 — linked Parts", () => {
         {
           ...content({ sections: unchangedSections(dish) }),
           partLinks: [
-            { targetDishId: partDishId, targetDishVersionId: partVersionId },
+            {
+              targetDishId: partDishId,
+              targetDishVersionId: partVersionId,
+              position: 0,
+              multiplier: 1,
+            },
           ],
         },
         "MINOR",
@@ -2874,7 +2928,14 @@ describe("Slice 6 — linked Parts", () => {
             title: "Part A",
             sections: unchangedSections(partADish),
           }),
-          partLinks: [{ targetDishId: partBId, targetDishVersionId: partBV1 }],
+          partLinks: [
+            {
+              targetDishId: partBId,
+              targetDishVersionId: partBV1,
+              position: 0,
+              multiplier: 1,
+            },
+          ],
         },
         "MINOR",
         "PART",
@@ -2901,6 +2962,8 @@ describe("Slice 6 — linked Parts", () => {
               {
                 targetDishId: partAId,
                 targetDishVersionId: partACurrentVersionId,
+                position: 0,
+                multiplier: 1,
               },
             ],
           },
@@ -2929,7 +2992,12 @@ describe("Slice 6 — linked Parts", () => {
         {
           ...content({ sections: unchangedSections(dish) }),
           partLinks: [
-            { targetDishId: partDishId, targetDishVersionId: partVersionId },
+            {
+              targetDishId: partDishId,
+              targetDishVersionId: partVersionId,
+              position: 0,
+              multiplier: 1,
+            },
           ],
         },
         "MINOR",
@@ -2972,7 +3040,12 @@ describe("Slice 6 — linked Parts", () => {
         {
           ...content({ sections: unchangedSections(dish) }),
           partLinks: [
-            { targetDishId: partDishId, targetDishVersionId: partVersionId },
+            {
+              targetDishId: partDishId,
+              targetDishVersionId: partVersionId,
+              position: 0,
+              multiplier: 1,
+            },
           ],
         },
         "MINOR",
@@ -3017,7 +3090,12 @@ describe("Slice 6 — linked Parts", () => {
             sections: unchangedSections(dish),
           }),
           partLinks: [
-            { targetDishId: partDishId, targetDishVersionId: partVersionId },
+            {
+              targetDishId: partDishId,
+              targetDishVersionId: partVersionId,
+              position: 0,
+              multiplier: 1,
+            },
           ],
         },
         "MINOR",
@@ -3052,5 +3130,1196 @@ describe("Slice 6 — linked Parts", () => {
       expect(attachable.map((p) => p.id)).not.toContain(partDishId);
       expect(attachable.length).toBeGreaterThanOrEqual(1);
     });
+  });
+});
+
+// Slice 6 post-gate (Build Plan Review Gate 3): unified Section/PartLink
+// position, duplicate-target rejection, propagation, and the two-phase
+// Part-deletion flow — docs/SLICE_6.md.
+describe("Slice 6 post-gate — unified position round-trip", () => {
+  let userId: string | undefined;
+
+  afterEach(async () => {
+    if (userId) {
+      await deleteTestUser(userId);
+      userId = undefined;
+    }
+  });
+
+  async function createPart(ownerId: string, title: string) {
+    return dishService.createDish(
+      ownerId,
+      "PART",
+      content({ title, partLinks: [] }),
+    );
+  }
+
+  // Section pos 0, PartLink pos 1, Section pos 2 — deliberately interleaved
+  // so a round-trip that merely preserved array order (rather than each
+  // row's own explicit `position`) would fail these assertions.
+  function interleavedContent(
+    partDishId: string,
+    partVersionId: string,
+  ): DishContentInput {
+    return {
+      ...content(),
+      sections: [
+        {
+          name: "First",
+          guidanceNote: null,
+          position: 0,
+          ingredients: [blankIngredient("Salt")],
+          instructions: [],
+          partLinks: [],
+        },
+        {
+          name: "Second",
+          guidanceNote: null,
+          position: 2,
+          ingredients: [blankIngredient("Pepper")],
+          instructions: [],
+          partLinks: [],
+        },
+      ],
+      partLinks: [
+        {
+          targetDishId: partDishId,
+          targetDishVersionId: partVersionId,
+          position: 1,
+          multiplier: 1,
+        },
+      ],
+    };
+  }
+
+  function expectInterleavedPositions(loaded: {
+    sections: SectionInput[];
+    partLinks: { position: number }[];
+  }) {
+    const byName = new Map(loaded.sections.map((s) => [s.name, s.position]));
+    expect(byName.get("First")).toBe(0);
+    expect(byName.get("Second")).toBe(2);
+    expect(loaded.partLinks[0]?.position).toBe(1);
+  }
+
+  it("persists interleaved Section/PartLink positions on create", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+    const partDishId = await createPart(userId, "Nuoc Cham");
+    const partVersionId = (
+      await prisma.dish.findUniqueOrThrow({ where: { id: partDishId } })
+    ).currentVersionId!;
+
+    const dishId = await dishService.createDish(
+      userId,
+      "RECIPE",
+      interleavedContent(partDishId, partVersionId),
+    );
+    const dish = await prisma.dish.findUniqueOrThrow({ where: { id: dishId } });
+    expectInterleavedPositions(
+      await loadContent(dishId, dish.currentVersionId!),
+    );
+  });
+
+  it("preserves positions through an edit that carries the same content forward", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+    const partDishId = await createPart(userId, "Nuoc Cham");
+    const partVersionId = (
+      await prisma.dish.findUniqueOrThrow({ where: { id: partDishId } })
+    ).currentVersionId!;
+
+    const dishId = await dishService.createDish(
+      userId,
+      "RECIPE",
+      interleavedContent(partDishId, partVersionId),
+    );
+    const dish = await prisma.dish.findUniqueOrThrow({ where: { id: dishId } });
+    const before = await loadContent(dishId, dish.currentVersionId!);
+
+    await dishService.editDish(
+      userId,
+      dishId,
+      dish.currentVersionId!,
+      {
+        ...content(),
+        sections: before.sections,
+        partLinks: before.partLinks,
+        prepTimeMinutes: 10,
+      },
+      undefined,
+    );
+
+    const after = await prisma.dish.findUniqueOrThrow({
+      where: { id: dishId },
+    });
+    expectInterleavedPositions(
+      await loadContent(dishId, after.currentVersionId!),
+    );
+  });
+
+  it("preserves positions through duplicateDish", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+    const partDishId = await createPart(userId, "Nuoc Cham");
+    const partVersionId = (
+      await prisma.dish.findUniqueOrThrow({ where: { id: partDishId } })
+    ).currentVersionId!;
+
+    const dishId = await dishService.createDish(
+      userId,
+      "RECIPE",
+      interleavedContent(partDishId, partVersionId),
+    );
+    const duplicateId = await dishService.duplicateDish(
+      userId,
+      dishId,
+      undefined,
+    );
+    const duplicate = await prisma.dish.findUniqueOrThrow({
+      where: { id: duplicateId },
+    });
+    expectInterleavedPositions(
+      await loadContent(duplicateId, duplicate.currentVersionId!),
+    );
+  });
+
+  it("preserves positions through promoteHistoricalVersion", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+    const partDishId = await createPart(userId, "Nuoc Cham");
+    const partVersionId = (
+      await prisma.dish.findUniqueOrThrow({ where: { id: partDishId } })
+    ).currentVersionId!;
+
+    const dishId = await dishService.createDish(
+      userId,
+      "RECIPE",
+      interleavedContent(partDishId, partVersionId),
+    );
+    const v1 = await prisma.dish.findUniqueOrThrow({ where: { id: dishId } });
+    const v1Id = v1.currentVersionId!;
+
+    // Advances current away from V1 so promotion has something to do.
+    await dishService.editDish(
+      userId,
+      dishId,
+      v1Id,
+      content({ title: "Different direction" }),
+      "MAJOR",
+    );
+
+    await dishService.promoteHistoricalVersion(userId, dishId, v1Id);
+
+    const after = await prisma.dish.findUniqueOrThrow({
+      where: { id: dishId },
+    });
+    expectInterleavedPositions(
+      await loadContent(dishId, after.currentVersionId!),
+    );
+  });
+});
+
+describe("Slice 6 post-gate — duplicate Part target rejection", () => {
+  let userId: string | undefined;
+
+  afterEach(async () => {
+    if (userId) {
+      await deleteTestUser(userId);
+      userId = undefined;
+    }
+  });
+
+  it("rejects createDish with the same Part linked twice at the top level", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+    const partDishId = await dishService.createDish(
+      userId,
+      "PART",
+      content({ title: "Nuoc Cham", partLinks: [] }),
+    );
+    const partVersionId = (
+      await prisma.dish.findUniqueOrThrow({ where: { id: partDishId } })
+    ).currentVersionId!;
+
+    await expect(
+      dishService.createDish(userId, "RECIPE", {
+        ...content(),
+        partLinks: [
+          {
+            targetDishId: partDishId,
+            targetDishVersionId: partVersionId,
+            position: 0,
+            multiplier: 1,
+          },
+          {
+            targetDishId: partDishId,
+            targetDishVersionId: partVersionId,
+            position: 1,
+            multiplier: 1,
+          },
+        ],
+      }),
+    ).rejects.toThrow(/already linked/);
+  });
+
+  it("rejects editDish with the same Part linked top-level and nested in a Section", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+    const partDishId = await dishService.createDish(
+      userId,
+      "PART",
+      content({ title: "Nuoc Cham", partLinks: [] }),
+    );
+    const partVersionId = (
+      await prisma.dish.findUniqueOrThrow({ where: { id: partDishId } })
+    ).currentVersionId!;
+
+    const dishId = await dishService.createDish(userId, "RECIPE", content());
+    const dish = await prisma.dish.findUniqueOrThrow({ where: { id: dishId } });
+
+    await expect(
+      dishService.editDish(
+        userId,
+        dishId,
+        dish.currentVersionId!,
+        {
+          ...content({
+            sections: [
+              {
+                name: null,
+                guidanceNote: null,
+                position: 0,
+                ingredients: [],
+                instructions: [],
+                partLinks: [
+                  {
+                    targetDishId: partDishId,
+                    targetDishVersionId: partVersionId,
+                    position: 0,
+                    multiplier: 1,
+                  },
+                ],
+              },
+            ],
+          }),
+          partLinks: [
+            {
+              targetDishId: partDishId,
+              targetDishVersionId: partVersionId,
+              position: 1,
+              multiplier: 1,
+            },
+          ],
+        },
+        "MINOR",
+      ),
+    ).rejects.toThrow(/already linked/);
+  });
+});
+
+describe("Slice 6 post-gate — propagatePartUpdate", () => {
+  let userId: string | undefined;
+
+  afterEach(async () => {
+    if (userId) {
+      await deleteTestUser(userId);
+      userId = undefined;
+    }
+  });
+
+  async function createPart(ownerId: string, title: string) {
+    return dishService.createDish(
+      ownerId,
+      "PART",
+      content({ title, partLinks: [] }),
+    );
+  }
+
+  async function attachPartTopLevel(
+    ownerId: string,
+    containerDishId: string,
+    partDishId: string,
+    partVersionId: string,
+    multiplier: number,
+    kind?: "RECIPE" | "PART",
+  ) {
+    const dish = await loadDishWithVersion(containerDishId);
+    const container = await prisma.dish.findUniqueOrThrow({
+      where: { id: containerDishId },
+    });
+    await dishService.editDish(
+      ownerId,
+      containerDishId,
+      container.currentVersionId!,
+      {
+        ...content({ sections: unchangedSections(dish) }),
+        partLinks: [
+          {
+            targetDishId: partDishId,
+            targetDishVersionId: partVersionId,
+            position: 0,
+            multiplier,
+          },
+        ],
+      },
+      "MINOR",
+      kind,
+    );
+  }
+
+  it("updates a container to a newer Part Version, and a repeat call on the now-current occurrence is skipped", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+    const partDishId = await createPart(userId, "Marinade Base");
+    const v1Id = (
+      await prisma.dish.findUniqueOrThrow({ where: { id: partDishId } })
+    ).currentVersionId!;
+    await dishService.editDish(
+      userId,
+      partDishId,
+      v1Id,
+      content({ title: "Marinade Base", prepTimeMinutes: 5 }),
+      "MINOR",
+      "PART",
+    );
+    const v2Id = (
+      await prisma.dish.findUniqueOrThrow({ where: { id: partDishId } })
+    ).currentVersionId!;
+    expect(v2Id).not.toBe(v1Id);
+
+    const containerId = await dishService.createDish(
+      userId,
+      "RECIPE",
+      content(),
+    );
+    await attachPartTopLevel(userId, containerId, partDishId, v1Id, 2);
+    const containerBefore = await prisma.dish.findUniqueOrThrow({
+      where: { id: containerId },
+    });
+    const occurrenceLineageId = (
+      await loadContent(containerId, containerBefore.currentVersionId!)
+    ).partLinks[0].lineageId!;
+
+    const outcomes = await dishService.propagatePartUpdate(
+      userId,
+      partDishId,
+      v2Id,
+      [{ containerDishId: containerId, lineageIds: [occurrenceLineageId] }],
+    );
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0]).toMatchObject({
+      containerDishId: containerId,
+      status: "updated",
+    });
+    expect(
+      (outcomes[0] as { newVersionId?: string }).newVersionId,
+    ).toBeTruthy();
+
+    const containerAfter = await prisma.dish.findUniqueOrThrow({
+      where: { id: containerId },
+    });
+    const afterContent = await loadContent(
+      containerId,
+      containerAfter.currentVersionId!,
+    );
+    expect(afterContent.partLinks[0].targetDishVersionId).toBe(v2Id);
+    expect(afterContent.partLinks[0].multiplier).toBe(2);
+    expect(afterContent.partLinks[0].position).toBe(0);
+    expect(afterContent.partLinks[0].lineageId).toBe(occurrenceLineageId);
+
+    // Already current — repeating the exact same call is a no-op.
+    const secondOutcomes = await dishService.propagatePartUpdate(
+      userId,
+      partDishId,
+      v2Id,
+      [{ containerDishId: containerId, lineageIds: [occurrenceLineageId] }],
+    );
+    expect(secondOutcomes[0]).toMatchObject({
+      containerDishId: containerId,
+      status: "skipped",
+    });
+  });
+
+  it("fails a single occurrence when accepting the update would introduce a Part cycle, without corrupting state", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+
+    const containerPartId = await createPart(userId, "Container Part");
+    const containerV1Id = (
+      await prisma.dish.findUniqueOrThrow({ where: { id: containerPartId } })
+    ).currentVersionId!;
+
+    const partId = await createPart(userId, "Updatable Part");
+    const partV1Id = (
+      await prisma.dish.findUniqueOrThrow({ where: { id: partId } })
+    ).currentVersionId!;
+
+    // Part's V2 links to Container Part's current Version — no cycle yet,
+    // since Container Part doesn't link back to Part at this point.
+    const partDish = await loadDishWithVersion(partId);
+    await dishService.editDish(
+      userId,
+      partId,
+      partV1Id,
+      {
+        ...content({
+          title: "Updatable Part",
+          sections: unchangedSections(partDish),
+        }),
+        partLinks: [
+          {
+            targetDishId: containerPartId,
+            targetDishVersionId: containerV1Id,
+            position: 0,
+            multiplier: 1,
+          },
+        ],
+      },
+      "MINOR",
+      "PART",
+    );
+    const partV2Id = (
+      await prisma.dish.findUniqueOrThrow({ where: { id: partId } })
+    ).currentVersionId!;
+
+    // Container Part now legitimately attaches Part at V1 — no cycle yet,
+    // since Part's V1 (unlike its V2) has no links back to Container Part.
+    await attachPartTopLevel(
+      userId,
+      containerPartId,
+      partId,
+      partV1Id,
+      1,
+      "PART",
+    );
+    const containerBefore = await prisma.dish.findUniqueOrThrow({
+      where: { id: containerPartId },
+    });
+    const occurrenceLineageId = (
+      await loadContent(containerPartId, containerBefore.currentVersionId!)
+    ).partLinks[0].lineageId!;
+
+    const outcomes = await dishService.propagatePartUpdate(
+      userId,
+      partId,
+      partV2Id,
+      [{ containerDishId: containerPartId, lineageIds: [occurrenceLineageId] }],
+    );
+    expect(outcomes[0].status).toBe("failed");
+
+    // State is untouched — still pointing at V1, no stray Version created.
+    const containerAfter = await prisma.dish.findUniqueOrThrow({
+      where: { id: containerPartId },
+    });
+    expect(containerAfter.currentVersionId).toBe(
+      containerBefore.currentVersionId,
+    );
+    const afterContent = await loadContent(
+      containerPartId,
+      containerAfter.currentVersionId!,
+    );
+    expect(afterContent.partLinks[0].targetDishVersionId).toBe(partV1Id);
+  });
+
+  it("propagates independently across multiple containers in one call — one succeeds while another fails", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+
+    const containerPartId = await createPart(userId, "Container Part");
+    const containerV1Id = (
+      await prisma.dish.findUniqueOrThrow({ where: { id: containerPartId } })
+    ).currentVersionId!;
+
+    const partId = await createPart(userId, "Shared Part");
+    const partV1Id = (
+      await prisma.dish.findUniqueOrThrow({ where: { id: partId } })
+    ).currentVersionId!;
+
+    // Shared Part's V2 links to Container Part — sets up the eventual
+    // cycle, same reasoning as the single-container test above.
+    const partDish = await loadDishWithVersion(partId);
+    await dishService.editDish(
+      userId,
+      partId,
+      partV1Id,
+      {
+        ...content({
+          title: "Shared Part",
+          sections: unchangedSections(partDish),
+        }),
+        partLinks: [
+          {
+            targetDishId: containerPartId,
+            targetDishVersionId: containerV1Id,
+            position: 0,
+            multiplier: 1,
+          },
+        ],
+      },
+      "MINOR",
+      "PART",
+    );
+    const partV2Id = (
+      await prisma.dish.findUniqueOrThrow({ where: { id: partId } })
+    ).currentVersionId!;
+
+    // A plain Recipe container — cycle checks never apply to Recipes, so
+    // updating this one will succeed.
+    const recipeId = await dishService.createDish(userId, "RECIPE", content());
+    await attachPartTopLevel(userId, recipeId, partId, partV1Id, 1);
+    const recipeBefore = await prisma.dish.findUniqueOrThrow({
+      where: { id: recipeId },
+    });
+    const recipeLineageId = (
+      await loadContent(recipeId, recipeBefore.currentVersionId!)
+    ).partLinks[0].lineageId!;
+
+    // Container Part attaches Shared Part at V1 — legitimate at this point.
+    await attachPartTopLevel(
+      userId,
+      containerPartId,
+      partId,
+      partV1Id,
+      1,
+      "PART",
+    );
+    const containerBefore = await prisma.dish.findUniqueOrThrow({
+      where: { id: containerPartId },
+    });
+    const containerLineageId = (
+      await loadContent(containerPartId, containerBefore.currentVersionId!)
+    ).partLinks[0].lineageId!;
+
+    const outcomes = await dishService.propagatePartUpdate(
+      userId,
+      partId,
+      partV2Id,
+      [
+        { containerDishId: recipeId, lineageIds: [recipeLineageId] },
+        { containerDishId: containerPartId, lineageIds: [containerLineageId] },
+      ],
+    );
+
+    const recipeOutcome = outcomes.find((o) => o.containerDishId === recipeId)!;
+    const containerOutcome = outcomes.find(
+      (o) => o.containerDishId === containerPartId,
+    )!;
+    expect(recipeOutcome.status).toBe("updated");
+    expect(containerOutcome.status).toBe("failed");
+
+    // The successful outcome actually persisted, independent of the failure.
+    const recipeAfter = await prisma.dish.findUniqueOrThrow({
+      where: { id: recipeId },
+    });
+    const recipeContent = await loadContent(
+      recipeId,
+      recipeAfter.currentVersionId!,
+    );
+    expect(recipeContent.partLinks[0].targetDishVersionId).toBe(partV2Id);
+
+    // The failed container is entirely untouched.
+    const containerAfter = await prisma.dish.findUniqueOrThrow({
+      where: { id: containerPartId },
+    });
+    expect(containerAfter.currentVersionId).toBe(
+      containerBefore.currentVersionId,
+    );
+  });
+
+  it("does not process a container the caller does not own", async () => {
+    const owner = await createTestUser();
+    const intruder = await createTestUser();
+    userId = owner.id;
+
+    const partId = await createPart(owner.id, "Owned Part");
+    const partV1Id = (
+      await prisma.dish.findUniqueOrThrow({ where: { id: partId } })
+    ).currentVersionId!;
+    await dishService.editDish(
+      owner.id,
+      partId,
+      partV1Id,
+      content({ title: "Owned Part", prepTimeMinutes: 5 }),
+      "MINOR",
+      "PART",
+    );
+    const partV2Id = (
+      await prisma.dish.findUniqueOrThrow({ where: { id: partId } })
+    ).currentVersionId!;
+
+    const intruderDishId = await dishService.createDish(
+      intruder.id,
+      "RECIPE",
+      content(),
+    );
+    const intruderDishBefore = await prisma.dish.findUniqueOrThrow({
+      where: { id: intruderDishId },
+    });
+
+    const outcomes = await dishService.propagatePartUpdate(
+      owner.id,
+      partId,
+      partV2Id,
+      [{ containerDishId: intruderDishId, lineageIds: ["does-not-matter"] }],
+    );
+    expect(outcomes[0].status).toBe("failed");
+
+    const intruderDishAfter = await prisma.dish.findUniqueOrThrow({
+      where: { id: intruderDishId },
+    });
+    expect(intruderDishAfter.currentVersionId).toBe(
+      intruderDishBefore.currentVersionId,
+    );
+
+    await deleteTestUser(intruder.id);
+  });
+});
+
+describe("Slice 6 post-gate — resolvePartUsageOccurrence", () => {
+  let userId: string | undefined;
+
+  afterEach(async () => {
+    if (userId) {
+      await deleteTestUser(userId);
+      userId = undefined;
+    }
+  });
+
+  async function createPartWithIngredient(
+    ownerId: string,
+    title: string,
+    quantity: number,
+    unit: string,
+  ) {
+    return dishService.createDish(
+      ownerId,
+      "PART",
+      content({
+        title,
+        sections: [
+          {
+            name: null,
+            guidanceNote: null,
+            position: 0,
+            ingredients: [
+              {
+                name: "Rice",
+                quantity,
+                quantityEnd: null,
+                isApproximate: false,
+                unit,
+                displayText: null,
+                preparationNote: null,
+                isOptional: false,
+                substitute: null,
+              },
+            ],
+            instructions: [],
+            partLinks: [],
+          },
+        ],
+        partLinks: [],
+      }),
+    );
+  }
+
+  async function attachOccurrence(
+    ownerId: string,
+    containerDishId: string,
+    partDishId: string,
+    partVersionId: string,
+    multiplier: number,
+  ): Promise<string> {
+    const dish = await loadDishWithVersion(containerDishId);
+    const container = await prisma.dish.findUniqueOrThrow({
+      where: { id: containerDishId },
+    });
+    await dishService.editDish(
+      ownerId,
+      containerDishId,
+      container.currentVersionId!,
+      {
+        ...content({ sections: unchangedSections(dish) }),
+        partLinks: [
+          {
+            targetDishId: partDishId,
+            targetDishVersionId: partVersionId,
+            position: 0,
+            multiplier,
+          },
+        ],
+      },
+      "MINOR",
+    );
+    const after = await prisma.dish.findUniqueOrThrow({
+      where: { id: containerDishId },
+    });
+    const { partLinks } = await loadContent(
+      containerDishId,
+      after.currentVersionId!,
+    );
+    return partLinks[0].lineageId!;
+  }
+
+  it("DETACH scales the localized ingredient quantity by the occurrence's multiplier", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+    const partDishId = await createPartWithIngredient(
+      userId,
+      "Rice Base",
+      2,
+      "cup",
+    );
+    const partVersionId = (
+      await prisma.dish.findUniqueOrThrow({ where: { id: partDishId } })
+    ).currentVersionId!;
+    const containerDishId = await dishService.createDish(
+      userId,
+      "RECIPE",
+      content(),
+    );
+    const lineageId = await attachOccurrence(
+      userId,
+      containerDishId,
+      partDishId,
+      partVersionId,
+      2,
+    );
+
+    await dishService.resolvePartUsageOccurrence(
+      userId,
+      partDishId,
+      containerDishId,
+      lineageId,
+      "DETACH",
+    );
+
+    const after = await prisma.dish.findUniqueOrThrow({
+      where: { id: containerDishId },
+    });
+    const { sections, partLinks } = await loadContent(
+      containerDishId,
+      after.currentVersionId!,
+    );
+    expect(partLinks).toHaveLength(0);
+    const rice = sections
+      .flatMap((s) => s.ingredients)
+      .find((i) => i.name === "Rice")!;
+    expect(rice.quantity).toBe(4); // 2 × multiplier 2
+  });
+
+  it("DETACH with multiplier 1 leaves the localized quantity unchanged", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+    const partDishId = await createPartWithIngredient(
+      userId,
+      "Rice Base",
+      2,
+      "cup",
+    );
+    const partVersionId = (
+      await prisma.dish.findUniqueOrThrow({ where: { id: partDishId } })
+    ).currentVersionId!;
+    const containerDishId = await dishService.createDish(
+      userId,
+      "RECIPE",
+      content(),
+    );
+    const lineageId = await attachOccurrence(
+      userId,
+      containerDishId,
+      partDishId,
+      partVersionId,
+      1,
+    );
+
+    await dishService.resolvePartUsageOccurrence(
+      userId,
+      partDishId,
+      containerDishId,
+      lineageId,
+      "DETACH",
+    );
+
+    const after = await prisma.dish.findUniqueOrThrow({
+      where: { id: containerDishId },
+    });
+    const { sections } = await loadContent(
+      containerDishId,
+      after.currentVersionId!,
+    );
+    const rice = sections
+      .flatMap((s) => s.ingredients)
+      .find((i) => i.name === "Rice")!;
+    expect(rice.quantity).toBe(2);
+  });
+
+  it("REPLACE retargets the occurrence to the replacement Part/Version", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+    const partDishId = await createPartWithIngredient(
+      userId,
+      "Rice Base",
+      2,
+      "cup",
+    );
+    const partVersionId = (
+      await prisma.dish.findUniqueOrThrow({ where: { id: partDishId } })
+    ).currentVersionId!;
+    const replacementPartId = await createPartWithIngredient(
+      userId,
+      "Quinoa Base",
+      1,
+      "cup",
+    );
+    const replacementVersionId = (
+      await prisma.dish.findUniqueOrThrow({ where: { id: replacementPartId } })
+    ).currentVersionId!;
+
+    const containerDishId = await dishService.createDish(
+      userId,
+      "RECIPE",
+      content(),
+    );
+    const lineageId = await attachOccurrence(
+      userId,
+      containerDishId,
+      partDishId,
+      partVersionId,
+      1,
+    );
+
+    await dishService.resolvePartUsageOccurrence(
+      userId,
+      partDishId,
+      containerDishId,
+      lineageId,
+      "REPLACE",
+      {
+        targetDishId: replacementPartId,
+        targetDishVersionId: replacementVersionId,
+      },
+    );
+
+    const after = await prisma.dish.findUniqueOrThrow({
+      where: { id: containerDishId },
+    });
+    const { partLinks } = await loadContent(
+      containerDishId,
+      after.currentVersionId!,
+    );
+    expect(partLinks).toHaveLength(1);
+    expect(partLinks[0].targetDishId).toBe(replacementPartId);
+    expect(partLinks[0].targetDishVersionId).toBe(replacementVersionId);
+  });
+
+  it("REPLACE rejects a replacement that would duplicate an already-linked Part", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+    const partDishId = await createPartWithIngredient(
+      userId,
+      "Rice Base",
+      2,
+      "cup",
+    );
+    const partVersionId = (
+      await prisma.dish.findUniqueOrThrow({ where: { id: partDishId } })
+    ).currentVersionId!;
+    const otherPartId = await createPartWithIngredient(
+      userId,
+      "Quinoa Base",
+      1,
+      "cup",
+    );
+    const otherVersionId = (
+      await prisma.dish.findUniqueOrThrow({ where: { id: otherPartId } })
+    ).currentVersionId!;
+
+    const containerDishId = await dishService.createDish(
+      userId,
+      "RECIPE",
+      content(),
+    );
+    const dish = await loadDishWithVersion(containerDishId);
+    const container = await prisma.dish.findUniqueOrThrow({
+      where: { id: containerDishId },
+    });
+    await dishService.editDish(
+      userId,
+      containerDishId,
+      container.currentVersionId!,
+      {
+        ...content({ sections: unchangedSections(dish) }),
+        partLinks: [
+          {
+            targetDishId: partDishId,
+            targetDishVersionId: partVersionId,
+            position: 0,
+            multiplier: 1,
+          },
+          {
+            targetDishId: otherPartId,
+            targetDishVersionId: otherVersionId,
+            position: 1,
+            multiplier: 1,
+          },
+        ],
+      },
+      "MINOR",
+    );
+    const afterAttach = await prisma.dish.findUniqueOrThrow({
+      where: { id: containerDishId },
+    });
+    const { partLinks } = await loadContent(
+      containerDishId,
+      afterAttach.currentVersionId!,
+    );
+    const lineageId = partLinks.find(
+      (l) => l.targetDishId === partDishId,
+    )!.lineageId!;
+
+    await expect(
+      dishService.resolvePartUsageOccurrence(
+        userId,
+        partDishId,
+        containerDishId,
+        lineageId,
+        "REPLACE",
+        { targetDishId: otherPartId, targetDishVersionId: otherVersionId },
+      ),
+    ).rejects.toThrow(ValidationError);
+  });
+
+  it("REMOVE deletes the occurrence when other content survives, and is rejected when it would leave none", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+    const partDishId = await createPartWithIngredient(
+      userId,
+      "Rice Base",
+      2,
+      "cup",
+    );
+    const partVersionId = (
+      await prisma.dish.findUniqueOrThrow({ where: { id: partDishId } })
+    ).currentVersionId!;
+
+    // Surviving local content — REMOVE succeeds.
+    const containerDishId = await dishService.createDish(
+      userId,
+      "RECIPE",
+      content(),
+    );
+    const lineageId = await attachOccurrence(
+      userId,
+      containerDishId,
+      partDishId,
+      partVersionId,
+      1,
+    );
+    await dishService.resolvePartUsageOccurrence(
+      userId,
+      partDishId,
+      containerDishId,
+      lineageId,
+      "REMOVE",
+    );
+    const after = await prisma.dish.findUniqueOrThrow({
+      where: { id: containerDishId },
+    });
+    const { partLinks } = await loadContent(
+      containerDishId,
+      after.currentVersionId!,
+    );
+    expect(partLinks).toHaveLength(0);
+
+    // Only this occurrence as content — REMOVE is rejected.
+    const barePartId = await createPartWithIngredient(
+      userId,
+      "Second Part",
+      1,
+      "cup",
+    );
+    const barePartVersionId = (
+      await prisma.dish.findUniqueOrThrow({ where: { id: barePartId } })
+    ).currentVersionId!;
+    const bareContainerId = await dishService.createDish(userId, "RECIPE", {
+      ...content({ sections: [] }),
+      partLinks: [
+        {
+          targetDishId: barePartId,
+          targetDishVersionId: barePartVersionId,
+          position: 0,
+          multiplier: 1,
+        },
+      ],
+    });
+    const bareContainer = await prisma.dish.findUniqueOrThrow({
+      where: { id: bareContainerId },
+    });
+    const { partLinks: barePartLinks } = await loadContent(
+      bareContainerId,
+      bareContainer.currentVersionId!,
+    );
+    const bareLineageId = barePartLinks[0].lineageId!;
+
+    await expect(
+      dishService.resolvePartUsageOccurrence(
+        userId,
+        barePartId,
+        bareContainerId,
+        bareLineageId,
+        "REMOVE",
+      ),
+    ).rejects.toThrow(ValidationError);
+  });
+});
+
+describe("Slice 6 post-gate — deletePart (Phase 2)", () => {
+  let userId: string | undefined;
+
+  afterEach(async () => {
+    if (userId) {
+      await deleteTestUser(userId);
+      userId = undefined;
+    }
+  });
+
+  it("aborts cleanly with PartHasLiveUsagesError while a current usage still exists", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+    const partDishId = await dishService.createDish(
+      userId,
+      "PART",
+      content({ title: "Nuoc Cham", partLinks: [] }),
+    );
+    const partVersionId = (
+      await prisma.dish.findUniqueOrThrow({ where: { id: partDishId } })
+    ).currentVersionId!;
+
+    const containerDishId = await dishService.createDish(
+      userId,
+      "RECIPE",
+      content(),
+    );
+    const dish = await loadDishWithVersion(containerDishId);
+    const container = await prisma.dish.findUniqueOrThrow({
+      where: { id: containerDishId },
+    });
+    await dishService.editDish(
+      userId,
+      containerDishId,
+      container.currentVersionId!,
+      {
+        ...content({ sections: unchangedSections(dish) }),
+        partLinks: [
+          {
+            targetDishId: partDishId,
+            targetDishVersionId: partVersionId,
+            position: 0,
+            multiplier: 1,
+          },
+        ],
+      },
+      "MINOR",
+    );
+
+    await expect(
+      dishService.deleteDish(userId, partDishId),
+    ).rejects.toBeInstanceOf(PartHasLiveUsagesError);
+
+    const stillExists = await prisma.dish.findUnique({
+      where: { id: partDishId },
+    });
+    expect(stillExists).not.toBeNull();
+  });
+
+  it("materializes a historical usage (preserving its multiplier) and deletes the Part once no current usage remains", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+    const partDishId = await dishService.createDish(
+      userId,
+      "PART",
+      content({ title: "Nuoc Cham", partLinks: [] }),
+    );
+    const partVersionId = (
+      await prisma.dish.findUniqueOrThrow({ where: { id: partDishId } })
+    ).currentVersionId!;
+
+    const containerDishId = await dishService.createDish(
+      userId,
+      "RECIPE",
+      content(),
+    );
+    const dish = await loadDishWithVersion(containerDishId);
+    const container = await prisma.dish.findUniqueOrThrow({
+      where: { id: containerDishId },
+    });
+    await dishService.editDish(
+      userId,
+      containerDishId,
+      container.currentVersionId!,
+      {
+        ...content({ sections: unchangedSections(dish) }),
+        partLinks: [
+          {
+            targetDishId: partDishId,
+            targetDishVersionId: partVersionId,
+            position: 0,
+            multiplier: 3,
+          },
+        ],
+      },
+      "MINOR",
+    );
+    const containerWithLink = await prisma.dish.findUniqueOrThrow({
+      where: { id: containerDishId },
+      include: { currentVersion: { include: { partLinks: true } } },
+    });
+    const historicalLinkId = containerWithLink.currentVersion!.partLinks[0].id;
+    const historicalVersionId = containerWithLink.currentVersionId!;
+
+    // Resolve the CURRENT usage, leaving the just-created Version above as
+    // a HISTORICAL usage that still references the Part.
+    const { partLinks: linkedContentBefore } = await loadContent(
+      containerDishId,
+      historicalVersionId,
+    );
+    await dishService.resolvePartUsageOccurrence(
+      userId,
+      partDishId,
+      containerDishId,
+      linkedContentBefore[0].lineageId!,
+      "DETACH",
+    );
+    const containerAfterResolve = await prisma.dish.findUniqueOrThrow({
+      where: { id: containerDishId },
+    });
+    expect(containerAfterResolve.currentVersionId).not.toBe(
+      historicalVersionId,
+    );
+
+    await dishService.deleteDish(userId, partDishId);
+
+    expect(
+      await prisma.dish.findUnique({ where: { id: partDishId } }),
+    ).toBeNull();
+
+    const materialized = await prisma.partLink.findUniqueOrThrow({
+      where: { id: historicalLinkId },
+    });
+    expect(materialized.linkState).toBe("MATERIALIZED");
+    expect(materialized.targetDishId).toBeNull();
+    expect(materialized.targetDishVersionId).toBeNull();
+    expect(materialized.materializedTitle).toBe("Nuoc Cham");
+    expect(materialized.materializedVersionLabel).toBe("V1.0");
+    // §Judgment call (docs/SLICE_6.md): the multiplier column is left as
+    // historical record, not reset or baked into the JSON snapshot.
+    expect(decimalToNumber(materialized.multiplier)).toBe(3);
+    expect(materialized.materializedContent).not.toBeNull();
+    const snapshot = materialized.materializedContent as unknown as {
+      sections: { ingredients: { name: string }[] }[];
+    };
+    expect(snapshot.sections[0].ingredients[0].name).toBe("Salt");
   });
 });

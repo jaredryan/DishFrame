@@ -94,6 +94,7 @@ export function blankDishFormValues(): DishFormValues {
         ingredients: [],
         instructions: [],
         partLinks: [],
+        position: 0,
       },
     ],
     partLinks: [],

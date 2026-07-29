@@ -1,27 +1,53 @@
 import { Card, CardContent } from "@/components/ui/card";
 import type {
   AddedOrRemovedItem,
+  AddedOrRemovedPartLink,
   FieldChange,
   VersionComparisonResult,
 } from "@/lib/dishes/compare";
 
+// Keyed by `${targetDishId}:${targetDishVersionId}`, resolved server-side
+// (§68.5: a linked Part's displayed name/Version label is always a live
+// lookup) — this view never resolves a title itself.
+export type PartLinkLabelMap = Record<
+  string,
+  { title: string | null; versionLabel: string }
+>;
+
+function partLinkKey(entry: {
+  targetDishId: string;
+  targetDishVersionId: string;
+}) {
+  return `${entry.targetDishId}:${entry.targetDishVersionId}`;
+}
+
+function partLinkLabel(
+  labels: PartLinkLabelMap,
+  entry: { targetDishId: string; targetDishVersionId: string },
+): string {
+  const resolved = labels[partLinkKey(entry)];
+  const title = resolved?.title ?? "Unknown Part";
+  return resolved?.versionLabel ? `${title} ${resolved.versionLabel}` : title;
+}
+
 /**
  * PRODUCT_SPEC.md §94.2/§94.3: changed content first, grouped by cooking
- * meaning (metadata → Sections → ingredients → instructions → nutrition —
- * no linked-Parts group, since Slice 6 hasn't wired up `PartLink` yet).
- * Never renders a group with nothing in it — an empty comparison shows one
- * plain "no differences" message instead (§94.6: comparison never mutates
- * either Version, so an unchanged pair is a perfectly normal result, not an
- * error state).
+ * meaning (metadata → Sections → ingredients → instructions → linked Parts →
+ * nutrition). Never renders a group with nothing in it — an empty comparison
+ * shows one plain "no differences" message instead (§94.6: comparison never
+ * mutates either Version, so an unchanged pair is a perfectly normal result,
+ * not an error state).
  */
 export function VersionCompareView({
   result,
   fromLabel,
   toLabel,
+  partLinkLabels,
 }: {
   result: VersionComparisonResult;
   fromLabel: string;
   toLabel: string;
+  partLinkLabels: PartLinkLabelMap;
 }) {
   if (!result.hasChanges) {
     return (
@@ -45,6 +71,11 @@ export function VersionCompareView({
     result.instructions.removed.length > 0 ||
     result.instructions.changed.length > 0 ||
     result.instructions.reordered;
+  const hasPartLinkChanges =
+    result.partLinks.added.length > 0 ||
+    result.partLinks.removed.length > 0 ||
+    result.partLinks.changed.length > 0 ||
+    result.partLinks.reordered;
 
   return (
     <div className="flex flex-col gap-4">
@@ -125,6 +156,41 @@ export function VersionCompareView({
         </ComparisonGroup>
       )}
 
+      {hasPartLinkChanges && (
+        <ComparisonGroup title="Linked Parts">
+          {result.partLinks.changed.length > 0 && (
+            <ul className="flex flex-col gap-2">
+              {result.partLinks.changed.map((change) => (
+                <li key={change.lineageId} className="text-sm">
+                  <p className="text-muted-foreground">
+                    {fromLabel}: {partLinkLabel(partLinkLabels, change.before)}
+                    {change.multiplierChanged && !change.retargeted
+                      ? ` (×${change.before.multiplier})`
+                      : ""}
+                  </p>
+                  <p>
+                    {toLabel}: {partLinkLabel(partLinkLabels, change.after)}
+                    {change.multiplierChanged && !change.retargeted
+                      ? ` (×${change.after.multiplier})`
+                      : ""}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
+          <PartLinkAddedRemovedList
+            added={result.partLinks.added}
+            removed={result.partLinks.removed}
+            labels={partLinkLabels}
+          />
+          {result.partLinks.reordered && (
+            <p className="text-muted-foreground text-sm">
+              Linked Parts were reordered.
+            </p>
+          )}
+        </ComparisonGroup>
+      )}
+
       {result.nutrition.length > 0 && (
         <ComparisonGroup title="Nutrition">
           <FieldChangeList changes={result.nutrition} />
@@ -182,6 +248,32 @@ function AddedRemovedList({
       {removed.map((item) => (
         <li key={`removed-${item.lineageId}`} className="text-muted-foreground">
           Removed: {item.label}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function PartLinkAddedRemovedList({
+  added,
+  removed,
+  labels,
+}: {
+  added: AddedOrRemovedPartLink[];
+  removed: AddedOrRemovedPartLink[];
+  labels: PartLinkLabelMap;
+}) {
+  if (added.length === 0 && removed.length === 0) return null;
+  return (
+    <ul className="flex flex-col gap-1 text-sm">
+      {added.map((item) => (
+        <li key={`added-${item.lineageId}`}>
+          Added: {partLinkLabel(labels, item)}
+        </li>
+      ))}
+      {removed.map((item) => (
+        <li key={`removed-${item.lineageId}`} className="text-muted-foreground">
+          Removed: {partLinkLabel(labels, item)}
         </li>
       ))}
     </ul>

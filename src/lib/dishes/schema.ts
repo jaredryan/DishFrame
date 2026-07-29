@@ -155,10 +155,28 @@ export type InstructionInput = z.infer<typeof instructionInputSchema>;
 // PROPOSAL.md §D.-1/§D.6), independent of which Part Version it currently
 // targets — present when loaded from an existing Version, absent for a
 // freshly attached occurrence, exactly like every other lineage-keyed row.
+//
+// Slice 6 post-gate (Review Gate 3):
+// - `position`: for a TOP-LEVEL occurrence (on `dishContentSchema.partLinks`),
+//   this is its slot in the one shared ordering sequence with top-level
+//   Sections (see `sectionInputSchema.position`'s doc comment) — the
+//   authoritative value, not the array's own iteration order. For a
+//   Section-nested occurrence, this is simply its position within that
+//   Section's own `partLinks` array (unaffected by the unified top-level
+//   sequence), the same convention ingredients/instructions already use.
+// - `multiplier`: the parent-specific quantity multiplier for this
+//   occurrence (default 1, must be positive) — composes with whole-item
+//   scaling via the existing scaling utilities (`src/lib/units/scaling.ts`),
+//   never a second arithmetic implementation.
 export const partLinkInputSchema = z.object({
   lineageId: z.string().min(1).optional(),
   targetDishId: z.string().min(1),
   targetDishVersionId: z.string().min(1),
+  position: z.number().int().min(0),
+  multiplier: z
+    .number()
+    .gt(0, "Multiplier must be greater than zero.")
+    .default(1),
 });
 export type PartLinkInput = z.infer<typeof partLinkInputSchema>;
 
@@ -170,6 +188,14 @@ export const sectionInputSchema = z.object({
   ingredients: z.array(ingredientInputSchema),
   instructions: z.array(instructionInputSchema),
   partLinks: z.array(partLinkInputSchema),
+  // Slice 6 post-gate: this Section's slot in the one shared top-level
+  // ordering sequence with top-level linked Parts (`dishContentSchema.
+  // partLinks`) — Build Plan Review Gate 3's "unified authored order."
+  // Both this Section's own position and every top-level PartLink's
+  // position are drawn from one shared counter per container Version,
+  // enforced by application convention (`insertSections`/the editor), not a
+  // DB constraint — see schema.prisma's own comment on `Section.position`.
+  position: z.number().int().min(0),
 });
 export type SectionInput = z.infer<typeof sectionInputSchema>;
 
@@ -275,14 +301,61 @@ export function instructionContentSignature(
   return JSON.stringify({ text: instruction.text });
 }
 
-// Slice 6: a linked Part occurrence's own content-signature — only which
-// exact Part Version it targets matters for "did this occurrence change,"
-// matching the ingredient/instruction pattern above.
+// Slice 6: a linked Part occurrence's own content-signature — which exact
+// Part Version it targets, and (Slice 6 post-gate) its multiplier, matter
+// for "did this occurrence change," matching the ingredient/instruction
+// pattern above. Position is deliberately excluded here — a pure move is
+// tracked separately (see `diffVersionContent`'s position comparison) so a
+// reorder and a real content change stay distinguishable in principle, even
+// though both currently land in the same `cookingChanged` bucket.
 export function partLinkContentSignature(partLink: PartLinkInput): string {
   return JSON.stringify({
     targetDishId: partLink.targetDishId,
     targetDishVersionId: partLink.targetDishVersionId,
+    multiplier: partLink.multiplier,
   });
+}
+
+/**
+ * Slice 6 post-gate, settled Review Gate 3 decision: "A parent DishVersion
+ * may not directly link the same stable Part more than once, whether those
+ * direct links are top-level or Section-nested." Only DIRECT occurrences on
+ * this Version are considered — deliberately not a scan of the complete
+ * transitive nested graph (nested duplication through separate branches is
+ * accepted, not an attach-time error, per the settled decision). Returns
+ * every `targetDishId` that appears more than once among this Version's own
+ * direct links.
+ */
+export function findDuplicatePartTargets(
+  sections: SectionInput[],
+  topLevelPartLinks: PartLinkInput[],
+): string[] {
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+  function visit(links: PartLinkInput[]) {
+    for (const link of links) {
+      if (seen.has(link.targetDishId)) duplicates.add(link.targetDishId);
+      seen.add(link.targetDishId);
+    }
+  }
+  visit(topLevelPartLinks);
+  for (const section of sections) visit(section.partLinks);
+  return [...duplicates];
+}
+
+/**
+ * Slice 6 post-gate: Sections and top-level PartLinks share one ordering
+ * sequence (see `sectionInputSchema.position`'s doc comment) but are still
+ * stored as two separate arrays/tables — this sorts either list back into
+ * true sequence order by its own explicit `position` field, since the
+ * arrays' own iteration order is no longer assumed to already match it
+ * (unlike ingredients/instructions, whose array order remains the ordering
+ * source of truth).
+ */
+export function sortByPosition<T extends { position: number }>(
+  items: T[],
+): T[] {
+  return [...items].sort((a, b) => a.position - b.position);
 }
 
 export type VersionContentChange = {
@@ -343,11 +416,16 @@ export function diffVersionContent(
     sectionLineageId: string | undefined,
     links: PartLinkInput[],
   ) {
-    links.forEach((link, index) => {
+    // Slice 6 post-gate: uses each link's own explicit `position` field,
+    // not array iteration order — for a top-level occurrence this is its
+    // real slot in the unified Section/PartLink sequence; for a
+    // Section-nested one it's equivalent to array index anyway (the only
+    // value ever assigned there), so one code path covers both.
+    links.forEach((link) => {
       if (!link.lineageId) return;
       basePartLinks.set(link.lineageId, {
         sectionLineageId,
-        position: index,
+        position: link.position,
         signature: partLinkContentSignature(link),
       });
     });
@@ -355,7 +433,10 @@ export function diffVersionContent(
 
   indexPartLinks(TOP_LEVEL_PART_LINK_KEY, base.partLinks);
 
-  for (const section of base.sections) {
+  // Slice 6 post-gate: sorted by explicit position, not assumed to already
+  // arrive in sequence order (unlike ingredients/instructions, whose array
+  // order remains the ordering source of truth).
+  for (const section of sortByPosition(base.sections)) {
     if (!section.lineageId) continue; // every persisted Section has one
     baseSectionOrder.push(section.lineageId);
     baseSectionMeta.set(section.lineageId, {
@@ -392,7 +473,7 @@ export function diffVersionContent(
     sectionLineageId: string | undefined,
     links: PartLinkInput[],
   ) {
-    links.forEach((link, index) => {
+    links.forEach((link) => {
       if (!link.lineageId) {
         cookingChanged = true; // newly attached occurrence
         return;
@@ -402,7 +483,7 @@ export function diffVersionContent(
       if (
         !before ||
         before.sectionLineageId !== sectionLineageId ||
-        before.position !== index ||
+        before.position !== link.position ||
         before.signature !== partLinkContentSignature(link)
       ) {
         cookingChanged = true;
@@ -412,7 +493,7 @@ export function diffVersionContent(
 
   diffPartLinks(TOP_LEVEL_PART_LINK_KEY, edited.partLinks);
 
-  for (const section of edited.sections) {
+  for (const section of sortByPosition(edited.sections)) {
     if (section.lineageId) {
       editedSectionOrder.push(section.lineageId);
       const meta = baseSectionMeta.get(section.lineageId);
@@ -487,6 +568,48 @@ export function diffVersionContent(
 
   return { cookingChanged, sectionOrganizationChanged };
 }
+
+// Slice 6 post-gate, PRODUCT_SPEC.md §72.5: "Choose Recipes and Parts to
+// update" targets specific `PartLink.lineageId` occurrences per container
+// (Correction 1) — never "every link to this Part," so the same Part
+// appearing twice in one item can have one occurrence excluded.
+export const propagationSelectionSchema = z.object({
+  containerDishId: z.string().min(1),
+  lineageIds: z.array(z.string().min(1)).min(1),
+});
+
+export const propagatePartUpdateSchema = z.object({
+  partDishId: z.string().min(1),
+  newTargetVersionId: z.string().min(1),
+  selections: z.array(propagationSelectionSchema),
+  // §73.2/§73.3: defaults to MINOR ("Save small update") regardless of
+  // whether the incoming Part change was itself minor or major; the caller
+  // retains classification authority to override to MAJOR.
+  bump: versionChoiceSchema.optional(),
+});
+
+// PRODUCT_SPEC.md §74.2: the three approved per-occurrence resolutions
+// offered before a referenced Part can be permanently deleted.
+export const partUsageResolutionValues = [
+  "DETACH",
+  "REPLACE",
+  "REMOVE",
+] as const;
+export type PartUsageResolutionValue =
+  (typeof partUsageResolutionValues)[number];
+
+export const resolvePartUsageOccurrenceSchema = z.object({
+  partDishId: z.string().min(1),
+  containerDishId: z.string().min(1),
+  lineageId: z.string().min(1),
+  resolution: z.enum(partUsageResolutionValues),
+  replacement: z
+    .object({
+      targetDishId: z.string().min(1),
+      targetDishVersionId: z.string().min(1),
+    })
+    .optional(),
+});
 
 export const duplicateDishSchema = z.object({
   dishId: z.string().min(1),

@@ -2,6 +2,7 @@ import {
   ingredientContentSignature,
   instructionContentSignature,
   type IngredientInput,
+  type PartLinkInput,
   type SectionInput,
 } from "@/lib/dishes/schema";
 import { formatIngredientLine } from "@/lib/dishes/format";
@@ -18,9 +19,12 @@ import { formatIngredientLine } from "@/lib/dishes/format";
  * a false content "change". A row with no match in `before` is always an
  * addition; a `before` row absent from `after` is always a removal.
  *
- * No linked-Parts group exists here (BUILD_PLAN.md's Slice 4 note):
- * `PartLink` isn't wired up until Slice 6, so there is nothing to diff yet
- * — this file intentionally has no placeholder for it.
+ * Slice 6 post-gate: a linked-Parts group compares `partLinks` the same
+ * way — matched by `lineageId`, spanning both top-level (`VersionCompareInput
+ * .partLinks`) and Section-nested occurrences. Only identifiers/multiplier
+ * are diffed here (this module stays DB-agnostic); resolving a
+ * `targetDishId` into a display title is the caller's job, same as every
+ * other live-lookup display concern in this codebase (§68.5).
  *
  * Version-trigger correction pass, PRODUCT_SPEC.md §7.1/§7.2/§94.4: title
  * and image are deliberately absent from `VersionMetadataSnapshot`/
@@ -57,6 +61,9 @@ export type VersionCompareInput = {
   metadata: VersionMetadataSnapshot;
   nutrition: VersionNutritionSnapshot;
   sections: SectionInput[];
+  // Slice 6 post-gate: top-level linked Parts — Section-nested ones already
+  // travel on each `SectionInput.partLinks`.
+  partLinks: PartLinkInput[];
 };
 
 export type FieldChange = {
@@ -84,6 +91,29 @@ export type ChangedInstruction = {
   after: string;
 };
 
+// Slice 6 post-gate: identifiers only, not a display label — the caller
+// resolves `targetDishId`/`targetDishVersionId` into a title/Version label
+// (§68.5's "always a live lookup"), same as every other linked-Part display.
+export type PartLinkSnapshot = {
+  targetDishId: string;
+  targetDishVersionId: string;
+  multiplier: number;
+};
+
+export type AddedOrRemovedPartLink = { lineageId: string } & PartLinkSnapshot;
+
+export type ChangedPartLink = {
+  lineageId: string;
+  before: PartLinkSnapshot;
+  after: PartLinkSnapshot;
+  // `targetDishId` changed (replaced with a different Part) or just
+  // `targetDishVersionId` changed (same Part, newer/older Version) — either
+  // way the linked content is different, but the view may want to phrase
+  // them differently.
+  retargeted: boolean;
+  multiplierChanged: boolean;
+};
+
 export type VersionComparisonResult = {
   metadata: FieldChange[];
   sections: {
@@ -101,6 +131,12 @@ export type VersionComparisonResult = {
     added: AddedOrRemovedItem[];
     removed: AddedOrRemovedItem[];
     changed: ChangedInstruction[];
+    reordered: boolean;
+  };
+  partLinks: {
+    added: AddedOrRemovedPartLink[];
+    removed: AddedOrRemovedPartLink[];
+    changed: ChangedPartLink[];
     reordered: boolean;
   };
   nutrition: FieldChange[];
@@ -384,6 +420,74 @@ function instructionChanges(before: SectionInput[], after: SectionInput[]) {
   return { added, removed, changed, reordered };
 }
 
+// Same flatten-and-match-by-lineageId pattern as `flattenIngredients`/
+// `flattenInstructions`: top-level occurrences first, then each Section's
+// own, in given (already position-ordered — both sides always come from a
+// persisted DB Version, per `partLinkContentInclude`'s `orderBy`) order.
+function flattenPartLinks(
+  input: VersionCompareInput,
+): Map<string, PartLinkSnapshot> {
+  const map = new Map<string, PartLinkSnapshot>();
+  function index(links: PartLinkInput[]) {
+    for (const link of links) {
+      if (!link.lineageId) continue;
+      map.set(link.lineageId, {
+        targetDishId: link.targetDishId,
+        targetDishVersionId: link.targetDishVersionId,
+        multiplier: link.multiplier,
+      });
+    }
+  }
+  index(input.partLinks);
+  for (const section of input.sections) index(section.partLinks);
+  return map;
+}
+
+function partLinkChanges(
+  before: VersionCompareInput,
+  after: VersionCompareInput,
+) {
+  const beforeFlat = flattenPartLinks(before);
+  const afterFlat = flattenPartLinks(after);
+
+  const added: AddedOrRemovedPartLink[] = [];
+  const removed: AddedOrRemovedPartLink[] = [];
+  const changed: ChangedPartLink[] = [];
+
+  for (const [lineageId, entry] of afterFlat) {
+    const prior = beforeFlat.get(lineageId);
+    if (!prior) {
+      added.push({ lineageId, ...entry });
+      continue;
+    }
+    const retargeted =
+      prior.targetDishId !== entry.targetDishId ||
+      prior.targetDishVersionId !== entry.targetDishVersionId;
+    const multiplierChanged = prior.multiplier !== entry.multiplier;
+    if (retargeted || multiplierChanged) {
+      changed.push({
+        lineageId,
+        before: prior,
+        after: entry,
+        retargeted,
+        multiplierChanged,
+      });
+    }
+  }
+  for (const [lineageId, entry] of beforeFlat) {
+    if (!afterFlat.has(lineageId)) {
+      removed.push({ lineageId, ...entry });
+    }
+  }
+
+  const reordered = relativeOrderChanged(
+    [...beforeFlat.keys()],
+    [...afterFlat.keys()],
+  );
+
+  return { added, removed, changed, reordered };
+}
+
 export function compareDishVersions(
   before: VersionCompareInput,
   after: VersionCompareInput,
@@ -393,6 +497,7 @@ export function compareDishVersions(
   const sections = sectionChanges(before.sections, after.sections);
   const ingredients = ingredientChanges(before.sections, after.sections);
   const instructions = instructionChanges(before.sections, after.sections);
+  const partLinks = partLinkChanges(before, after);
 
   const hasChanges =
     metadata.length > 0 ||
@@ -407,13 +512,18 @@ export function compareDishVersions(
     instructions.added.length > 0 ||
     instructions.removed.length > 0 ||
     instructions.changed.length > 0 ||
-    instructions.reordered;
+    instructions.reordered ||
+    partLinks.added.length > 0 ||
+    partLinks.removed.length > 0 ||
+    partLinks.changed.length > 0 ||
+    partLinks.reordered;
 
   return {
     metadata,
     sections,
     ingredients,
     instructions,
+    partLinks,
     nutrition,
     hasChanges,
   };

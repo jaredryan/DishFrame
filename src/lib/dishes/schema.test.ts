@@ -4,7 +4,10 @@ import {
   hasMinimumContent,
   isBlankSubstitute,
   ingredientInputSchema,
+  partLinkInputSchema,
   diffVersionContent,
+  findDuplicatePartTargets,
+  sortByPosition,
   normalizeDifficultyValue,
   type SectionInput,
   type PartLinkInput,
@@ -18,6 +21,7 @@ function section(overrides: Partial<SectionInput> = {}): SectionInput {
     ingredients: [],
     instructions: [],
     partLinks: [],
+    position: 0,
     ...overrides,
   };
 }
@@ -44,6 +48,8 @@ function partLink(overrides: Partial<PartLinkInput> = {}): PartLinkInput {
   return {
     targetDishId: "part-1",
     targetDishVersionId: "part-1-v1",
+    position: 0,
+    multiplier: 1,
     ...overrides,
   };
 }
@@ -266,6 +272,7 @@ describe("diffVersionContent after a reorder (drag or otherwise)", () => {
         name: null,
         guidanceNote: null,
         partLinks: [],
+        position: 0,
         ingredients: [
           { lineageId: "ing-1", ...ingredient("Salt") },
           { lineageId: "ing-2", ...ingredient("Pepper") },
@@ -281,6 +288,7 @@ describe("diffVersionContent after a reorder (drag or otherwise)", () => {
         name: null,
         guidanceNote: null,
         partLinks: [],
+        position: 0,
         ingredients: [
           { lineageId: "ing-2", ...ingredient("Pepper") },
           { lineageId: "ing-1", ...ingredient("Salt") },
@@ -304,6 +312,7 @@ describe("diffVersionContent after a reorder (drag or otherwise)", () => {
         name: null,
         guidanceNote: null,
         partLinks: [],
+        position: 0,
         ingredients: [{ lineageId: "ing-1", ...ingredient("Salt") }],
         instructions: [
           { lineageId: "step-1", ...instruction("Boil water.") },
@@ -317,6 +326,7 @@ describe("diffVersionContent after a reorder (drag or otherwise)", () => {
         name: null,
         guidanceNote: null,
         partLinks: [],
+        position: 0,
         ingredients: [{ lineageId: "ing-1", ...ingredient("Salt") }],
         instructions: [
           { lineageId: "step-2", ...instruction("Add salt.") },
@@ -339,6 +349,7 @@ describe("diffVersionContent after a reorder (drag or otherwise)", () => {
         name: "Sauce",
         guidanceNote: null,
         partLinks: [],
+        position: 0,
         ingredients: [{ lineageId: "ing-1", ...ingredient("Soy sauce") }],
         instructions: [],
       },
@@ -347,6 +358,7 @@ describe("diffVersionContent after a reorder (drag or otherwise)", () => {
         name: "Rice",
         guidanceNote: null,
         partLinks: [],
+        position: 1,
         ingredients: [{ lineageId: "ing-2", ...ingredient("Rice") }],
         instructions: [],
       },
@@ -359,6 +371,7 @@ describe("diffVersionContent after a reorder (drag or otherwise)", () => {
         name: "Rice",
         guidanceNote: null,
         partLinks: [],
+        position: 0,
         ingredients: [{ lineageId: "ing-2", ...ingredient("Rice") }],
         instructions: [],
       },
@@ -367,6 +380,7 @@ describe("diffVersionContent after a reorder (drag or otherwise)", () => {
         name: "Sauce",
         guidanceNote: null,
         partLinks: [],
+        position: 1,
         ingredients: [{ lineageId: "ing-1", ...ingredient("Soy sauce") }],
         instructions: [],
       },
@@ -472,6 +486,193 @@ describe("diffVersionContent with linked Parts", () => {
     const result = diffVersionContent(base, edited);
     expect(result.cookingChanged).toBe(false);
     expect(result.sectionOrganizationChanged).toBe(true);
+  });
+});
+
+// Slice 6 post-gate, PRODUCT_SPEC.md §67-70's settled Review Gate 3
+// decision: only DIRECT links (top-level + Section-nested) on this
+// Version's own content are considered — not a transitive scan.
+describe("findDuplicatePartTargets", () => {
+  it("returns an empty array when there are no duplicate direct links", () => {
+    const result = findDuplicatePartTargets(
+      [
+        section({
+          partLinks: [
+            { lineageId: "link-1", ...partLink({ targetDishId: "part-1" }) },
+          ],
+        }),
+      ],
+      [{ lineageId: "link-2", ...partLink({ targetDishId: "part-2" }) }],
+    );
+    expect(result).toEqual([]);
+  });
+
+  it("flags the same Part linked twice at top level", () => {
+    const result = findDuplicatePartTargets(
+      [],
+      [
+        { lineageId: "link-1", ...partLink({ targetDishId: "part-1" }) },
+        {
+          lineageId: "link-2",
+          ...partLink({ targetDishId: "part-1", position: 1 }),
+        },
+      ],
+    );
+    expect(result).toEqual(["part-1"]);
+  });
+
+  it("flags the same Part linked once top-level and once Section-nested", () => {
+    const result = findDuplicatePartTargets(
+      [
+        section({
+          partLinks: [
+            { lineageId: "link-2", ...partLink({ targetDishId: "part-1" }) },
+          ],
+        }),
+      ],
+      [{ lineageId: "link-1", ...partLink({ targetDishId: "part-1" }) }],
+    );
+    expect(result).toEqual(["part-1"]);
+  });
+
+  it("flags the same Part nested in two different Sections", () => {
+    const result = findDuplicatePartTargets(
+      [
+        section({
+          lineageId: "section-1",
+          partLinks: [
+            { lineageId: "link-1", ...partLink({ targetDishId: "part-1" }) },
+          ],
+        }),
+        section({
+          lineageId: "section-2",
+          partLinks: [
+            { lineageId: "link-2", ...partLink({ targetDishId: "part-1" }) },
+          ],
+        }),
+      ],
+      [],
+    );
+    expect(result).toEqual(["part-1"]);
+  });
+});
+
+describe("sortByPosition", () => {
+  it("returns a new array sorted ascending by position, without mutating the input", () => {
+    const items = [{ position: 2 }, { position: 0 }, { position: 1 }];
+
+    const result = sortByPosition(items);
+
+    expect(result).toEqual([{ position: 0 }, { position: 1 }, { position: 2 }]);
+    expect(items).toEqual([{ position: 2 }, { position: 0 }, { position: 1 }]);
+    expect(result).not.toBe(items);
+  });
+});
+
+describe("partLinkInputSchema's multiplier validation (Slice 6 post-gate)", () => {
+  function payload(overrides: Record<string, unknown> = {}) {
+    return {
+      targetDishId: "part-1",
+      targetDishVersionId: "part-1-v1",
+      position: 0,
+      ...overrides,
+    };
+  }
+
+  it("rejects a multiplier of 0", () => {
+    const result = partLinkInputSchema.safeParse(payload({ multiplier: 0 }));
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0].message).toBe(
+        "Multiplier must be greater than zero.",
+      );
+    }
+  });
+
+  it("rejects a negative multiplier", () => {
+    const result = partLinkInputSchema.safeParse(payload({ multiplier: -1 }));
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0].message).toBe(
+        "Multiplier must be greater than zero.",
+      );
+    }
+  });
+
+  it("defaults multiplier to 1 when omitted", () => {
+    const result = partLinkInputSchema.safeParse(payload());
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.multiplier).toBe(1);
+  });
+
+  it("parses a valid positive multiplier unchanged", () => {
+    const result = partLinkInputSchema.safeParse(payload({ multiplier: 2.5 }));
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.multiplier).toBe(2.5);
+  });
+});
+
+// Slice 6 post-gate: `position` (not array iteration order) is the
+// authoritative ordering source for Sections and top-level PartLinks.
+describe("diffVersionContent's position-based ordering (Slice 6 post-gate)", () => {
+  it("classifies a top-level PartLink position change as a cooking change", () => {
+    const base = content(
+      [section()],
+      [{ lineageId: "link-1", ...partLink({ position: 0 }) }],
+    );
+    const edited = content(
+      [section()],
+      [{ lineageId: "link-1", ...partLink({ position: 1 }) }],
+    );
+
+    const result = diffVersionContent(base, edited);
+    expect(result.cookingChanged).toBe(true);
+  });
+
+  it("classifies a Section position change as sectionOrganizationChanged, trusting `position` over array order", () => {
+    const sectionA: SectionInput = {
+      lineageId: "section-1",
+      name: "Sauce",
+      guidanceNote: null,
+      partLinks: [],
+      ingredients: [],
+      instructions: [],
+      position: 0,
+    };
+    const sectionB: SectionInput = {
+      lineageId: "section-2",
+      name: "Rice",
+      guidanceNote: null,
+      partLinks: [],
+      ingredients: [],
+      instructions: [],
+      position: 1,
+    };
+    const base = content([sectionA, sectionB]);
+    // Same array order as base — only each Section's own `position` field
+    // swaps, proving the diff trusts `position`, not array order.
+    const edited = content([
+      { ...sectionA, position: 1 },
+      { ...sectionB, position: 0 },
+    ]);
+
+    const result = diffVersionContent(base, edited);
+    expect(result.cookingChanged).toBe(false);
+    expect(result.sectionOrganizationChanged).toBe(true);
+  });
+
+  it("classifies a multiplier-only change as a cooking change (multiplier is part of partLinkContentSignature)", () => {
+    const base = content(
+      [section()],
+      [{ lineageId: "link-1", ...partLink({ multiplier: 1 }) }],
+    );
+    const edited = content(
+      [section()],
+      [{ lineageId: "link-1", ...partLink({ multiplier: 2 }) }],
+    );
+
+    const result = diffVersionContent(base, edited);
+    expect(result.cookingChanged).toBe(true);
   });
 });
 

@@ -53,6 +53,7 @@ const existingDish: {
         lineageId: "section-1",
         name: null,
         guidanceNote: null,
+        position: 0,
         ingredients: [
           {
             lineageId: "ingredient-1",

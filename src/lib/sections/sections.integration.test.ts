@@ -5,12 +5,16 @@ import * as dishService from "@/lib/dishes/service";
 import * as sectionsService from "@/lib/sections/service";
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import type { DishContentInput } from "@/lib/dishes/schema";
+import { scaleIngredientQuantity } from "@/lib/units/scaling";
 
 /**
- * Slice 6 pre-gate scope (Build Plan Review Gate 3): attach validation,
- * detach content resolution, and "create a Part from local content"
- * (§69). Propagation and deletion materialization are not implemented or
- * tested here — they're held for the gate.
+ * Slice 6 post-gate (Build Plan Review Gate 3): attach validation, detach
+ * content resolution (including multiplier scaling), target-validity
+ * checks, and nested-tree resolution. "Create Part"/"Convert Section to
+ * Part" are UI-only flows now (see `sections/service.ts`'s own module doc
+ * comment) — persisted via the ordinary `dishService.createDish("PART",
+ * ...)`, already covered by `dishes.integration.test.ts`, with no
+ * remaining service-level "create and link" primitive to test here.
  */
 
 function partContent(title: string): DishContentInput {
@@ -29,6 +33,7 @@ function partContent(title: string): DishContentInput {
       {
         name: null,
         guidanceNote: null,
+        position: 0,
         ingredients: [
           {
             name: "Salt",
@@ -43,43 +48,6 @@ function partContent(title: string): DishContentInput {
           },
         ],
         instructions: [],
-        partLinks: [],
-      },
-    ],
-    partLinks: [],
-  };
-}
-
-function recipeContentWithMarinadeSection(): DishContentInput {
-  return {
-    title: "Lemongrass Chicken",
-    stage: "IDEA",
-    cuisine: null,
-    description: null,
-    yieldQuantity: null,
-    yieldUnit: null,
-    prepTimeMinutes: null,
-    cookTimeMinutes: null,
-    difficulty: null,
-    imageAssetId: null,
-    sections: [
-      {
-        name: "Marinade",
-        guidanceNote: null,
-        ingredients: [
-          {
-            name: "Fish sauce",
-            quantity: 2,
-            quantityEnd: null,
-            isApproximate: false,
-            unit: "tbsp",
-            displayText: null,
-            preparationNote: null,
-            isOptional: false,
-            substitute: null,
-          },
-        ],
-        instructions: [{ text: "Whisk the marinade together." }],
         partLinks: [],
       },
     ],
@@ -202,7 +170,12 @@ describe("sections service", () => {
         {
           ...partContent("Part A"),
           partLinks: [
-            { targetDishId: partBId, targetDishVersionId: partBVersionId },
+            {
+              targetDishId: partBId,
+              targetDishVersionId: partBVersionId,
+              position: 0,
+              multiplier: 1,
+            },
           ],
         },
         "MINOR",
@@ -285,159 +258,277 @@ describe("sections service", () => {
     });
   });
 
-  describe("promoteLocalContentToPart (§69.2 — create and link)", () => {
-    it("creates a new Part from the Section, replaces it with a top-level link, and preserves the prior Version unchanged", async () => {
+  describe("assertValidPartLinkTargets", () => {
+    it("rejects a target Dish that is a Recipe, not a Part", async () => {
       const user = await createTestUser();
       userId = user.id;
       const recipeId = await dishService.createDish(
         userId,
         "RECIPE",
-        recipeContentWithMarinadeSection(),
+        partContent("Some Recipe"),
       );
-      const v1Id = await currentVersionId(recipeId);
-      const v1 = await prisma.dishVersion.findUniqueOrThrow({
-        where: { id: v1Id },
-        include: { sections: true },
-      });
-      const marinadeLineageId = v1.sections[0].lineageId;
-
-      const result = await sectionsService.promoteLocalContentToPart(
-        userId,
-        recipeId,
-        "RECIPE",
-        v1Id,
-        marinadeLineageId,
-        "Marinade",
-      );
-
-      const newPart = await prisma.dish.findUniqueOrThrow({
-        where: { id: result.newPartDishId },
-      });
-      expect(newPart.kind).toBe("PART");
-      expect(newPart.currentTitle).toBe("Marinade");
-
-      const recipe = await prisma.dish.findUniqueOrThrow({
-        where: { id: recipeId },
-        include: {
-          currentVersion: {
-            include: { sections: true, partLinks: true },
-          },
-        },
-      });
-      // The prior Version (V1.0) still exists, untouched, with its Section
-      // intact — §69.2's "preserve the prior Recipe Version unchanged."
-      const priorVersion = await prisma.dishVersion.findUniqueOrThrow({
-        where: { id: v1Id },
-        include: { sections: true },
-      });
-      expect(priorVersion.sections).toHaveLength(1);
-
-      // The new current Version has no local Sections left (the only
-      // Section was extracted) and one live top-level link to the new Part.
-      expect(recipe.currentVersion?.sections).toHaveLength(0);
-      expect(recipe.currentVersion?.partLinks).toHaveLength(1);
-      expect(recipe.currentVersion?.partLinks[0].targetDishId).toBe(
-        result.newPartDishId,
-      );
-      expect(recipe.currentVersion?.majorVersion).toBe(1);
-      expect(recipe.currentVersion?.minorVersion).toBe(1);
-    });
-
-    it("rejects a Section with no meaningful content", async () => {
-      const user = await createTestUser();
-      userId = user.id;
-      const recipeId = await dishService.createDish(
-        userId,
-        "RECIPE",
-        recipeContentWithMarinadeSection(),
-      );
-      const v1Id = await currentVersionId(recipeId);
+      const versionId = await currentVersionId(recipeId);
 
       await expect(
-        sectionsService.promoteLocalContentToPart(
-          userId,
-          recipeId,
-          "RECIPE",
-          v1Id,
-          "not-a-real-section-lineage-id",
-          "Marinade",
-        ),
-      ).rejects.toThrow(NotFoundError);
+        sectionsService.assertValidPartLinkTargets(prisma, userId, [
+          { targetDishId: recipeId, targetDishVersionId: versionId },
+        ]),
+      ).rejects.toThrow(/cannot be used as a linked Part/);
     });
 
-    it("rejects a container the caller does not own", async () => {
+    it("rejects a targetDishVersionId that belongs to a different Dish", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      const partAId = await dishService.createDish(
+        userId,
+        "PART",
+        partContent("Part A"),
+      );
+      const partBId = await dishService.createDish(
+        userId,
+        "PART",
+        partContent("Part B"),
+      );
+      const partBVersionId = await currentVersionId(partBId);
+
+      await expect(
+        sectionsService.assertValidPartLinkTargets(prisma, userId, [
+          { targetDishId: partAId, targetDishVersionId: partBVersionId },
+        ]),
+      ).rejects.toThrow(/does not belong to that Part/);
+    });
+
+    it("rejects a target the caller does not own", async () => {
       const user = await createTestUser();
       userId = user.id;
       const other = await createTestUser();
       otherUserId = other.id;
 
-      const otherRecipeId = await dishService.createDish(
+      const otherPartId = await dishService.createDish(
         otherUserId,
-        "RECIPE",
-        recipeContentWithMarinadeSection(),
+        "PART",
+        partContent("Someone else's Part"),
       );
-      const otherV1Id = await currentVersionId(otherRecipeId);
-      const otherV1 = await prisma.dishVersion.findUniqueOrThrow({
-        where: { id: otherV1Id },
-        include: { sections: true },
-      });
+      const otherVersionId = await currentVersionId(otherPartId);
 
       await expect(
-        sectionsService.promoteLocalContentToPart(
-          userId,
-          otherRecipeId,
-          "RECIPE",
-          otherV1Id,
-          otherV1.sections[0].lineageId,
-          "Marinade",
-        ),
+        sectionsService.assertValidPartLinkTargets(prisma, userId, [
+          { targetDishId: otherPartId, targetDishVersionId: otherVersionId },
+        ]),
       ).rejects.toThrow(NotFoundError);
     });
   });
 
-  describe("saveContentAsNewPart (§69.3 — save a copy)", () => {
-    it("creates a new Part and leaves the source Recipe's Version history untouched", async () => {
+  describe("resolvePartVersionForDetach — multiplier scaling", () => {
+    function partContentWithIngredient(
+      title: string,
+      ingredientName: string,
+      quantity: number,
+    ): DishContentInput {
+      return {
+        ...partContent(title),
+        sections: [
+          {
+            name: null,
+            guidanceNote: null,
+            position: 0,
+            ingredients: [
+              {
+                name: ingredientName,
+                quantity,
+                quantityEnd: null,
+                isApproximate: false,
+                unit: "cup",
+                displayText: null,
+                preparationNote: null,
+                isOptional: false,
+                substitute: null,
+              },
+            ],
+            instructions: [],
+            partLinks: [],
+          },
+        ],
+      };
+    }
+
+    it("scales the detached ingredient's quantity by a multiplier other than 1, via the shared scaling utility", async () => {
       const user = await createTestUser();
       userId = user.id;
-      const recipeId = await dishService.createDish(
+      const partDishId = await dishService.createDish(
         userId,
-        "RECIPE",
-        recipeContentWithMarinadeSection(),
+        "PART",
+        partContentWithIngredient("Broth Base", "Broth", 2),
       );
-      const v1Id = await currentVersionId(recipeId);
-      const v1 = await prisma.dishVersion.findUniqueOrThrow({
-        where: { id: v1Id },
-        include: { sections: true },
-      });
+      const versionId = await currentVersionId(partDishId);
 
-      const versionCountBefore = await prisma.dishVersion.count({
-        where: { dishId: recipeId },
-      });
-
-      const result = await sectionsService.saveContentAsNewPart(
+      const detached = await sectionsService.resolvePartVersionForDetach(
         userId,
-        recipeId,
-        "RECIPE",
-        v1Id,
-        v1.sections[0].lineageId,
-        "Marinade",
+        versionId,
+        1.5,
       );
 
-      const newPart = await prisma.dish.findUniqueOrThrow({
-        where: { id: result.newPartDishId },
-      });
-      expect(newPart.kind).toBe("PART");
-      expect(newPart.currentTitle).toBe("Marinade");
+      const expected = scaleIngredientQuantity(
+        {
+          quantity: 2,
+          quantityEnd: null,
+          isApproximate: false,
+          displayText: null,
+        },
+        1.5,
+      );
+      expect(detached.sections[0].ingredients[0].quantity).toBe(
+        expected.quantity,
+      );
+    });
 
-      const versionCountAfter = await prisma.dishVersion.count({
-        where: { dishId: recipeId },
-      });
-      expect(versionCountAfter).toBe(versionCountBefore);
+    it("leaves the quantity unchanged when the multiplier is 1 (the default, a no-op)", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      const partDishId = await dishService.createDish(
+        userId,
+        "PART",
+        partContentWithIngredient("Broth Base", "Broth", 2),
+      );
+      const versionId = await currentVersionId(partDishId);
 
-      const recipe = await prisma.dish.findUniqueOrThrow({
-        where: { id: recipeId },
+      const detached = await sectionsService.resolvePartVersionForDetach(
+        userId,
+        versionId,
+      );
+
+      expect(detached.sections[0].ingredients[0].quantity).toBe(2);
+    });
+  });
+
+  describe("resolvePartLinkTree", () => {
+    it("resolves a nested Part one level deep, with correct titles and content at each level", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      const partBId = await dishService.createDish(
+        userId,
+        "PART",
+        partContent("Rice"),
+      );
+      const partBVersionId = await currentVersionId(partBId);
+
+      const partAId = await dishService.createDish(
+        userId,
+        "PART",
+        partContent("Bowl"),
+      );
+      const partAV1 = await currentVersionId(partAId);
+      await dishService.editDish(
+        userId,
+        partAId,
+        partAV1,
+        {
+          ...partContent("Bowl"),
+          partLinks: [
+            {
+              targetDishId: partBId,
+              targetDishVersionId: partBVersionId,
+              position: 0,
+              multiplier: 2,
+            },
+          ],
+        },
+        "MINOR",
+        "PART",
+      );
+      const partACurrentVersionId = await currentVersionId(partAId);
+
+      const tree = await sectionsService.resolvePartLinkTree(userId, {
+        targetDishId: partAId,
+        targetDishVersionId: partACurrentVersionId,
+        multiplier: 1,
       });
-      expect(recipe.currentVersionId).toBe(v1Id);
+
+      expect(tree).not.toBeNull();
+      expect(tree!.title).toBe("Bowl");
+      expect(tree!.partLinks).toHaveLength(1);
+      expect(tree!.partLinks[0].title).toBe("Rice");
+      expect(tree!.partLinks[0].multiplier).toBe(2);
+      expect(tree!.partLinks[0].sections[0].ingredients[0].name).toBe("Salt");
+    });
+
+    it("resolves to null for a missing/deleted target rather than throwing", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+
+      const tree = await sectionsService.resolvePartLinkTree(userId, {
+        targetDishId: "does-not-exist",
+        targetDishVersionId: "does-not-exist-either",
+        multiplier: 1,
+      });
+
+      expect(tree).toBeNull();
+    });
+
+    // ARCHITECTURE_PROPOSAL.md §G.6 / `resolvePartLinkTreeInner`'s own doc
+    // comment: `MAX_PART_LINK_TREE_DEPTH` (currently 12) is defense-in-depth
+    // against a rendering pass ever infinite-looping, since a genuine cycle
+    // is already rejected at write time (`assertNoPartCycle`) and can't be
+    // constructed here. A real, non-cyclic 12-hop chain is built instead —
+    // long enough to push the innermost link past the cap — and the walk is
+    // asserted to stop short of the chain's real length, proving the guard
+    // (not just a naturally-terminating chain) is what stopped it.
+    it("stops resolving at the maximum nesting depth rather than walking the whole chain", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+
+      const CHAIN_LENGTH = 13;
+      const partIds: string[] = [];
+      const partVersionIds: string[] = [];
+      for (let i = 0; i < CHAIN_LENGTH; i++) {
+        const id = await dishService.createDish(
+          userId,
+          "PART",
+          partContent(`Layer ${i}`),
+        );
+        partIds.push(id);
+        partVersionIds.push(await currentVersionId(id));
+      }
+      // Link deepest-first so every attach targets an already-existing,
+      // already-valid Version.
+      for (let i = CHAIN_LENGTH - 2; i >= 0; i--) {
+        await dishService.editDish(
+          userId,
+          partIds[i],
+          partVersionIds[i],
+          {
+            ...partContent(`Layer ${i}`),
+            partLinks: [
+              {
+                targetDishId: partIds[i + 1],
+                targetDishVersionId: partVersionIds[i + 1],
+                position: 0,
+                multiplier: 1,
+              },
+            ],
+          },
+          "MINOR",
+          "PART",
+        );
+        partVersionIds[i] = await currentVersionId(partIds[i]);
+      }
+
+      const tree = await sectionsService.resolvePartLinkTree(userId, {
+        targetDishId: partIds[0],
+        targetDishVersionId: partVersionIds[0],
+        multiplier: 1,
+      });
+
+      let node = tree;
+      let depth = 0;
+      while (node && node.partLinks.length > 0) {
+        node = node.partLinks[0];
+        depth++;
+      }
+      // A full, uncapped walk of this real chain would reach depth
+      // CHAIN_LENGTH - 1 (12) — the guard must stop it strictly short of
+      // that.
+      expect(depth).toBeLessThan(CHAIN_LENGTH - 1);
     });
   });
 });

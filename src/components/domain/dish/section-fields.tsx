@@ -25,7 +25,8 @@ import {
   PartAttachPicker,
   type AttachablePartOption,
 } from "@/components/domain/dish/part-attach-picker";
-import { SaveSectionAsPartDialog } from "@/components/domain/dish/save-section-as-part-dialog";
+import { CreatePartDialog } from "@/components/domain/dish/create-part-dialog";
+import { ConvertSectionToPartDialog } from "@/components/domain/dish/convert-section-to-part-dialog";
 import type { DetachedContent } from "@/lib/sections/service";
 import type { DishKindValue } from "@/lib/dishes/schema";
 
@@ -48,24 +49,26 @@ export function SectionFields({
   id,
   sectionIndex,
   onRemove,
+  onConvertToPart,
   containerDishId,
   containerKind,
   attachableParts,
-  baseVersionId,
 }: {
   id: string;
   sectionIndex: number;
   onRemove: () => void;
+  onConvertToPart: (link: {
+    targetDishId: string;
+    targetDishVersionId: string;
+  }) => void;
   containerDishId: string | null;
   containerKind: DishKindValue;
   attachableParts: AttachablePartOption[];
-  baseVersionId: string | null;
 }) {
   const { control, register, watch } = useFormContext();
   const prefix = `sections.${sectionIndex}`;
   const idPrefix = prefix.replace(/\./g, "-");
   const sectionName: string = watch(`${prefix}.name`);
-  const sectionLineageId: string | undefined = watch(`${prefix}.lineageId`);
   const [collapsed, setCollapsed] = React.useState(false);
 
   const ingredients = useFieldArray({ control, name: `${prefix}.ingredients` });
@@ -88,6 +91,11 @@ export function SectionFields({
   // instead keeps each of the target's Sections intact as brand-new
   // top-level Sections, since there's room for that at the container level.
   function handleDetach(partLinkIndex: number, content: DetachedContent) {
+    // `useFieldArray`'s `.fields` doesn't update synchronously between
+    // multiple `.append()` calls in one handler, so a running counter (not
+    // `partLinks.fields.length` re-read each time) is what keeps each
+    // newly-appended nested occurrence's position distinct.
+    let nextPosition = partLinks.fields.length;
     content.sections.forEach((detachedSection) => {
       detachedSection.ingredients.forEach((ingredient) =>
         ingredients.append(ingredient),
@@ -95,9 +103,15 @@ export function SectionFields({
       detachedSection.instructions.forEach((instruction) =>
         instructions.append(instruction),
       );
-      detachedSection.partLinks.forEach((link) => partLinks.append(link));
+      detachedSection.partLinks.forEach((link) => {
+        partLinks.append({ ...link, position: nextPosition });
+        nextPosition += 1;
+      });
     });
-    content.partLinks.forEach((link) => partLinks.append(link));
+    content.partLinks.forEach((link) => {
+      partLinks.append({ ...link, position: nextPosition });
+      nextPosition += 1;
+    });
     partLinks.remove(partLinkIndex);
   }
 
@@ -220,12 +234,11 @@ export function SectionFields({
         />
       </div>
 
-      <SaveSectionAsPartDialog
-        containerDishId={containerDishId}
-        containerKind={containerKind}
-        baseVersionId={baseVersionId}
-        sectionLineageId={sectionLineageId}
+      <ConvertSectionToPartDialog
+        prefix={prefix}
         sectionLabel={label}
+        defaultName={sectionName || ""}
+        onConverted={onConvertToPart}
       />
 
       <div className="flex flex-col gap-2">
@@ -336,6 +349,7 @@ export function SectionFields({
           {partLinks.fields.map((field, partLinkIndex) => (
             <PartLinkFields
               key={field.id}
+              id={field.id}
               prefix={`${prefix}.partLinks.${partLinkIndex}`}
               onRemove={() => partLinks.remove(partLinkIndex)}
               onDetach={(content) => handleDetach(partLinkIndex, content)}
@@ -343,12 +357,29 @@ export function SectionFields({
           ))}
         </div>
       )}
-      <PartAttachPicker
-        containerDishId={containerDishId}
-        containerKind={containerKind}
-        attachableParts={attachableParts}
-        onAttach={(link) => partLinks.append(link)}
-      />
+      <div className="flex flex-wrap gap-2">
+        <PartAttachPicker
+          containerDishId={containerDishId}
+          containerKind={containerKind}
+          attachableParts={attachableParts}
+          onAttach={(link) =>
+            partLinks.append({
+              ...link,
+              position: partLinks.fields.length,
+              multiplier: 1,
+            })
+          }
+        />
+        <CreatePartDialog
+          onCreated={(link) =>
+            partLinks.append({
+              ...link,
+              position: partLinks.fields.length,
+              multiplier: 1,
+            })
+          }
+        />
+      </div>
     </div>
   );
 }

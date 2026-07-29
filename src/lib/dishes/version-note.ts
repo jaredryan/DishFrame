@@ -31,6 +31,30 @@ export function seedMajorVersionNote(
   return `${baseLabel} → ${newLabel}: ${kind}`;
 }
 
+/**
+ * Slice 6 post-gate, PRODUCT_SPEC.md §73.5: the seeded note for a
+ * propagation-driven Version — "follows the normal Recipe Version
+ * transition format," with the specific Part update called out underneath.
+ * Example:
+ * ```
+ * V2.3 → V2.4:
+ * Updated White Rice V3.1 → V3.2.
+ * ```
+ */
+export function seedPropagationVersionNote(
+  baseMajorVersion: number,
+  baseMinorVersion: number,
+  newMajorVersion: number,
+  newMinorVersion: number,
+  partTitle: string,
+  fromVersionLabel: string,
+  toVersionLabel: string,
+): string {
+  const baseLabel = versionLabel(baseMajorVersion, baseMinorVersion);
+  const newLabel = versionLabel(newMajorVersion, newMinorVersion);
+  return `${baseLabel} → ${newLabel}:\nUpdated ${partTitle} ${fromVersionLabel} → ${toVersionLabel}.`;
+}
+
 // Matches exactly a bare "VX.Y → VX.Y:" relationship stamp with nothing
 // after the colon — what's left if a user deletes the seeded "Revision"/
 // "Revival" word (or hand-types just the relationship) and saves. Never

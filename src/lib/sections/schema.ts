@@ -16,18 +16,11 @@ export const validatePartAttachmentSchema = z.object({
 });
 
 // §70.1: resolves one linked Part Version's own shallow content so the
-// editor can inline it as local content and drop the live link.
+// editor can inline it as local content and drop the live link. Slice 6
+// post-gate: `multiplier` is the detached occurrence's own current
+// multiplier (default 1), applied to the resolved quantities so localized
+// content preserves the parent's actual cooking meaning.
 export const resolvePartVersionForDetachSchema = z.object({
   targetDishVersionId: z.string().min(1),
-});
-
-// §69.2 "Save as reusable Part" (create and link) / §69.3 "Save a copy as
-// Part" share the same shape: extract one whole Section's content into a
-// brand-new Part.
-export const createPartFromSectionSchema = z.object({
-  containerDishId: z.string().min(1),
-  containerKind: z.enum(dishKindValues),
-  baseVersionId: z.string().min(1),
-  sectionLineageId: z.string().min(1),
-  partTitle: z.string().trim().min(1, "Enter a name for the reusable Part."),
+  multiplier: z.number().gt(0).default(1),
 });

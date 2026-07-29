@@ -32,6 +32,8 @@ import {
   type RestorableStageValue,
   type StageValue,
 } from "@/lib/dishes/schema";
+import { PartUsageResolutionDialog } from "@/components/domain/dish/part-usage-resolution-dialog";
+import type { AttachablePartOption } from "@/components/domain/dish/part-attach-picker";
 
 const STAGE_LABEL: Record<RestorableStageValue, string> = {
   IDEA: "Idea",
@@ -46,10 +48,12 @@ export function DishDetailActions({
   dishId,
   kind,
   stage,
+  attachableParts = [],
 }: {
   dishId: string;
   kind: DishKindValue;
   stage: StageValue;
+  attachableParts?: AttachablePartOption[];
 }) {
   const router = useRouter();
   const [openDialog, setOpenDialog] = React.useState<DialogKind>(null);
@@ -57,6 +61,7 @@ export function DishDetailActions({
     React.useState<RestorableStageValue>("ACTIVE");
   const [isPending, startTransition] = React.useTransition();
   const [error, setError] = React.useState<string | null>(null);
+  const [resolutionOpen, setResolutionOpen] = React.useState(false);
 
   const basePath = kind === "PART" ? "/parts" : "/recipes";
   const label = kind === "PART" ? "part" : "recipe";
@@ -114,6 +119,9 @@ export function DishDetailActions({
       const result = await deleteDish(kind, dishId);
       if (result.status === "success") {
         router.push(basePath);
+      } else if (result.code === "PART_HAS_LIVE_USAGES") {
+        close();
+        setResolutionOpen(true);
       } else {
         setError(result.message ?? "Could not delete.");
       }
@@ -263,6 +271,19 @@ export function DishDetailActions({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {kind === "PART" && (
+        <PartUsageResolutionDialog
+          open={resolutionOpen}
+          onOpenChange={setResolutionOpen}
+          partDishId={dishId}
+          attachableParts={attachableParts}
+          onDeleted={() => {
+            setResolutionOpen(false);
+            router.push(basePath);
+          }}
+        />
+      )}
     </>
   );
 }

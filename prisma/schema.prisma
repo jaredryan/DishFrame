@@ -258,6 +258,13 @@ model Section {
   dishVersionId String
   name          String?
   guidanceNote  String?
+  // Slice 6 post-gate: shares one interleaved top-level ordering sequence
+  // with this same DishVersion's top-level PartLink rows (sectionId IS
+  // NULL) — an application-level invariant (both `insertSections` and the
+  // editor always allocate from one shared counter), not a DB constraint,
+  // since a cross-table uniqueness rule isn't practical here at this
+  // schema's scale. Section-nested PartLinks are unaffected — their own
+  // `position` stays scoped to their owning Section, as before.
   position      Int
 
   dishVersion  DishVersion   @relation(fields: [dishVersionId], references: [id], onDelete: Cascade)
@@ -341,6 +348,13 @@ model PartLink {
   // Section(dishVersionId, id), added in Migration 1 (PRISMA_SCHEMA_PROPOSAL.md §4).
   sectionId          String?
   linkState          PartLinkState @default(LIVE)
+  // Slice 6 post-gate, Review Gate 3: the parent-specific quantity
+  // multiplier (e.g. "1.5x this Part's ingredients here") — composes with
+  // whole-item scaling via the existing scaling utilities, never a second
+  // arithmetic path. CHECK (multiplier > 0) added in migration SQL (Prisma
+  // has no portable way to express a column CHECK constraint directly, same
+  // reasoning as `linkState`'s consistency constraint above).
+  multiplier         Decimal       @default(1) @db.Decimal(8, 4)
   position           Int
 
   targetDishId        String?

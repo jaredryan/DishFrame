@@ -2,21 +2,46 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Link2, ExternalLink, Unlink, X } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  ExternalLink,
+  Link2,
+  Unlink,
+  X,
+} from "lucide-react";
 import { useFormContext, useWatch } from "react-hook-form";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { Button } from "@/components/ui/button";
+import { Field, FieldLabel } from "@/components/ui/field";
+import { DragHandle } from "@/components/ui/drag-handle";
+import { NumberField } from "@/components/domain/dish/number-field";
+import { PartLinkTreeView } from "@/components/domain/dish/part-link-tree-view";
 import {
   getPartLinkDisplay,
+  getPartLinkPreview,
   resolvePartVersionForDetach,
 } from "@/lib/sections/actions";
 import type { DetachedContent } from "@/lib/sections/service";
+import type { PartLinkTree } from "@/lib/sections/service";
 
-// Untyped useFormContext — see ingredient-fields.tsx's doc comment.
+/**
+ * Settled Review Gate 3 decision, PRODUCT_SPEC.md §67.4/§68.6: a PartLink is
+ * a data relationship, not a link-only placeholder — from the parent
+ * editor, users may change the pinned Version, change the multiplier,
+ * detach, remove, or open the standalone Part, but the reusable Part's own
+ * Ingredients/Instructions never become parent-owned inline inputs here
+ * (view-first, collapsed by default; the expanded preview is read-only,
+ * fetched from `getPartLinkPreview`).
+ */
 export function PartLinkFields({
+  id,
   prefix,
   onRemove,
   onDetach,
 }: {
+  id: string;
   prefix: string;
   onRemove: () => void;
   onDetach: (content: DetachedContent) => void;
@@ -27,6 +52,7 @@ export function PartLinkFields({
     control,
     name: `${prefix}.targetDishVersionId`,
   });
+  const multiplier = useWatch({ control, name: `${prefix}.multiplier` }) ?? 1;
 
   // Keyed by target identity so a stale response for a since-changed target
   // is recognized as stale (`key !== requestKey`) without needing an eager
@@ -37,6 +63,12 @@ export function PartLinkFields({
     title: string | null;
     majorVersion: number;
     minorVersion: number;
+    error: string | null;
+  } | null>(null);
+  const [expanded, setExpanded] = React.useState(false);
+  const [preview, setPreview] = React.useState<{
+    key: string;
+    tree: PartLinkTree | null;
     error: string | null;
   } | null>(null);
   const [isDetaching, setIsDetaching] = React.useState(false);
@@ -76,6 +108,39 @@ export function PartLinkFields({
     };
   }, [targetDishId, targetDishVersionId]);
 
+  // View-first editing: the full inline preview is only ever fetched once
+  // the user actually expands this row — never eagerly for every collapsed
+  // occurrence.
+  React.useEffect(() => {
+    if (!expanded || !requestKey || !targetDishId || !targetDishVersionId) {
+      return;
+    }
+    if (preview?.key === requestKey) return;
+    let cancelled = false;
+    getPartLinkPreview({
+      targetDishId,
+      targetDishVersionId,
+      multiplier: Number(multiplier) || 1,
+    }).then((result) => {
+      if (cancelled) return;
+      if (result.status === "success") {
+        setPreview({ key: requestKey, tree: result.tree, error: null });
+      } else {
+        setPreview({ key: requestKey, tree: null, error: result.message });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    expanded,
+    requestKey,
+    targetDishId,
+    targetDishVersionId,
+    multiplier,
+    preview,
+  ]);
+
   const isCurrent = resolved !== null && resolved.key === requestKey;
   const display = isCurrent && !resolved.error ? resolved : null;
   const error = detachError ?? (isCurrent ? resolved.error : null);
@@ -85,6 +150,7 @@ export function PartLinkFields({
     setDetachError(null);
     const result = await resolvePartVersionForDetach({
       targetDishVersionId,
+      multiplier: Number(multiplier) || 1,
     });
     setIsDetaching(false);
     if (result.status === "success") {
@@ -94,55 +160,124 @@ export function PartLinkFields({
     }
   }
 
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id });
+  const style = { transform: CSS.Transform.toString(transform), transition };
+
   const versionLabel = display
     ? `V${display.majorVersion}.${display.minorVersion}`
     : null;
+  const title = error
+    ? "Linked Part unavailable"
+    : (display?.title ?? "Loading…");
 
   return (
-    <div className="border-border bg-muted/30 flex items-center justify-between gap-3 rounded-lg border border-dashed p-3">
-      <div className="flex min-w-0 items-center gap-2">
-        <Link2 className="text-primary size-4 shrink-0" aria-hidden="true" />
-        <div className="min-w-0">
-          <p className="truncate text-sm font-medium">
-            {error ? "Linked Part unavailable" : (display?.title ?? "Loading…")}
-          </p>
-          <p className="text-muted-foreground text-xs">
-            Saved part{versionLabel ? ` · ${versionLabel}` : ""}
-          </p>
-          {error && <p className="text-destructive text-xs">{error}</p>}
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="border-border bg-muted/30 flex flex-col gap-2 rounded-lg border border-dashed p-3"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <DragHandle
+            label={`Drag to reorder ${title}`}
+            attributes={attributes}
+            listeners={listeners}
+            isDragging={isDragging}
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => setExpanded((prev) => !prev)}
+            title={expanded ? "Collapse" : "Expand"}
+          >
+            {expanded ? (
+              <ChevronDown className="size-4" aria-hidden="true" />
+            ) : (
+              <ChevronRight className="size-4" aria-hidden="true" />
+            )}
+            <span className="sr-only">{expanded ? "Collapse" : "Expand"}</span>
+          </Button>
+          <Link2 className="text-primary size-4 shrink-0" aria-hidden="true" />
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium">{title}</p>
+            <p className="text-muted-foreground text-xs">
+              Linked part{versionLabel ? ` · ${versionLabel}` : ""}
+              {Number(multiplier) !== 1 ? ` · × ${multiplier}` : ""}
+            </p>
+            {error && <p className="text-destructive text-xs">{error}</p>}
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          {targetDishId && (
+            <Button variant="ghost" size="icon-sm" asChild title="Open Part">
+              <Link href={`/parts/${targetDishId}`} target="_blank">
+                <ExternalLink className="size-4" aria-hidden="true" />
+                <span className="sr-only">Open Part</span>
+              </Link>
+            </Button>
+          )}
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            onClick={handleDetach}
+            disabled={isDetaching}
+            title="Detach into local content"
+          >
+            <Unlink className="size-4" aria-hidden="true" />
+            <span className="sr-only">Detach</span>
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            onClick={onRemove}
+            title="Remove"
+          >
+            <X className="size-4" aria-hidden="true" />
+            <span className="sr-only">Remove</span>
+          </Button>
         </div>
       </div>
-      <div className="flex shrink-0 items-center gap-1">
-        {targetDishId && (
-          <Button variant="ghost" size="icon-sm" asChild title="Open Part">
-            <Link href={`/parts/${targetDishId}`} target="_blank">
-              <ExternalLink className="size-4" aria-hidden="true" />
-              <span className="sr-only">Open Part</span>
-            </Link>
-          </Button>
-        )}
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          onClick={handleDetach}
-          disabled={isDetaching}
-          title="Detach into local content"
-        >
-          <Unlink className="size-4" aria-hidden="true" />
-          <span className="sr-only">Detach</span>
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          onClick={onRemove}
-          title="Remove"
-        >
-          <X className="size-4" aria-hidden="true" />
-          <span className="sr-only">Remove</span>
-        </Button>
-      </div>
+
+      {expanded && (
+        <div className="flex flex-col gap-3 pl-8">
+          <Field className="w-32">
+            <FieldLabel htmlFor={`${prefix.replace(/\./g, "-")}-multiplier`}>
+              Multiplier
+            </FieldLabel>
+            <NumberField
+              name={`${prefix}.multiplier`}
+              id={`${prefix.replace(/\./g, "-")}-multiplier`}
+              step="any"
+              placeholder="1"
+            />
+          </Field>
+
+          {preview?.key === requestKey && preview.tree && (
+            <PartLinkTreeView tree={preview.tree} />
+          )}
+          {preview?.key === requestKey && !preview.tree && preview.error && (
+            <p className="text-destructive text-sm">{preview.error}</p>
+          )}
+          {preview?.key === requestKey && !preview.tree && !preview.error && (
+            <p className="text-muted-foreground text-sm">
+              This Part has no saved content yet.
+            </p>
+          )}
+          {(!preview || preview.key !== requestKey) && (
+            <p className="text-muted-foreground text-sm">Loading content…</p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

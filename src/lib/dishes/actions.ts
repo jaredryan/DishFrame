@@ -2,8 +2,13 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUserId } from "@/lib/auth/session";
-import { toActionErrorMessage } from "@/lib/errors";
+import { toActionErrorMessage, PartHasLiveUsagesError } from "@/lib/errors";
 import * as dishService from "@/lib/dishes/service";
+import {
+  listCurrentPartUsages,
+  getOwnedDishOrThrow,
+  type PartUsage,
+} from "@/lib/dishes/queries";
 import {
   dishContentSchema,
   duplicateDishSchema,
@@ -15,11 +20,18 @@ import {
   setDefaultBatchScaleSchema,
   savePreferredUnitOverrideSchema,
   clearPreferredUnitOverrideSchema,
+  propagatePartUpdateSchema,
+  resolvePartUsageOccurrenceSchema,
   type DishActionState,
   type DishContentInput,
   type DishKindValue,
   type VersionChoiceValue,
+  type PartUsageResolutionValue,
 } from "@/lib/dishes/schema";
+import type {
+  PropagationSelection,
+  PropagationOutcome,
+} from "@/lib/dishes/service";
 
 function basePath(kind: DishKindValue): "/recipes" | "/parts" {
   return kind === "PART" ? "/parts" : "/recipes";
@@ -288,16 +300,121 @@ export async function clearPreferredUnitOverride(
   }
 }
 
+export type PropagatePartUpdateActionState =
+  | { status: "success"; outcomes: PropagationOutcome[] }
+  | { status: "error"; message: string };
+
+/** PRODUCT_SPEC.md §72.4/§72.5: "Update everywhere" / "Choose Recipes and
+ * Parts to update" — one call, one outcome per selected container. */
+export async function propagatePartUpdate(values: {
+  partDishId: string;
+  newTargetVersionId: string;
+  selections: PropagationSelection[];
+  bump?: VersionChoiceValue;
+}): Promise<PropagatePartUpdateActionState> {
+  try {
+    const userId = await requireUserId();
+    const input = propagatePartUpdateSchema.parse(values);
+
+    const outcomes = await dishService.propagatePartUpdate(
+      userId,
+      input.partDishId,
+      input.newTargetVersionId,
+      input.selections,
+      input.bump,
+    );
+
+    revalidatePath("/parts");
+    revalidatePath("/recipes");
+    for (const outcome of outcomes) {
+      revalidatePath(`/parts/${outcome.containerDishId}`);
+      revalidatePath(`/recipes/${outcome.containerDishId}`);
+    }
+
+    return { status: "success", outcomes };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export type ResolvePartUsageActionState =
+  | { status: "success"; containerDishId: string }
+  | { status: "error"; message: string };
+
+/** PRODUCT_SPEC.md §74.2: resolves one current usage occurrence (detach,
+ * replace, or remove) ahead of a Part's permanent deletion. */
+export async function resolvePartUsageOccurrence(values: {
+  partDishId: string;
+  containerDishId: string;
+  lineageId: string;
+  resolution: PartUsageResolutionValue;
+  replacement?: { targetDishId: string; targetDishVersionId: string };
+}): Promise<ResolvePartUsageActionState> {
+  try {
+    const userId = await requireUserId();
+    const input = resolvePartUsageOccurrenceSchema.parse(values);
+
+    const result = await dishService.resolvePartUsageOccurrence(
+      userId,
+      input.partDishId,
+      input.containerDishId,
+      input.lineageId,
+      input.resolution,
+      input.replacement,
+    );
+
+    revalidatePath(`/parts/${input.partDishId}`);
+    revalidatePath("/recipes");
+    revalidatePath(`/recipes/${result.containerDishId}`);
+    revalidatePath(`/parts/${result.containerDishId}`);
+
+    return { status: "success", containerDishId: result.containerDishId };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export type DeleteDishActionState =
+  | { status: "success"; message: string }
+  | { status: "error"; message: string; code?: "PART_HAS_LIVE_USAGES" };
+
 export async function deleteDish(
   kind: DishKindValue,
   dishId: string,
-): Promise<DishActionState> {
+): Promise<DeleteDishActionState> {
   try {
     const userId = await requireUserId();
     await dishService.deleteDish(userId, dishId, kind);
 
     revalidateDish(kind);
     return { status: "success", message: "Deleted." };
+  } catch (error) {
+    if (error instanceof PartHasLiveUsagesError) {
+      return {
+        status: "error",
+        message: error.message,
+        code: "PART_HAS_LIVE_USAGES",
+      };
+    }
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export type GetCurrentPartUsagesActionState =
+  | { status: "success"; usages: PartUsage[] }
+  | { status: "error"; message: string };
+
+/** Backs the delete-resolution dialog's incremental usage re-fetch — each
+ * `resolvePartUsageOccurrence` call changes the live set, and the dialog
+ * needs the fresh list without a full page navigation. */
+export async function getCurrentPartUsages(
+  partDishId: string,
+): Promise<GetCurrentPartUsagesActionState> {
+  try {
+    const userId = await requireUserId();
+    await getOwnedDishOrThrow(userId, partDishId, "PART");
+    const usages = await listCurrentPartUsages(userId, partDishId);
+    return { status: "success", usages };
   } catch (error) {
     return { status: "error", message: toActionErrorMessage(error) };
   }

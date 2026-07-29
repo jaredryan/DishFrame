@@ -8,11 +8,13 @@ import {
   FormProvider,
   useFieldArray,
   useForm,
+  useWatch,
 } from "react-hook-form";
 import { AlertCircle, Plus } from "lucide-react";
 import { DndContext, closestCenter, type DragEndEvent } from "@dnd-kit/core";
 import {
   SortableContext,
+  arrayMove,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { Button } from "@/components/ui/button";
@@ -44,6 +46,7 @@ import {
   PartAttachPicker,
   type AttachablePartOption,
 } from "@/components/domain/dish/part-attach-picker";
+import { CreatePartDialog } from "@/components/domain/dish/create-part-dialog";
 import type { DetachedContent } from "@/lib/sections/service";
 import { useUnsavedChangesGuard } from "@/components/domain/dish/use-unsaved-changes-guard";
 import { useReorderSensors } from "@/lib/dnd/sensors";
@@ -125,43 +128,100 @@ export function DishEditor({
   const topLevelPartLinks = useFieldArray({ control, name: "partLinks" });
   const sectionSensors = useReorderSensors();
 
+  // Build Plan Review Gate 3's "unified authored order": top-level Sections
+  // and top-level linked Parts share one authored sequence. Both are still
+  // two separate `useFieldArray`s (the schema/type change stayed minimal —
+  // see docs/SLICE_6.md) — this merges them for *rendering and reordering
+  // only*, sorted by each item's own live `position` value (not array
+  // index, which no longer reflects true order once the two arrays
+  // interleave).
+  const watchedSections = useWatch({ control, name: "sections" });
+  const watchedTopLevelPartLinks = useWatch({ control, name: "partLinks" });
+
+  type TopLevelEntry =
+    | { kind: "section"; fieldId: string; index: number; position: number }
+    | { kind: "partLink"; fieldId: string; index: number; position: number };
+
+  const topLevelEntries: TopLevelEntry[] = [
+    ...sections.fields.map((field, index) => ({
+      kind: "section" as const,
+      fieldId: field.id,
+      index,
+      position: watchedSections?.[index]?.position ?? index,
+    })),
+    ...topLevelPartLinks.fields.map((field, index) => ({
+      kind: "partLink" as const,
+      fieldId: field.id,
+      index,
+      position: watchedTopLevelPartLinks?.[index]?.position ?? index,
+    })),
+  ].sort((a, b) => a.position - b.position);
+
+  function nextTopLevelPosition(): number {
+    return topLevelEntries.length === 0
+      ? 0
+      : Math.max(...topLevelEntries.map((entry) => entry.position)) + 1;
+  }
+
   // Slice 6, PRODUCT_SPEC.md §70.1: a top-level detach keeps each of the
   // target Part Version's own Sections intact as brand-new top-level
   // Sections (there's room for real nesting here, unlike inside a single
   // Section — see `SectionFields`'s own detach handler for that case), and
   // promotes the target's own top-level linked Parts into this container's
-  // top-level linked Parts.
+  // top-level linked Parts. Each newly-appended item gets the next slot in
+  // the unified sequence.
   function handleTopLevelDetach(
     partLinkIndex: number,
     content: DetachedContent,
   ) {
-    content.sections.forEach((section) => sections.append(section));
-    content.partLinks.forEach((link) => topLevelPartLinks.append(link));
+    let nextPosition = nextTopLevelPosition();
+    content.sections.forEach((section) => {
+      sections.append({ ...section, position: nextPosition });
+      nextPosition += 1;
+    });
+    content.partLinks.forEach((link) => {
+      topLevelPartLinks.append({ ...link, position: nextPosition });
+      nextPosition += 1;
+    });
     topLevelPartLinks.remove(partLinkIndex);
   }
 
-  function handleSectionDragEnd(event: DragEndEvent) {
+  function handleTopLevelDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
-    const oldIndex = sections.fields.findIndex((f) => f.id === active.id);
-    const newIndex = sections.fields.findIndex((f) => f.id === over.id);
+    const oldIndex = topLevelEntries.findIndex((e) => e.fieldId === active.id);
+    const newIndex = topLevelEntries.findIndex((e) => e.fieldId === over.id);
     if (oldIndex === -1 || newIndex === -1) return;
-    sections.move(oldIndex, newIndex);
+    const reordered = arrayMove(topLevelEntries, oldIndex, newIndex);
+    reordered.forEach((entry, position) => {
+      if (entry.position === position) return;
+      if (entry.kind === "section") {
+        form.setValue(`sections.${entry.index}.position`, position, {
+          shouldDirty: true,
+        });
+      } else {
+        form.setValue(`partLinks.${entry.index}.position`, position, {
+          shouldDirty: true,
+        });
+      }
+    });
   }
 
-  const sectionAnnouncements = createReorderAnnouncements(
+  const topLevelAnnouncements = createReorderAnnouncements(
     (id) => {
-      const index = sections.fields.findIndex((f) => f.id === id);
-      const name =
-        index >= 0
-          ? (getValues(`sections.${index}.name` as never) as unknown as
-              string | null)
-          : null;
-      return name || `section ${index + 1}`;
+      const entry = topLevelEntries.find((e) => e.fieldId === id);
+      if (!entry) return "item";
+      if (entry.kind === "section") {
+        const name = getValues(
+          `sections.${entry.index}.name` as never,
+        ) as unknown as string | null;
+        return name || `section ${entry.index + 1}`;
+      }
+      return "linked part";
     },
     (id) => ({
-      index: sections.fields.findIndex((f) => f.id === id),
-      total: sections.fields.length,
+      index: topLevelEntries.findIndex((e) => e.fieldId === id),
+      total: topLevelEntries.length,
     }),
   );
 
@@ -456,73 +516,91 @@ export function DishEditor({
 
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between">
-              <h2 className="font-heading text-lg font-medium">Sections</h2>
+              <h2 className="font-heading text-lg font-medium">Content</h2>
             </div>
             <DndContext
-              id="dish-sections"
+              id="dish-content"
               sensors={sectionSensors}
               collisionDetection={closestCenter}
-              onDragEnd={handleSectionDragEnd}
-              accessibility={{ announcements: sectionAnnouncements }}
+              onDragEnd={handleTopLevelDragEnd}
+              accessibility={{ announcements: topLevelAnnouncements }}
             >
               <SortableContext
-                items={sections.fields.map((field) => field.id)}
+                items={topLevelEntries.map((entry) => entry.fieldId)}
                 strategy={verticalListSortingStrategy}
               >
-                {sections.fields.map((field, sectionIndex) => (
-                  <SectionFields
-                    key={field.id}
-                    id={field.id}
-                    sectionIndex={sectionIndex}
-                    onRemove={() => sections.remove(sectionIndex)}
-                    containerDishId={dish?.id ?? null}
-                    containerKind={kind}
-                    attachableParts={attachableParts}
-                    baseVersionId={dish?.baseVersionId ?? null}
-                  />
-                ))}
+                {topLevelEntries.map((entry) =>
+                  entry.kind === "section" ? (
+                    <SectionFields
+                      key={entry.fieldId}
+                      id={entry.fieldId}
+                      sectionIndex={entry.index}
+                      onRemove={() => sections.remove(entry.index)}
+                      onConvertToPart={(link) => {
+                        topLevelPartLinks.append({
+                          ...link,
+                          position: entry.position,
+                          multiplier: 1,
+                        });
+                        sections.remove(entry.index);
+                      }}
+                      containerDishId={dish?.id ?? null}
+                      containerKind={kind}
+                      attachableParts={attachableParts}
+                    />
+                  ) : (
+                    <PartLinkFields
+                      key={entry.fieldId}
+                      id={entry.fieldId}
+                      prefix={`partLinks.${entry.index}`}
+                      onRemove={() => topLevelPartLinks.remove(entry.index)}
+                      onDetach={(content) =>
+                        handleTopLevelDetach(entry.index, content)
+                      }
+                    />
+                  ),
+                )}
               </SortableContext>
             </DndContext>
-            <Button
-              type="button"
-              variant="outline"
-              className="self-start"
-              onClick={() =>
-                sections.append({
-                  name: null,
-                  guidanceNote: null,
-                  ingredients: [],
-                  instructions: [],
-                  partLinks: [],
-                })
-              }
-            >
-              <Plus /> Add section
-            </Button>
-          </div>
-
-          <div className="flex flex-col gap-4">
-            <h2 className="font-heading text-lg font-medium">Linked Parts</h2>
-            <p className="text-muted-foreground -mt-2 text-sm">
-              Parts attached directly to this {kindLabel.toLowerCase()}, not
-              inside a specific section.
-            </p>
-            {topLevelPartLinks.fields.map((field, partLinkIndex) => (
-              <PartLinkFields
-                key={field.id}
-                prefix={`partLinks.${partLinkIndex}`}
-                onRemove={() => topLevelPartLinks.remove(partLinkIndex)}
-                onDetach={(content) =>
-                  handleTopLevelDetach(partLinkIndex, content)
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() =>
+                  sections.append({
+                    name: null,
+                    guidanceNote: null,
+                    ingredients: [],
+                    instructions: [],
+                    partLinks: [],
+                    position: nextTopLevelPosition(),
+                  })
+                }
+              >
+                <Plus /> Add section
+              </Button>
+              <PartAttachPicker
+                containerDishId={dish?.id ?? null}
+                containerKind={kind}
+                attachableParts={attachableParts}
+                onAttach={(link) =>
+                  topLevelPartLinks.append({
+                    ...link,
+                    position: nextTopLevelPosition(),
+                    multiplier: 1,
+                  })
                 }
               />
-            ))}
-            <PartAttachPicker
-              containerDishId={dish?.id ?? null}
-              containerKind={kind}
-              attachableParts={attachableParts}
-              onAttach={(link) => topLevelPartLinks.append(link)}
-            />
+              <CreatePartDialog
+                onCreated={(link) =>
+                  topLevelPartLinks.append({
+                    ...link,
+                    position: nextTopLevelPosition(),
+                    multiplier: 1,
+                  })
+                }
+              />
+            </div>
           </div>
 
           {serverError && (

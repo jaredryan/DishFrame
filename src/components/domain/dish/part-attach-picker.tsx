@@ -45,6 +45,7 @@ export function PartAttachPicker({
   containerKind,
   attachableParts,
   onAttach,
+  triggerLabel = "Attach a Part",
 }: {
   containerDishId: string | null;
   containerKind: DishKindValue;
@@ -53,6 +54,7 @@ export function PartAttachPicker({
     targetDishId: string;
     targetDishVersionId: string;
   }) => void;
+  triggerLabel?: string;
 }) {
   const [open, setOpen] = React.useState(false);
   const [query, setQuery] = React.useState("");
@@ -123,7 +125,7 @@ export function PartAttachPicker({
         size="sm"
         onClick={() => setOpen(true)}
       >
-        <Link2 /> Attach a Part
+        <Link2 /> {triggerLabel}
       </Button>
       <Dialog
         open={open}

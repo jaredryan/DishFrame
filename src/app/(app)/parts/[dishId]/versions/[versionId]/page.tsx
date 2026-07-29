@@ -16,6 +16,8 @@ import { VersionMetadataEditor } from "@/components/domain/dish/version-metadata
 import { VersionSelector } from "@/components/domain/dish/version-selector";
 import { PromoteVersionButton } from "@/components/domain/dish/promote-version-button";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
+import { versionContentToInput } from "@/lib/dishes/mappers";
+import { resolvePartLinkTrees } from "@/lib/sections/service";
 
 export const metadata: Metadata = {
   title: "Version history",
@@ -59,6 +61,16 @@ export default async function PartVersionPage({
   const sourceVersion = version.sourceVersionId
     ? versions.find((v) => v.id === version.sourceVersionId)
     : null;
+
+  const { sections: sectionPartLinkInputs, partLinks: topLevelPartLinkInputs } =
+    versionContentToInput(version.sections, version.partLinks);
+  const [topLevelPartLinkTrees, ...sectionPartLinkTreeLists] =
+    await Promise.all([
+      resolvePartLinkTrees(dish.ownerId, topLevelPartLinkInputs),
+      ...sectionPartLinkInputs.map((section) =>
+        resolvePartLinkTrees(dish.ownerId, section.partLinks),
+      ),
+    ]);
 
   const basePath = dishBasePath("PART");
   const versionLabel = `V${version.majorVersion}.${version.minorVersion}`;
@@ -184,7 +196,11 @@ export default async function PartVersionPage({
         </div>
       </div>
 
-      <VersionSectionsView sections={version.sections} />
+      <VersionSectionsView
+        sections={version.sections}
+        sectionPartLinks={sectionPartLinkTreeLists}
+        topLevelPartLinks={topLevelPartLinkTrees}
+      />
     </div>
   );
 }

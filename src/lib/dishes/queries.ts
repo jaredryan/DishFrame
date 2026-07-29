@@ -67,6 +67,7 @@ export const partLinkContentInclude = {
     lineageId: true,
     sectionId: true,
     position: true,
+    multiplier: true,
     targetDishId: true,
     targetDishVersionId: true,
   },
@@ -279,6 +280,7 @@ export type AttachablePart = Awaited<
  */
 export type PartUsage = {
   id: string;
+  lineageId: string;
   containerDishId: string;
   containerKind: DishKindValue;
   containerTitle: string;
@@ -301,6 +303,7 @@ export async function listCurrentPartUsages(
     },
     select: {
       id: true,
+      lineageId: true,
       sectionId: true,
       targetDishVersionId: true,
       containerVersion: {
@@ -327,6 +330,7 @@ export async function listCurrentPartUsages(
 
   return links.map((link) => ({
     id: link.id,
+    lineageId: link.lineageId,
     containerDishId: link.containerVersion.dish.id,
     containerKind: link.containerVersion.dish.kind,
     containerTitle: link.containerVersion.dish.currentTitle ?? "Untitled",
