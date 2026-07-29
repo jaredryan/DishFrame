@@ -1,12 +1,14 @@
 # Slice 6 (post-gate) — Multiplier, unified ordering, Create Part/Convert Section, inline Part rendering, propagation, two-phase deletion
 
-**Status: complete.** Review Gate 3's settled decisions are implemented end
-to end: schema, domain services, Server Actions, editor/detail UI,
-propagation UI, two-phase Part-deletion UI, the compare-page PartLink diff
-group, and automated test coverage. `pnpm run verify:feature` (format,
-lint, typecheck, build, frontend unit/component tests, `db:verify:local`,
-`db:scan-migrations`, backend integration tests) passes clean — 211
-frontend tests, 158 backend integration tests.
+**Status: complete, including a focused correction pass.** Review Gate 3's
+settled decisions are implemented end to end: schema, domain services,
+Server Actions, editor/detail UI, propagation UI, two-phase Part-deletion
+UI, the compare-page PartLink diff group, and automated test coverage. A
+subsequent correction pass (see "Correction pass" below) aligned four
+owner-reviewed product decisions and closed one discovered rendering gap.
+`pnpm run verify:feature` (format, lint, typecheck, build, frontend unit/
+component tests, `db:verify:local`, `db:scan-migrations`, backend
+integration tests) was run once as this pass's completion check.
 
 ## Completed across both passes
 
@@ -39,9 +41,11 @@ display (`scaleFactor × multiplier` before `scaledIngredientDisplay`).
 (`sections/service.ts`) recursively resolve a PartLink occurrence's nested
 content server-side (cycle-safe via a visited-set + `MAX_PART_LINK_TREE_DEPTH`
 cap). `PartLinkTreeView` renders it inline with nesting indent on both the
-current- and historical-Version detail pages. The editor's `PartLinkFields`
-is view-first (collapsed by default, live title/version/multiplier header),
-fetching the tree lazily via `getPartLinkPreview`.
+current- and historical-Version detail pages, and (correction pass) also for
+a `MATERIALIZED` occurrence (see "Correction pass" below). The editor's
+`PartLinkFields` fetches and renders the pinned content inline by default —
+no expand action required (corrected this pass; see below) — with the
+multiplier editable behind an explicit "Link settings" action.
 
 **Create Part / Convert Section to Part**: `CreatePartDialog` and
 `ConvertSectionToPartDialog` persist the new Part via the ordinary
@@ -50,13 +54,14 @@ parent Version is only created by the parent's own normal Save.
 
 **Propagation UI** (`PartUsagePanel`, PRODUCT_SPEC.md §72.4/§72.5):
 "Update everywhere" (all out-of-date current usages) and "Choose Recipes
-and Parts to update" (a checkbox picker, one row per occurrence — the same
-Part linked twice in one container can be updated independently) both call
-`propagatePartUpdate`, grouping usages by `containerDishId` and targeting
-each occurrence by its `lineageId`. Per-occurrence outcomes (updated /
+and Parts to update" (a checkbox picker) both call `propagatePartUpdate`.
+Corrected this pass (see below): the direct-duplicate invariant means a
+given Part is directly linked at most once per parent Version, so each
+`PartUsage` is exactly one affected parent — one row, one checkbox, no
+occurrence-level grouping within a parent. Per-parent outcomes (updated /
 skipped with reason / failed with reason) render inline after the call.
-`queries.ts`'s `PartUsage` now also carries `lineageId` (previously only
-the PartLink row's own `id`).
+`queries.ts`'s `PartUsage` still carries `lineageId`, kept only as the
+stable internal identifier the service layer targets.
 
 **Two-phase Part deletion UI** (`PartUsageResolutionDialog`,
 PRODUCT_SPEC.md §74): a new `PartHasLiveUsagesError` (`errors.ts`, a
@@ -67,10 +72,12 @@ opens the resolution dialog, which lists current usages (re-fetched via a
 new `getCurrentPartUsages` action after every resolution — no page
 navigation needed) and lets the user Detach/Replace/Remove each occurrence
 via `resolvePartUsageOccurrence`, one at a time, in any order, across
-separate visits. Once none remain, a "Delete permanently" button retries
-`deleteDish`. Replace reuses `PartAttachPicker` (given a new optional
-`triggerLabel` prop so its button reads "Replace with…" here instead of
-"Attach a Part").
+separate visits. Corrected this pass (see below): each resolution now
+requires the same explicit minor/major Version choice as any other cooking
+change, prompted after picking Detach/Replace/Remove and before the call
+fires. Once none remain, a "Delete permanently" button retries `deleteDish`.
+Replace reuses `PartAttachPicker` (given a new optional `triggerLabel` prop
+so its button reads "Replace with…" here instead of "Attach a Part").
 
 **Compare-page PartLink diff group** (`compare.ts`, PRODUCT_SPEC.md §94):
 `VersionCompareInput` gained a top-level `partLinks: PartLinkInput[]`
@@ -142,45 +149,127 @@ resolves itself.
 
 - REPLACE resolution (Phase 1 deletion) preserves the occurrence's existing
   multiplier rather than resetting it to 1.
-- Phase-1 occurrence resolutions (detach/replace/remove) always bump MINOR
-  automatically, no interactive minor/major choice.
 - Materialized snapshots store raw (unscaled) content; the multiplier
-  column is left as historical record rather than baked into the JSON.
-- Propagation's "Choose Recipes and Parts to update" picker operates at
-  occurrence granularity (one row per current usage, grouped visually by
-  container) rather than whole-container granularity, so the same Part
-  linked twice in one item can be selectively updated.
+  column is left as historical record rather than baked into the JSON —
+  reaffirmed and given a rendering path this pass (see below).
 - The delete-resolution dialog re-fetches usages after every single
   resolution (rather than trusting optimistic local state) — correctness
   over one extra round-trip, since a stale list could show an
   already-resolved occurrence as still actionable.
 
+Two judgment calls from the original pass were corrected this pass (owner
+review found both wrong against product intent) — see "Correction pass"
+below: deletion resolutions no longer auto-bump MINOR, and propagation no
+longer assumes duplicate direct occurrences are possible within one parent.
+
 ## Review Gate checklist
 
 - Editor: unified drag-reorder across Sections and top-level Parts; Create
-  Part; Convert Section to Part; expand a linked Part inline; edit its
-  multiplier; detach with multiplier applied.
+  Part; Convert Section to Part; a Section defaults to a concise formatted
+  view with an explicit Edit action; a linked Part's pinned content renders
+  inline by default (no expand click); edit its multiplier via "Link
+  settings"; detach with multiplier applied.
 - Detail pages (current + historical Version): linked Parts render inline,
-  nested Parts indent correctly, multiplier composes with temporary scale.
+  nested Parts indent correctly, multiplier composes with temporary scale;
+  a historical Version with a deleted-since Part shows its materialized
+  snapshot inline (no "Open Part" link, no live navigation).
 - Part detail page: "Update everywhere" and "Choose Recipes and Parts to
   update" against a Part with at least one out-of-date current usage;
-  confirm per-occurrence outcomes render correctly.
+  confirm one row per affected parent and correct outcomes.
 - Attempt to delete a Part with live usages: confirm the resolution dialog
-  opens, each Detach/Replace/Remove works and updates the list, and delete
-  succeeds once the list is empty.
+  opens, each Detach/Replace/Remove prompts the minor/major choice, works,
+  and updates the list, and delete succeeds once the list is empty.
 - Compare page: attach/retarget/change-multiplier/reorder a linked Part
   across two Versions and confirm the "Linked Parts" group renders
   correctly, including a Section-nested occurrence and a Part deleted since
   (falls back to "Unknown Part").
 - Confirm the judgment calls above against product intent.
 
+## Correction pass (this pass)
+
+Four owner-reviewed corrections against the review-gate implementation
+above:
+
+- **Deletion resolutions require the Version choice** (§1): Detach/Replace/
+  Remove (`resolvePartUsageOccurrence`) now takes a required
+  `versionChoice: "MINOR" | "MAJOR"`, reusing `editDish`'s own
+  `nextVersionNumbers`/`withVersionAllocation` machinery — never an
+  automatic MINOR. `PartUsageResolutionDialog` prompts for the choice (a
+  second, nested Dialog, same MINOR/MAJOR copy as the editor's own choice
+  dialog) between picking a resolution and the actual call. Each parent is
+  still its own independent transaction/call, so one parent's failure
+  never touches another's completed resolution.
+- **Propagation reflects the direct-duplicate invariant** (§2):
+  `PropagationSelection.lineageIds: string[]` → `lineageId: string` — a
+  stable Part can be directly linked at most once per parent Version, so
+  there's exactly one direct occurrence per parent to target, never a
+  multi-select within one parent. `PartUsagePanel` dropped its
+  container→occurrence grouping; one row, one checkbox, per affected
+  parent.
+- **Create Part / Convert Section to Part test coverage** (§3):
+  `create-part-dialog.test.tsx` and `convert-section-to-part-dialog.test.tsx`
+  (new) cover the actual embedded-flow architecture — one standalone Part
+  created via the ordinary `createDish`, one field-array insert into the
+  parent's local draft, no parent save, no navigation. A `dish-editor.test.tsx`
+  addition covers the same-position Section→PartLink swap end to end.
+- **Linked Parts read fully inline by default** (§4): `PartLinkFields`
+  fetches and renders the pinned content unconditionally (dropped the
+  expand/collapse gate entirely); the multiplier is the only thing still
+  behind an explicit action ("Link settings"). `SectionFields` now defaults
+  to a concise formatted read view (name/guidance note plain text,
+  ingredients/instructions as read-only lines) with an explicit Edit
+  action revealing the form fields — but only for a Section with existing
+  saved content (has a `lineageId`); a brand-new, still-blank Section
+  starts in edit mode, since there's nothing yet to view.
+
+**Discovered gap, closed this pass**: a `MATERIALIZED` PartLink (Part
+deleted while still historically referenced) had no rendering path
+anywhere — `partLinkContentInclude` filters to `LIVE` only, so both
+current- and historical-Version detail pages silently omitted one. Added
+`resolveMaterializedPartLinkTreesForVersion`/`mergeLiveAndMaterializedTrees`
+(`sections/service.ts`) as an additive query alongside the historical
+Version pages' existing `LIVE`-only load (never touches the editing/
+diffing/current-Version paths, which must never see a snapshot with a null
+target); `PartLinkTree` gained a `kind: "LIVE" | "MATERIALIZED"`
+discriminant and nullable `targetDishId`/`targetDishVersionId` (replacing
+`majorVersion`/`minorVersion` with a single pre-formatted `versionLabel`,
+since a materialized entry only has the frozen label string, not numbers).
+`PartLinkTreeView` renders a materialized entry with the stored former name/
+Version and a "Deleted since" marker in place of "Open Part" — no live
+lookup, no actions. Verified by a new integration test
+(`sections.integration.test.ts`) confirming the stored multiplier composes
+correctly with the raw snapshot quantity at render time (never baked in).
+
+**Verification**: targeted tests run while implementing; `pnpm run
+verify:feature` run once as the completion check afterward — clean:
+format/lint/typecheck/build all clean, frontend unit/component tests 217
+passed (29 files), `db:verify:local`/`db:scan-migrations` clean, backend
+integration tests 162 passed (8 files).
+
+**Post-pass Playwright fix**: the owner's `verify:all` run surfaced one
+failure — `recipe-golden-path.spec.ts`'s "golden path" test timed out
+waiting for "Add instruction" on the edit page of an already-saved
+recipe. Root cause: §4's Section view-first-by-default change means a
+saved Section (has a `lineageId`) now opens collapsed, and the ingredient/
+instruction fields (including "Add instruction") don't render until the
+row's own "Edit" toggle is clicked — this spec predates that change and
+clicked straight into the fields. Fixed by adding an explicit
+`getByRole("button", { name: "Edit section 1" }).click()` before the
+first field interaction, in both affected tests in that file (the second,
+"ingredient controls..." test, had the same latent issue since it also
+edits an already-saved recipe — the "1 did not run" in the reported
+result is Playwright's serial-mode skip-after-failure, not a second
+distinct bug). No other e2e spec touches an existing Dish's Section
+fields. Not re-run here — Playwright stays owner-run.
+
 ## Owner intervention recommendation
 
-**Focused manual review** of the three newly-built interactive flows this
-pass added (propagation, two-phase deletion, compare-page PartLink diff) —
-all three are exercised by integration tests and pass `verify:feature`,
-but none have had a browser walkthrough yet, and each is a multi-step user
-workflow (per the "manual review" policy's "critical workflows" and
-"meaningful design pass" criteria). Use the Review Gate checklist above.
+**Focused manual review** of the corrected flows above (deletion-resolution
+version choice, propagation's one-row-per-parent picker, the Section/
+linked-Part view-first editor presentation, and a historical Version with a
+deleted-since Part) — all are covered by automated tests and (pending the
+owner's `verify:feature` run) should pass clean, but none have had a
+browser walkthrough since this pass's changes. Use the Review Gate
+checklist above.
 Run `pnpm run verify:all` (Playwright/E2E is not part of the self-run
 `verify:feature`) before considering Slice 6 fully closed.

@@ -2,14 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import {
-  ChevronDown,
-  ChevronRight,
-  ExternalLink,
-  Link2,
-  Unlink,
-  X,
-} from "lucide-react";
+import { ExternalLink, Link2, Settings, Unlink, X } from "lucide-react";
 import { useFormContext, useWatch } from "react-hook-form";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -27,13 +20,15 @@ import type { DetachedContent } from "@/lib/sections/service";
 import type { PartLinkTree } from "@/lib/sections/service";
 
 /**
- * Settled Review Gate 3 decision, PRODUCT_SPEC.md §67.4/§68.6: a PartLink is
- * a data relationship, not a link-only placeholder — from the parent
- * editor, users may change the pinned Version, change the multiplier,
- * detach, remove, or open the standalone Part, but the reusable Part's own
- * Ingredients/Instructions never become parent-owned inline inputs here
- * (view-first, collapsed by default; the expanded preview is read-only,
- * fetched from `getPartLinkPreview`).
+ * Settled Review Gate 3 decision, PRODUCT_SPEC.md §67.4/§68.6, corrected
+ * Slice 6 correction pass §4: a PartLink is a data relationship, not a
+ * link-only or collapsed placeholder — its pinned content (fetched
+ * read-only from `getPartLinkPreview`) is visible inline by default, no
+ * expand action required. From the parent editor, users may change the
+ * multiplier (behind the "Link settings" action, since it's the one
+ * editable property of the link itself), detach, remove, or open the
+ * standalone Part — but the reusable Part's own Ingredients/Instructions
+ * never become parent-owned inline inputs here.
  */
 export function PartLinkFields({
   id,
@@ -65,7 +60,7 @@ export function PartLinkFields({
     minorVersion: number;
     error: string | null;
   } | null>(null);
-  const [expanded, setExpanded] = React.useState(false);
+  const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [preview, setPreview] = React.useState<{
     key: string;
     tree: PartLinkTree | null;
@@ -108,11 +103,11 @@ export function PartLinkFields({
     };
   }, [targetDishId, targetDishVersionId]);
 
-  // View-first editing: the full inline preview is only ever fetched once
-  // the user actually expands this row — never eagerly for every collapsed
-  // occurrence.
+  // Slice 6 correction pass §4: fetched unconditionally, as soon as the
+  // target is known — the pinned content is visible by default, not gated
+  // behind an expand action.
   React.useEffect(() => {
-    if (!expanded || !requestKey || !targetDishId || !targetDishVersionId) {
+    if (!requestKey || !targetDishId || !targetDishVersionId) {
       return;
     }
     if (preview?.key === requestKey) return;
@@ -132,14 +127,7 @@ export function PartLinkFields({
     return () => {
       cancelled = true;
     };
-  }, [
-    expanded,
-    requestKey,
-    targetDishId,
-    targetDishVersionId,
-    multiplier,
-    preview,
-  ]);
+  }, [requestKey, targetDishId, targetDishVersionId, multiplier, preview]);
 
   const isCurrent = resolved !== null && resolved.key === requestKey;
   const display = isCurrent && !resolved.error ? resolved : null;
@@ -191,20 +179,6 @@ export function PartLinkFields({
             listeners={listeners}
             isDragging={isDragging}
           />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => setExpanded((prev) => !prev)}
-            title={expanded ? "Collapse" : "Expand"}
-          >
-            {expanded ? (
-              <ChevronDown className="size-4" aria-hidden="true" />
-            ) : (
-              <ChevronRight className="size-4" aria-hidden="true" />
-            )}
-            <span className="sr-only">{expanded ? "Collapse" : "Expand"}</span>
-          </Button>
           <Link2 className="text-primary size-4 shrink-0" aria-hidden="true" />
           <div className="min-w-0">
             <p className="truncate text-sm font-medium">{title}</p>
@@ -224,6 +198,16 @@ export function PartLinkFields({
               </Link>
             </Button>
           )}
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => setSettingsOpen((prev) => !prev)}
+            title="Link settings"
+          >
+            <Settings className="size-4" aria-hidden="true" />
+            <span className="sr-only">Link settings</span>
+          </Button>
           <Button
             type="button"
             variant="ghost"
@@ -248,8 +232,8 @@ export function PartLinkFields({
         </div>
       </div>
 
-      {expanded && (
-        <div className="flex flex-col gap-3 pl-8">
+      {settingsOpen && (
+        <div className="pl-8">
           <Field className="w-32">
             <FieldLabel htmlFor={`${prefix.replace(/\./g, "-")}-multiplier`}>
               Multiplier
@@ -261,23 +245,27 @@ export function PartLinkFields({
               placeholder="1"
             />
           </Field>
-
-          {preview?.key === requestKey && preview.tree && (
-            <PartLinkTreeView tree={preview.tree} />
-          )}
-          {preview?.key === requestKey && !preview.tree && preview.error && (
-            <p className="text-destructive text-sm">{preview.error}</p>
-          )}
-          {preview?.key === requestKey && !preview.tree && !preview.error && (
-            <p className="text-muted-foreground text-sm">
-              This Part has no saved content yet.
-            </p>
-          )}
-          {(!preview || preview.key !== requestKey) && (
-            <p className="text-muted-foreground text-sm">Loading content…</p>
-          )}
         </div>
       )}
+
+      {/* Slice 6 correction pass §4: the pinned content is visible inline by
+          default — no expand action required. */}
+      <div className="flex flex-col gap-3 pl-8">
+        {preview?.key === requestKey && preview.tree && (
+          <PartLinkTreeView tree={preview.tree} />
+        )}
+        {preview?.key === requestKey && !preview.tree && preview.error && (
+          <p className="text-destructive text-sm">{preview.error}</p>
+        )}
+        {preview?.key === requestKey && !preview.tree && !preview.error && (
+          <p className="text-muted-foreground text-sm">
+            This Part has no saved content yet.
+          </p>
+        )}
+        {(!preview || preview.key !== requestKey) && (
+          <p className="text-muted-foreground text-sm">Loading content…</p>
+        )}
+      </div>
     </div>
   );
 }

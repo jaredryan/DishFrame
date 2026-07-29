@@ -569,13 +569,13 @@ export function diffVersionContent(
   return { cookingChanged, sectionOrganizationChanged };
 }
 
-// Slice 6 post-gate, PRODUCT_SPEC.md §72.5: "Choose Recipes and Parts to
-// update" targets specific `PartLink.lineageId` occurrences per container
-// (Correction 1) — never "every link to this Part," so the same Part
-// appearing twice in one item can have one occurrence excluded.
+// Slice 6 correction pass §2: the direct-duplicate invariant guarantees a
+// given Part is directly linked at most once per parent Version (top-level
+// or Section-nested, never both) — one parent has exactly one direct
+// occurrence to target, identified by its stable `lineageId`.
 export const propagationSelectionSchema = z.object({
   containerDishId: z.string().min(1),
-  lineageIds: z.array(z.string().min(1)).min(1),
+  lineageId: z.string().min(1),
 });
 
 export const propagatePartUpdateSchema = z.object({
@@ -603,6 +603,10 @@ export const resolvePartUsageOccurrenceSchema = z.object({
   containerDishId: z.string().min(1),
   lineageId: z.string().min(1),
   resolution: z.enum(partUsageResolutionValues),
+  // Slice 6 correction pass §1: Detach/Replace/Remove is always a material
+  // change to the affected parent — the same explicit minor/major choice
+  // `editDish` requires for any cooking change, never an automatic MINOR.
+  versionChoice: versionChoiceSchema,
   replacement: z
     .object({
       targetDishId: z.string().min(1),

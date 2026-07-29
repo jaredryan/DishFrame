@@ -10,12 +10,15 @@ import {
 import { versionContentToInput } from "@/lib/dishes/mappers";
 import { assertNoPartCycle } from "@/lib/cycles/service";
 import { scaleIngredientQuantity } from "@/lib/units/scaling";
+import { decimalToNumber } from "@/lib/dishes/format";
+import { versionLabel as formatVersionLabel } from "@/lib/dishes/version-note";
 import { sortByPosition } from "@/lib/dishes/schema";
 import type {
   SectionInput,
   PartLinkInput,
   IngredientInput,
   DishKindValue,
+  VersionContentInput,
 } from "@/lib/dishes/schema";
 
 /**
@@ -369,13 +372,22 @@ export type ResolvedSection = {
 // tree eager) and the editor's expand-on-demand preview (`getPartLinkPreview`
 // action, one edge at a time). `title` is the target's *live*
 // `Dish.currentTitle` (§68.5), not anything pinned at attach time.
+//
+// Slice 6 correction pass, §H's materialization table: a `MATERIALIZED`
+// PartLink (Part deleted while still historically referenced) has no live
+// target to look up — `kind` discriminates the two so a renderer can omit
+// navigation/actions for a snapshot, and `targetDishId`/`targetDishVersionId`
+// are nullable rather than asserted non-null for that case. `versionLabel` is
+// a pre-formatted "VX.Y" for both — for `LIVE` it's computed from the live
+// target's actual major/minor; for `MATERIALIZED` it's the frozen string
+// captured at deletion time (`materializedVersionLabel`).
 export type PartLinkTree = {
-  targetDishId: string;
-  targetDishVersionId: string;
+  kind: "LIVE" | "MATERIALIZED";
+  targetDishId: string | null;
+  targetDishVersionId: string | null;
   multiplier: number;
   title: string | null;
-  majorVersion: number;
-  minorVersion: number;
+  versionLabel: string;
   sections: ResolvedSection[];
   partLinks: PartLinkTree[];
 };
@@ -413,6 +425,34 @@ function toResolvedIngredient(ingredient: IngredientInput): ResolvedIngredient {
 // never infinite-loop even against a row a bug somehow let through.
 const MAX_PART_LINK_TREE_DEPTH = 12;
 
+// Shared by both LIVE resolution (`resolvePartLinkTreeInner`, below) and a
+// `MATERIALIZED` snapshot's own nested links (`resolveMaterializedPartLinkTree`)
+// — a nested link is always a live pointer at render time (only the ROOT of a
+// materialized snapshot is itself frozen; what it links to may still exist),
+// so both cases resolve nested occurrences identically.
+async function resolveNestedPartLinks(
+  ownerId: string,
+  links: PartLinkInput[],
+  visited: Set<string>,
+  depth: number,
+): Promise<PartLinkTree[]> {
+  const resolved = await Promise.all(
+    sortByPosition(links).map((link) =>
+      resolvePartLinkTreeInner(
+        ownerId,
+        {
+          targetDishId: link.targetDishId,
+          targetDishVersionId: link.targetDishVersionId,
+          multiplier: link.multiplier,
+        },
+        visited,
+        depth + 1,
+      ),
+    ),
+  );
+  return resolved.filter((tree): tree is PartLinkTree => tree !== null);
+}
+
 async function resolvePartLinkTreeInner(
   ownerId: string,
   edge: {
@@ -449,24 +489,6 @@ async function resolvePartLinkTreeInner(
     version.partLinks,
   );
 
-  async function resolveLinks(links: PartLinkInput[]): Promise<PartLinkTree[]> {
-    const resolved = await Promise.all(
-      sortByPosition(links).map((link) =>
-        resolvePartLinkTreeInner(
-          ownerId,
-          {
-            targetDishId: link.targetDishId,
-            targetDishVersionId: link.targetDishVersionId,
-            multiplier: link.multiplier,
-          },
-          nextVisited,
-          depth + 1,
-        ),
-      ),
-    );
-    return resolved.filter((tree): tree is PartLinkTree => tree !== null);
-  }
-
   const resolvedSections: ResolvedSection[] = [];
   for (const section of sortByPosition(sections)) {
     resolvedSections.push({
@@ -476,20 +498,185 @@ async function resolvePartLinkTreeInner(
       instructions: section.instructions.map((instruction) => ({
         text: instruction.text,
       })),
-      partLinks: await resolveLinks(section.partLinks),
+      partLinks: await resolveNestedPartLinks(
+        ownerId,
+        section.partLinks,
+        nextVisited,
+        depth,
+      ),
     });
   }
 
   return {
+    kind: "LIVE",
     targetDishId: edge.targetDishId,
     targetDishVersionId: edge.targetDishVersionId,
     multiplier: edge.multiplier,
     title: targetDish.currentTitle,
-    majorVersion: version.majorVersion,
-    minorVersion: version.minorVersion,
+    versionLabel: formatVersionLabel(
+      version.majorVersion,
+      version.minorVersion,
+    ),
     sections: resolvedSections,
-    partLinks: await resolveLinks(partLinks),
+    partLinks: await resolveNestedPartLinks(
+      ownerId,
+      partLinks,
+      nextVisited,
+      depth,
+    ),
   };
+}
+
+/**
+ * Resolves one `MATERIALIZED` PartLink row (Part-deletion history, §H's
+ * materialization table) into the same `PartLinkTree` shape a LIVE
+ * occurrence resolves to, so the read-only Version-history views can render
+ * both uniformly. The snapshot's own content (`materializedContent`, frozen
+ * at deletion time) is used directly — never re-fetched — but any PartLink
+ * it itself contains is still a live pointer at render time (only the
+ * snapshot's root Part was deleted), so those resolve through the normal
+ * live path. Returns `null` only if the stored snapshot is somehow missing
+ * (defensive — every MATERIALIZED row is written with a snapshot in the same
+ * transaction, `dishes/service.ts`'s `deletePart`).
+ */
+async function resolveMaterializedPartLinkTree(
+  ownerId: string,
+  row: {
+    multiplier: number;
+    materializedTitle: string | null;
+    materializedVersionLabel: string | null;
+    materializedContent: unknown;
+  },
+): Promise<PartLinkTree | null> {
+  const snapshot = row.materializedContent as VersionContentInput | null;
+  if (!snapshot) return null;
+
+  const resolvedSections: ResolvedSection[] = [];
+  for (const section of sortByPosition(snapshot.sections)) {
+    resolvedSections.push({
+      name: section.name ?? null,
+      guidanceNote: section.guidanceNote ?? null,
+      ingredients: section.ingredients.map(toResolvedIngredient),
+      instructions: section.instructions.map((instruction) => ({
+        text: instruction.text,
+      })),
+      partLinks: await resolveNestedPartLinks(
+        ownerId,
+        section.partLinks,
+        new Set(),
+        0,
+      ),
+    });
+  }
+
+  return {
+    kind: "MATERIALIZED",
+    targetDishId: null,
+    targetDishVersionId: null,
+    multiplier: row.multiplier,
+    title: row.materializedTitle,
+    versionLabel: row.materializedVersionLabel ?? "",
+    sections: resolvedSections,
+    partLinks: await resolveNestedPartLinks(
+      ownerId,
+      snapshot.partLinks,
+      new Set(),
+      0,
+    ),
+  };
+}
+
+export type MaterializedPartLinkTrees = {
+  topLevel: { position: number; tree: PartLinkTree }[];
+  bySectionId: Map<string, { position: number; tree: PartLinkTree }[]>;
+};
+
+/**
+ * Resolves every `MATERIALIZED` PartLink pinned to one specific
+ * `DishVersion` — a historical Version-history page's one additional query
+ * beyond its normal `LIVE`-only content load (`getDishScopedVersionContentOrThrow`
+ * stays LIVE-only everywhere else: editing/diffing/current-Version display
+ * must never see a snapshot with a null target). Grouped by `position`/
+ * `sectionId` so the caller can merge them positionally alongside the LIVE
+ * trees `resolvePartLinkTrees` already resolves for the same Version
+ * (`mergeLiveAndMaterializedTrees`, below).
+ */
+export async function resolveMaterializedPartLinkTreesForVersion(
+  ownerId: string,
+  containerVersionId: string,
+): Promise<MaterializedPartLinkTrees> {
+  const rows = await prisma.partLink.findMany({
+    where: { containerVersionId, linkState: "MATERIALIZED" },
+    select: {
+      sectionId: true,
+      position: true,
+      multiplier: true,
+      materializedTitle: true,
+      materializedVersionLabel: true,
+      materializedContent: true,
+    },
+  });
+
+  const topLevel: { position: number; tree: PartLinkTree }[] = [];
+  const bySectionId = new Map<
+    string,
+    { position: number; tree: PartLinkTree }[]
+  >();
+
+  for (const row of rows) {
+    const tree = await resolveMaterializedPartLinkTree(ownerId, {
+      multiplier: decimalToNumber(row.multiplier) ?? 1,
+      materializedTitle: row.materializedTitle,
+      materializedVersionLabel: row.materializedVersionLabel,
+      materializedContent: row.materializedContent,
+    });
+    if (!tree) continue;
+    const entry = { position: row.position, tree };
+    if (row.sectionId === null) {
+      topLevel.push(entry);
+    } else {
+      const list = bySectionId.get(row.sectionId) ?? [];
+      list.push(entry);
+      bySectionId.set(row.sectionId, list);
+    }
+  }
+
+  return { topLevel, bySectionId };
+}
+
+/**
+ * Combines a bucket's (top-level, or one Section's) already-resolved LIVE
+ * trees with any `MATERIALIZED` trees pinned to the same bucket into one
+ * position-ordered list — so a Part deleted after being linked keeps its
+ * original authored position among its surviving siblings on the read-only
+ * Version-history pages. `liveEdges` supplies each LIVE tree's position
+ * (matched by target identity, since `resolvePartLinkTrees` itself drops
+ * stale/unresolvable entries and so can't be zipped by index).
+ */
+export function mergeLiveAndMaterializedTrees(
+  liveEdges: PartLinkInput[],
+  liveTrees: PartLinkTree[],
+  materialized: { position: number; tree: PartLinkTree }[],
+): PartLinkTree[] {
+  const positionByTarget = new Map(
+    liveEdges.map((edge) => [
+      `${edge.targetDishId}:${edge.targetDishVersionId}`,
+      edge.position,
+    ]),
+  );
+  const combined = [
+    ...liveTrees.map((tree) => ({
+      position:
+        positionByTarget.get(
+          `${tree.targetDishId}:${tree.targetDishVersionId}`,
+        ) ?? 0,
+      tree,
+    })),
+    ...materialized,
+  ];
+  return combined
+    .sort((a, b) => a.position - b.position)
+    .map((entry) => entry.tree);
 }
 
 /** Resolves one PartLink occurrence's full nested content — `null` if the

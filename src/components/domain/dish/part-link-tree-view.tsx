@@ -23,7 +23,6 @@ export function PartLinkTreeView({
   scaleFactor?: number;
   depth?: number;
 }) {
-  const versionLabel = `V${tree.majorVersion}.${tree.minorVersion}`;
   const effectiveScale = scaleFactor * tree.multiplier;
 
   return (
@@ -36,20 +35,30 @@ export function PartLinkTreeView({
           {tree.title ?? "Untitled part"}
         </span>
         <span className="text-muted-foreground text-xs tabular-nums">
-          {versionLabel}
+          {tree.versionLabel}
         </span>
         {tree.multiplier !== 1 && (
           <span className="text-muted-foreground text-xs">
             × {tree.multiplier}
           </span>
         )}
-        <Link
-          href={`${dishBasePath("PART")}/${tree.targetDishId}`}
-          target="_blank"
-          className="text-primary text-xs hover:underline"
-        >
-          Open Part
-        </Link>
+        {/* Slice 6 correction pass, §H: a MATERIALIZED tree (the Part was
+            since deleted) has no live target to navigate to — the stored
+            snapshot's own former name/version are shown above, but never a
+            link, and never the internal linkState term itself. */}
+        {tree.kind === "LIVE" ? (
+          <Link
+            href={`${dishBasePath("PART")}/${tree.targetDishId}`}
+            target="_blank"
+            className="text-primary text-xs hover:underline"
+          >
+            Open Part
+          </Link>
+        ) : (
+          <span className="text-muted-foreground text-xs italic">
+            Deleted since
+          </span>
+        )}
       </div>
 
       {tree.sections.map((section, sectionIndex) => (
@@ -101,9 +110,9 @@ export function PartLinkTreeView({
               ))}
             </ol>
           )}
-          {section.partLinks.map((nested) => (
+          {section.partLinks.map((nested, nestedIndex) => (
             <PartLinkTreeView
-              key={`${nested.targetDishId}:${nested.targetDishVersionId}`}
+              key={`${nested.targetDishId ?? "materialized"}:${nested.targetDishVersionId ?? nestedIndex}`}
               tree={nested}
               scaleFactor={effectiveScale}
               depth={depth + 1}
@@ -112,9 +121,9 @@ export function PartLinkTreeView({
         </div>
       ))}
 
-      {tree.partLinks.map((nested) => (
+      {tree.partLinks.map((nested, nestedIndex) => (
         <PartLinkTreeView
-          key={`${nested.targetDishId}:${nested.targetDishVersionId}`}
+          key={`${nested.targetDishId ?? "materialized"}:${nested.targetDishVersionId ?? nestedIndex}`}
           tree={nested}
           scaleFactor={effectiveScale}
           depth={depth + 1}

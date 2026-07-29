@@ -944,10 +944,13 @@ export async function promoteHistoricalVersion(
 
 export type PropagationSelection = {
   containerDishId: string;
-  // Correction 1/§72.5: targets specific `PartLink.lineageId` occurrences,
-  // not "every link to this Part" — so the same Part appearing twice in
-  // one container can have one occurrence excluded while the other updates.
-  lineageIds: string[];
+  // Slice 6 correction pass §2: the direct-duplicate invariant
+  // (`findDuplicatePartTargets`) guarantees a given Part is directly linked
+  // at most ONCE per parent Version — top-level or Section-nested, never
+  // both counted separately — so one parent has exactly one direct
+  // occurrence to target, identified by its stable `lineageId`. This is no
+  // longer a list: there is nothing to select among within one parent.
+  lineageId: string;
 };
 
 export type PropagationOutcome =
@@ -985,7 +988,6 @@ async function propagateToOneContainer(
       base.partLinks,
     );
 
-    const selectedSet = new Set(selection.lineageIds);
     let matchedCount = 0;
     let changedCount = 0;
     let previousTargetVersionId: string | null = null;
@@ -993,8 +995,7 @@ async function propagateToOneContainer(
     function retarget(links: PartLinkInput[]): PartLinkInput[] {
       return links.map((link) => {
         if (
-          !link.lineageId ||
-          !selectedSet.has(link.lineageId) ||
+          link.lineageId !== selection.lineageId ||
           link.targetDishId !== partDishId
         ) {
           return link;
@@ -1604,7 +1605,16 @@ function spliceDetachedIntoSection(
  * operation) — detach, replace, or remove, each its own material-Version
  * transaction on the affected container (PRODUCT_SPEC.md §74.2: "create
  * new Versions for changed current items"). Users may resolve occurrences
- * incrementally, in any order, across separate calls.
+ * incrementally, in any order, across separate calls — one call's failure
+ * never affects a resolution already completed for a different container.
+ *
+ * Slice 6 correction pass §1: every resolution is a material change to the
+ * container's cooking content (a PartLink add/remove/retarget always trips
+ * `diffVersionContent`'s `cookingChanged`, same as any other), so it reuses
+ * the same explicit minor/major choice `editDish` requires for a cooking
+ * change — never an automatic MINOR. `base` is always the container's own
+ * *current* Version, so (matching `propagateToOneContainer`'s reasoning)
+ * both a MINOR and a MAJOR bump from it always stay current.
  */
 export async function resolvePartUsageOccurrence(
   ownerId: string,
@@ -1612,6 +1622,7 @@ export async function resolvePartUsageOccurrence(
   containerDishId: string,
   lineageId: string,
   resolution: PartUsageResolutionKind,
+  versionChoice: VersionChoiceValue,
   replacement?: { targetDishId: string; targetDishVersionId: string },
 ): Promise<{ containerDishId: string; newVersionId: string }> {
   const partDish = await getOwnedDishOrThrow(ownerId, partDishId, "PART");
@@ -1759,7 +1770,7 @@ export async function resolvePartUsageOccurrence(
       tx,
       container.id,
       base.majorVersion,
-      "MINOR",
+      versionChoice,
     );
 
     const version = await tx.dishVersion.create({

@@ -22,6 +22,22 @@ import {
   deleteDish,
 } from "@/lib/dishes/actions";
 import type { PartUsage } from "@/lib/dishes/queries";
+import type {
+  PartUsageResolutionValue,
+  VersionChoiceValue,
+} from "@/lib/dishes/schema";
+
+type PendingResolution = {
+  usage: PartUsage;
+  resolution: PartUsageResolutionValue;
+  replacement?: { targetDishId: string; targetDishVersionId: string };
+};
+
+const RESOLUTION_LABEL: Record<PartUsageResolutionValue, string> = {
+  DETACH: "Detaching",
+  REPLACE: "Replacing",
+  REMOVE: "Removing",
+};
 
 /**
  * PRODUCT_SPEC.md §74.2: Phase 1 of the two-phase Part deletion flow.
@@ -49,6 +65,7 @@ export function PartUsageResolutionDialog({
   >(null);
   const [isDeleting, setIsDeleting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [pending, setPending] = React.useState<PendingResolution | null>(null);
 
   async function refresh() {
     const result = await getCurrentPartUsages(partDishId);
@@ -69,11 +86,23 @@ export function PartUsageResolutionDialog({
     };
   }, [open, partDishId]);
 
-  async function resolve(
+  // Slice 6 correction pass §1: Detach/Replace/Remove is a material change
+  // to the affected parent, so it requires the same explicit minor/major
+  // choice as any other cooking change — `requestResolution` opens that
+  // choice; `resolve` (below) only runs once it's been made.
+  function requestResolution(
     usage: PartUsage,
-    resolution: "DETACH" | "REPLACE" | "REMOVE",
+    resolution: PartUsageResolutionValue,
     replacement?: { targetDishId: string; targetDishVersionId: string },
   ) {
+    setError(null);
+    setPending({ usage, resolution, replacement });
+  }
+
+  async function resolve(versionChoice: VersionChoiceValue) {
+    if (!pending) return;
+    const { usage, resolution, replacement } = pending;
+    setPending(null);
     setError(null);
     setResolvingLineageId(usage.lineageId);
     const result = await resolvePartUsageOccurrence({
@@ -81,6 +110,7 @@ export function PartUsageResolutionDialog({
       containerDishId: usage.containerDishId,
       lineageId: usage.lineageId,
       resolution,
+      versionChoice,
       replacement,
     });
     setResolvingLineageId(null);
@@ -167,7 +197,7 @@ export function PartUsageResolutionDialog({
                       variant="outline"
                       size="sm"
                       disabled={isResolving}
-                      onClick={() => resolve(usage, "DETACH")}
+                      onClick={() => requestResolution(usage, "DETACH")}
                     >
                       Detach
                     </Button>
@@ -177,7 +207,7 @@ export function PartUsageResolutionDialog({
                       attachableParts={attachableParts}
                       triggerLabel="Replace with…"
                       onAttach={(replacement) =>
-                        resolve(usage, "REPLACE", replacement)
+                        requestResolution(usage, "REPLACE", replacement)
                       }
                     />
                     <Button
@@ -185,7 +215,7 @@ export function PartUsageResolutionDialog({
                       variant="outline"
                       size="sm"
                       disabled={isResolving}
-                      onClick={() => resolve(usage, "REMOVE")}
+                      onClick={() => requestResolution(usage, "REMOVE")}
                     >
                       Remove
                     </Button>
@@ -202,6 +232,38 @@ export function PartUsageResolutionDialog({
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      <Dialog
+        open={pending !== null}
+        onOpenChange={(next) => !next && setPending(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>How should this change be saved?</DialogTitle>
+            <DialogDescription>
+              {pending &&
+                `${RESOLUTION_LABEL[pending.resolution]} this Part on ${pending.usage.containerTitle} `}
+              is a change to that item — save it as a refinement of its current
+              version, or start a new version for a more substantial change.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => resolve("MAJOR")}
+              disabled={resolvingLineageId !== null}
+            >
+              Start a new version
+            </Button>
+            <Button
+              onClick={() => resolve("MINOR")}
+              disabled={resolvingLineageId !== null}
+            >
+              Save as a refinement
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }

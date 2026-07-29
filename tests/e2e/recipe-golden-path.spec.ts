@@ -102,6 +102,11 @@ test.describe("Recipes: create, view, edit, archive, restore, duplicate, delete"
     await page.getByRole("link", { name: "Edit" }).click();
     await expect(page).toHaveURL(/\/edit$/);
 
+    // Slice 6 correction pass §4: a Section loaded from an already-saved
+    // Dish now defaults to its view-first (collapsed) presentation — the
+    // explicit Edit toggle must be clicked before its editable fields
+    // (including "Add instruction") appear.
+    await page.getByRole("button", { name: "Edit section 1" }).click();
     await page.getByRole("button", { name: "Add instruction" }).click();
     await page
       .getByRole("textbox", { name: "Instruction 1" })
@@ -221,6 +226,8 @@ test.describe("Recipes: create, view, edit, archive, restore, duplicate, delete"
     // --- Edit the ingredient's name (a cooking-content change) and start
     // a new major Version ---
     await page.getByRole("link", { name: "Edit" }).click();
+    // Slice 6 correction pass §4: see the golden path test above.
+    await page.getByRole("button", { name: "Edit section 1" }).click();
     const nameInput = page.getByLabel("Ingredient name");
     await nameInput.fill("");
     await nameInput.fill("Roasted vegetable broth");

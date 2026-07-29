@@ -3505,7 +3505,7 @@ describe("Slice 6 post-gate — propagatePartUpdate", () => {
       userId,
       partDishId,
       v2Id,
-      [{ containerDishId: containerId, lineageIds: [occurrenceLineageId] }],
+      [{ containerDishId: containerId, lineageId: occurrenceLineageId }],
     );
     expect(outcomes).toHaveLength(1);
     expect(outcomes[0]).toMatchObject({
@@ -3533,7 +3533,7 @@ describe("Slice 6 post-gate — propagatePartUpdate", () => {
       userId,
       partDishId,
       v2Id,
-      [{ containerDishId: containerId, lineageIds: [occurrenceLineageId] }],
+      [{ containerDishId: containerId, lineageId: occurrenceLineageId }],
     );
     expect(secondOutcomes[0]).toMatchObject({
       containerDishId: containerId,
@@ -3604,7 +3604,7 @@ describe("Slice 6 post-gate — propagatePartUpdate", () => {
       userId,
       partId,
       partV2Id,
-      [{ containerDishId: containerPartId, lineageIds: [occurrenceLineageId] }],
+      [{ containerDishId: containerPartId, lineageId: occurrenceLineageId }],
     );
     expect(outcomes[0].status).toBe("failed");
 
@@ -3696,8 +3696,8 @@ describe("Slice 6 post-gate — propagatePartUpdate", () => {
       partId,
       partV2Id,
       [
-        { containerDishId: recipeId, lineageIds: [recipeLineageId] },
-        { containerDishId: containerPartId, lineageIds: [containerLineageId] },
+        { containerDishId: recipeId, lineageId: recipeLineageId },
+        { containerDishId: containerPartId, lineageId: containerLineageId },
       ],
     );
 
@@ -3761,7 +3761,7 @@ describe("Slice 6 post-gate — propagatePartUpdate", () => {
       owner.id,
       partId,
       partV2Id,
-      [{ containerDishId: intruderDishId, lineageIds: ["does-not-matter"] }],
+      [{ containerDishId: intruderDishId, lineageId: "does-not-matter" }],
     );
     expect(outcomes[0].status).toBe("failed");
 
@@ -3893,6 +3893,7 @@ describe("Slice 6 post-gate — resolvePartUsageOccurrence", () => {
       containerDishId,
       lineageId,
       "DETACH",
+      "MINOR",
     );
 
     const after = await prisma.dish.findUniqueOrThrow({
@@ -3940,6 +3941,7 @@ describe("Slice 6 post-gate — resolvePartUsageOccurrence", () => {
       containerDishId,
       lineageId,
       "DETACH",
+      "MINOR",
     );
 
     const after = await prisma.dish.findUniqueOrThrow({
@@ -3996,6 +3998,7 @@ describe("Slice 6 post-gate — resolvePartUsageOccurrence", () => {
       containerDishId,
       lineageId,
       "REPLACE",
+      "MINOR",
       {
         targetDishId: replacementPartId,
         targetDishVersionId: replacementVersionId,
@@ -4086,6 +4089,7 @@ describe("Slice 6 post-gate — resolvePartUsageOccurrence", () => {
         containerDishId,
         lineageId,
         "REPLACE",
+        "MINOR",
         { targetDishId: otherPartId, targetDishVersionId: otherVersionId },
       ),
     ).rejects.toThrow(ValidationError);
@@ -4123,6 +4127,7 @@ describe("Slice 6 post-gate — resolvePartUsageOccurrence", () => {
       containerDishId,
       lineageId,
       "REMOVE",
+      "MINOR",
     );
     const after = await prisma.dish.findUniqueOrThrow({
       where: { id: containerDishId },
@@ -4170,8 +4175,178 @@ describe("Slice 6 post-gate — resolvePartUsageOccurrence", () => {
         bareContainerId,
         bareLineageId,
         "REMOVE",
+        "MINOR",
       ),
     ).rejects.toThrow(ValidationError);
+  });
+
+  // Slice 6 correction pass §1: Detach/Replace/Remove must honor the
+  // caller's explicit minor/major choice — never an automatic MINOR.
+  it("honors an explicit MAJOR choice, starting a new major line", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+    const partDishId = await createPartWithIngredient(
+      userId,
+      "Rice Base",
+      2,
+      "cup",
+    );
+    const partVersionId = (
+      await prisma.dish.findUniqueOrThrow({ where: { id: partDishId } })
+    ).currentVersionId!;
+    const containerDishId = await dishService.createDish(
+      userId,
+      "RECIPE",
+      content(),
+    );
+    const lineageId = await attachOccurrence(
+      userId,
+      containerDishId,
+      partDishId,
+      partVersionId,
+      1,
+    );
+
+    await dishService.resolvePartUsageOccurrence(
+      userId,
+      partDishId,
+      containerDishId,
+      lineageId,
+      "DETACH",
+      "MAJOR",
+    );
+
+    const after = await prisma.dish.findUniqueOrThrow({
+      where: { id: containerDishId },
+    });
+    const afterVersion = await prisma.dishVersion.findUniqueOrThrow({
+      where: { id: after.currentVersionId! },
+    });
+    // `attachOccurrence` itself bumped MINOR once (V1.0 → V1.1) — a further
+    // MAJOR choice here starts the next major line, V2.0, not another minor.
+    expect(afterVersion.majorVersion).toBe(2);
+    expect(afterVersion.minorVersion).toBe(0);
+  });
+
+  // Slice 6 correction pass §1: each resolved parent is its own call/
+  // transaction — one parent's failure (here, a REPLACE target that would
+  // create a duplicate direct link) never affects a resolution already
+  // completed for a different parent.
+  it("one parent's failed resolution does not affect another parent's already-completed resolution", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+    const partDishId = await createPartWithIngredient(
+      userId,
+      "Rice Base",
+      2,
+      "cup",
+    );
+    const partVersionId = (
+      await prisma.dish.findUniqueOrThrow({ where: { id: partDishId } })
+    ).currentVersionId!;
+    const otherPartId = await createPartWithIngredient(
+      userId,
+      "Quinoa Base",
+      1,
+      "cup",
+    );
+    const otherVersionId = (
+      await prisma.dish.findUniqueOrThrow({ where: { id: otherPartId } })
+    ).currentVersionId!;
+
+    const containerAId = await dishService.createDish(
+      userId,
+      "RECIPE",
+      content(),
+    );
+    const lineageIdA = await attachOccurrence(
+      userId,
+      containerAId,
+      partDishId,
+      partVersionId,
+      1,
+    );
+    await dishService.resolvePartUsageOccurrence(
+      userId,
+      partDishId,
+      containerAId,
+      lineageIdA,
+      "DETACH",
+      "MINOR",
+    );
+    const containerAAfter = await prisma.dish.findUniqueOrThrow({
+      where: { id: containerAId },
+    });
+
+    // Container B already has BOTH the target Part and the replacement Part
+    // linked — replacing one with the other would create a duplicate.
+    const containerBId = await dishService.createDish(
+      userId,
+      "RECIPE",
+      content(),
+    );
+    const dishB = await loadDishWithVersion(containerBId);
+    const containerB = await prisma.dish.findUniqueOrThrow({
+      where: { id: containerBId },
+    });
+    await dishService.editDish(
+      userId,
+      containerBId,
+      containerB.currentVersionId!,
+      {
+        ...content({ sections: unchangedSections(dishB) }),
+        partLinks: [
+          {
+            targetDishId: partDishId,
+            targetDishVersionId: partVersionId,
+            position: 0,
+            multiplier: 1,
+          },
+          {
+            targetDishId: otherPartId,
+            targetDishVersionId: otherVersionId,
+            position: 1,
+            multiplier: 1,
+          },
+        ],
+      },
+      "MINOR",
+    );
+    const containerBAfterAttach = await prisma.dish.findUniqueOrThrow({
+      where: { id: containerBId },
+    });
+    const { partLinks: containerBLinks } = await loadContent(
+      containerBId,
+      containerBAfterAttach.currentVersionId!,
+    );
+    const lineageIdB = containerBLinks.find(
+      (l) => l.targetDishId === partDishId,
+    )!.lineageId!;
+
+    await expect(
+      dishService.resolvePartUsageOccurrence(
+        userId,
+        partDishId,
+        containerBId,
+        lineageIdB,
+        "REPLACE",
+        "MINOR",
+        { targetDishId: otherPartId, targetDishVersionId: otherVersionId },
+      ),
+    ).rejects.toThrow(ValidationError);
+
+    // Container A's earlier, unrelated resolution is untouched by B's failure.
+    const containerAStillAfter = await prisma.dish.findUniqueOrThrow({
+      where: { id: containerAId },
+    });
+    expect(containerAStillAfter.currentVersionId).toBe(
+      containerAAfter.currentVersionId,
+    );
+    const { partLinks: containerALinks } = await loadContent(
+      containerAId,
+      containerAStillAfter.currentVersionId!,
+    );
+    expect(containerALinks).toHaveLength(0); // still detached
   });
 });
 
@@ -4291,6 +4466,7 @@ describe("Slice 6 post-gate — deletePart (Phase 2)", () => {
       containerDishId,
       linkedContentBefore[0].lineageId!,
       "DETACH",
+      "MINOR",
     );
     const containerAfterResolve = await prisma.dish.findUniqueOrThrow({
       where: { id: containerDishId },

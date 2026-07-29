@@ -6,6 +6,7 @@ import * as sectionsService from "@/lib/sections/service";
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import type { DishContentInput } from "@/lib/dishes/schema";
 import { scaleIngredientQuantity } from "@/lib/units/scaling";
+import { scaledIngredientDisplay } from "@/lib/dishes/scaled-display";
 
 /**
  * Slice 6 post-gate (Build Plan Review Gate 3): attach validation, detach
@@ -529,6 +530,159 @@ describe("sections service", () => {
       // CHAIN_LENGTH - 1 (12) — the guard must stop it strictly short of
       // that.
       expect(depth).toBeLessThan(CHAIN_LENGTH - 1);
+    });
+  });
+
+  // Slice 6 correction pass, §H: closing a discovered gap — a historical
+  // Version may still carry a MATERIALIZED PartLink (its target Part
+  // deleted while historically referenced), but no query path anywhere
+  // resolved one for display until this pass. Also verifies the preserved
+  // decision that the multiplier is never baked into the stored snapshot —
+  // it composes with the snapshot's raw quantity at display time, same as a
+  // LIVE occurrence.
+  describe("resolveMaterializedPartLinkTreesForVersion", () => {
+    it("resolves a materialized historical usage with its stored multiplier intact, composing to the correct effective quantity", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+
+      const partId = await dishService.createDish(userId, "PART", {
+        ...partContent("Nuoc Cham"),
+        sections: [
+          {
+            name: null,
+            guidanceNote: null,
+            position: 0,
+            ingredients: [
+              {
+                name: "Fish sauce",
+                quantity: 2,
+                quantityEnd: null,
+                isApproximate: false,
+                unit: "tbsp",
+                displayText: null,
+                preparationNote: null,
+                isOptional: false,
+                substitute: null,
+              },
+            ],
+            instructions: [],
+            partLinks: [],
+          },
+        ],
+      });
+      const partVersionId = await currentVersionId(partId);
+
+      const containerId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        partContent("Bowl"),
+      );
+      const containerV1 = await currentVersionId(containerId);
+      await dishService.editDish(
+        userId,
+        containerId,
+        containerV1,
+        {
+          ...partContent("Bowl"),
+          partLinks: [
+            {
+              targetDishId: partId,
+              targetDishVersionId: partVersionId,
+              position: 0,
+              multiplier: 3,
+            },
+          ],
+        },
+        "MINOR",
+      );
+      const historicalVersionId = await currentVersionId(containerId);
+
+      // Resolve the CURRENT usage (DETACH), leaving the Version just created
+      // above as a HISTORICAL usage still referencing the Part live.
+      const historicalPartLink = await prisma.partLink.findFirstOrThrow({
+        where: { containerVersionId: historicalVersionId },
+      });
+      await dishService.resolvePartUsageOccurrence(
+        userId,
+        partId,
+        containerId,
+        historicalPartLink.lineageId,
+        "DETACH",
+        "MINOR",
+      );
+
+      // Delete the Part — the historical link above is now the only
+      // survivor, converted in place to a MATERIALIZED snapshot.
+      await dishService.deleteDish(userId, partId, "PART");
+
+      const materialized =
+        await sectionsService.resolveMaterializedPartLinkTreesForVersion(
+          userId,
+          historicalVersionId,
+        );
+
+      expect(materialized.topLevel).toHaveLength(1);
+      const { position, tree } = materialized.topLevel[0];
+      expect(position).toBe(0);
+      expect(tree.kind).toBe("MATERIALIZED");
+      expect(tree.targetDishId).toBeNull();
+      expect(tree.targetDishVersionId).toBeNull();
+      expect(tree.title).toBe("Nuoc Cham");
+      expect(tree.versionLabel).toBe("V1.0");
+      expect(tree.multiplier).toBe(3);
+
+      // The stored snapshot itself is never scaled — raw authored quantity.
+      const ingredient = tree.sections[0].ingredients[0];
+      expect(ingredient.name).toBe("Fish sauce");
+      expect(ingredient.quantity).toBe(2);
+
+      // Effective display quantity composes multiplier × whole-item scale
+      // at render time, same formula as a LIVE occurrence
+      // (`part-link-tree-view.tsx`'s `effectiveScale`) — never baked in.
+      const wholeItemScale = 1;
+      const effectiveScale = wholeItemScale * tree.multiplier;
+      const display = scaledIngredientDisplay(ingredient, effectiveScale, null);
+      expect(display.line).toContain("6");
+    });
+  });
+
+  describe("mergeLiveAndMaterializedTrees", () => {
+    it("orders a materialized tree by its stored position among LIVE siblings", () => {
+      const liveTree = {
+        kind: "LIVE" as const,
+        targetDishId: "part-live",
+        targetDishVersionId: "part-live-v1",
+        multiplier: 1,
+        title: "Live Part",
+        versionLabel: "V1.0",
+        sections: [],
+        partLinks: [],
+      };
+      const materializedTree = {
+        kind: "MATERIALIZED" as const,
+        targetDishId: null,
+        targetDishVersionId: null,
+        multiplier: 1,
+        title: "Deleted Part",
+        versionLabel: "V1.0",
+        sections: [],
+        partLinks: [],
+      };
+
+      const merged = sectionsService.mergeLiveAndMaterializedTrees(
+        [
+          {
+            targetDishId: "part-live",
+            targetDishVersionId: "part-live-v1",
+            position: 1,
+            multiplier: 1,
+          },
+        ],
+        [liveTree],
+        [{ position: 0, tree: materializedTree }],
+      );
+
+      expect(merged.map((t) => t.title)).toEqual(["Deleted Part", "Live Part"]);
     });
   });
 });

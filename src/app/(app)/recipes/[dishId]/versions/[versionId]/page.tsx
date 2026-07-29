@@ -17,7 +17,11 @@ import { VersionSelector } from "@/components/domain/dish/version-selector";
 import { PromoteVersionButton } from "@/components/domain/dish/promote-version-button";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
 import { versionContentToInput } from "@/lib/dishes/mappers";
-import { resolvePartLinkTrees } from "@/lib/sections/service";
+import {
+  resolvePartLinkTrees,
+  resolveMaterializedPartLinkTreesForVersion,
+  mergeLiveAndMaterializedTrees,
+} from "@/lib/sections/service";
 
 export const metadata: Metadata = {
   title: "Version history",
@@ -64,13 +68,35 @@ export default async function RecipeVersionPage({
 
   const { sections: sectionPartLinkInputs, partLinks: topLevelPartLinkInputs } =
     versionContentToInput(version.sections, version.partLinks);
-  const [topLevelPartLinkTrees, ...sectionPartLinkTreeLists] =
+  const [[topLevelLiveTrees, ...sectionLiveTreeLists], materializedTrees] =
     await Promise.all([
-      resolvePartLinkTrees(dish.ownerId, topLevelPartLinkInputs),
-      ...sectionPartLinkInputs.map((section) =>
-        resolvePartLinkTrees(dish.ownerId, section.partLinks),
-      ),
+      Promise.all([
+        resolvePartLinkTrees(dish.ownerId, topLevelPartLinkInputs),
+        ...sectionPartLinkInputs.map((section) =>
+          resolvePartLinkTrees(dish.ownerId, section.partLinks),
+        ),
+      ]),
+      // Slice 6 correction pass, §H: a historical Version may still carry
+      // MATERIALIZED PartLinks (their target Part was since deleted) —
+      // `getDishScopedVersionContentOrThrow`'s own content load stays
+      // LIVE-only, so these are a separate, additive fetch merged in
+      // purely for read-only display.
+      resolveMaterializedPartLinkTreesForVersion(dish.ownerId, version.id),
     ]);
+  const topLevelPartLinkTrees = mergeLiveAndMaterializedTrees(
+    topLevelPartLinkInputs,
+    topLevelLiveTrees,
+    materializedTrees.topLevel,
+  );
+  const sectionPartLinkTreeLists = sectionPartLinkInputs.map(
+    (section, sectionIndex) =>
+      mergeLiveAndMaterializedTrees(
+        section.partLinks,
+        sectionLiveTreeLists[sectionIndex],
+        materializedTrees.bySectionId.get(version.sections[sectionIndex].id) ??
+          [],
+      ),
+  );
 
   const basePath = dishBasePath("RECIPE");
   const versionLabel = `V${version.majorVersion}.${version.minorVersion}`;

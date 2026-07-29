@@ -3,6 +3,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DishEditor } from "@/components/domain/dish/dish-editor";
 import { createDish, editDish } from "@/lib/dishes/actions";
+import { listAttachablePartVersions } from "@/lib/sections/actions";
 import type { DishFormValues } from "@/components/domain/dish/dish-form-values";
 
 const push = vi.fn();
@@ -17,8 +18,25 @@ vi.mock("@/lib/dishes/actions", () => ({
   editDish: vi.fn(async () => ({ status: "idle" })),
 }));
 
+vi.mock("@/lib/sections/actions", () => ({
+  getPartLinkDisplay: vi.fn(async () => ({
+    status: "success",
+    title: "Nuoc Cham",
+    majorVersion: 1,
+    minorVersion: 0,
+  })),
+  getPartLinkPreview: vi.fn(async () => ({ status: "success", tree: null })),
+  listAttachablePartVersions: vi.fn(async () => ({
+    status: "success",
+    versions: [{ id: "new-part-1-v1", majorVersion: 1, minorVersion: 0 }],
+  })),
+  validatePartAttachment: vi.fn(),
+  resolvePartVersionForDetach: vi.fn(),
+}));
+
 const mockedCreateDish = vi.mocked(createDish);
 const mockedEditDish = vi.mocked(editDish);
+const mockedListAttachablePartVersions = vi.mocked(listAttachablePartVersions);
 
 const existingDish: {
   id: string;
@@ -447,6 +465,9 @@ describe("DishEditor minor/major version choice", () => {
     const user = userEvent.setup();
     render(<DishEditor kind="RECIPE" dish={existingDish} />);
 
+    // A saved Section (has a lineageId) starts view-first — Edit reveals
+    // its editable fields.
+    await user.click(screen.getByRole("button", { name: "Edit section 1" }));
     const nameInput = screen.getByLabelText("Ingredient name");
     await user.clear(nameInput);
     await user.type(nameInput, "Kosher salt");
@@ -471,6 +492,7 @@ describe("DishEditor minor/major version choice", () => {
     const user = userEvent.setup();
     render(<DishEditor kind="RECIPE" dish={existingDish} />);
 
+    await user.click(screen.getByRole("button", { name: "Edit section 1" }));
     const nameInput = screen.getByLabelText("Ingredient name");
     await user.clear(nameInput);
     await user.type(nameInput, "Kosher salt");
@@ -485,5 +507,96 @@ describe("DishEditor minor/major version choice", () => {
 
     expect(mockedEditDish).toHaveBeenCalledTimes(1);
     expect(mockedEditDish.mock.calls[0][4]).toBe("MAJOR");
+  });
+});
+
+describe("DishEditor Convert Section to Part", () => {
+  beforeEach(() => {
+    mockedCreateDish.mockClear();
+    mockedEditDish.mockClear();
+    mockedListAttachablePartVersions.mockClear();
+    mockedCreateDish.mockResolvedValue({
+      status: "success",
+      dishId: "new-part-1",
+    });
+    mockedListAttachablePartVersions.mockResolvedValue({
+      status: "success",
+      versions: [{ id: "new-part-1-v1", majorVersion: 1, minorVersion: 0 }],
+    });
+    push.mockClear();
+  });
+
+  it("replaces the Section with a PartLink at the same position, without saving the parent or navigating away", async () => {
+    const user = userEvent.setup();
+    render(<DishEditor kind="RECIPE" dish={existingDish} />);
+
+    await user.click(screen.getByRole("button", { name: "Convert to Part" }));
+    // `existingDish`'s section has no name of its own, so the dialog's
+    // prefilled title starts blank — type one before converting.
+    await user.type(screen.getByLabelText("Part name"), "Nuoc Cham");
+    await user.click(screen.getByRole("button", { name: "Convert" }));
+
+    expect(mockedCreateDish).toHaveBeenCalledTimes(1);
+    const [, createInput] = mockedCreateDish.mock.calls[0];
+    expect(createInput.sections[0].ingredients[0].name).toBe("Salt");
+
+    // The Section (and its "Salt" ingredient) is gone; a linked-Part row
+    // resolving to the new Part's live title stands in its place.
+    expect(screen.queryByText("Salt")).not.toBeInTheDocument();
+    expect(await screen.findByText("Nuoc Cham")).toBeInTheDocument();
+
+    // The parent draft is untouched until its own normal Save, and the user
+    // stays in the editor — no automatic save, no navigation.
+    expect(mockedEditDish).not.toHaveBeenCalled();
+    expect(push).not.toHaveBeenCalled();
+  });
+});
+
+describe("DishEditor linked-Part inline rendering", () => {
+  const dishWithLinkedPart: typeof existingDish = {
+    ...existingDish,
+    values: {
+      ...existingDish.values,
+      sections: [],
+      partLinks: [
+        {
+          lineageId: "link-1",
+          targetDishId: "part-1",
+          targetDishVersionId: "part-1-v1",
+          position: 0,
+          multiplier: 2,
+        },
+      ],
+    },
+  };
+
+  beforeEach(() => {
+    mockedListAttachablePartVersions.mockClear();
+  });
+
+  it("shows the linked Part's pinned content inline without an expand action", async () => {
+    render(<DishEditor kind="RECIPE" dish={dishWithLinkedPart} />);
+
+    // Slice 6 correction pass §4: the header (name/version/multiplier) and
+    // the resolved content both render immediately — nothing here requires
+    // clicking an expand toggle first.
+    expect(await screen.findByText("Nuoc Cham")).toBeInTheDocument();
+    expect(screen.getByText(/× 2/)).toBeInTheDocument();
+    expect(
+      await screen.findByText("This Part has no saved content yet."),
+    ).toBeInTheDocument();
+
+    // No collapse/expand control exists any more for a linked Part.
+    expect(
+      screen.queryByRole("button", { name: "Expand" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Collapse" }),
+    ).not.toBeInTheDocument();
+
+    // The reusable Part's own content is never exposed as parent-owned
+    // inline inputs — only the explicit "Link settings" action edits
+    // anything here, and that's just the multiplier.
+    expect(screen.queryByLabelText("Ingredient name")).not.toBeInTheDocument();
   });
 });

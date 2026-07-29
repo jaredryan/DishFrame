@@ -391,9 +391,9 @@ export function ScaledVersionView({
               </ol>
             )}
 
-            {section.partLinks.map((tree) => (
+            {section.partLinks.map((tree, treeIndex) => (
               <PartLinkTreeView
-                key={`${tree.targetDishId}:${tree.targetDishVersionId}`}
+                key={`${tree.targetDishId ?? "materialized"}:${tree.targetDishVersionId ?? treeIndex}`}
                 tree={tree}
                 scaleFactor={scaleFactor}
               />
@@ -402,9 +402,9 @@ export function ScaledVersionView({
         </Card>
       ))}
 
-      {topLevelPartLinks.map((tree) => (
+      {topLevelPartLinks.map((tree, treeIndex) => (
         <PartLinkTreeView
-          key={`${tree.targetDishId}:${tree.targetDishVersionId}`}
+          key={`${tree.targetDishId ?? "materialized"}:${tree.targetDishVersionId ?? treeIndex}`}
           tree={tree}
           scaleFactor={scaleFactor}
         />

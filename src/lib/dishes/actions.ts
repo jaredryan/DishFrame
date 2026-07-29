@@ -342,12 +342,16 @@ export type ResolvePartUsageActionState =
   | { status: "error"; message: string };
 
 /** PRODUCT_SPEC.md §74.2: resolves one current usage occurrence (detach,
- * replace, or remove) ahead of a Part's permanent deletion. */
+ * replace, or remove) ahead of a Part's permanent deletion. Slice 6
+ * correction pass §1: always a material change to the affected parent, so
+ * `versionChoice` is required, same as `editDish`'s own cooking-change
+ * choice. */
 export async function resolvePartUsageOccurrence(values: {
   partDishId: string;
   containerDishId: string;
   lineageId: string;
   resolution: PartUsageResolutionValue;
+  versionChoice: VersionChoiceValue;
   replacement?: { targetDishId: string; targetDishVersionId: string };
 }): Promise<ResolvePartUsageActionState> {
   try {
@@ -360,6 +364,7 @@ export async function resolvePartUsageOccurrence(values: {
       input.containerDishId,
       input.lineageId,
       input.resolution,
+      input.versionChoice,
       input.replacement,
     );
 

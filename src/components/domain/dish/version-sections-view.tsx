@@ -94,9 +94,9 @@ export function VersionSectionsView({
               </ol>
             )}
 
-            {(sectionPartLinks[sectionIndex] ?? []).map((tree) => (
+            {(sectionPartLinks[sectionIndex] ?? []).map((tree, treeIndex) => (
               <PartLinkTreeView
-                key={`${tree.targetDishId}:${tree.targetDishVersionId}`}
+                key={`${tree.targetDishId ?? "materialized"}:${tree.targetDishVersionId ?? treeIndex}`}
                 tree={tree}
               />
             ))}
@@ -104,9 +104,9 @@ export function VersionSectionsView({
         </Card>
       ))}
 
-      {topLevelPartLinks.map((tree) => (
+      {topLevelPartLinks.map((tree, treeIndex) => (
         <PartLinkTreeView
-          key={`${tree.targetDishId}:${tree.targetDishVersionId}`}
+          key={`${tree.targetDishId ?? "materialized"}:${tree.targetDishVersionId ?? treeIndex}`}
           tree={tree}
         />
       ))}
