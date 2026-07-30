@@ -78,7 +78,7 @@ export function AccountMenu({
           </span>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuItem asChild>
+        <DropdownMenuItem asChild className="cursor-pointer">
           <Link href="/profile">
             <UserIcon />
             Profile
@@ -88,6 +88,7 @@ export function AccountMenu({
         <DropdownMenuItem
           variant="destructive"
           disabled={signingOut}
+          className="cursor-pointer"
           onSelect={(event) => {
             event.preventDefault();
             handleSignOut();
