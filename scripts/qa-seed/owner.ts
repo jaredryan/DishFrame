@@ -54,7 +54,10 @@ export async function ensureSeedTag(ownerId: string): Promise<string> {
   return tag.id;
 }
 
-export async function attachSeedTag(dishId: string, tagId: string): Promise<void> {
+export async function attachSeedTag(
+  dishId: string,
+  tagId: string,
+): Promise<void> {
   await prisma.dishTag.upsert({
     where: { dishId_tagId: { dishId, tagId } },
     update: {},

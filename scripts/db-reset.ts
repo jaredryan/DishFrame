@@ -18,7 +18,10 @@ async function main() {
   console.log("[db-reset] Local database confirmed. Resetting...");
 
   function run(command: string, args: string[]) {
-    const result = spawnSync(command, args, { stdio: "inherit", env: process.env });
+    const result = spawnSync(command, args, {
+      stdio: "inherit",
+      env: process.env,
+    });
     if (result.status !== 0) {
       console.error(`[db-reset] Command failed: ${command} ${args.join(" ")}`);
       process.exit(result.status ?? 1);

@@ -64,6 +64,12 @@ export type VersionCompareInput = {
   // Slice 6 post-gate: top-level linked Parts — Section-nested ones already
   // travel on each `SectionInput.partLinks`.
   partLinks: PartLinkInput[];
+  // Design remediation pass: every MATERIALIZED PartLink pinned to this
+  // Version (top-level or Section-nested alike — position/nesting doesn't
+  // matter for a flat identity diff), so a Version whose Part was deleted
+  // since it was saved still participates in comparison instead of being
+  // silently invisible to it.
+  materializedPartLinks: MaterializedPartLinkSnapshot[];
 };
 
 export type FieldChange = {
@@ -94,10 +100,32 @@ export type ChangedInstruction = {
 // Slice 6 post-gate: identifiers only, not a display label — the caller
 // resolves `targetDishId`/`targetDishVersionId` into a title/Version label
 // (§68.5's "always a live lookup"), same as every other linked-Part display.
+//
+// Design remediation pass, §H's materialization table: `targetDishId`/
+// `targetDishVersionId` are `null` for a MATERIALIZED occurrence (the Part
+// was deleted since) — that row has no live target left to look up, only
+// its own frozen `materializedTitle`/`materializedVersionLabel`, carried
+// here instead so the comparison view never needs a live lookup (and so
+// never falls back to "Unknown Part") for an occurrence whose identity is
+// actually still known, just no longer live.
 export type PartLinkSnapshot = {
-  targetDishId: string;
-  targetDishVersionId: string;
+  targetDishId: string | null;
+  targetDishVersionId: string | null;
   multiplier: number;
+  materializedTitle?: string | null;
+  materializedVersionLabel?: string | null;
+};
+
+// A MATERIALIZED PartLink pinned to one specific Version — additive to the
+// normal LIVE-only `partLinks`/`sections[].partLinks` content load (see
+// `queries.ts`'s `partLinkContentInclude` doc comment), fetched separately
+// by the caller (`listMaterializedPartLinkSnapshots`, sections/service.ts)
+// and merged in here purely for comparison — this module stays DB-agnostic.
+export type MaterializedPartLinkSnapshot = {
+  lineageId: string;
+  multiplier: number;
+  materializedTitle: string | null;
+  materializedVersionLabel: string | null;
 };
 
 export type AddedOrRemovedPartLink = { lineageId: string } & PartLinkSnapshot;
@@ -423,7 +451,11 @@ function instructionChanges(before: SectionInput[], after: SectionInput[]) {
 // Same flatten-and-match-by-lineageId pattern as `flattenIngredients`/
 // `flattenInstructions`: top-level occurrences first, then each Section's
 // own, in given (already position-ordered — both sides always come from a
-// persisted DB Version, per `partLinkContentInclude`'s `orderBy`) order.
+// persisted DB Version, per `partLinkContentInclude`'s `orderBy`) order,
+// then (design remediation pass) any MATERIALIZED occurrences — a distinct
+// row from LIVE ones (never the same lineageId twice per Version, so no
+// collision risk), appended last since they carry no ordering information
+// of their own.
 function flattenPartLinks(
   input: VersionCompareInput,
 ): Map<string, PartLinkSnapshot> {
@@ -440,6 +472,15 @@ function flattenPartLinks(
   }
   index(input.partLinks);
   for (const section of input.sections) index(section.partLinks);
+  for (const materialized of input.materializedPartLinks) {
+    map.set(materialized.lineageId, {
+      targetDishId: null,
+      targetDishVersionId: null,
+      multiplier: materialized.multiplier,
+      materializedTitle: materialized.materializedTitle,
+      materializedVersionLabel: materialized.materializedVersionLabel,
+    });
+  }
   return map;
 }
 

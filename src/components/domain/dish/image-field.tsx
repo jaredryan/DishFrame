@@ -30,6 +30,22 @@ export function ImageField({ dishId }: { dishId: string | null }) {
   const [isUploading, setIsUploading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
+  // A freshly selected File's `imageAssetId` isn't attached to any saved
+  // DishVersion yet — `/api/images/[assetId]` requires that to authorize a
+  // read (see its own doc comment), so it 404s until the overall Save
+  // completes. A local `URL.createObjectURL(file)` previews the actual
+  // chosen bytes immediately instead; an already-persisted asset (loaded
+  // from an existing Version, or from a prior Save) still previews through
+  // the authorized route, since that read really does succeed.
+  const [localPreviewUrl, setLocalPreviewUrl] = React.useState<string | null>(
+    null,
+  );
+
+  React.useEffect(() => {
+    return () => {
+      if (localPreviewUrl) URL.revokeObjectURL(localPreviewUrl);
+    };
+  }, [localPreviewUrl]);
 
   async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -51,6 +67,7 @@ export function ImageField({ dishId }: { dishId: string | null }) {
       return;
     }
 
+    setLocalPreviewUrl(URL.createObjectURL(file));
     setIsUploading(true);
     try {
       const requested = await requestImageUpload({
@@ -85,6 +102,7 @@ export function ImageField({ dishId }: { dishId: string | null }) {
 
   function handleRemove() {
     setValue("imageAssetId", null, { shouldDirty: true });
+    setLocalPreviewUrl(null);
   }
 
   return (
@@ -93,9 +111,9 @@ export function ImageField({ dishId }: { dishId: string | null }) {
       <div className="flex items-center gap-3">
         {imageAssetId ? (
           <div className="border-border relative size-24 overflow-hidden rounded-lg border">
-            {/* eslint-disable-next-line @next/next/no-img-element -- private, authenticated route, not a static/optimizable asset */}
+            {/* eslint-disable-next-line @next/next/no-img-element -- private, authenticated route (or a local blob: object URL), not a static/optimizable asset */}
             <img
-              src={`/api/images/${imageAssetId}`}
+              src={localPreviewUrl ?? `/api/images/${imageAssetId}`}
               alt=""
               className="size-full object-cover"
             />

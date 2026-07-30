@@ -9,14 +9,14 @@ import {
 import { NotFoundError } from "@/lib/errors";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { StageBadge } from "@/components/domain/dish/stage-badge";
 import { VersionSectionsView } from "@/components/domain/dish/version-sections-view";
-import { VersionNoteEditor } from "@/components/domain/dish/version-note-editor";
-import { VersionMetadataEditor } from "@/components/domain/dish/version-metadata-editor";
 import { VersionSelector } from "@/components/domain/dish/version-selector";
 import { PromoteVersionButton } from "@/components/domain/dish/promote-version-button";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
 import { versionContentToInput } from "@/lib/dishes/mappers";
+import { decimalToNumber } from "@/lib/dishes/format";
 import {
   resolvePartLinkTrees,
   resolveMaterializedPartLinkTreesForVersion,
@@ -128,21 +128,59 @@ export default async function RecipeVersionPage({
         <p className="text-muted-foreground text-sm">
           {isCurrent
             ? "This is the current version."
-            : "This is a historical version — its content never changes, but its description and photo can still be edited (PRODUCT_SPEC.md §7.2)."}
+            : "This is a historical version — its content never changes. Description, photo, and note can still be edited from here (PRODUCT_SPEC.md §7.2), via Edit this version below."}
         </p>
 
-        {/* PRODUCT_SPEC.md §7.2/§12.2: description and image are
-            Version-associated but mutable — editable in place on any
-            selected Version, current or historical, without creating a
-            refinement. */}
-        <VersionMetadataEditor
-          key={`metadata-${version.id}`}
-          kind="RECIPE"
-          dishId={dish.id}
-          versionId={version.id}
-          description={version.description}
-          imageAssetId={version.imageAssetId}
-        />
+        {/* Design remediation pass: description/image/note are plain,
+            read-only presentation here now — the same consolidated editor
+            every other field goes through (`Edit this version`, below)
+            edits them in place on this exact Version without creating a
+            refinement, matching `updateVersionMetadata`'s/`updateVersionNote`'s
+            existing PRODUCT_SPEC.md §7.2/§14.1 semantics. */}
+        {version.description && (
+          <p className="text-foreground text-sm whitespace-pre-wrap">
+            {version.description}
+          </p>
+        )}
+        {version.imageAssetId && (
+          // eslint-disable-next-line @next/next/no-img-element -- private, authenticated route, not a static/optimizable asset
+          <img
+            src={`/api/images/${version.imageAssetId}`}
+            alt=""
+            className="border-border max-h-80 w-full rounded-lg border object-cover"
+          />
+        )}
+        {version.versionNote && (
+          <p className="text-muted-foreground text-sm italic">
+            {version.versionNote}
+          </p>
+        )}
+        {(version.yieldQuantity != null ||
+          version.prepTimeMinutes != null ||
+          version.cookTimeMinutes != null ||
+          version.difficulty) && (
+          <div className="flex flex-wrap gap-1.5">
+            {version.yieldQuantity != null && (
+              <Badge variant="outline">
+                Makes {decimalToNumber(version.yieldQuantity)}{" "}
+                {version.yieldUnit ?? "servings"}
+              </Badge>
+            )}
+            {version.prepTimeMinutes != null && (
+              <Badge variant="outline">
+                Prep {version.prepTimeMinutes} min
+              </Badge>
+            )}
+            {version.cookTimeMinutes != null && (
+              <Badge variant="outline">
+                Cook {version.cookTimeMinutes} min
+              </Badge>
+            )}
+            {version.difficulty && (
+              <Badge variant="outline">{version.difficulty}</Badge>
+            )}
+          </div>
+        )}
 
         {sourceVersion && (
           <p className="text-muted-foreground text-sm">
@@ -183,14 +221,6 @@ export default async function RecipeVersionPage({
           currentVersionId={dish.currentVersionId}
           versions={versions}
           activeVersionId={version.id}
-        />
-
-        <VersionNoteEditor
-          key={`note-${version.id}`}
-          kind="RECIPE"
-          dishId={dish.id}
-          versionId={version.id}
-          note={version.versionNote}
         />
 
         <div className="flex flex-wrap items-center gap-2">

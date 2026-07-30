@@ -12,6 +12,7 @@ import {
 import { NotFoundError } from "@/lib/errors";
 import { DishEditor } from "@/components/domain/dish/dish-editor";
 import { dishToFormValues } from "@/components/domain/dish/dish-form-values";
+import { decimalToNumber } from "@/lib/dishes/format";
 
 export const metadata: Metadata = {
   title: "Edit part",
@@ -75,6 +76,9 @@ export default async function EditPartPage({
         // already existing in the same line.
         nextMinorVersion: highestMinorInBaseLine + 1,
         isCurrent: version.id === dish.currentVersionId,
+        note: version.versionNote,
+        defaultBatchQuantity: decimalToNumber(dish.defaultBatchQuantity),
+        defaultBatchUnit: dish.defaultBatchUnit,
         values: dishToFormValues({
           stage: dish.stage,
           cuisine: dish.cuisine,

@@ -193,8 +193,13 @@ export async function updateVersionNote(
 /**
  * Version-trigger correction pass, PRODUCT_SPEC.md §7.2: edits description/
  * image in place on any selected Version — current or historical — without
- * creating a new one. Backs `VersionMetadataEditor`, rendered on both the
- * current-Version detail page and historical Version-history pages.
+ * creating a new one. Design remediation pass: no longer backed by a
+ * standalone detail-page editor (removed) — description/image are now only
+ * ever edited through the consolidated `DishEditor`, whose own Save already
+ * routes an unchanged-except-metadata submission through this exact
+ * in-place path via `editDish`'s own classification. Kept as its own
+ * function (and its own integration coverage) since it's still the
+ * documented, narrowly-scoped primitive for that one behavior.
  */
 export async function updateVersionMetadata(
   kind: DishKindValue,

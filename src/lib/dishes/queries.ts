@@ -34,6 +34,10 @@ export const dishCardSelect = {
   currentTitle: true,
   createdAt: true,
   updatedAt: true,
+  // Design remediation pass: the library grid renders the current
+  // Version's image, when set — fetched here so `listDishes` stays the
+  // one query the library page needs, not a second per-card round trip.
+  currentVersion: { select: { imageAssetId: true } },
 } as const;
 
 export const sectionContentInclude = {

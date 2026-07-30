@@ -262,14 +262,133 @@ result is Playwright's serial-mode skip-after-failure, not a second
 distinct bug). No other e2e spec touches an existing Dish's Section
 fields. Not re-run here — Playwright stays owner-run.
 
+## Design remediation pass (post-gate, following owner review)
+
+A focused visual/interaction redesign of the Recipe/Part library, detail,
+create/edit, and comparison surfaces — no new product behavior, no Slice 6B
+work. Dashboard and public marketing pages untouched.
+
+**Library**: `dishCardSelect`/`DishCardItem` gained `imageAssetId`. Grid
+view (`dish-card.tsx`) is now image-led (private image via `/api/images`,
+a restrained `ImageOff` placeholder otherwise), title+chips beneath.
+`dish-list-row.tsx` → `dish-compact-card.tsx`: a genuinely compact,
+image-free card (title, then Stage/cuisine/updated-date chips, wrapping
+naturally); the view toggle's second mode is now labeled "Compact," not
+"List," in a responsive 1–2 column grid.
+
+**Detail page IA**: `dish-detail-view.tsx` now reads breadcrumbs → title/
+stage/Version/actions → description → image → note → metadata chips
+(servings/prep/cook/difficulty as `Badge`s) → Sections/Parts.
+`DishDetailActions` is one prominent Edit button + an overflow
+`DropdownMenu` (Version history, Compare versions, Duplicate, Archive/
+Restore, Delete) — room left beside Edit for a future Cook action.
+`VersionMetadataEditor`/`VersionNoteEditor` (the standalone "Edit photo &
+description"/"Edit note" detail-page controls) are deleted; the historical
+Version page (`versions/[versionId]/page.tsx`, both kinds) got the same
+plain read-only description/image/note/chips treatment in their place,
+keeping its own approved Version-specific header/nav (selector, promote,
+"Current recipe/part details") unchanged.
+
+**Consolidated editor**: `DishEditor` gained `note`/`defaultBatchQuantity`/
+`defaultBatchUnit` fields (edit mode only), each still persisted through
+their existing non-material actions (`updateVersionNote`/
+`setDefaultBatchScale`) fired after a successful Save — never folded into
+`createDish`/`editDish`'s own cooking-change classification, so metadata-
+only vs. material-save semantics are unchanged. "Status" → "Recipe
+stage"/"Part stage"; Cuisine now precedes Stage. `ScaledVersionView` lost
+its editable "View for"/"Save as default"/"Reset to authored" panel — the
+view page now derives its scale (and `dish-detail-view.tsx`'s "Makes N
+servings" chip) directly from `defaultBatchQuantity ?? yieldQuantity`, no
+client state. `StageBadge` ACTIVE now uses the primary/blue family
+(`--primary` *is* `--brand-blue`) instead of a second green shade, so it
+reads distinctly from PROVEN.
+
+**Section/linked-Part cards**: `section-fields.tsx`'s header is now
+drag-handle · live `Section N — Name` (name segment only once set) ·
+actions (Convert to Part, Edit/Collapse, Remove); name/guidance-note
+fields moved to a full-width area below, no longer indented under the
+drag-handle column. `part-link-tree-view.tsx` was split into
+`PartLinkTreeView` (header + content, used on detail pages) and an
+exported `PartLinkTreeContent` (content only); nesting indent is now a
+left border + padding, not an asymmetric `margin-left`; the title matches
+Section heading typography (no more blue link-styled heading); Open Part
+is an icon + the app's styled `Tooltip`, not a native `title`.
+`part-link-fields.tsx` (the editor) was rewritten to the same pattern:
+Section-style header with Part/Version/multiplier chips and icon actions
+(Open Part, Detach, Remove), description below, then a compact "Scaling"
+row (input + Reset + Apply) replacing the old "Link settings" toggle —
+Apply commits the draft multiplier to the parent form only (never
+persists), Reset restores the value the editing session opened with, and
+content renders via `PartLinkTreeContent` directly (no more redundant
+nested header repeating name/Version/multiplier/Open Part).
+`resolvePartLinkDisplayInfo` gained `description` to support the new
+description line.
+
+**Image-preview fix**: `ImageField` now previews a freshly selected `File`
+via a local `URL.createObjectURL`, not `/api/images/[assetId]` — that
+route only authorizes a read once some saved `DishVersion` actually
+references the asset, which is never true yet for an unsaved selection
+(root cause: the deleted `VersionMetadataEditor` used to mask this by
+persisting immediately). Object URLs are revoked on replace/remove/
+unmount.
+
+**Version comparison**: `compare.ts`'s `PartLinkSnapshot` gained nullable
+`targetDishId`/`targetDishVersionId` plus optional `materializedTitle`/
+`materializedVersionLabel`; `VersionCompareInput` gained
+`materializedPartLinks`, populated by a new
+`listMaterializedPartLinkSnapshots` (sections/service.ts) and merged into
+the same `flattenPartLinks` diff — a historical Version's deleted-Part
+occurrence now appears in comparison using its preserved former identity,
+never silently dropped and never "Unknown Part" (that fallback stays
+reserved for a genuinely-unresolvable LIVE entry), and never exposes the
+`MATERIALIZED` term. `VersionCompareView` also gained semantic (not
+color-only — text labels retained) treatments: Added in
+`text-brand-green`, Removed in `text-destructive`, Changed/Reordered in a
+neutral accent.
+
+**Tests**: added `image-field.test.tsx` (local-preview + revoke + already-
+persisted-asset behavior), `part-link-fields.test.tsx` (Scaling Apply
+commits to the parent draft and updates the header chip; Reset restores
+the session-opening value), two `compare.test.ts` cases (a materialized
+occurrence compares using its preserved identity; an unchanged
+materialized occurrence on both sides reports no change), and a
+`dish-editor.test.tsx` case (a Note-only change calls `updateVersionNote`
+without tripping the minor/major dialog). Updated (not expanded) existing
+presentation-coupled assertions that this pass's layout changes broke:
+`dish-library-display.test.tsx` (Grid/Compact labels),
+`dish-editor.test.tsx` (Convert-to-Part's new icon-button aria-label, the
+collapsed-Section text match), `convert-section-to-part-dialog.test.tsx`
+(same aria-label). No broad presentation/snapshot coverage added, per this
+pass's testing policy.
+
+**Verification**: `pnpm run verify:feature` run once as the completion
+check — clean: format/lint/typecheck/build all clean, frontend unit/
+component tests 235 passed (32 files, up from 217/29), `db:verify:local`/
+`db:scan-migrations` clean, backend integration tests 162 passed (8
+files, unchanged — no domain/integration coverage touched or needed).
+
 ## Owner intervention recommendation
 
-**Focused manual review** of the corrected flows above (deletion-resolution
-version choice, propagation's one-row-per-parent picker, the Section/
-linked-Part view-first editor presentation, and a historical Version with a
-deleted-since Part) — all are covered by automated tests and (pending the
-owner's `verify:feature` run) should pass clean, but none have had a
-browser walkthrough since this pass's changes. Use the Review Gate
-checklist above.
-Run `pnpm run verify:all` (Playwright/E2E is not part of the self-run
-`verify:feature`) before considering Slice 6 fully closed.
+**Focused manual review** of this pass's presentation changes — none of
+it has had a browser walkthrough yet, and it touches nearly every Recipe/
+Part surface:
+
+- Library grid image-led cards + the renamed Compact view, at mobile and
+  desktop widths.
+- Detail-page reading order, the overflow-menu actions (including that
+  Archive/Restore/Duplicate/Delete dialogs still open correctly from
+  inside the `DropdownMenu`), and the historical Version page's read-only
+  description/image/note.
+- The consolidated editor: Note and Default serving size fields, and that
+  a Default serving edit alone doesn't trip the minor/major dialog.
+- Section header layout and the Convert-to-Part icon action; the
+  linked-Part card's Scaling row (Apply/Reset) and its inline content.
+- Version comparison's new color treatments in both light and dark theme,
+  and a real deleted-Part-in-history scenario if one exists in QA seed
+  data (`scripts/qa-seed/materialized-fixture.ts`).
+
+Also still outstanding from the prior pass: run `pnpm run verify:all`
+(Playwright/E2E) before considering Slice 6 fully closed — this pass's
+`recipe-golden-path.spec.ts` fix was not re-verified here, and this pass's
+own layout changes (the Section header restructure in particular) may
+affect it further; re-check that spec specifically.

@@ -11,6 +11,7 @@ const dishes: DishCardItem[] = [
     stage: "ACTIVE",
     cuisine: "Japanese",
     updatedAt: new Date("2026-01-01"),
+    imageAssetId: null,
   },
   {
     id: "2",
@@ -18,6 +19,7 @@ const dishes: DishCardItem[] = [
     stage: "ARCHIVED",
     cuisine: null,
     updatedAt: new Date("2025-06-01"),
+    imageAssetId: null,
   },
 ];
 
@@ -33,22 +35,22 @@ describe("DishLibraryDisplay", () => {
       "aria-checked",
       "true",
     );
-    expect(screen.getByRole("radio", { name: "List view" })).toHaveAttribute(
+    expect(screen.getByRole("radio", { name: "Compact view" })).toHaveAttribute(
       "aria-checked",
       "false",
     );
   });
 
-  it("switches to the list view without losing any dish from the (already archived-filtered) list", async () => {
+  it("switches to the compact view without losing any dish from the (already archived-filtered) list", async () => {
     const user = userEvent.setup();
     render(<DishLibraryDisplay dishes={dishes} kind="RECIPE" label="recipe" />);
 
     expect(screen.getByText("Ginger Bowl")).toBeInTheDocument();
     expect(screen.getByText("Old Stew")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("radio", { name: "List view" }));
+    await user.click(screen.getByRole("radio", { name: "Compact view" }));
 
-    expect(screen.getByRole("radio", { name: "List view" })).toHaveAttribute(
+    expect(screen.getByRole("radio", { name: "Compact view" })).toHaveAttribute(
       "aria-checked",
       "true",
     );
@@ -63,7 +65,7 @@ describe("DishLibraryDisplay", () => {
     const user = userEvent.setup();
     render(<DishLibraryDisplay dishes={dishes} kind="RECIPE" label="recipe" />);
 
-    await user.click(screen.getByRole("radio", { name: "List view" }));
+    await user.click(screen.getByRole("radio", { name: "Compact view" }));
     await user.click(screen.getByRole("radio", { name: "Grid view" }));
 
     expect(screen.getByRole("radio", { name: "Grid view" })).toHaveAttribute(

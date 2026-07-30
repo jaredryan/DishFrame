@@ -13,11 +13,17 @@ const STAGE_LABEL: Record<StageValue, string> = {
   ARCHIVED: "Archived",
 };
 
+// Design remediation pass: Active and Proven previously used the same
+// green family at two opacities, too close to read as distinct at a
+// glance. Active now uses the primary blue family (still an accessible,
+// on-brand accent — BRANDING.md §6's --primary *is* --brand-blue) to read
+// as "in main rotation," leaving green legible as Proven's own "what
+// works" meaning.
 const STAGE_CLASSNAME: Record<StageValue, string> = {
   IDEA: "bg-muted text-muted-foreground",
   EXPERIMENTAL: "bg-brand-purple/10 text-brand-purple",
   PROVEN: "bg-brand-green/10 text-brand-green",
-  ACTIVE: "bg-brand-green/15 text-brand-green",
+  ACTIVE: "bg-primary/15 text-primary",
   ARCHIVED: "bg-muted text-muted-foreground",
 };
 

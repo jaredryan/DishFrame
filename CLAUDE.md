@@ -41,6 +41,15 @@ subagent to keep noisy output out of this session) and the global
 general two-axis rubric (intelligence fit vs. context isolation) this
 project follows.
 
+The global "Usage-efficient execution policy" (added 2026-07-30) also
+applies here: work directly from the owner's implementation prompt
+without automatically generating a second plan, and don't invoke
+Superpowers planning/execution skills (`writing-plans`,
+`executing-plans`, etc.) by default — see `AGENTS.md`'s "Usage-efficient
+execution" section for the DishFrame-specific application (targeted
+tests during implementation, single `verify:feature` completion check,
+tightened subagent defaults).
+
 # Verification and Git policy (DishFrame-specific)
 
 Full policy lives in `AGENTS.md`'s "Owner intervention and manual-review

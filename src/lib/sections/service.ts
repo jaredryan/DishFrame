@@ -43,6 +43,9 @@ export type PartLinkDisplayInfo = {
   title: string | null;
   majorVersion: number;
   minorVersion: number;
+  // Design remediation pass: the editor's linked-Part card shows the
+  // pinned Version's own description directly below its header, when set.
+  description: string | null;
 };
 
 /**
@@ -66,7 +69,7 @@ export async function resolvePartLinkDisplayInfo(
   }
   const version = await prisma.dishVersion.findFirst({
     where: { id: targetDishVersionId, dishId: targetDishId },
-    select: { majorVersion: true, minorVersion: true },
+    select: { majorVersion: true, minorVersion: true, description: true },
   });
   if (!version) {
     throw new NotFoundError("Version not found.");
@@ -75,6 +78,7 @@ export async function resolvePartLinkDisplayInfo(
     title: targetDish.currentTitle,
     majorVersion: version.majorVersion,
     minorVersion: version.minorVersion,
+    description: version.description,
   };
 }
 
@@ -677,6 +681,43 @@ export function mergeLiveAndMaterializedTrees(
   return combined
     .sort((a, b) => a.position - b.position)
     .map((entry) => entry.tree);
+}
+
+/**
+ * Design remediation pass, §H's materialization table: every MATERIALIZED
+ * PartLink pinned to one specific Version, in the flat
+ * `{lineageId, multiplier, materializedTitle, materializedVersionLabel}`
+ * shape `dishes/compare.ts`'s diff needs — a much smaller sibling of
+ * `resolveMaterializedPartLinkTreesForVersion` (above), which additionally
+ * resolves each snapshot's full nested content for display; comparison
+ * only ever diffs identity/multiplier, never nested content, so that work
+ * would be wasted here.
+ */
+export async function listMaterializedPartLinkSnapshots(
+  containerVersionId: string,
+): Promise<
+  {
+    lineageId: string;
+    multiplier: number;
+    materializedTitle: string | null;
+    materializedVersionLabel: string | null;
+  }[]
+> {
+  const rows = await prisma.partLink.findMany({
+    where: { containerVersionId, linkState: "MATERIALIZED" },
+    select: {
+      lineageId: true,
+      multiplier: true,
+      materializedTitle: true,
+      materializedVersionLabel: true,
+    },
+  });
+  return rows.map((row) => ({
+    lineageId: row.lineageId,
+    multiplier: decimalToNumber(row.multiplier) ?? 1,
+    materializedTitle: row.materializedTitle,
+    materializedVersionLabel: row.materializedVersionLabel,
+  }));
 }
 
 /** Resolves one PartLink occurrence's full nested content — `null` if the

@@ -335,7 +335,9 @@ export async function buildPartFixtures(
           },
         ],
         instructions: [
-          { text: "Pulse cauliflower florets in a food processor until rice-sized." },
+          {
+            text: "Pulse cauliflower florets in a food processor until rice-sized.",
+          },
           { text: "Sauté in olive oil over medium heat, 5 minutes." },
         ],
       }),
@@ -389,8 +391,12 @@ export async function buildPartFixtures(
         ],
         instructions: [
           { text: "Peel garlic cloves." },
-          { text: "Submerge cloves and thyme in olive oil in a small baking dish." },
-          { text: "Roast low and slow, 90 minutes, until cloves are soft and golden." },
+          {
+            text: "Submerge cloves and thyme in olive oil in a small baking dish.",
+          },
+          {
+            text: "Roast low and slow, 90 minutes, until cloves are soft and golden.",
+          },
         ],
       }),
     ],

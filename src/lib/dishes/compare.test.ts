@@ -77,6 +77,7 @@ function snapshot(
     nutrition: { calories: null, protein: null, carbs: null, fat: null },
     sections: [],
     partLinks: [],
+    materializedPartLinks: [],
     ...overrides,
   };
 }
@@ -516,6 +517,53 @@ describe("compareDishVersions", () => {
     const result = compareDishVersions(before, after);
     expect(result.partLinks.changed).toEqual([]);
     expect(result.partLinks.reordered).toBe(true);
+  });
+
+  // Design remediation pass, §H: a historical Version's own PartLink row
+  // may have been materialized since it was saved (its target Part
+  // deleted) — carried on `materializedPartLinks`, additive to the
+  // LIVE-only `partLinks`/`section.partLinks`. It must still be visible to
+  // comparison, using its preserved former identity, never silently
+  // dropped and never "Unknown Part".
+  it("reports a materialized (deleted-Part) occurrence present only in before as removed, using its preserved identity", () => {
+    const before = snapshot({
+      partLinks: [],
+      materializedPartLinks: [
+        {
+          lineageId: "link-1",
+          multiplier: 1,
+          materializedTitle: "Nuoc Cham",
+          materializedVersionLabel: "V1.0",
+        },
+      ],
+    });
+    const after = snapshot({ partLinks: [], materializedPartLinks: [] });
+    const result = compareDishVersions(before, after);
+    expect(result.partLinks.removed).toEqual([
+      {
+        lineageId: "link-1",
+        targetDishId: null,
+        targetDishVersionId: null,
+        multiplier: 1,
+        materializedTitle: "Nuoc Cham",
+        materializedVersionLabel: "V1.0",
+      },
+    ]);
+  });
+
+  it("does not report a change for the same materialized occurrence on both sides", () => {
+    const materialized = {
+      lineageId: "link-1",
+      multiplier: 1,
+      materializedTitle: "Nuoc Cham",
+      materializedVersionLabel: "V1.0",
+    };
+    const before = snapshot({ materializedPartLinks: [materialized] });
+    const after = snapshot({ materializedPartLinks: [materialized] });
+    const result = compareDishVersions(before, after);
+    expect(result.partLinks.added).toEqual([]);
+    expect(result.partLinks.removed).toEqual([]);
+    expect(result.partLinks.changed).toEqual([]);
   });
 
   it("detects a Section-nested PartLink the same way as a top-level one", () => {

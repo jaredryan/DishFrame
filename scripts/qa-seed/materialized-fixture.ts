@@ -99,7 +99,9 @@ export async function materializeAndDeleteGarnish(
             substitute: null,
           },
         ],
-        instructions: [{ lineageId: randomUUID(), text: "Slice thin before serving." }],
+        instructions: [
+          { lineageId: randomUUID(), text: "Slice thin before serving." },
+        ],
         partLinks: [],
       },
     ],

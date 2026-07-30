@@ -79,7 +79,9 @@ export async function buildRecipeFixtures(
             isOptional: true,
           },
         ],
-        instructions: [{ text: "Combine greens, tomatoes, and cucumber in a bowl." }],
+        instructions: [
+          { text: "Combine greens, tomatoes, and cucumber in a bowl." },
+        ],
       }),
       section({
         position: 1,
@@ -101,7 +103,9 @@ export async function buildRecipeFixtures(
           },
         ],
         instructions: [
-          { text: "Whisk dressing ingredients together and toss with the salad." },
+          {
+            text: "Whisk dressing ingredients together and toss with the salad.",
+          },
         ],
       }),
     ],
@@ -174,7 +178,9 @@ export async function buildRecipeFixtures(
             isOptional: false,
           },
         ],
-        instructions: [{ text: "Chop bell pepper and broccoli into bite-sized pieces." }],
+        instructions: [
+          { text: "Chop bell pepper and broccoli into bite-sized pieces." },
+        ],
       }),
       section({
         position: 2,
@@ -188,14 +194,18 @@ export async function buildRecipeFixtures(
             isOptional: false,
           },
         ],
-        instructions: [{ text: "Sear chicken over high heat until cooked through." }],
+        instructions: [
+          { text: "Sear chicken over high heat until cooked through." },
+        ],
       }),
       section({
         position: 4,
         name: "Assemble",
         ingredients: [],
         instructions: [
-          { text: "Combine vegetables, protein, rice, and sauce in the pan and toss to coat." },
+          {
+            text: "Combine vegetables, protein, rice, and sauce in the pan and toss to coat.",
+          },
         ],
       }),
     ],
@@ -243,7 +253,9 @@ export async function buildRecipeFixtures(
           },
         ],
         instructions: [
-          { text: "Cook noodles per package instructions, then rinse under cold water." },
+          {
+            text: "Cook noodles per package instructions, then rinse under cold water.",
+          },
         ],
       }),
     ],

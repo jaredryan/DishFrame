@@ -16,6 +16,7 @@ export type PartLinkDisplayActionState =
       title: string | null;
       majorVersion: number;
       minorVersion: number;
+      description: string | null;
     }
   | { status: "error"; message: string };
 

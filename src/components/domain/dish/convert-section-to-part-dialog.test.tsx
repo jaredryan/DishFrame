@@ -98,7 +98,9 @@ describe("ConvertSectionToPartDialog", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "Convert to Part" }));
+    await user.click(
+      screen.getByRole("button", { name: "Convert Sauce to a reusable Part" }),
+    );
     expect(screen.getByLabelText("Part name")).toHaveValue("Sauce");
 
     await user.clear(screen.getByLabelText("Part name"));
@@ -143,7 +145,9 @@ describe("ConvertSectionToPartDialog", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "Convert to Part" }));
+    await user.click(
+      screen.getByRole("button", { name: "Convert Sauce to a reusable Part" }),
+    );
     await user.click(screen.getByRole("button", { name: "Convert" }));
 
     expect(

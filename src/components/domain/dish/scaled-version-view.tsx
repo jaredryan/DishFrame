@@ -4,11 +4,9 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { scaledIngredientDisplay } from "@/lib/dishes/scaled-display";
 import { normalizeUnitName, type CanonicalUnit } from "@/lib/units/conversion";
 import {
-  setDefaultBatchScale,
   savePreferredUnitOverride,
   clearPreferredUnitOverride,
 } from "@/lib/dishes/actions";
@@ -81,9 +79,7 @@ export function ScaledVersionView({
   sections,
   topLevelPartLinks,
   yieldQuantity,
-  yieldUnit,
   defaultBatchQuantity,
-  defaultBatchUnit,
   preferredUnitOverrides,
 }: {
   kind: DishKindValue;
@@ -91,20 +87,23 @@ export function ScaledVersionView({
   sections: ScaledSectionRow[];
   topLevelPartLinks: PartLinkTree[];
   yieldQuantity: number | null;
-  yieldUnit: string | null;
   defaultBatchQuantity: number | null;
-  defaultBatchUnit: string | null;
   preferredUnitOverrides: { ingredientLineageId: string; unit: string }[];
 }) {
   const router = useRouter();
+  // Design remediation pass, PRODUCT_SPEC.md §51.4: the view page is not
+  // Cooking Mode — no editable "View for" scaling here anymore (that
+  // becomes Cooking Mode's job later). The one remaining scale source is
+  // the saved default batch size, edited in the consolidated editor;
+  // `dish-detail-view.tsx` renders the matching "Makes N servings" chip
+  // from these same two fields, directly above this component.
   const authoredQuantity = yieldQuantity;
-  const [targetQuantity, setTargetQuantity] = React.useState<number | null>(
-    defaultBatchQuantity ?? authoredQuantity,
-  );
-  const [targetText, setTargetText] = React.useState(
-    String(defaultBatchQuantity ?? authoredQuantity ?? ""),
-  );
-  const [isSavingDefault, setIsSavingDefault] = React.useState(false);
+  const effectiveQuantity = defaultBatchQuantity ?? authoredQuantity;
+  const scaleFactor =
+    authoredQuantity && effectiveQuantity && authoredQuantity > 0
+      ? effectiveQuantity / authoredQuantity
+      : 1;
+
   // Accepted "for this view only" unit overrides (§53.5) — never persisted
   // unless the user explicitly also saves it (§53.6).
   const [tempUnits, setTempUnits] = React.useState<
@@ -122,40 +121,6 @@ export function ScaledVersionView({
     }
     return map;
   }, [preferredUnitOverrides]);
-
-  const scaleFactor =
-    authoredQuantity && targetQuantity && authoredQuantity > 0
-      ? targetQuantity / authoredQuantity
-      : 1;
-  const isDefaultSaved =
-    defaultBatchQuantity != null &&
-    Math.abs(defaultBatchQuantity - (targetQuantity ?? 0)) < 0.001;
-
-  async function handleSaveDefault() {
-    setIsSavingDefault(true);
-    await setDefaultBatchScale(kind, {
-      dishId,
-      defaultBatchQuantity: targetQuantity,
-      defaultBatchUnit: yieldUnit,
-    });
-    setIsSavingDefault(false);
-    router.refresh();
-  }
-
-  async function handleResetToAuthored() {
-    setTargetQuantity(authoredQuantity);
-    setTargetText(String(authoredQuantity ?? ""));
-    if (defaultBatchQuantity != null) {
-      setIsSavingDefault(true);
-      await setDefaultBatchScale(kind, {
-        dishId,
-        defaultBatchQuantity: null,
-        defaultBatchUnit: null,
-      });
-      setIsSavingDefault(false);
-      router.refresh();
-    }
-  }
 
   async function handleSaveOverride(lineageId: string, unit: CanonicalUnit) {
     setPendingLineageId(lineageId);
@@ -185,63 +150,6 @@ export function ScaledVersionView({
 
   return (
     <div className="flex flex-col gap-4">
-      {authoredQuantity != null && (
-        <Card>
-          <CardContent className="flex flex-wrap items-end gap-3">
-            <div className="flex flex-col gap-1">
-              <label
-                htmlFor="scale-target-quantity"
-                className="text-muted-foreground text-xs font-medium tracking-wide uppercase"
-              >
-                View for
-              </label>
-              <div className="flex items-center gap-2">
-                <Input
-                  id="scale-target-quantity"
-                  inputMode="decimal"
-                  className="w-20"
-                  value={targetText}
-                  onChange={(event) => {
-                    const raw = event.target.value;
-                    setTargetText(raw);
-                    const parsed = Number(raw);
-                    setTargetQuantity(
-                      raw.trim() !== "" && Number.isFinite(parsed) && parsed > 0
-                        ? parsed
-                        : null,
-                    );
-                  }}
-                />
-                <span className="text-sm">
-                  {(defaultBatchQuantity != null ? defaultBatchUnit : null) ??
-                    yieldUnit ??
-                    "servings"}
-                </span>
-              </div>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleResetToAuthored}
-              disabled={isSavingDefault}
-            >
-              Reset to authored
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              onClick={handleSaveDefault}
-              disabled={
-                isSavingDefault || isDefaultSaved || targetQuantity == null
-              }
-            >
-              {isDefaultSaved ? "Default saved" : "Save as default"}
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-
       {sections.map((section) => (
         <Card key={section.id}>
           <CardContent className="flex flex-col gap-3">

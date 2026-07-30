@@ -1,24 +1,24 @@
 "use client";
 
 import * as React from "react";
-import { LayoutGrid, List } from "lucide-react";
+import { LayoutGrid, Rows3 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   DishCard,
   type DishCardItem,
 } from "@/components/domain/dish/dish-card";
-import { DishListRow } from "@/components/domain/dish/dish-list-row";
+import { DishCompactCard } from "@/components/domain/dish/dish-compact-card";
 import type { DishKindValue } from "@/lib/dishes/schema";
 
 const VIEW_MODE_STORAGE_KEY = "dishframe:library-view-mode";
 const VIEW_MODES = [
   { value: "grid", label: "Grid", icon: LayoutGrid },
-  { value: "list", label: "List", icon: List },
+  { value: "compact", label: "Compact", icon: Rows3 },
 ] as const;
 type ViewMode = (typeof VIEW_MODES)[number]["value"];
 
 function isViewMode(value: string | null): value is ViewMode {
-  return value === "grid" || value === "list";
+  return value === "grid" || value === "compact";
 }
 
 const noopSubscribe = () => () => {};
@@ -97,9 +97,9 @@ export function DishLibraryDisplay({
           ))}
         </div>
       ) : (
-        <div className="flex flex-col gap-2">
+        <div className="grid gap-2 sm:grid-cols-2">
           {dishes.map((dish) => (
-            <DishListRow key={dish.id} dish={dish} kind={kind} />
+            <DishCompactCard key={dish.id} dish={dish} kind={kind} />
           ))}
         </div>
       )}

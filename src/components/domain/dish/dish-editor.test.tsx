@@ -2,7 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DishEditor } from "@/components/domain/dish/dish-editor";
-import { createDish, editDish } from "@/lib/dishes/actions";
+import {
+  createDish,
+  editDish,
+  updateVersionNote,
+  setDefaultBatchScale,
+} from "@/lib/dishes/actions";
 import { listAttachablePartVersions } from "@/lib/sections/actions";
 import type { DishFormValues } from "@/components/domain/dish/dish-form-values";
 
@@ -16,6 +21,8 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/dishes/actions", () => ({
   createDish: vi.fn(async () => ({ status: "idle" })),
   editDish: vi.fn(async () => ({ status: "idle" })),
+  updateVersionNote: vi.fn(async () => ({ status: "success" })),
+  setDefaultBatchScale: vi.fn(async () => ({ status: "success" })),
 }));
 
 vi.mock("@/lib/sections/actions", () => ({
@@ -36,6 +43,8 @@ vi.mock("@/lib/sections/actions", () => ({
 
 const mockedCreateDish = vi.mocked(createDish);
 const mockedEditDish = vi.mocked(editDish);
+const mockedUpdateVersionNote = vi.mocked(updateVersionNote);
+const mockedSetDefaultBatchScale = vi.mocked(setDefaultBatchScale);
 const mockedListAttachablePartVersions = vi.mocked(listAttachablePartVersions);
 
 const existingDish: {
@@ -46,6 +55,9 @@ const existingDish: {
   highestMajorVersion: number;
   nextMinorVersion: number;
   isCurrent: boolean;
+  note: string | null;
+  defaultBatchQuantity: number | null;
+  defaultBatchUnit: string | null;
   values: DishFormValues;
 } = {
   id: "dish-1",
@@ -55,6 +67,9 @@ const existingDish: {
   highestMajorVersion: 1,
   nextMinorVersion: 1,
   isCurrent: true,
+  note: null,
+  defaultBatchQuantity: null,
+  defaultBatchUnit: null,
   values: {
     title: "Ginger Bowl",
     stage: "IDEA",
@@ -216,7 +231,7 @@ describe("DishEditor Sections", () => {
     await user.click(screen.getByRole("button", { name: "Collapse Sauce" }));
 
     expect(screen.queryByLabelText("Section name")).not.toBeInTheDocument();
-    expect(screen.getByText("Sauce")).toBeInTheDocument();
+    expect(screen.getByText(/Sauce/)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Edit Sauce" }));
     expect(screen.getByLabelText("Section name")).toBeInTheDocument();
@@ -510,6 +525,51 @@ describe("DishEditor minor/major version choice", () => {
   });
 });
 
+describe("DishEditor consolidated note and default serving", () => {
+  beforeEach(() => {
+    mockedEditDish.mockClear();
+    mockedUpdateVersionNote.mockClear();
+    mockedSetDefaultBatchScale.mockClear();
+    mockedEditDish.mockResolvedValue({ status: "success", dishId: "dish-1" });
+  });
+
+  // Design remediation pass: note/default-serving are edited in this one
+  // consolidated form now, but keep their own existing non-material
+  // persistence (`updateVersionNote`/`setDefaultBatchScale`) — a
+  // Note-only change must never trip the cooking-change minor/major
+  // dialog (`diffVersionContent` never looks at either field).
+  it("saves a Note-only change via updateVersionNote, without the minor/major dialog", async () => {
+    const user = userEvent.setup();
+    render(<DishEditor kind="RECIPE" dish={existingDish} />);
+
+    await user.type(screen.getByLabelText("Version note"), "Tried less salt.");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(
+      screen.queryByText("How should this change be saved?"),
+    ).not.toBeInTheDocument();
+    await vi.waitFor(() => expect(mockedUpdateVersionNote).toHaveBeenCalled());
+    expect(mockedEditDish).toHaveBeenCalledTimes(1);
+    expect(mockedUpdateVersionNote).toHaveBeenCalledWith("RECIPE", {
+      dishId: "dish-1",
+      versionId: "version-1",
+      note: "Tried less salt.",
+    });
+    expect(mockedSetDefaultBatchScale).not.toHaveBeenCalled();
+  });
+
+  it("does not call updateVersionNote when the note is unchanged", async () => {
+    const user = userEvent.setup();
+    render(<DishEditor kind="RECIPE" dish={existingDish} />);
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(mockedEditDish).toHaveBeenCalledTimes(1);
+    expect(mockedUpdateVersionNote).not.toHaveBeenCalled();
+    expect(mockedSetDefaultBatchScale).not.toHaveBeenCalled();
+  });
+});
+
 describe("DishEditor Convert Section to Part", () => {
   beforeEach(() => {
     mockedCreateDish.mockClear();
@@ -530,7 +590,11 @@ describe("DishEditor Convert Section to Part", () => {
     const user = userEvent.setup();
     render(<DishEditor kind="RECIPE" dish={existingDish} />);
 
-    await user.click(screen.getByRole("button", { name: "Convert to Part" }));
+    await user.click(
+      screen.getByRole("button", {
+        name: "Convert section 1 to a reusable Part",
+      }),
+    );
     // `existingDish`'s section has no name of its own, so the dialog's
     // prefilled title starts blank — type one before converting.
     await user.type(screen.getByLabelText("Part name"), "Nuoc Cham");
@@ -595,8 +659,8 @@ describe("DishEditor linked-Part inline rendering", () => {
     ).not.toBeInTheDocument();
 
     // The reusable Part's own content is never exposed as parent-owned
-    // inline inputs — only the explicit "Link settings" action edits
-    // anything here, and that's just the multiplier.
+    // inline inputs — only the compact "Scaling" row edits anything here,
+    // and that's just the multiplier.
     expect(screen.queryByLabelText("Ingredient name")).not.toBeInTheDocument();
   });
 });

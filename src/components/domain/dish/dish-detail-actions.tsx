@@ -3,7 +3,16 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Archive, Copy, Pencil, RotateCcw, Trash2 } from "lucide-react";
+import {
+  Archive,
+  Copy,
+  GitCompareArrows,
+  History,
+  MoreHorizontal,
+  Pencil,
+  RotateCcw,
+  Trash2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -20,6 +29,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   archiveDish,
   duplicateDish,
@@ -48,11 +64,16 @@ export function DishDetailActions({
   dishId,
   kind,
   stage,
+  currentVersionId,
   attachableParts = [],
 }: {
   dishId: string;
   kind: DishKindValue;
   stage: StageValue;
+  // Design remediation pass: Version history now opens from this overflow
+  // menu (moved off the detail page's own separate links row) — needs the
+  // current Version's id to build that route.
+  currentVersionId: string;
   attachableParts?: AttachablePartOption[];
 }) {
   const router = useRouter();
@@ -130,27 +151,53 @@ export function DishDetailActions({
 
   return (
     <>
-      <div className="flex flex-wrap items-center gap-2">
-        <Button variant="outline" asChild>
+      {/* Design remediation pass: one prominent Edit action near the title,
+          room left beside it for a future Cook action, with every other
+          action moved into this overflow menu. */}
+      <div className="flex items-center gap-2">
+        <Button asChild>
           <Link href={`${basePath}/${dishId}/edit`}>
             <Pencil /> Edit
           </Link>
         </Button>
-        {stage === "ARCHIVED" ? (
-          <Button variant="outline" onClick={() => setOpenDialog("restore")}>
-            <RotateCcw /> Restore
-          </Button>
-        ) : (
-          <Button variant="outline" onClick={() => setOpenDialog("archive")}>
-            <Archive /> Archive
-          </Button>
-        )}
-        <Button variant="outline" onClick={() => setOpenDialog("duplicate")}>
-          <Copy /> Duplicate
-        </Button>
-        <Button variant="destructive" onClick={() => setOpenDialog("delete")}>
-          <Trash2 /> Delete
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="icon" aria-label="More actions">
+              <MoreHorizontal aria-hidden="true" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem asChild>
+              <Link href={`${basePath}/${dishId}/versions/${currentVersionId}`}>
+                <History /> Version history
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href={`${basePath}/${dishId}/compare`}>
+                <GitCompareArrows /> Compare versions
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setOpenDialog("duplicate")}>
+              <Copy /> Duplicate
+            </DropdownMenuItem>
+            {stage === "ARCHIVED" ? (
+              <DropdownMenuItem onSelect={() => setOpenDialog("restore")}>
+                <RotateCcw /> Restore
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem onSelect={() => setOpenDialog("archive")}>
+                <Archive /> Archive
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              variant="destructive"
+              onSelect={() => setOpenDialog("delete")}
+            >
+              <Trash2 /> Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       <Dialog

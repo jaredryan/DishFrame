@@ -3574,6 +3574,19 @@ No-result behavior supports:
 
 # 51. Temporary Scaling Outside Cooking Sessions
 
+> **Amended by the Slice 6 design remediation pass (owner-approved, in that
+> pass's own conversation):** the live "View for"/temporary-scaling control
+> this section describes is deferred out of the ordinary Recipe/Part view
+> page — that page is not Cooking Mode and no longer shows an editable
+> scaling panel — until Cooking Mode (§51.1's "starting a Cooking Session")
+> actually ships and can host it. The view page instead shows a static
+> yield line (e.g. "Makes 4 servings") derived from §51.4's saved default
+> batch scale, which remains editable from the Recipe/Part editor. §51.4's
+> underlying save-a-default behavior is unchanged, only its editing surface
+> moved (see `docs/SLICE_6.md`'s design-remediation section). The rest of
+> this section's intent is expected to resurface inside Cooking Mode's own
+> slice, not to be rebuilt from scratch.
+
 ## 51.1 Availability
 
 Users may temporarily scale the current Recipe or Part Version without starting a Cooking Session.

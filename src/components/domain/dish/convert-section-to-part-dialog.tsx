@@ -15,6 +15,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { createDish } from "@/lib/dishes/actions";
 import { listAttachablePartVersions } from "@/lib/sections/actions";
 import type { IngredientInput, InstructionInput } from "@/lib/dishes/schema";
@@ -124,15 +130,24 @@ export function ConvertSectionToPartDialog({
 
   return (
     <>
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        onClick={openDialog}
-        title={`Convert ${sectionLabel} to a reusable Part`}
-      >
-        <PackagePlus /> Convert to Part
-      </Button>
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={openDialog}
+              aria-label={`Convert ${sectionLabel} to a reusable Part`}
+            >
+              <PackagePlus aria-hidden="true" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            Convert {sectionLabel} to a reusable Part
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
       <Dialog open={open} onOpenChange={(next) => !next && setOpen(false)}>
         <DialogContent>
           <DialogHeader>

@@ -134,7 +134,14 @@ export async function buildRamenFixture(
     sections: v1_1Loaded.sections,
     partLinks: v1_1Loaded.partLinks,
   };
-  await editDish(ownerId, dishId, v1_1Id, metadataOnlyContent, undefined, "RECIPE");
+  await editDish(
+    ownerId,
+    dishId,
+    v1_1Id,
+    metadataOnlyContent,
+    undefined,
+    "RECIPE",
+  );
   const afterMetadataEditVersionId = await currentVersionIdOf(dishId);
   if (afterMetadataEditVersionId !== v1_1Id) {
     throw new Error(
@@ -232,7 +239,9 @@ export async function buildRamenFixture(
 
   // --- V2.4 (MINOR): top-level reorder — deleteme moves before Noodles -
   const v2_3Loaded = await loadContent(getVersionContent, v2_3Id);
-  const brothSection = v2_3Loaded.sections.find((s) => s.name === "Broth Base")!;
+  const brothSection = v2_3Loaded.sections.find(
+    (s) => s.name === "Broth Base",
+  )!;
   const noodlesSection = v2_3Loaded.sections.find((s) => s.name === "Noodles")!;
   const deletemeLink = v2_3Loaded.partLinks.find(
     (link) => link.targetDishId === parts.deleteme.dishId,

@@ -20,7 +20,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Field, FieldError, FieldLabel } from "@/components/ui/field";
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+} from "@/components/ui/field";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import {
   Select,
@@ -55,7 +60,12 @@ import {
   blankDishFormValues,
   type DishFormValues,
 } from "@/components/domain/dish/dish-form-values";
-import { createDish, editDish } from "@/lib/dishes/actions";
+import {
+  createDish,
+  editDish,
+  updateVersionNote,
+  setDefaultBatchScale,
+} from "@/lib/dishes/actions";
 import {
   removeEmptySections,
   hasMinimumContent,
@@ -74,6 +84,19 @@ const STAGE_LABEL: Record<(typeof stageValues)[number], string> = {
   ACTIVE: "Active",
   ARCHIVED: "Archived",
 };
+
+// Design remediation pass: edited alongside every other field in this one
+// form, but not part of `dishContentSchema`/`DishFormValues` — each keeps
+// its own existing non-material persistence path (`updateVersionNote`/
+// `setDefaultBatchScale`), called directly after a successful Save rather
+// than folded into createDish/editDish's cooking-change classification.
+// Only shown (and only meaningful) once a Dish/Version already exists.
+type EditorExtras = {
+  note: string;
+  defaultBatchQuantity: number | null;
+  defaultBatchUnit: string | null;
+};
+type EditorFormValues = DishFormValues & EditorExtras;
 
 export function DishEditor({
   kind,
@@ -106,6 +129,17 @@ export function DishEditor({
     // banner below, independent of which major line it's in.
     isCurrent: boolean;
     values: DishFormValues;
+    // Design remediation pass: the consolidated editor is now the one place
+    // to edit these, alongside title/description/image/etc — previously
+    // each had its own standalone detail-page control
+    // (VersionNoteEditor/ScaledVersionView's "Save as default"). Both keep
+    // their existing non-material persistence (`updateVersionNote`/
+    // `setDefaultBatchScale`, called directly, never through
+    // createDish/editDish's own cooking-change classification) — only
+    // *where* they're edited changed, not how they're saved.
+    note: string | null;
+    defaultBatchQuantity: number | null;
+    defaultBatchUnit: string | null;
   };
   cuisineOptions?: string[];
   // Slice 6, PRODUCT_SPEC.md §68: candidate Parts this owner may attach —
@@ -116,11 +150,25 @@ export function DishEditor({
   const router = useRouter();
   const [serverError, setServerError] = React.useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
-  const [pendingCookingChange, setPendingCookingChange] =
-    React.useState<DishFormValues | null>(null);
+  const [pendingCookingChange, setPendingCookingChange] = React.useState<{
+    cleaned: DishFormValues;
+    extras: EditorExtras;
+  } | null>(null);
 
-  const form = useForm<DishFormValues>({
-    defaultValues: dish ? dish.values : blankDishFormValues(),
+  const form = useForm<EditorFormValues>({
+    defaultValues: dish
+      ? {
+          ...dish.values,
+          note: dish.note ?? "",
+          defaultBatchQuantity: dish.defaultBatchQuantity,
+          defaultBatchUnit: dish.defaultBatchUnit,
+        }
+      : {
+          ...blankDishFormValues(),
+          note: "",
+          defaultBatchQuantity: null,
+          defaultBatchUnit: null,
+        },
   });
   const { control, register, handleSubmit, formState, setError, getValues } =
     form;
@@ -231,8 +279,46 @@ export function DishEditor({
   const kindLabel = kind === "PART" ? "Part" : "Recipe";
   const cancelHref = dish ? `${basePath}/${dish.id}` : basePath;
 
+  // Design remediation pass: fires only when a Dish already exists and the
+  // relevant field actually changed from what the editor loaded — same
+  // "only touch what changed" discipline `editDish` itself already applies
+  // to stable/version-metadata/cooking content. Both calls stay entirely
+  // independent of the cooking-change Version choice; neither ever creates
+  // a Version.
+  async function applyEditorExtras(extras: EditorExtras) {
+    if (!dish) return;
+    const tasks: Promise<unknown>[] = [];
+
+    const nextNote = extras.note.trim() || null;
+    if (nextNote !== (dish.note ?? null)) {
+      tasks.push(
+        updateVersionNote(kind, {
+          dishId: dish.id,
+          versionId: dish.baseVersionId,
+          note: nextNote,
+        }),
+      );
+    }
+
+    if (
+      extras.defaultBatchQuantity !== dish.defaultBatchQuantity ||
+      extras.defaultBatchUnit !== dish.defaultBatchUnit
+    ) {
+      tasks.push(
+        setDefaultBatchScale(kind, {
+          dishId: dish.id,
+          defaultBatchQuantity: extras.defaultBatchQuantity,
+          defaultBatchUnit: extras.defaultBatchUnit,
+        }),
+      );
+    }
+
+    if (tasks.length > 0) await Promise.all(tasks);
+  }
+
   async function performSave(
     cleaned: DishFormValues,
+    extras: EditorExtras,
     versionChoice?: VersionChoiceValue,
   ) {
     setIsSubmitting(true);
@@ -247,7 +333,8 @@ export function DishEditor({
       : await createDish(kind, cleaned);
 
     if (result.status === "success" && result.dishId) {
-      form.reset(cleaned);
+      await applyEditorExtras(extras);
+      form.reset({ ...cleaned, ...extras });
       router.push(`${basePath}/${result.dishId}`);
       router.refresh();
     } else {
@@ -256,12 +343,19 @@ export function DishEditor({
     }
   }
 
-  async function onSubmit(values: DishFormValues) {
+  async function onSubmit(values: EditorFormValues) {
     setServerError(null);
+    const { note, defaultBatchQuantity, defaultBatchUnit, ...contentValues } =
+      values;
+    const extras: EditorExtras = {
+      note,
+      defaultBatchQuantity,
+      defaultBatchUnit,
+    };
 
     const cleaned: DishFormValues = {
-      ...values,
-      sections: values.sections.map((section) => ({
+      ...contentValues,
+      sections: contentValues.sections.map((section) => ({
         ...section,
         ingredients: section.ingredients
           .filter((ingredient) => ingredient.name.trim().length > 0)
@@ -324,19 +418,19 @@ export function DishEditor({
         { sections: cleaned.sections, partLinks: cleaned.partLinks },
       );
       if (cookingChanged) {
-        setPendingCookingChange(cleaned);
+        setPendingCookingChange({ cleaned, extras });
         return;
       }
     }
 
-    await performSave(cleaned);
+    await performSave(cleaned, extras);
   }
 
   function chooseVersion(versionChoice: VersionChoiceValue) {
     if (!pendingCookingChange) return;
-    const cleaned = pendingCookingChange;
+    const { cleaned, extras } = pendingCookingChange;
     setPendingCookingChange(null);
-    void performSave(cleaned, versionChoice);
+    void performSave(cleaned, extras, versionChoice);
   }
 
   // Slice 4 correction pass §1: any saved Version may be the edit base, not
@@ -409,8 +503,9 @@ export function DishEditor({
             <h2 className="text-foreground text-sm font-semibold">Details</h2>
             <ImageField dishId={dish?.id ?? null} />
             <div className="grid gap-4 sm:grid-cols-2">
+              <CuisineField options={cuisineOptions} />
               <Field>
-                <FieldLabel htmlFor="dish-stage">Status</FieldLabel>
+                <FieldLabel htmlFor="dish-stage">{kindLabel} stage</FieldLabel>
                 <Controller
                   control={control}
                   name="stage"
@@ -430,7 +525,6 @@ export function DishEditor({
                   )}
                 />
               </Field>
-              <CuisineField options={cuisineOptions} />
             </div>
 
             <Field>
@@ -441,6 +535,19 @@ export function DishEditor({
                 {...register("description")}
               />
             </Field>
+
+            {dish && (
+              <Field>
+                <FieldLabel htmlFor="dish-note">Version note</FieldLabel>
+                <Textarea
+                  id="dish-note"
+                  placeholder="What changed, or why — optional"
+                  maxLength={500}
+                  rows={2}
+                  {...register("note")}
+                />
+              </Field>
+            )}
 
             <div className="flex flex-wrap gap-4">
               <Field>
@@ -462,6 +569,48 @@ export function DishEditor({
                   />
                 </div>
               </Field>
+              {dish && (
+                <Field>
+                  <FieldLabel htmlFor="dish-default-serving-quantity">
+                    Default serving size
+                  </FieldLabel>
+                  <div className="flex items-center gap-2">
+                    <NumberField
+                      name="defaultBatchQuantity"
+                      id="dish-default-serving-quantity"
+                      placeholder="Amount"
+                      step="any"
+                      aria-label="Default serving amount"
+                      className="w-24"
+                    />
+                    <Input
+                      placeholder="Unit"
+                      aria-label="Default serving unit"
+                      className="w-32"
+                      {...register("defaultBatchUnit")}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        form.setValue("defaultBatchQuantity", null, {
+                          shouldDirty: true,
+                        });
+                        form.setValue("defaultBatchUnit", null, {
+                          shouldDirty: true,
+                        });
+                      }}
+                    >
+                      Reset
+                    </Button>
+                  </div>
+                  <FieldDescription>
+                    Shown on the recipe page as the default yield. Leave blank
+                    to use the authored yield above.
+                  </FieldDescription>
+                </Field>
+              )}
               <Field>
                 <FieldLabel htmlFor="dish-prep-time">
                   Prep time (minutes)
@@ -566,6 +715,7 @@ export function DishEditor({
               <Button
                 type="button"
                 variant="outline"
+                size="sm"
                 onClick={() =>
                   sections.append({
                     name: null,

@@ -6,9 +6,12 @@ import type { updateVersionMetadata as UpdateVersionMetadata } from "@/lib/dishe
 // Fixed, deterministic pathname — reused (overwritten) on every seed run
 // rather than generating a new Blob each time, per the task's "must not
 // create an unbounded new private Blob on every seed run" requirement.
-export const IMAGE_FIXTURE_STORAGE_KEY = "images/qa-seed/sunday-ramen-project.png";
+export const IMAGE_FIXTURE_STORAGE_KEY =
+  "images/qa-seed/sunday-ramen-project.png";
 
-const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const PNG_SIGNATURE = Buffer.from([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+]);
 
 function pngChunk(type: string, data: Buffer): Buffer {
   const typeBuf = Buffer.from(type, "ascii");
@@ -97,7 +100,10 @@ export async function attachSeedImage(
   const asset = await prisma.imageAsset.upsert({
     where: { storageKey: IMAGE_FIXTURE_STORAGE_KEY },
     update: {},
-    create: { storageKey: IMAGE_FIXTURE_STORAGE_KEY, uploadedByUserId: ownerId },
+    create: {
+      storageKey: IMAGE_FIXTURE_STORAGE_KEY,
+      uploadedByUserId: ownerId,
+    },
   });
 
   await updateVersionMetadata(

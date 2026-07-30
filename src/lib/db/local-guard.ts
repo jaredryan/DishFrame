@@ -34,7 +34,9 @@ export function assertLocalDatabaseEnv(vars: LocalDatabaseEnv): void {
     try {
       parsed = new URL(value);
     } catch {
-      throw new Error(`Refusing to run: ${name} is not a valid connection URL.`);
+      throw new Error(
+        `Refusing to run: ${name} is not a valid connection URL.`,
+      );
     }
 
     const hostname = parsed.hostname.replace(/^\[|\]$/g, "");

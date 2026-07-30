@@ -19,7 +19,10 @@ import {
 import { versionContentToInput } from "@/lib/dishes/mappers";
 import { decimalToNumber } from "@/lib/dishes/format";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
-import { resolvePartLinkDisplayInfo } from "@/lib/sections/service";
+import {
+  resolvePartLinkDisplayInfo,
+  listMaterializedPartLinkSnapshots,
+} from "@/lib/sections/service";
 import type { PartLinkLabelMap } from "@/components/domain/dish/version-compare-view";
 
 export const metadata: Metadata = {
@@ -36,6 +39,13 @@ async function toCompareInput(
 }> {
   const version = await getDishScopedVersionContentOrThrow(dishId, versionId);
   const content = versionContentToInput(version.sections, version.partLinks);
+  // Design remediation pass, §H: a historical Version's own PartLink rows
+  // may have been materialized since it was saved (its target Part
+  // deleted) — `partLinkContentInclude` stays LIVE-only, so these are a
+  // separate, additive fetch, merged in purely for comparison.
+  const materializedPartLinks = await listMaterializedPartLinkSnapshots(
+    version.id,
+  );
   return {
     majorVersion: version.majorVersion,
     minorVersion: version.minorVersion,
@@ -56,14 +66,19 @@ async function toCompareInput(
       },
       sections: content.sections,
       partLinks: content.partLinks,
+      materializedPartLinks,
     },
   };
 }
 
 /** §68.5: a linked Part's displayed title/Version label is always a live
  * lookup, never anything pinned at attach time — resolved once here for
- * every distinct occurrence the comparison touches, gracefully falling back
- * for a Part deleted since (materialized, no longer resolvable). */
+ * every distinct LIVE occurrence the comparison touches, gracefully falling
+ * back for a Part deleted since without a preserved historical identity
+ * (genuinely unresolvable — not the design-remediation-pass MATERIALIZED
+ * case below, which already carries its own frozen title/Version label and
+ * is rendered directly by `version-compare-view.tsx`, no live lookup at
+ * all). */
 async function resolvePartLinkLabels(
   ownerId: string,
   result: VersionComparisonResult,
@@ -73,10 +88,20 @@ async function resolvePartLinkLabels(
     { targetDishId: string; targetDishVersionId: string }
   >();
   function collect(
-    entries: { targetDishId: string; targetDishVersionId: string }[],
+    entries: {
+      targetDishId: string | null;
+      targetDishVersionId: string | null;
+    }[],
   ) {
     for (const entry of entries) {
-      pairs.set(`${entry.targetDishId}:${entry.targetDishVersionId}`, entry);
+      // A `null` targetDishId means MATERIALIZED — no live target to look
+      // up; its label comes from the snapshot's own preserved identity
+      // instead (see `PartLinkSnapshot`'s doc comment, dishes/compare.ts).
+      if (!entry.targetDishId || !entry.targetDishVersionId) continue;
+      pairs.set(`${entry.targetDishId}:${entry.targetDishVersionId}`, {
+        targetDishId: entry.targetDishId,
+        targetDishVersionId: entry.targetDishVersionId,
+      });
     }
   }
   collect(result.partLinks.added);

@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import path from "node:path";
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 
 type SeedCookie = {
   name: string;
@@ -25,6 +25,16 @@ function seed(...args: string[]): string {
       NODE_OPTIONS: "--conditions=react-server",
     },
   });
+}
+
+/**
+ * Design remediation pass: Archive/Restore/Duplicate/Delete moved off the
+ * detail page's own button row into the "More actions" overflow menu
+ * (src/components/domain/dish/dish-detail-actions.tsx) — every one of
+ * those now opens from here rather than being a directly-clickable button.
+ */
+async function openMoreActions(page: Page) {
+  await page.getByRole("button", { name: "More actions" }).click();
 }
 
 /**
@@ -123,7 +133,8 @@ test.describe("Recipes: create, view, edit, archive, restore, duplicate, delete"
     await expect(page.getByText("V1.1")).toBeVisible();
 
     // --- Archive: confirm it disappears from the default library view ---
-    await page.getByRole("button", { name: "Archive" }).click();
+    await openMoreActions(page);
+    await page.getByRole("menuitem", { name: "Archive" }).click();
     await page
       .getByRole("dialog")
       .getByRole("button", { name: "Archive" })
@@ -137,7 +148,8 @@ test.describe("Recipes: create, view, edit, archive, restore, duplicate, delete"
 
     // --- Restore ---
     await page.goto(dishUrl);
-    await page.getByRole("button", { name: "Restore" }).click();
+    await openMoreActions(page);
+    await page.getByRole("menuitem", { name: "Restore" }).click();
     await page
       .getByRole("dialog")
       .getByRole("button", { name: "Restore" })
@@ -155,7 +167,8 @@ test.describe("Recipes: create, view, edit, archive, restore, duplicate, delete"
 
     // --- Duplicate: confirm the copy's title and independent identity ---
     await page.goto(dishUrl);
-    await page.getByRole("button", { name: "Duplicate" }).click();
+    await openMoreActions(page);
+    await page.getByRole("menuitem", { name: "Duplicate" }).click();
     await page
       .getByRole("dialog")
       .getByRole("button", { name: "Duplicate" })
@@ -168,7 +181,8 @@ test.describe("Recipes: create, view, edit, archive, restore, duplicate, delete"
     expect(copyUrl).not.toBe(dishUrl);
 
     // --- Delete the duplicate ---
-    await page.getByRole("button", { name: "Delete" }).click();
+    await openMoreActions(page);
+    await page.getByRole("menuitem", { name: "Delete" }).click();
     await page
       .getByRole("dialog")
       .getByRole("button", { name: "Delete permanently" })
@@ -246,16 +260,16 @@ test.describe("Recipes: create, view, edit, archive, restore, duplicate, delete"
     // The substitute survives the edit unchanged.
     await expect(page.getByText(/Substitute: Chicken broth/)).toBeVisible();
 
-    // --- Library grid/list toggle: same Recipe visible in both views ---
+    // --- Library grid/compact toggle: same Recipe visible in both views ---
     await page.goto("/recipes");
     await expect(
       page.getByRole("radio", { name: "Grid view" }),
     ).toHaveAttribute("aria-checked", "true");
     await expect(page.getByText(title)).toBeVisible();
 
-    await page.getByRole("radio", { name: "List view" }).click();
+    await page.getByRole("radio", { name: "Compact view" }).click();
     await expect(
-      page.getByRole("radio", { name: "List view" }),
+      page.getByRole("radio", { name: "Compact view" }),
     ).toHaveAttribute("aria-checked", "true");
     await expect(page.getByText(title)).toBeVisible();
 
@@ -264,7 +278,8 @@ test.describe("Recipes: create, view, edit, archive, restore, duplicate, delete"
 
     // --- Clean up ---
     await page.goto(dishUrl);
-    await page.getByRole("button", { name: "Delete" }).click();
+    await openMoreActions(page);
+    await page.getByRole("menuitem", { name: "Delete" }).click();
     await page
       .getByRole("dialog")
       .getByRole("button", { name: "Delete permanently" })

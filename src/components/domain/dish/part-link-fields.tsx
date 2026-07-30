@@ -2,33 +2,41 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { ExternalLink, Link2, Settings, Unlink, X } from "lucide-react";
+import { ExternalLink, Link2, Unlink, X } from "lucide-react";
 import { useFormContext, useWatch } from "react-hook-form";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Button } from "@/components/ui/button";
-import { Field, FieldLabel } from "@/components/ui/field";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { DragHandle } from "@/components/ui/drag-handle";
-import { NumberField } from "@/components/domain/dish/number-field";
-import { PartLinkTreeView } from "@/components/domain/dish/part-link-tree-view";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { PartLinkTreeContent } from "@/components/domain/dish/part-link-tree-view";
 import {
   getPartLinkDisplay,
   getPartLinkPreview,
   resolvePartVersionForDetach,
 } from "@/lib/sections/actions";
+import { dishBasePath } from "@/components/domain/dish/dish-card";
 import type { DetachedContent } from "@/lib/sections/service";
 import type { PartLinkTree } from "@/lib/sections/service";
 
 /**
  * Settled Review Gate 3 decision, PRODUCT_SPEC.md §67.4/§68.6, corrected
- * Slice 6 correction pass §4: a PartLink is a data relationship, not a
- * link-only or collapsed placeholder — its pinned content (fetched
- * read-only from `getPartLinkPreview`) is visible inline by default, no
- * expand action required. From the parent editor, users may change the
- * multiplier (behind the "Link settings" action, since it's the one
- * editable property of the link itself), detach, remove, or open the
- * standalone Part — but the reusable Part's own Ingredients/Instructions
- * never become parent-owned inline inputs here.
+ * Slice 6 correction pass §4, refined further in the design remediation
+ * pass: a PartLink is a data relationship, not a link-only or collapsed
+ * placeholder — it reads like a Section after a small relationship-specific
+ * header (title in the same style as a Section heading, Part/Version/
+ * multiplier chips, and actions), with its description and pinned
+ * Ingredients/Instructions shown directly beneath — no redundant nested
+ * card repeating the header. Scaling is the one editable property of the
+ * link itself, via the compact inline row below, not an unlabeled settings
+ * toggle.
  */
 export function PartLinkFields({
   id,
@@ -41,13 +49,14 @@ export function PartLinkFields({
   onRemove: () => void;
   onDetach: (content: DetachedContent) => void;
 }) {
-  const { control } = useFormContext();
+  const { control, getValues, setValue } = useFormContext();
   const targetDishId = useWatch({ control, name: `${prefix}.targetDishId` });
   const targetDishVersionId = useWatch({
     control,
     name: `${prefix}.targetDishVersionId`,
   });
-  const multiplier = useWatch({ control, name: `${prefix}.multiplier` }) ?? 1;
+  const committedMultiplier: number =
+    useWatch({ control, name: `${prefix}.multiplier` }) ?? 1;
 
   // Keyed by target identity so a stale response for a since-changed target
   // is recognized as stale (`key !== requestKey`) without needing an eager
@@ -58,9 +67,9 @@ export function PartLinkFields({
     title: string | null;
     majorVersion: number;
     minorVersion: number;
+    description: string | null;
     error: string | null;
   } | null>(null);
-  const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [preview, setPreview] = React.useState<{
     key: string;
     tree: PartLinkTree | null;
@@ -68,6 +77,32 @@ export function PartLinkFields({
   } | null>(null);
   const [isDetaching, setIsDetaching] = React.useState(false);
   const [detachError, setDetachError] = React.useState<string | null>(null);
+
+  // The value this editing session opened with — captured once, at mount,
+  // never resynced from the live (possibly since-Applied) form value.
+  // "Reset" restores this exact value, not the Part's own authored default.
+  const openingMultiplierRef = React.useRef<number>(
+    getValues(`${prefix}.multiplier`) ?? 1,
+  );
+  const [scalingDraft, setScalingDraft] = React.useState(
+    String(committedMultiplier),
+  );
+  const parsedDraft = Number(scalingDraft);
+  const isDraftValid =
+    scalingDraft.trim() !== "" &&
+    Number.isFinite(parsedDraft) &&
+    parsedDraft > 0;
+
+  function applyScaling() {
+    if (!isDraftValid) return;
+    setValue(`${prefix}.multiplier`, parsedDraft, { shouldDirty: true });
+  }
+
+  function resetScaling() {
+    const opening = openingMultiplierRef.current;
+    setScalingDraft(String(opening));
+    setValue(`${prefix}.multiplier`, opening, { shouldDirty: true });
+  }
 
   const requestKey =
     targetDishId && targetDishVersionId
@@ -86,6 +121,7 @@ export function PartLinkFields({
           title: result.title,
           majorVersion: result.majorVersion,
           minorVersion: result.minorVersion,
+          description: result.description,
           error: null,
         });
       } else {
@@ -94,6 +130,7 @@ export function PartLinkFields({
           title: null,
           majorVersion: 0,
           minorVersion: 0,
+          description: null,
           error: result.message,
         });
       }
@@ -105,7 +142,8 @@ export function PartLinkFields({
 
   // Slice 6 correction pass §4: fetched unconditionally, as soon as the
   // target is known — the pinned content is visible by default, not gated
-  // behind an expand action.
+  // behind an expand action. Re-fetches when the *committed* multiplier
+  // changes (i.e. after Apply) — not on every Scaling-draft keystroke.
   React.useEffect(() => {
     if (!requestKey || !targetDishId || !targetDishVersionId) {
       return;
@@ -115,7 +153,7 @@ export function PartLinkFields({
     getPartLinkPreview({
       targetDishId,
       targetDishVersionId,
-      multiplier: Number(multiplier) || 1,
+      multiplier: committedMultiplier,
     }).then((result) => {
       if (cancelled) return;
       if (result.status === "success") {
@@ -127,7 +165,13 @@ export function PartLinkFields({
     return () => {
       cancelled = true;
     };
-  }, [requestKey, targetDishId, targetDishVersionId, multiplier, preview]);
+  }, [
+    requestKey,
+    targetDishId,
+    targetDishVersionId,
+    committedMultiplier,
+    preview,
+  ]);
 
   const isCurrent = resolved !== null && resolved.key === requestKey;
   const display = isCurrent && !resolved.error ? resolved : null;
@@ -138,7 +182,7 @@ export function PartLinkFields({
     setDetachError(null);
     const result = await resolvePartVersionForDetach({
       targetDishVersionId,
-      multiplier: Number(multiplier) || 1,
+      multiplier: committedMultiplier,
     });
     setIsDetaching(false);
     if (result.status === "success") {
@@ -169,90 +213,119 @@ export function PartLinkFields({
     <div
       ref={setNodeRef}
       style={style}
-      className="border-border bg-muted/30 flex flex-col gap-2 rounded-lg border border-dashed p-3"
+      className="border-border bg-card flex flex-col gap-3 rounded-xl border p-4"
     >
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <DragHandle
-            label={`Drag to reorder ${title}`}
-            attributes={attributes}
-            listeners={listeners}
-            isDragging={isDragging}
-          />
-          <Link2 className="text-primary size-4 shrink-0" aria-hidden="true" />
-          <div className="min-w-0">
-            <p className="truncate text-sm font-medium">{title}</p>
-            <p className="text-muted-foreground text-xs">
-              Linked part{versionLabel ? ` · ${versionLabel}` : ""}
-              {Number(multiplier) !== 1 ? ` · × ${multiplier}` : ""}
-            </p>
-            {error && <p className="text-destructive text-xs">{error}</p>}
-          </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-1">
-          {targetDishId && (
-            <Button variant="ghost" size="icon-sm" asChild title="Open Part">
-              <Link href={`/parts/${targetDishId}`} target="_blank">
-                <ExternalLink className="size-4" aria-hidden="true" />
-                <span className="sr-only">Open Part</span>
-              </Link>
-            </Button>
+      <div className="flex items-center gap-2">
+        <DragHandle
+          label={`Drag to reorder ${title}`}
+          attributes={attributes}
+          listeners={listeners}
+          isDragging={isDragging}
+        />
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+          <h3 className="font-heading text-foreground truncate text-base font-medium">
+            {title}
+          </h3>
+          <Badge variant="outline">
+            <Link2 className="size-3" aria-hidden="true" /> Part
+          </Badge>
+          {versionLabel && (
+            <Badge variant="outline" className="tabular-nums">
+              {versionLabel}
+            </Badge>
           )}
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => setSettingsOpen((prev) => !prev)}
-            title="Link settings"
-          >
-            <Settings className="size-4" aria-hidden="true" />
-            <span className="sr-only">Link settings</span>
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            onClick={handleDetach}
-            disabled={isDetaching}
-            title="Detach into local content"
-          >
-            <Unlink className="size-4" aria-hidden="true" />
-            <span className="sr-only">Detach</span>
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            onClick={onRemove}
-            title="Remove"
-          >
-            <X className="size-4" aria-hidden="true" />
-            <span className="sr-only">Remove</span>
-          </Button>
+          {committedMultiplier !== 1 && (
+            <Badge variant="outline">× {committedMultiplier}</Badge>
+          )}
         </div>
+        <TooltipProvider>
+          <div className="flex shrink-0 items-center gap-0.5">
+            {targetDishId && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon-sm" asChild>
+                    <Link
+                      href={`${dishBasePath("PART")}/${targetDishId}`}
+                      target="_blank"
+                      aria-label="Open Part"
+                    >
+                      <ExternalLink className="size-4" aria-hidden="true" />
+                    </Link>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Open Part</TooltipContent>
+              </Tooltip>
+            )}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={handleDetach}
+                  disabled={isDetaching}
+                  aria-label="Detach into local content"
+                >
+                  <Unlink className="size-4" aria-hidden="true" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Detach into local content</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={onRemove}
+                  aria-label="Remove"
+                >
+                  <X className="size-4" aria-hidden="true" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Remove</TooltipContent>
+            </Tooltip>
+          </div>
+        </TooltipProvider>
       </div>
 
-      {settingsOpen && (
-        <div className="pl-8">
-          <Field className="w-32">
-            <FieldLabel htmlFor={`${prefix.replace(/\./g, "-")}-multiplier`}>
-              Multiplier
-            </FieldLabel>
-            <NumberField
-              name={`${prefix}.multiplier`}
-              id={`${prefix.replace(/\./g, "-")}-multiplier`}
-              step="any"
-              placeholder="1"
-            />
-          </Field>
-        </div>
+      {error && <p className="text-destructive text-sm">{error}</p>}
+      {display?.description && (
+        <p className="text-muted-foreground text-sm">{display.description}</p>
       )}
 
-      {/* Slice 6 correction pass §4: the pinned content is visible inline by
-          default — no expand action required. */}
-      <div className="flex flex-col gap-3 pl-8">
+      <div className="border-border bg-muted/30 flex flex-wrap items-center gap-2 rounded-lg border p-2">
+        <span className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+          Scaling
+        </span>
+        <Input
+          inputMode="decimal"
+          className="h-8 w-20"
+          aria-label="Scaling multiplier"
+          value={scalingDraft}
+          onChange={(event) => setScalingDraft(event.target.value)}
+        />
+        <Button type="button" variant="ghost" size="sm" onClick={resetScaling}>
+          Reset
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          onClick={applyScaling}
+          disabled={!isDraftValid}
+        >
+          Apply
+        </Button>
+      </div>
+
+      <div className="flex flex-col gap-3">
         {preview?.key === requestKey && preview.tree && (
-          <PartLinkTreeView tree={preview.tree} />
+          <PartLinkTreeContent
+            tree={preview.tree}
+            effectiveScale={committedMultiplier}
+            depth={0}
+          />
         )}
         {preview?.key === requestKey && !preview.tree && preview.error && (
           <p className="text-destructive text-sm">{preview.error}</p>

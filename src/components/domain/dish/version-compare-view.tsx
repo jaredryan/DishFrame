@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import type {
   AddedOrRemovedItem,
@@ -21,11 +22,37 @@ function partLinkKey(entry: {
   return `${entry.targetDishId}:${entry.targetDishVersionId}`;
 }
 
+/**
+ * Design remediation pass, §H: a `targetDishId: null` entry is a
+ * MATERIALIZED occurrence — its Part was deleted, but its former identity
+ * was preserved at deletion time (`materializedTitle`/
+ * `materializedVersionLabel`, carried on the entry itself). That's used
+ * directly, never a live lookup and never the "Unknown Part" fallback,
+ * which stays reserved for a LIVE entry whose lookup genuinely failed (no
+ * preserved identity exists for it at all).
+ */
 function partLinkLabel(
   labels: PartLinkLabelMap,
-  entry: { targetDishId: string; targetDishVersionId: string },
+  entry: {
+    targetDishId: string | null;
+    targetDishVersionId: string | null;
+    materializedTitle?: string | null;
+    materializedVersionLabel?: string | null;
+  },
 ): string {
-  const resolved = labels[partLinkKey(entry)];
+  if (entry.targetDishId == null || entry.targetDishVersionId == null) {
+    const title = entry.materializedTitle ?? "Unknown Part";
+    return entry.materializedVersionLabel
+      ? `${title} ${entry.materializedVersionLabel}`
+      : title;
+  }
+  const resolved =
+    labels[
+      partLinkKey({
+        targetDishId: entry.targetDishId,
+        targetDishVersionId: entry.targetDishVersionId,
+      })
+    ];
   const title = resolved?.title ?? "Unknown Part";
   return resolved?.versionLabel ? `${title} ${resolved.versionLabel}` : title;
 }
@@ -91,11 +118,7 @@ export function VersionCompareView({
             added={result.sections.added}
             removed={result.sections.removed}
           />
-          {result.sections.reordered && (
-            <p className="text-muted-foreground text-sm">
-              Sections were reordered.
-            </p>
-          )}
+          {result.sections.reordered && <ReorderedNote>Sections</ReorderedNote>}
         </ComparisonGroup>
       )}
 
@@ -104,7 +127,7 @@ export function VersionCompareView({
           {result.ingredients.changed.length > 0 && (
             <ul className="flex flex-col gap-2">
               {result.ingredients.changed.map((change) => (
-                <li key={change.lineageId} className="text-sm">
+                <ChangedRow key={change.lineageId}>
                   <p className="font-medium">{change.name}</p>
                   <p className="text-muted-foreground">
                     {fromLabel}: {change.before}
@@ -112,7 +135,7 @@ export function VersionCompareView({
                   <p>
                     {toLabel}: {change.after}
                   </p>
-                </li>
+                </ChangedRow>
               ))}
             </ul>
           )}
@@ -121,9 +144,7 @@ export function VersionCompareView({
             removed={result.ingredients.removed}
           />
           {result.ingredients.reordered && (
-            <p className="text-muted-foreground text-sm">
-              Ingredients were reordered.
-            </p>
+            <ReorderedNote>Ingredients</ReorderedNote>
           )}
         </ComparisonGroup>
       )}
@@ -133,14 +154,14 @@ export function VersionCompareView({
           {result.instructions.changed.length > 0 && (
             <ul className="flex flex-col gap-2">
               {result.instructions.changed.map((change) => (
-                <li key={change.lineageId} className="text-sm">
+                <ChangedRow key={change.lineageId}>
                   <p className="text-muted-foreground">
                     {fromLabel}: {change.before}
                   </p>
                   <p>
                     {toLabel}: {change.after}
                   </p>
-                </li>
+                </ChangedRow>
               ))}
             </ul>
           )}
@@ -149,9 +170,7 @@ export function VersionCompareView({
             removed={result.instructions.removed}
           />
           {result.instructions.reordered && (
-            <p className="text-muted-foreground text-sm">
-              Instructions were reordered.
-            </p>
+            <ReorderedNote>Instructions</ReorderedNote>
           )}
         </ComparisonGroup>
       )}
@@ -161,7 +180,7 @@ export function VersionCompareView({
           {result.partLinks.changed.length > 0 && (
             <ul className="flex flex-col gap-2">
               {result.partLinks.changed.map((change) => (
-                <li key={change.lineageId} className="text-sm">
+                <ChangedRow key={change.lineageId}>
                   <p className="text-muted-foreground">
                     {fromLabel}: {partLinkLabel(partLinkLabels, change.before)}
                     {change.multiplierChanged && !change.retargeted
@@ -174,7 +193,7 @@ export function VersionCompareView({
                       ? ` (×${change.after.multiplier})`
                       : ""}
                   </p>
-                </li>
+                </ChangedRow>
               ))}
             </ul>
           )}
@@ -184,9 +203,7 @@ export function VersionCompareView({
             labels={partLinkLabels}
           />
           {result.partLinks.reordered && (
-            <p className="text-muted-foreground text-sm">
-              Linked Parts were reordered.
-            </p>
+            <ReorderedNote>Linked Parts</ReorderedNote>
           )}
         </ComparisonGroup>
       )}
@@ -205,7 +222,7 @@ function ComparisonGroup({
   children,
 }: {
   title: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <Card>
@@ -232,6 +249,15 @@ function FieldChangeList({ changes }: { changes: FieldChange[] }) {
   );
 }
 
+// Design remediation pass, PRODUCT_SPEC.md §94: semantic (not color-only —
+// every row keeps its "Added"/"Removed"/"Changed" text label too) emphasis
+// so a long comparison scans faster. Accessible in both themes: these are
+// the same `--brand-green`/`--destructive` tokens already used elsewhere
+// in this app for plain body text (e.g. form error copy), not a new,
+// unvetted color pairing.
+const ADDED_CLASSNAME = "text-brand-green";
+const REMOVED_CLASSNAME = "text-destructive";
+
 function AddedRemovedList({
   added,
   removed,
@@ -243,10 +269,12 @@ function AddedRemovedList({
   return (
     <ul className="flex flex-col gap-1 text-sm">
       {added.map((item) => (
-        <li key={`added-${item.lineageId}`}>Added: {item.label}</li>
+        <li key={`added-${item.lineageId}`} className={ADDED_CLASSNAME}>
+          Added: {item.label}
+        </li>
       ))}
       {removed.map((item) => (
-        <li key={`removed-${item.lineageId}`} className="text-muted-foreground">
+        <li key={`removed-${item.lineageId}`} className={REMOVED_CLASSNAME}>
           Removed: {item.label}
         </li>
       ))}
@@ -267,15 +295,38 @@ function PartLinkAddedRemovedList({
   return (
     <ul className="flex flex-col gap-1 text-sm">
       {added.map((item) => (
-        <li key={`added-${item.lineageId}`}>
+        <li key={`added-${item.lineageId}`} className={ADDED_CLASSNAME}>
           Added: {partLinkLabel(labels, item)}
         </li>
       ))}
       {removed.map((item) => (
-        <li key={`removed-${item.lineageId}`} className="text-muted-foreground">
+        <li key={`removed-${item.lineageId}`} className={REMOVED_CLASSNAME}>
           Removed: {partLinkLabel(labels, item)}
         </li>
       ))}
     </ul>
+  );
+}
+
+// "Changed" gets a neutral accent (a left border, not a text color) rather
+// than green/red — it's neither an addition nor a removal, so borrowing
+// either color would misstate which bucket it's in.
+function ChangedRow({ children }: { children: ReactNode }) {
+  return (
+    <li className="border-muted-foreground/40 flex flex-col border-l-2 pl-2 text-sm">
+      {children}
+    </li>
+  );
+}
+
+function ReorderedNote({ children }: { children: ReactNode }) {
+  return (
+    <p className="text-muted-foreground flex items-center gap-1.5 text-sm">
+      <span
+        className="border-muted-foreground/40 inline-block size-2 rounded-full border-2"
+        aria-hidden="true"
+      />
+      {children} were reordered.
+    </p>
   );
 }

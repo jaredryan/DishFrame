@@ -7,29 +7,69 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 # Workflow rules
 
-- Write stable automated tests as part of the implementation, but do not
-  run verification (lint, typecheck, unit tests, build, e2e, etc.) during
-  a normal implementation pass — leave running it, and the broad
-  completion command, to the owner afterward. See "Owner intervention and
-  manual-review policy" below for the full workflow and the narrow
-  debugging exception.
+- Write stable automated tests as part of the implementation. During a
+  normal implementation pass, targeted tests directly relevant to the
+  changed behavior may be run while implementing, and `verify:feature`
+  may be self-run once as the completion check — see "Usage-efficient
+  execution" below and "Owner intervention and manual-review policy" for
+  the full workflow. Broad verification beyond that (`verify:backend`,
+  `verify:fullstack`, `verify:all`, Playwright, migration scripts) stays
+  owner-run, with the narrow debugging exception described there.
 - Never `git commit` or `git push` unless the user explicitly asks for it
   in that turn. Leave changes staged/unstaged for the user to review and
   commit themselves.
+
+# Usage-efficient execution (added 2026-07-30)
+
+Applies the global `~/.claude/CLAUDE.md` "Usage-efficient execution
+policy" section to DishFrame. Normal DishFrame implementation passes
+should:
+
+- execute directly from the owner's prompt — do not automatically
+  generate a second implementation plan or restate the prompt as an
+  exhaustive plan;
+- avoid Superpowers planning/execution skills (`writing-plans`,
+  `executing-plans`, etc.) unless the owner explicitly requests one or
+  the task is genuinely ambiguous/architecturally complex enough that a
+  skill provides value direct implementation can't;
+- avoid subagents by default — see "Subagent delegation and model
+  selection" below, which this tightens;
+- read `CLAUDE.md`, `AGENTS.md`, the relevant Build Plan section,
+  targeted canonical-doc sections, the one directly relevant concise
+  handoff, and the affected code — not more;
+- not automatically reread every prior `docs/SLICE_*.md` file;
+- write focused tests appropriate to feature maturity, and run targeted
+  tests directly relevant to the changed behavior while implementing;
+- self-run `pnpm run verify:feature` at most once, as the normal
+  completion check, after a major pass;
+- debug any failure from that run with focused subcommands, not by
+  rerunning the whole suite after every small fix;
+- not run Playwright or `pnpm run verify:all`/`verify:backend`/
+  `verify:fullstack` unless the owner explicitly requests it;
+- not dispatch a subagent merely to run routine tests;
+- keep `docs/SLICE_*.md` concise and centered on current truth (see
+  "Implementation report policy" below).
+
+A separate testing-strategy audit is planned to revisit test coverage
+and verification scope more broadly; this section does not preempt that
+audit and does not itself change what tests exist or delete any.
 
 # Subagent delegation and model selection
 
 General rubric lives in the global `~/.claude/CLAUDE.md` ("Subagent
 usage judgment" and "Subagent model selection"); this section only adds
-DishFrame-specific examples, it doesn't restate the rubric.
+DishFrame-specific examples, it doesn't restate the rubric. Per "Usage-
+efficient execution" above, the default is still to run `verify:feature`
+directly in-session — the note below describes the narrow exception,
+not the normal path.
 
-- **`verify:feature` is a good Haiku-subagent candidate.** The self-run
-  check (`CLAUDE.md`'s verification section) is mechanical — invoke,
-  parse pass/fail, summarize — and can produce noisy lint/typecheck/
-  test/build output. When a run is expected to be noisy, dispatching a
-  Haiku subagent to run it and return only a pass/fail + failure summary
-  keeps that log out of the main session. This changes _how_ the output
-  reaches this session, not _whether_/_when_ `verify:feature` self-runs.
+- **`verify:feature` may go to a Haiku subagent only when the general
+  two-condition test for dispatching a subagent at all is met** (session
+  context too valuable to `/clear`/`/compact` mid-task, and the run is
+  expected to be noisy enough that keeping its lint/typecheck/test/build
+  output out of the main session is worth the cold-start cost) — not
+  merely because delegating feels cheaper. When that test isn't met, run
+  it directly and summarize narrowly.
 - **Reading canonical docs for synthesis stays a capable-model job.**
   Delegating a read of `docs/PRODUCT_SPEC.md`,
   `docs/ARCHITECTURE_PROPOSAL.md`, etc. for a conclusion (not a simple
@@ -118,6 +158,8 @@ The implementation agent:
 - writes stable automated tests for domain contracts, validation,
   authorization, integrity rules, and mature workflows;
 - documents which tests were added;
+- may run tests directly relevant to the changed behavior while
+  implementing (see "Usage-efficient execution" above);
 - does **not** run `verify:backend`, `verify:fullstack`, `verify:all`,
   Playwright, or migration/db scripts on its own initiative during a
   normal implementation pass;

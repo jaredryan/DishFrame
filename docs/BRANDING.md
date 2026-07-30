@@ -375,10 +375,19 @@ Use it for:
 - successful completion;
 - completed cooking sections;
 - positive outcomes;
-- Proven and Active recipe states where appropriate;
+- Proven recipe states;
 - successful updates;
 - strong ratings or improvement indicators;
 - freshness-related secondary emphasis.
+
+> **Amended by the Slice 6 design remediation pass (owner-approved, in
+> that pass's own conversation):** Active previously shared this same
+> green with Proven at two opacities, which read as indistinguishable at a
+> glance — Active now uses the primary blue family instead
+> (`docs/SLICE_6.md`'s design-remediation section), leaving green as
+> Proven's own distinct "what works" signal. Wherever this document still
+> says "Active" alongside green below (§9's screen-level color use), treat
+> Active as blue and Proven as the green state.
 
 Character:
 

@@ -1,6 +1,14 @@
 import Link from "next/link";
+import { ExternalLink } from "lucide-react";
 import { scaledIngredientDisplay } from "@/lib/dishes/scaled-display";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
+import { Badge } from "@/components/ui/badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type { PartLinkTree } from "@/lib/sections/service";
 
 /**
@@ -13,6 +21,14 @@ import type { PartLinkTree } from "@/lib/sections/service";
  * in its own `multiplier` before passing down, so multipliers compose
  * across nesting (e.g. 2 cups × 1.5 × 2× temp scale = 6 cups) through the
  * same `scaledIngredientDisplay` every other quantity display uses.
+ *
+ * Design remediation pass: the nesting indent is expressed with the card's
+ * own left border + padding rather than an inline `marginLeft` (which read
+ * as visually off-center, since only the left edge shifted). Title
+ * typography now matches a Section heading (same family/size/weight/
+ * foreground) — a linked Part is distinguished by its chips and actions,
+ * not by a different heading style. `Open Part` uses an external-link icon
+ * with the app's styled `Tooltip`, never a native `title` attribute.
  */
 export function PartLinkTreeView({
   tree,
@@ -27,44 +43,86 @@ export function PartLinkTreeView({
 
   return (
     <div
-      className="border-primary/30 bg-muted/20 flex flex-col gap-3 rounded-lg border border-dashed p-3"
-      style={depth > 0 ? { marginLeft: 16 } : undefined}
+      className={
+        depth > 0
+          ? "border-border border-l-2 pl-3"
+          : "border-border bg-muted/20 rounded-lg border p-3"
+      }
     >
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-primary text-sm font-medium">
-          {tree.title ?? "Untitled part"}
-        </span>
-        <span className="text-muted-foreground text-xs tabular-nums">
-          {tree.versionLabel}
-        </span>
-        {tree.multiplier !== 1 && (
-          <span className="text-muted-foreground text-xs">
-            × {tree.multiplier}
-          </span>
-        )}
-        {/* Slice 6 correction pass, §H: a MATERIALIZED tree (the Part was
-            since deleted) has no live target to navigate to — the stored
-            snapshot's own former name/version are shown above, but never a
-            link, and never the internal linkState term itself. */}
-        {tree.kind === "LIVE" ? (
-          <Link
-            href={`${dishBasePath("PART")}/${tree.targetDishId}`}
-            target="_blank"
-            className="text-primary text-xs hover:underline"
-          >
-            Open Part
-          </Link>
-        ) : (
-          <span className="text-muted-foreground text-xs italic">
-            Deleted since
-          </span>
-        )}
-      </div>
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+            <h4 className="font-heading text-foreground text-base font-medium">
+              {tree.title ?? "Untitled part"}
+            </h4>
+            <Badge variant="outline">Part</Badge>
+            <Badge variant="outline" className="tabular-nums">
+              {tree.versionLabel}
+            </Badge>
+            {tree.multiplier !== 1 && (
+              <Badge variant="outline">× {tree.multiplier}</Badge>
+            )}
+          </div>
+          {/* Slice 6 correction pass, §H: a MATERIALIZED tree (the Part was
+              since deleted) has no live target to navigate to — the stored
+              snapshot's own former name/version are shown above, but never
+              a link, and never the internal linkState term itself. */}
+          {tree.kind === "LIVE" ? (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Link
+                    href={`${dishBasePath("PART")}/${tree.targetDishId}`}
+                    target="_blank"
+                    aria-label="Open Part"
+                    className="text-muted-foreground hover:text-foreground shrink-0"
+                  >
+                    <ExternalLink className="size-4" aria-hidden="true" />
+                  </Link>
+                </TooltipTrigger>
+                <TooltipContent>Open Part</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          ) : (
+            <span className="text-muted-foreground shrink-0 text-xs italic">
+              Deleted since
+            </span>
+          )}
+        </div>
 
+        <PartLinkTreeContent
+          tree={tree}
+          effectiveScale={effectiveScale}
+          depth={depth}
+        />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The content body only — Sections' ingredients/instructions and nested
+ * linked Parts, with no header of its own. Exported so the editor's
+ * `PartLinkFields` can render pinned content directly under its own
+ * relationship-specific header, rather than nesting a second, redundant
+ * copy of the same title/Version/multiplier/Open-Part header this
+ * component's own header (above) already renders on detail pages.
+ */
+export function PartLinkTreeContent({
+  tree,
+  effectiveScale,
+  depth,
+}: {
+  tree: PartLinkTree;
+  effectiveScale: number;
+  depth: number;
+}) {
+  return (
+    <>
       {tree.sections.map((section, sectionIndex) => (
         <div key={sectionIndex} className="flex flex-col gap-2">
           {section.name && (
-            <h4 className="text-sm font-medium">{section.name}</h4>
+            <h5 className="text-sm font-medium">{section.name}</h5>
           )}
           {section.guidanceNote && (
             <p className="text-muted-foreground text-xs italic">
@@ -129,6 +187,6 @@ export function PartLinkTreeView({
           depth={depth + 1}
         />
       ))}
-    </div>
+    </>
   );
 }

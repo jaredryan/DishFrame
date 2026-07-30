@@ -1,14 +1,12 @@
 import { Prisma } from "@/generated/prisma/client";
-import Link from "next/link";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
+import { Badge } from "@/components/ui/badge";
 import { StageBadge } from "@/components/domain/dish/stage-badge";
 import { DishDetailActions } from "@/components/domain/dish/dish-detail-actions";
 import {
   ScaledVersionView,
   type ScaledSectionRow,
 } from "@/components/domain/dish/scaled-version-view";
-import { VersionNoteEditor } from "@/components/domain/dish/version-note-editor";
-import { VersionMetadataEditor } from "@/components/domain/dish/version-metadata-editor";
 import { PartUsagePanel } from "@/components/domain/dish/part-usage-panel";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
 import type { DishKindValue } from "@/lib/dishes/schema";
@@ -29,11 +27,6 @@ type DishDetail = Prisma.DishGetPayload<{ include: typeof dishDetailInclude }>;
 type VersionSectionRow = Prisma.SectionGetPayload<{
   include: typeof sectionContentInclude.include;
 }>;
-
-function formatQuantity(value: Prisma.Decimal | null): string | null {
-  const number = decimalToNumber(value);
-  return number == null ? null : String(number);
-}
 
 /**
  * `ScaledVersionView` is a Client Component, so its `sections` prop must
@@ -129,6 +122,20 @@ export async function DishDetailView({
   // (an inert historical mirror since title can now change independently).
   const displayTitle = dish.currentTitle || version.title;
 
+  // Design remediation pass: the saved default batch size (edited in the
+  // consolidated editor now, PRODUCT_SPEC.md §51.4) is this view's one
+  // static, readable yield — falling back to the authored Version yield
+  // when no default is saved. `ScaledVersionView` derives the identical
+  // scale factor from the same two Dish/Version fields, so the ingredient
+  // quantities rendered below always match what this chip says.
+  const effectiveYieldQuantity =
+    decimalToNumber(dish.defaultBatchQuantity) ??
+    decimalToNumber(version.yieldQuantity);
+  const effectiveYieldUnit =
+    (dish.defaultBatchQuantity != null ? dish.defaultBatchUnit : null) ??
+    version.yieldUnit ??
+    "servings";
+
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
       <Breadcrumbs
@@ -137,74 +144,75 @@ export async function DishDetailView({
           { label: displayTitle },
         ]}
       />
-      <div className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <h1 className="font-heading text-foreground text-2xl font-semibold">
-            {displayTitle}
-          </h1>
-          <StageBadge stage={dish.stage} />
-          <span className="text-muted-foreground text-xs tabular-nums">
-            {versionLabel}
-          </span>
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="font-heading text-foreground text-2xl font-semibold">
+              {displayTitle}
+            </h1>
+            <StageBadge stage={dish.stage} />
+            <span className="text-muted-foreground text-xs tabular-nums">
+              {versionLabel}
+            </span>
+          </div>
+          {dish.cuisine && (
+            <p className="text-muted-foreground text-sm">{dish.cuisine}</p>
+          )}
+          <DishDetailActions
+            dishId={dish.id}
+            kind={kind}
+            stage={dish.stage}
+            currentVersionId={version.id}
+            attachableParts={attachableParts}
+          />
         </div>
-        {dish.cuisine && (
-          <p className="text-muted-foreground text-sm">{dish.cuisine}</p>
+
+        {version.description && (
+          <p className="text-foreground text-sm whitespace-pre-wrap">
+            {version.description}
+          </p>
         )}
 
-        <VersionMetadataEditor
-          key={`metadata-${version.id}`}
-          kind={kind}
-          dishId={dish.id}
-          versionId={version.id}
-          description={version.description}
-          imageAssetId={version.imageAssetId}
-        />
+        {version.imageAssetId && (
+          // eslint-disable-next-line @next/next/no-img-element -- private, authenticated route, not a static/optimizable asset
+          <img
+            src={`/api/images/${version.imageAssetId}`}
+            alt=""
+            className="border-border max-h-80 w-full rounded-lg border object-cover"
+          />
+        )}
 
-        <div className="text-muted-foreground flex flex-wrap gap-4 text-sm">
-          {version.yieldQuantity && (
-            <span>
-              Makes {formatQuantity(version.yieldQuantity)}{" "}
-              {version.yieldUnit ?? ""}
-            </span>
-          )}
-          {version.prepTimeMinutes != null && (
-            <span>Prep {version.prepTimeMinutes} min</span>
-          )}
-          {version.cookTimeMinutes != null && (
-            <span>Cook {version.cookTimeMinutes} min</span>
-          )}
-          {version.difficulty && <span>{version.difficulty}</span>}
-        </div>
+        {version.versionNote && (
+          <p className="text-muted-foreground text-sm italic">
+            {version.versionNote}
+          </p>
+        )}
 
-        <DishDetailActions
-          dishId={dish.id}
-          kind={kind}
-          stage={dish.stage}
-          attachableParts={attachableParts}
-        />
-
-        <div className="flex flex-wrap items-center gap-3 text-sm">
-          <Link
-            href={`${dishBasePath(kind)}/${dish.id}/versions/${version.id}`}
-            className="text-primary hover:underline"
-          >
-            Version history
-          </Link>
-          <Link
-            href={`${dishBasePath(kind)}/${dish.id}/compare`}
-            className="text-primary hover:underline"
-          >
-            Compare versions
-          </Link>
-        </div>
-
-        <VersionNoteEditor
-          key={`note-${version.id}`}
-          kind={kind}
-          dishId={dish.id}
-          versionId={version.id}
-          note={version.versionNote}
-        />
+        {(effectiveYieldQuantity != null ||
+          version.prepTimeMinutes != null ||
+          version.cookTimeMinutes != null ||
+          version.difficulty) && (
+          <div className="flex flex-wrap gap-1.5">
+            {effectiveYieldQuantity != null && (
+              <Badge variant="outline">
+                Makes {effectiveYieldQuantity} {effectiveYieldUnit}
+              </Badge>
+            )}
+            {version.prepTimeMinutes != null && (
+              <Badge variant="outline">
+                Prep {version.prepTimeMinutes} min
+              </Badge>
+            )}
+            {version.cookTimeMinutes != null && (
+              <Badge variant="outline">
+                Cook {version.cookTimeMinutes} min
+              </Badge>
+            )}
+            {version.difficulty && (
+              <Badge variant="outline">{version.difficulty}</Badge>
+            )}
+          </div>
+        )}
 
         {kind === "PART" && (
           <PartUsagePanel
@@ -221,9 +229,7 @@ export async function DishDetailView({
         sections={toDisplaySections(version.sections, sectionPartLinkTreeLists)}
         topLevelPartLinks={topLevelPartLinkTrees}
         yieldQuantity={decimalToNumber(version.yieldQuantity)}
-        yieldUnit={version.yieldUnit}
         defaultBatchQuantity={decimalToNumber(dish.defaultBatchQuantity)}
-        defaultBatchUnit={dish.defaultBatchUnit}
         preferredUnitOverrides={dish.preferredUnitOverrides}
       />
     </div>

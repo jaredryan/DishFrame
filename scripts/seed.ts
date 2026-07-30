@@ -35,16 +35,15 @@ async function main() {
   const dishService = await import("@/lib/dishes/service");
   const dishQueries = await import("@/lib/dishes/queries");
   const { initializeNewUser } = await import("@/lib/account/init");
-  const { resolveSeedOwner, wipeExistingFixtures, ensureSeedTag } = await import(
-    "./qa-seed/owner"
-  );
+  const { resolveSeedOwner, wipeExistingFixtures, ensureSeedTag } =
+    await import("./qa-seed/owner");
   const { buildPartFixtures } = await import("./qa-seed/parts");
   const { buildRecipeFixtures } = await import("./qa-seed/recipes");
   const { buildRamenFixture } = await import("./qa-seed/ramen");
-  const { createThrowawayGarnishPart, materializeAndDeleteGarnish } = await import(
-    "./qa-seed/materialized-fixture"
-  );
-  const { buildToastPlateFixture } = await import("./qa-seed/deletion-fixtures");
+  const { createThrowawayGarnishPart, materializeAndDeleteGarnish } =
+    await import("./qa-seed/materialized-fixture");
+  const { buildToastPlateFixture } =
+    await import("./qa-seed/deletion-fixtures");
   const { attachSeedImage } = await import("./qa-seed/image-fixture");
   const { printCatalog } = await import("./qa-seed/catalog");
 
@@ -54,7 +53,11 @@ async function main() {
     getVersionContent: dishQueries.getVersionContent,
   };
 
-  const owner = await resolveSeedOwner(initializeNewUser, seedUserEmail, seedUserName);
+  const owner = await resolveSeedOwner(
+    initializeNewUser,
+    seedUserEmail,
+    seedUserName,
+  );
   const wiped = await wipeExistingFixtures(owner.id);
   console.log(
     `[qa-seed] Wiped ${wiped.deletedDishCount} prior QA Dish row(s) for ${owner.email}.`,
@@ -63,7 +66,10 @@ async function main() {
 
   const parts = await buildPartFixtures(partServices, owner.id, tagId);
   await buildRecipeFixtures(
-    { createDish: dishService.createDish, archiveDish: dishService.archiveDish },
+    {
+      createDish: dishService.createDish,
+      archiveDish: dishService.archiveDish,
+    },
     owner.id,
     tagId,
     parts,
@@ -74,7 +80,13 @@ async function main() {
     owner.id,
     tagId,
   );
-  const ramen = await buildRamenFixture(partServices, owner.id, tagId, parts, garnish);
+  const ramen = await buildRamenFixture(
+    partServices,
+    owner.id,
+    tagId,
+    parts,
+    garnish,
+  );
   await materializeAndDeleteGarnish(
     garnish,
     ramen.garnishOccurrenceLineageId,

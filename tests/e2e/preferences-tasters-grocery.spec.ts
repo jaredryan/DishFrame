@@ -340,9 +340,13 @@ test.describe("Settings: Preferences, Grocery Categories, and Tasters", () => {
       page,
       page.getByRole("button", { name: "Archive Mom (renamed)" }),
     );
-    await expect(page.getByText("Archived")).toBeVisible();
+    // Generous timeout, not the default — same rationale as the fallback/
+    // owner Tooltip hovers above: this waits on real render/hydration work
+    // on a Next dev server under load, not a fixed local delay, and can
+    // lag past the 5s default without anything actually being broken.
+    await expect(page.getByText("Archived")).toBeVisible({ timeout: 15_000 });
     await page.reload();
-    await expect(page.getByText("Archived")).toBeVisible();
+    await expect(page.getByText("Archived")).toBeVisible({ timeout: 15_000 });
 
     await clickAndWaitForServerAction(
       page,

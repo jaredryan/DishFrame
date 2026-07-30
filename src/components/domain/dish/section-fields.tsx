@@ -170,70 +170,65 @@ export function SectionFields({
       style={style}
       className="border-border bg-card flex flex-col gap-4 rounded-xl border p-4"
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex flex-1 items-start gap-2">
-          <DragHandle
-            label={`Drag to reorder ${label}`}
-            attributes={attributes}
-            listeners={listeners}
-            isDragging={isDragging}
-          />
-          <div className="flex flex-1 flex-col gap-3">
-            <p className="text-muted-foreground text-xs">
-              {sectionNumberLabel}
-            </p>
-            {editing ? (
-              <>
-                <Field>
-                  <FieldLabel htmlFor={`${idPrefix}-name`}>
-                    Section name
-                  </FieldLabel>
-                  <Input
-                    id={`${idPrefix}-name`}
-                    placeholder="Optional, e.g. Sauce"
-                    {...register(`${prefix}.name`)}
-                  />
-                </Field>
-                <Field>
-                  <FieldLabel htmlFor={`${idPrefix}-guidance-note`}>
-                    Guidance note
-                  </FieldLabel>
-                  <Textarea
-                    id={`${idPrefix}-guidance-note`}
-                    placeholder="Optional, e.g. Best made one day ahead"
-                    className="min-h-8"
-                    {...register(`${prefix}.guidanceNote`)}
-                  />
-                </Field>
-              </>
-            ) : (
-              <div>
-                <h3 className="font-heading text-base font-medium">
-                  {sectionName || sectionNumberLabel}
-                </h3>
-                {guidanceNote && (
-                  <p className="text-muted-foreground text-xs italic">
-                    {guidanceNote}
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-        <ItemToolbar
-          label={label}
-          collapsed={!editing}
-          onToggleCollapsed={() => setEditing((prev) => !prev)}
-          onRemove={onRemove}
+      {/* Design remediation pass: full-width header row — drag handle far
+          left, a live numbered title, actions far right. The name/
+          guidance-note fields (when editing) move below, aligned with the
+          Ingredients/Instructions content rather than indented under this
+          row's own drag-handle column. */}
+      <div className="flex items-center gap-2">
+        <DragHandle
+          label={`Drag to reorder ${label}`}
+          attributes={attributes}
+          listeners={listeners}
+          isDragging={isDragging}
         />
+        <h3 className="font-heading text-foreground min-w-0 flex-1 truncate text-base font-medium">
+          {sectionNumberLabel}
+          {sectionName ? ` — ${sectionName}` : ""}
+        </h3>
+        <div className="flex shrink-0 items-center gap-0.5">
+          <ConvertSectionToPartDialog
+            prefix={prefix}
+            sectionLabel={label}
+            defaultName={sectionName || ""}
+            onConverted={onConvertToPart}
+          />
+          <ItemToolbar
+            label={label}
+            collapsed={!editing}
+            onToggleCollapsed={() => setEditing((prev) => !prev)}
+            onRemove={onRemove}
+          />
+        </div>
       </div>
 
-      <ConvertSectionToPartDialog
-        prefix={prefix}
-        sectionLabel={label}
-        defaultName={sectionName || ""}
-        onConverted={onConvertToPart}
-      />
+      {editing ? (
+        <>
+          <Field>
+            <FieldLabel htmlFor={`${idPrefix}-name`}>Section name</FieldLabel>
+            <Input
+              id={`${idPrefix}-name`}
+              placeholder="Optional, e.g. Sauce"
+              {...register(`${prefix}.name`)}
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor={`${idPrefix}-guidance-note`}>
+              Guidance note
+            </FieldLabel>
+            <Textarea
+              id={`${idPrefix}-guidance-note`}
+              placeholder="Optional, e.g. Best made one day ahead"
+              className="min-h-8"
+              {...register(`${prefix}.guidanceNote`)}
+            />
+          </Field>
+        </>
+      ) : (
+        guidanceNote && (
+          <p className="text-muted-foreground text-xs italic">{guidanceNote}</p>
+        )
+      )}
 
       {/* Slice 6 correction pass §4: view-first by default — concise
           formatted content, not empty editable fields. Editing (added
