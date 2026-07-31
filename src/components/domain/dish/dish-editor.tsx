@@ -86,6 +86,14 @@ const STAGE_LABEL: Record<(typeof stageValues)[number], string> = {
   ARCHIVED: "Archived",
 };
 
+// An effective 1× scale (unset, non-positive, or explicitly typed "1") is
+// stored as `null` — a preference-only field, not a second authored
+// quantity. Keeps the "unchanged effective 1×" case from producing an
+// unnecessary setDefaultScale call even when the user typed "1" by hand.
+function normalizeDefaultScale(value: number | null): number | null {
+  return value != null && value > 0 && value !== 1 ? value : null;
+}
+
 // Design remediation pass: edited alongside every other field in this one
 // form, but not part of `dishContentSchema`/`DishFormValues` — each keeps
 // its own existing non-material persistence path (`updateVersionNote`/
@@ -354,7 +362,10 @@ export function DishEditor({
   async function onSubmit(values: EditorFormValues) {
     setServerError(null);
     const { note, defaultScale, ...contentValues } = values;
-    const extras: EditorExtras = { note, defaultScale };
+    const extras: EditorExtras = {
+      note,
+      defaultScale: normalizeDefaultScale(defaultScale),
+    };
 
     const cleaned: DishFormValues = {
       ...contentValues,
@@ -592,6 +603,7 @@ export function DishEditor({
                         step="any"
                         aria-label="Default scale multiplier"
                         className="w-16"
+                        emptyDisplay="1"
                       />
                       <span aria-hidden="true">×</span>
                       <Button

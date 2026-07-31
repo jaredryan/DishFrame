@@ -471,8 +471,9 @@ field row is now one "Yield" `Field` containing the authored quantity/unit
 plus, when editing an existing Dish, a "Default scale" sub-block: a
 narrow numeric input, a literal `×`, Reset, and a live computed result
 (`${kindLabel} adjusted to ${authoredYield × scale} ${unit}`) — Reset
-returns the *draft* to 1× (clears the field), matching "Recipe adjusted
-to 3 servings" for `2 servings × 1.5`. `dish-detail-view.tsx`/
+returns the *draft* to 1× and the input visibly shows "1" (not blank;
+correction pass 2026-07-30), matching "Recipe adjusted to 3 servings" for
+`2 servings × 1.5`. `dish-detail-view.tsx`/
 `scaled-version-view.tsx` derive the same scale factor from `defaultScale`
 directly (no more `defaultBatchQuantity ?? yieldQuantity` fallback
 arithmetic). Prep/cook time fields became a compact `[input] minutes` row

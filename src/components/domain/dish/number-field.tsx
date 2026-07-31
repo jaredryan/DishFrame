@@ -62,15 +62,31 @@ function formatQuantityValue(
 function QuantityInput({
   value,
   onValueChange,
+  emptyDisplay,
+  onBlur,
   ...props
 }: {
   value: number | string | null | undefined;
   onValueChange: (value: number | null) => void;
+  // Display text to show in place of "" when the field's value is null —
+  // e.g. Default scale shows "1" for an unset/effective-1× value instead
+  // of a blank box, while the underlying form value stays `null`.
+  emptyDisplay?: string;
 } & Omit<
   React.ComponentProps<typeof Input>,
   "value" | "onChange" | "type" | "inputMode"
 >) {
-  const [text, setText] = React.useState(() => formatQuantityValue(value));
+  const display = React.useCallback(
+    (v: number | string | null | undefined) => {
+      const formatted = formatQuantityValue(v);
+      return formatted === "" && emptyDisplay !== undefined
+        ? emptyDisplay
+        : formatted;
+    },
+    [emptyDisplay],
+  );
+
+  const [text, setText] = React.useState(() => display(value));
   const skipNextSync = React.useRef(false);
 
   React.useEffect(() => {
@@ -78,8 +94,8 @@ function QuantityInput({
       skipNextSync.current = false;
       return;
     }
-    setText(formatQuantityValue(value));
-  }, [value]);
+    setText(display(value));
+  }, [value, display]);
 
   return (
     <Input
@@ -103,6 +119,12 @@ function QuantityInput({
           onValueChange(parsed);
         }
       }}
+      onBlur={(event) => {
+        if (emptyDisplay !== undefined && event.target.value.trim() === "") {
+          setText(emptyDisplay);
+        }
+        onBlur?.(event);
+      }}
     />
   );
 }
@@ -117,10 +139,12 @@ function QuantityInput({
 export function NumberField({
   name,
   className,
+  emptyDisplay,
   ...props
 }: {
   name: string;
   className?: string;
+  emptyDisplay?: string;
 } & Omit<
   React.ComponentProps<typeof Input>,
   "name" | "value" | "onChange" | "type"
@@ -134,6 +158,7 @@ export function NumberField({
       render={({ field }) => (
         <QuantityInput
           {...props}
+          emptyDisplay={emptyDisplay}
           className={className}
           value={field.value as number | string | null | undefined}
           onValueChange={field.onChange}

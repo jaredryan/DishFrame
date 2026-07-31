@@ -584,7 +584,7 @@ describe("DishEditor consolidated note and default scale", () => {
   // Slice 6A: the result text is always `authored yield quantity ×
   // default scale`, live-computed as the multiplier is edited — never a
   // second stored quantity/unit. Reset returns the draft to 1×.
-  it("computes the default-scale result text from yield × scale, and Reset returns it to 1×", async () => {
+  it("computes the default-scale result text from yield × scale, and Reset visibly returns the input to 1", async () => {
     const user = userEvent.setup();
     const dishWithYield = {
       ...existingDish,
@@ -596,11 +596,13 @@ describe("DishEditor consolidated note and default scale", () => {
     };
     render(<DishEditor kind="RECIPE" dish={dishWithYield} />);
 
+    const scaleInput = screen.getByLabelText("Default scale multiplier");
+    // A Dish with no stored custom defaultScale (null) displays "1", not blank.
+    expect(scaleInput).toHaveValue("1");
     expect(
       screen.getByText("Recipe adjusted to 2 servings"),
     ).toBeInTheDocument();
 
-    const scaleInput = screen.getByLabelText("Default scale multiplier");
     await user.clear(scaleInput);
     await user.type(scaleInput, "1.5");
 
@@ -610,10 +612,31 @@ describe("DishEditor consolidated note and default scale", () => {
 
     await user.click(screen.getByRole("button", { name: "Reset" }));
 
-    expect(scaleInput).toHaveValue("");
+    expect(scaleInput).toHaveValue("1");
     expect(
       screen.getByText("Recipe adjusted to 2 servings"),
     ).toBeInTheDocument();
+  });
+
+  it("displays a stored custom scale as-is", () => {
+    const dishWithCustomScale = { ...existingDish, defaultScale: 2 };
+    render(<DishEditor kind="RECIPE" dish={dishWithCustomScale} />);
+
+    expect(screen.getByLabelText("Default scale multiplier")).toHaveValue(
+      "2",
+    );
+  });
+
+  it("blurring an emptied input resolves the visible value back to 1", async () => {
+    const user = userEvent.setup();
+    const dishWithCustomScale = { ...existingDish, defaultScale: 2 };
+    render(<DishEditor kind="RECIPE" dish={dishWithCustomScale} />);
+
+    const scaleInput = screen.getByLabelText("Default scale multiplier");
+    await user.clear(scaleInput);
+    await user.tab();
+
+    expect(scaleInput).toHaveValue("1");
   });
 
   it("persists the default scale via setDefaultScale only when it changed", async () => {
@@ -621,6 +644,7 @@ describe("DishEditor consolidated note and default scale", () => {
     render(<DishEditor kind="RECIPE" dish={existingDish} />);
 
     const scaleInput = screen.getByLabelText("Default scale multiplier");
+    await user.clear(scaleInput);
     await user.type(scaleInput, "2");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
@@ -629,6 +653,37 @@ describe("DishEditor consolidated note and default scale", () => {
       dishId: "dish-1",
       defaultScale: 2,
     });
+  });
+
+  it("does not call setDefaultScale when an unset scale is explicitly typed as 1", async () => {
+    const user = userEvent.setup();
+    render(<DishEditor kind="RECIPE" dish={existingDish} />);
+
+    const scaleInput = screen.getByLabelText("Default scale multiplier");
+    await user.clear(scaleInput);
+    await user.type(scaleInput, "1");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await vi.waitFor(() => expect(mockedEditDish).toHaveBeenCalledTimes(1));
+    expect(mockedSetDefaultScale).not.toHaveBeenCalled();
+  });
+
+  it("clears the stored custom scale via setDefaultScale(null) when Reset is saved", async () => {
+    const user = userEvent.setup();
+    const dishWithCustomScale = { ...existingDish, defaultScale: 2 };
+    render(<DishEditor kind="RECIPE" dish={dishWithCustomScale} />);
+
+    await user.click(screen.getByRole("button", { name: "Reset" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await vi.waitFor(() => expect(mockedSetDefaultScale).toHaveBeenCalled());
+    expect(mockedSetDefaultScale).toHaveBeenCalledWith("RECIPE", {
+      dishId: "dish-1",
+      defaultScale: null,
+    });
+    expect(
+      screen.queryByText("How should this change be saved?"),
+    ).not.toBeInTheDocument();
   });
 });
 
