@@ -11,6 +11,8 @@ export const preferencesFormSchema = z.object({
 });
 
 export type PreferencesFormValues = z.infer<typeof preferencesFormSchema>;
+export type PrimaryRatingDisplayValue =
+  PreferencesFormValues["primaryRatingDisplay"];
 
 export type PreferencesFormState = {
   status: "idle" | "success" | "error";

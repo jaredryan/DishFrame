@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { StageBadge } from "@/components/domain/dish/stage-badge";
+import { RatingBadge } from "@/components/domain/dish/rating-badge";
 import { Badge } from "@/components/ui/badge";
 import {
   dishBasePath,
@@ -35,6 +36,7 @@ export function DishCompactCard({
       </span>
       <div className="flex flex-wrap items-center gap-1.5">
         <StageBadge stage={dish.stage} />
+        {dish.rating && <RatingBadge rating={dish.rating} />}
         {dish.cuisine && <Badge variant="outline">{dish.cuisine}</Badge>}
         <Badge variant="outline">
           Updated {dateFormatter.format(dish.updatedAt)}

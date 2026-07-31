@@ -1,9 +1,18 @@
-import { Clock, Flame, Gauge, Soup, UtensilsCrossed } from "lucide-react";
+import {
+  Clock,
+  Flame,
+  Gauge,
+  History,
+  Soup,
+  UtensilsCrossed,
+} from "lucide-react";
 import { Prisma } from "@/generated/prisma/client";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { Badge } from "@/components/ui/badge";
 import { StageBadge } from "@/components/domain/dish/stage-badge";
 import { DishDetailActions } from "@/components/domain/dish/dish-detail-actions";
+import { RatingBadge } from "@/components/domain/dish/rating-badge";
+import { RatingDetailDialog } from "@/components/domain/dish/rating-detail-dialog";
 import {
   ScaledVersionView,
   type ScaledSectionRow,
@@ -22,6 +31,12 @@ import {
   resolvePartLinkTrees,
   type PartLinkTree,
 } from "@/lib/sections/service";
+import { getLastCookedAt } from "@/lib/cooking/queries";
+import {
+  getRatingSummary,
+  computePrincipalRating,
+} from "@/lib/reviews/queries";
+import { prisma } from "@/lib/db/prisma";
 
 type DishDetail = Prisma.DishGetPayload<{ include: typeof dishDetailInclude }>;
 type VersionSectionRow = Prisma.SectionGetPayload<{
@@ -88,6 +103,40 @@ export async function DishDetailView({
   // PartLink target, so it can never have "usages" of its own.
   const usages =
     kind === "PART" ? await listCurrentPartUsages(dish.ownerId, dish.id) : null;
+
+  // Slice 9: principal rating (§36.4/§49.1-49.3), Last cooked (§41), and the
+  // "Starting point" inherited-context block for a duplicate (§19.4) — all
+  // read-time aggregates, never cached.
+  const [preference, ratingSummary, lastCookedAt] = await Promise.all([
+    prisma.userPreference.findUnique({
+      where: { userId: dish.ownerId },
+      select: { primaryRatingDisplay: true },
+    }),
+    getRatingSummary(dish.id, dish.currentVersionId),
+    getLastCookedAt(dish.ownerId, dish.id, kind),
+  ]);
+  const principalRating = computePrincipalRating(
+    ratingSummary,
+    dish.currentVersionId,
+    preference?.primaryRatingDisplay ?? "GROUP_AVERAGE",
+    {
+      sourceKind: dish.sourceKind,
+      sourceAggregateRating: decimalToNumber(dish.sourceAggregateRating),
+      sourceRatingCount: dish.sourceRatingCount,
+      sourceTitle: dish.sourceTitle,
+      sourceDishVersionLabel: dish.sourceDishVersionLabel,
+    },
+  );
+  const startingPoint =
+    dish.sourceKind === "DUPLICATE" && dish.sourceTitle
+      ? {
+          title: dish.sourceTitle,
+          versionLabel: dish.sourceDishVersionLabel ?? "—",
+          aggregateRating: decimalToNumber(dish.sourceAggregateRating),
+          ratingCount: dish.sourceRatingCount,
+          sessionCount: dish.sourceSessionCount,
+        }
+      : null;
 
   if (!version) {
     return (
@@ -159,7 +208,15 @@ export async function DishDetailView({
       <Badge variant="outline" className="tabular-nums">
         {versionLabel}
       </Badge>
+      {principalRating.kind !== "none" && (
+        <RatingBadge rating={principalRating} />
+      )}
       {dish.cuisine && <Badge variant="outline">{dish.cuisine}</Badge>}
+      <RatingDetailDialog
+        kindLabel={label as "Recipe" | "Part"}
+        summary={ratingSummary}
+        startingPoint={startingPoint}
+      />
     </div>
   );
 
@@ -184,8 +241,15 @@ export async function DishDetailView({
   const metadataChipsEl = (effectiveYieldQuantity != null ||
     version.prepTimeMinutes != null ||
     version.cookTimeMinutes != null ||
-    version.difficulty) && (
+    version.difficulty ||
+    lastCookedAt) && (
     <div className="flex flex-wrap gap-1.5">
+      {lastCookedAt && (
+        <Badge variant="outline" className="gap-1">
+          <History className="size-3" aria-hidden="true" />
+          Last cooked {lastCookedAt.toLocaleDateString()}
+        </Badge>
+      )}
       {effectiveYieldQuantity != null && (
         <Badge variant="outline" className="gap-1">
           <Soup className="size-3" aria-hidden="true" />

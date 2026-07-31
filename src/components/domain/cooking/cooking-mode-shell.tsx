@@ -40,6 +40,7 @@ import {
   type PlanUnit,
   type AddableUnit,
 } from "@/components/domain/cooking/cooking-plan-manager";
+import { CookingNotesField } from "@/components/domain/cooking/cooking-notes-field";
 import {
   useLiveTimers,
   type LiveTimer,
@@ -171,6 +172,8 @@ export function CookingModeShell({
   sourceOutputUnit,
   timerSoundEnabled,
   initialFocusedUnitId,
+  cookingNotes,
+  hasReview,
 }: {
   sessionId: string;
   state: "IN_PROGRESS" | "COMPLETED" | "ENDED_EARLY";
@@ -188,6 +191,8 @@ export function CookingModeShell({
   sourceOutputUnit: string | null;
   timerSoundEnabled: boolean;
   initialFocusedUnitId?: string | null;
+  cookingNotes: string | null;
+  hasReview: boolean;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = React.useTransition();
@@ -195,9 +200,7 @@ export function CookingModeShell({
   const [checkOverrides, setCheckOverrides] = React.useState<
     Record<string, boolean>
   >({});
-  const [confirmingEnd, setConfirmingEnd] = React.useState<
-    "COMPLETED" | "ENDED_EARLY" | null
-  >(null);
+  const [confirmingEnd, setConfirmingEnd] = React.useState(false);
   const [sessionScaleOpen, setSessionScaleOpen] = React.useState(false);
   const [pendingSessionScale, setPendingSessionScale] = React.useState<
     number | null
@@ -351,11 +354,14 @@ export function CookingModeShell({
     setError(null);
     startTransition(async () => {
       const result = await endCookingSession({ sessionId, outcome });
-      setConfirmingEnd(null);
+      setConfirmingEnd(false);
       if (result.status === "error") {
         setError(result.message);
       } else {
-        router.refresh();
+        // PRODUCT_SPEC.md §33.1/§42 "Ending": both outcomes offer an
+        // optional Review — the Review page's own "Not now" is what
+        // actually satisfies "creates no empty Review," not this redirect.
+        router.push(`/cook/${sessionId}/review`);
       }
     });
   }
@@ -404,18 +410,28 @@ export function CookingModeShell({
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setConfirmingEnd("ENDED_EARLY")}
+              onClick={() => setConfirmingEnd(true)}
               disabled={isPending}
             >
               End
             </Button>
           ) : (
-            <Link
-              href={dishKind ? `${dishBasePath(dishKind)}/${dishId}` : "/cook"}
-              className="text-primary shrink-0 text-sm hover:underline"
-            >
-              View source
-            </Link>
+            <div className="flex shrink-0 items-center gap-3">
+              <Link
+                href={`/cook/${sessionId}/review`}
+                className="text-primary text-sm hover:underline"
+              >
+                {hasReview ? "Edit Review" : "Add Review"}
+              </Link>
+              <Link
+                href={
+                  dishKind ? `${dishBasePath(dishKind)}/${dishId}` : "/cook"
+                }
+                className="text-primary text-sm hover:underline"
+              >
+                View source
+              </Link>
+            </div>
           )}
         </div>
 
@@ -498,6 +514,10 @@ export function CookingModeShell({
       )}
 
       {error && <p className="text-destructive px-4 pt-2 text-sm">{error}</p>}
+
+      <div className="px-4 pt-3">
+        <CookingNotesField sessionId={sessionId} initialNotes={cookingNotes} />
+      </div>
 
       {activeUnits.length > 1 && (
         <div className="flex gap-2 overflow-x-auto px-4 py-3">
@@ -825,41 +845,32 @@ export function CookingModeShell({
       </Dialog>
 
       <Dialog
-        open={confirmingEnd != null}
-        onOpenChange={(open) => !open && setConfirmingEnd(null)}
+        open={confirmingEnd}
+        onOpenChange={(open) => !open && setConfirmingEnd(false)}
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>
-              {confirmingEnd === "COMPLETED"
-                ? "Finish this Cooking Session?"
-                : "End this Cooking Session early?"}
-            </DialogTitle>
+            <DialogTitle>End this Cooking Session?</DialogTitle>
             <DialogDescription>
               {hasRunningTimer &&
                 "A timer is still running — ending the session stops it and preserves its state. "}
-              {confirmingEnd === "COMPLETED"
-                ? "Marks this session as completed. This preserves everything recorded so far."
-                : "Marks this session as ended early. Partial progress is preserved and can still be reviewed."}
+              Finish marks it completed; End early preserves partial progress
+              for review. Either way, everything recorded so far is kept.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="flex-wrap">
-            <Button variant="outline" onClick={() => setConfirmingEnd(null)}>
+            <Button variant="outline" onClick={() => setConfirmingEnd(false)}>
               Keep cooking
             </Button>
-            {confirmingEnd === "ENDED_EARLY" && (
-              <Button
-                variant="outline"
-                onClick={() => setConfirmingEnd("COMPLETED")}
-              >
-                Finish instead
-              </Button>
-            )}
             <Button
-              onClick={() => confirmingEnd && handleEnd(confirmingEnd)}
+              variant="outline"
+              onClick={() => handleEnd("ENDED_EARLY")}
               disabled={isPending}
             >
-              {confirmingEnd === "COMPLETED" ? "Finish session" : "End early"}
+              End early
+            </Button>
+            <Button onClick={() => handleEnd("COMPLETED")} disabled={isPending}>
+              Finish session
             </Button>
           </DialogFooter>
         </DialogContent>

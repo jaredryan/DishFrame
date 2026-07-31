@@ -493,6 +493,134 @@ export async function buildCookableUnits(
   });
 }
 
+/**
+ * PRODUCT_SPEC.md §23.4/§41.3/§41.4 — is `targetDishId` reachable by walking
+ * the immutable `PartLink` graph down from `fromVersionId` (a Part Version
+ * that was itself directly included in a session)? Mirrors
+ * `flattenPartChecklist`'s recursive descent — each `PartLink` row is
+ * pinned to the exact Version that authored it, so this stays correct after
+ * later edits to the Recipe or any Part (§41's "remain correct after later
+ * edits") without needing to store nested identity on the session itself.
+ */
+async function partIsNestedInVersion(
+  fromVersionId: string,
+  targetDishId: string,
+  visited: Set<string>,
+  depth: number,
+): Promise<boolean> {
+  if (depth >= MAX_PART_FLATTEN_DEPTH || visited.has(fromVersionId)) {
+    return false;
+  }
+  const links = await prisma.partLink.findMany({
+    where: { containerVersionId: fromVersionId },
+    select: { targetDishId: true, targetDishVersionId: true },
+  });
+  const nextVisited = new Set(visited);
+  nextVisited.add(fromVersionId);
+  for (const link of links) {
+    if (!link.targetDishId || !link.targetDishVersionId) continue;
+    if (link.targetDishId === targetDishId) return true;
+    if (
+      await partIsNestedInVersion(
+        link.targetDishVersionId,
+        targetDishId,
+        nextVisited,
+        depth + 1,
+      )
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * PRODUCT_SPEC.md §41.1/§41.3/§41.4 — Last cooked, computed at read time
+ * from stored session evidence rather than a denormalized field. A Recipe's
+ * value comes only from its own Completed sessions (full or partial;
+ * Ended-early never counts, §41.2). A Part's value additionally considers
+ * every Completed Recipe session that used this exact Part Version, at any
+ * nesting depth (§23.4's Recipe → Sauce → Garlic Paste example) — resolved
+ * by matching each session's own `dishVersionId` (the container Version
+ * actually cooked) against `PartLink.containerVersionId`, keyed by an
+ * *included* unit's own `sourcePartLinkLineageId` snapshot (a
+ * `CookingSessionUnit` never stores the target Part's `dishId` directly,
+ * Correction 3), then walking down from that directly-linked Part's own
+ * Version via `partIsNestedInVersion` for any deeper match. No duplicate
+ * standalone Part session is ever created for this usage (§41.4), so this
+ * join is the only way to surface it.
+ */
+export async function getLastCookedAt(
+  ownerId: string,
+  dishId: string,
+  kind: "RECIPE" | "PART",
+): Promise<Date | null> {
+  const standalone = await prisma.cookingSession.findFirst({
+    where: { dishId, state: "COMPLETED" },
+    orderBy: { endedAt: "desc" },
+    select: { endedAt: true },
+  });
+
+  if (kind === "RECIPE") {
+    return standalone?.endedAt ?? null;
+  }
+
+  // Only *included* units count as actually cooked (a unit removed from the
+  // plan before it had any progress was never part of what was made).
+  const units = await prisma.cookingSessionUnit.findMany({
+    where: {
+      removedAt: null,
+      sourcePartLinkLineageId: { not: null },
+      session: { ownerId, state: "COMPLETED" },
+    },
+    select: {
+      sourcePartLinkLineageId: true,
+      session: { select: { dishVersionId: true, endedAt: true } },
+    },
+  });
+
+  let latestUsage: Date | null = null;
+  for (const unit of units) {
+    if (!unit.session.endedAt) continue;
+    if (latestUsage && unit.session.endedAt <= latestUsage) continue;
+
+    const rootLink = await prisma.partLink.findFirst({
+      where: {
+        containerVersionId: unit.session.dishVersionId,
+        lineageId: unit.sourcePartLinkLineageId!,
+      },
+      select: { targetDishId: true, targetDishVersionId: true },
+    });
+    if (!rootLink?.targetDishId || !rootLink.targetDishVersionId) continue;
+
+    const matches =
+      rootLink.targetDishId === dishId ||
+      (await partIsNestedInVersion(
+        rootLink.targetDishVersionId,
+        dishId,
+        new Set(),
+        0,
+      ));
+    if (matches) {
+      latestUsage = unit.session.endedAt;
+    }
+  }
+
+  const candidates = [standalone?.endedAt, latestUsage].filter(
+    (d): d is Date => d != null,
+  );
+  if (candidates.length === 0) return null;
+  return candidates.reduce((a, b) => (a > b ? a : b));
+}
+
+/** PRODUCT_SPEC.md §40.3: "meaningful use" evidence behind a Stage
+ * suggestion — every session that reached an outcome, Ended-early included. */
+export function countFinishedSessionsForDish(dishId: string) {
+  return prisma.cookingSession.count({
+    where: { dishId, state: { in: ["COMPLETED", "ENDED_EARLY"] } },
+  });
+}
+
 const QUANTITY_CONFLICT_TOLERANCE = 0.01;
 
 export type ChecklistItemConflict =

@@ -32,12 +32,21 @@ export const dishCardSelect = {
   cuisine: true,
   archivedAt: true,
   currentTitle: true,
+  currentVersionId: true,
   createdAt: true,
   updatedAt: true,
   // Design remediation pass: the library grid renders the current
   // Version's image, when set — fetched here so `listDishes` stays the
   // one query the library page needs, not a second per-card round trip.
   currentVersion: { select: { imageAssetId: true } },
+  // Slice 9: the duplication-time rating snapshot (§19.1), read alongside
+  // everything else the card needs so the library page can batch-resolve
+  // every card's principal rating in one extra query rather than N.
+  sourceKind: true,
+  sourceAggregateRating: true,
+  sourceRatingCount: true,
+  sourceTitle: true,
+  sourceDishVersionLabel: true,
 } as const;
 
 export const sectionContentInclude = {
@@ -246,6 +255,22 @@ export async function getHighestMinorVersion(
     _max: { minorVersion: true },
   });
   return result._max.minorVersion ?? 0;
+}
+
+/**
+ * PRODUCT_SPEC.md §39.5 — the editor's "you're editing a historical Version"
+ * banner needs the *current* Version's own label, not just the base being
+ * edited. Returns null when there's no current Version to compare against.
+ */
+export async function getDishVersionMajorMinor(
+  dishId: string,
+  versionId: string | null,
+): Promise<{ majorVersion: number; minorVersion: number } | null> {
+  if (!versionId) return null;
+  return prisma.dishVersion.findFirst({
+    where: { id: versionId, dishId },
+    select: { majorVersion: true, minorVersion: true },
+  });
 }
 
 /**

@@ -2518,11 +2518,18 @@ Do not expose unnecessary precision such as:
 
 Ratings are optional.
 
-A Taster may:
+A Taster either:
 
-- receive a rating;
-- be recorded as present without a rating;
-- be omitted from the Review entirely.
+- has a saved 1–5-star rating for the session; or
+- has no saved rating for the session.
+
+DishFrame does not distinguish, or persist, whether an unrated Taster was
+present and declined to rate versus not present at all — that distinction
+does not affect rating summaries, Version evidence, or the learning loop,
+and Tier 1 does not track Taster attendance separately from a rating.
+Clearing a previously entered rating (e.g., tapping the same star again)
+simply leaves that Taster with no saved rating for the session; it does not
+create or preserve a separate attendance record.
 
 Each Taster may have at most one rating per session for a given rated item.
 

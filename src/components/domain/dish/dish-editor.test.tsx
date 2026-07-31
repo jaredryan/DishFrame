@@ -792,3 +792,92 @@ describe("DishEditor linked-Part inline rendering", () => {
     expect(screen.queryByLabelText("Ingredient name")).not.toBeInTheDocument();
   });
 });
+
+// PRODUCT_SPEC.md §39.5 — feedback-assisted editing from a historical
+// cooked Version: the banner must identify both the Version being edited
+// and the Dish's actual current Version.
+describe("DishEditor historical Version identification", () => {
+  it("identifies both the cooked Version and the current Version when editing a historical base", () => {
+    render(
+      <DishEditor
+        kind="RECIPE"
+        dish={{
+          ...existingDish,
+          isCurrent: false,
+          currentMajorVersion: 2,
+          currentMinorVersion: 0,
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByText(/You're editing V1\.0 — the current version is V2\.0/),
+    ).toBeInTheDocument();
+  });
+
+  it("falls back to a generic notice when the current Version's label isn't available", () => {
+    render(
+      <DishEditor kind="RECIPE" dish={{ ...existingDish, isCurrent: false }} />,
+    );
+
+    expect(
+      screen.getByText(/You're editing V1\.0, not the current version/),
+    ).toBeInTheDocument();
+  });
+});
+
+// PRODUCT_SPEC.md §39.4 — evidence access while editing from a Cooking
+// Session/Review, without discarding unsaved edits.
+describe("DishEditor session evidence", () => {
+  const evidence = {
+    sessionId: "session-1",
+    outcome: "COMPLETED" as const,
+    endedAt: "2026-01-01T00:00:00.000Z",
+    cookedVersionLabel: "V1.0",
+    cookingNotes: "Used a bigger pot.",
+    review: {
+      whatWentWell: "Great texture",
+      whatDidNotGoWell: null,
+      anythingElse: null,
+      actualAmountQuantity: null,
+      actualAmountUnit: null,
+      reviewAdjustedDurationSeconds: null,
+    },
+    ratings: [{ tasterName: "You", isOwner: true, value: 5 }],
+  };
+
+  it("shows the trigger only when evidence is present", () => {
+    const { unmount } = render(
+      <DishEditor kind="RECIPE" dish={{ ...existingDish, evidence: null }} />,
+    );
+    expect(
+      screen.queryByRole("button", { name: "View session evidence" }),
+    ).not.toBeInTheDocument();
+    unmount();
+
+    render(<DishEditor kind="RECIPE" dish={{ ...existingDish, evidence }} />);
+    expect(
+      screen.getByRole("button", { name: "View session evidence" }),
+    ).toBeInTheDocument();
+  });
+
+  it("opens and closes the evidence Sheet without resetting unsaved form edits", async () => {
+    const user = userEvent.setup();
+    render(<DishEditor kind="RECIPE" dish={{ ...existingDish, evidence }} />);
+
+    const titleInput = screen.getByLabelText("Recipe title");
+    await user.clear(titleInput);
+    await user.type(titleInput, "Edited while reviewing evidence");
+
+    await user.click(
+      screen.getByRole("button", { name: "View session evidence" }),
+    );
+    expect(await screen.findByText("Great texture")).toBeInTheDocument();
+    expect(screen.getByText("Used a bigger pot.")).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByText("Great texture")).not.toBeInTheDocument();
+
+    expect(titleInput).toHaveValue("Edited while reviewing evidence");
+  });
+});

@@ -42,6 +42,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
+import { Badge } from "@/components/ui/badge";
 import { NumberField } from "@/components/domain/dish/number-field";
 import { SectionFields } from "@/components/domain/dish/section-fields";
 import { CuisineField } from "@/components/domain/dish/cuisine-field";
@@ -103,6 +111,27 @@ type EditorExtras = {
 };
 type EditorFormValues = DishFormValues & EditorExtras;
 
+// PRODUCT_SPEC.md §39.4/§39.5 — the read-only evidence a Cooking Session or
+// Review's "Edit Recipe"/"Edit Part" action can hand the editor. Shown in a
+// Sheet the form never reacts to (§39.4: "accessible without losing unsaved
+// edits") — never merged into form state, never copied into content fields.
+export type EditorSessionEvidence = {
+  sessionId: string;
+  outcome: "COMPLETED" | "ENDED_EARLY";
+  endedAt: Date | string | null;
+  cookedVersionLabel: string;
+  cookingNotes: string | null;
+  review: {
+    whatWentWell: string | null;
+    whatDidNotGoWell: string | null;
+    anythingElse: string | null;
+    actualAmountQuantity: number | null;
+    actualAmountUnit: string | null;
+    reviewAdjustedDurationSeconds: number | null;
+  } | null;
+  ratings: Array<{ tasterName: string; isOwner: boolean; value: number }>;
+};
+
 export function DishEditor({
   kind,
   dish,
@@ -114,7 +143,9 @@ export function DishEditor({
     // The Version this edit is based on — any saved Version belonging to
     // the Dish (Slice 4 correction pass §1: not restricted to the current
     // Version or to a major line's latest minor), reached from that
-    // Version's own detail page (PRODUCT_SPEC.md §13.4/§13.7).
+    // Version's own detail page (PRODUCT_SPEC.md §13.4/§13.7) or from a
+    // Session Review's "Edit Recipe"/"Edit Part" action pinned to the exact
+    // cooked Version (§39.5).
     baseVersionId: string;
     baseMajorVersion: number;
     baseMinorVersion: number;
@@ -132,6 +163,12 @@ export function DishEditor({
     // decide whether to show the "you're not editing the current version"
     // banner below, independent of which major line it's in.
     isCurrent: boolean;
+    // The Dish's actual current Version label, shown alongside the base
+    // being edited whenever they differ (§39.5's "clearly identifies the
+    // cooked Version [and] the current Version"). Omitted/null when
+    // `isCurrent`, or when the caller doesn't have it on hand.
+    currentMajorVersion?: number | null;
+    currentMinorVersion?: number | null;
     values: DishFormValues;
     // Design remediation pass: the consolidated editor is now the one place
     // to edit these, alongside title/description/image/etc — previously
@@ -143,6 +180,9 @@ export function DishEditor({
     // *where* they're edited changed, not how they're saved.
     note: string | null;
     defaultScale: number | null;
+    // Present only when reached via a Cooking Session/Review's Edit action
+    // for a session that belongs to this Dish (§39.4).
+    evidence?: EditorSessionEvidence | null;
   };
   cuisineOptions?: string[];
 }) {
@@ -481,10 +521,21 @@ export function DishEditor({
         {editingNonCurrentVersion && dish && (
           <p className="border-border bg-card text-muted-foreground rounded-lg border px-3 py-2 text-sm">
             You&apos;re editing V{dish.baseMajorVersion}.{dish.baseMinorVersion}
-            , not the current version. Saving as a refinement adds V
-            {dish.baseMajorVersion}.{dish.nextMinorVersion} to this direction;
-            starting a new version makes it the current version.
+            {dish.currentMajorVersion != null &&
+            dish.currentMinorVersion != null
+              ? ` — the current version is V${dish.currentMajorVersion}.${dish.currentMinorVersion}`
+              : ", not the current version"}
+            . Saving as a refinement adds V{dish.baseMajorVersion}.
+            {dish.nextMinorVersion} to this direction; starting a new version
+            makes it the current version.
           </p>
+        )}
+
+        {dish?.evidence && (
+          <SessionEvidenceTrigger
+            evidence={dish.evidence}
+            kindLabel={kindLabel}
+          />
         )}
 
         <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-6">
@@ -846,5 +897,126 @@ export function DishEditor({
         </DialogContent>
       </Dialog>
     </FormProvider>
+  );
+}
+
+/**
+ * PRODUCT_SPEC.md §39.4 — quick, read-only access to the Cooking Session
+ * that led here, without leaving the editor or touching form state. The
+ * Sheet's own open/closed state is independent of `useForm`'s state, so
+ * opening or closing it never resets in-progress edits.
+ */
+function SessionEvidenceTrigger({
+  evidence,
+  kindLabel,
+}: {
+  evidence: EditorSessionEvidence;
+  kindLabel: string;
+}) {
+  const endedAtLabel = evidence.endedAt
+    ? new Date(evidence.endedAt).toLocaleDateString()
+    : null;
+  const hasReviewText =
+    !!evidence.review?.whatWentWell ||
+    !!evidence.review?.whatDidNotGoWell ||
+    !!evidence.review?.anythingElse;
+
+  return (
+    <Sheet>
+      <SheetTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="self-start"
+        >
+          View session evidence
+        </Button>
+      </SheetTrigger>
+      <SheetContent className="overflow-y-auto">
+        <SheetHeader>
+          <SheetTitle>Session evidence</SheetTitle>
+        </SheetHeader>
+        <div className="flex flex-col gap-4 px-4 pb-4 text-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="outline">
+              {evidence.outcome === "COMPLETED" ? "Completed" : "Ended early"}
+            </Badge>
+            <Badge variant="outline" className="tabular-nums">
+              {evidence.cookedVersionLabel}
+            </Badge>
+            {endedAtLabel && (
+              <span className="text-muted-foreground">{endedAtLabel}</span>
+            )}
+          </div>
+
+          {evidence.cookingNotes && (
+            <div className="flex flex-col gap-1">
+              <p className="text-foreground font-medium">Cooking notes</p>
+              <p className="text-muted-foreground whitespace-pre-wrap">
+                {evidence.cookingNotes}
+              </p>
+            </div>
+          )}
+
+          {hasReviewText && (
+            <div className="flex flex-col gap-3">
+              {evidence.review?.whatWentWell && (
+                <div className="flex flex-col gap-1">
+                  <p className="text-foreground font-medium">What went well</p>
+                  <p className="text-muted-foreground whitespace-pre-wrap">
+                    {evidence.review.whatWentWell}
+                  </p>
+                </div>
+              )}
+              {evidence.review?.whatDidNotGoWell && (
+                <div className="flex flex-col gap-1">
+                  <p className="text-foreground font-medium">
+                    What did not go well
+                  </p>
+                  <p className="text-muted-foreground whitespace-pre-wrap">
+                    {evidence.review.whatDidNotGoWell}
+                  </p>
+                </div>
+              )}
+              {evidence.review?.anythingElse && (
+                <div className="flex flex-col gap-1">
+                  <p className="text-foreground font-medium">Anything else</p>
+                  <p className="text-muted-foreground whitespace-pre-wrap">
+                    {evidence.review.anythingElse}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {evidence.ratings.length > 0 && (
+            <div className="flex flex-col gap-1">
+              <p className="text-foreground font-medium">Ratings</p>
+              <ul className="flex flex-col gap-1">
+                {evidence.ratings.map((rating, index) => (
+                  <li
+                    key={index}
+                    className="text-muted-foreground flex items-center justify-between"
+                  >
+                    <span>{rating.isOwner ? "You" : rating.tasterName}</span>
+                    <span className="tabular-nums">{rating.value}/5</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {!evidence.cookingNotes &&
+            !hasReviewText &&
+            evidence.ratings.length === 0 && (
+              <p className="text-muted-foreground">
+                No notes or ratings were recorded for this{" "}
+                {kindLabel.toLowerCase()}&apos;s session.
+              </p>
+            )}
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 }

@@ -21,6 +21,7 @@ import {
   bestEffortDeleteBlob,
 } from "@/lib/images/service";
 import { decimalToNumber } from "@/lib/dishes/format";
+import { getDuplicationRatingSnapshot } from "@/lib/reviews/queries";
 import { versionContentToInput } from "@/lib/dishes/mappers";
 import {
   seedMajorVersionNote,
@@ -1340,6 +1341,12 @@ export async function duplicateDish(
   const title = `Copy of ${stableSourceTitle}`;
   const sourceLabel = `V${sourceVersion.majorVersion}.${sourceVersion.minorVersion}`;
 
+  // PRODUCT_SPEC.md §19.1: a static starting-point snapshot, captured once
+  // here and never refreshed afterward (§19.2) — the source's own aggregate
+  // rating/count at this exact moment, used as this duplicate's provisional
+  // principal rating until it earns a genuine rating of its own (§36.5).
+  const ratingSnapshot = await getDuplicationRatingSnapshot(dish.id);
+
   return prisma.$transaction(async (tx) => {
     const newDish = await tx.dish.create({
       data: {
@@ -1352,6 +1359,9 @@ export async function duplicateDish(
         sourceDishId: dish.id,
         sourceDishVersionLabel: sourceLabel,
         sourceTitle: stableSourceTitle,
+        sourceAggregateRating: ratingSnapshot.aggregateRating,
+        sourceRatingCount: ratingSnapshot.ratingCount,
+        sourceSessionCount: ratingSnapshot.sessionCount,
       },
     });
 

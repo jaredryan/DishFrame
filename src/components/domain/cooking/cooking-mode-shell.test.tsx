@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
   CookingModeShell,
@@ -31,6 +31,10 @@ vi.mock("@/lib/cooking/actions", () => ({
   restoreSessionUnit: vi.fn(async () => ({ status: "success" })),
   reorderSessionUnits: vi.fn(async () => ({ status: "success" })),
   deleteCookingSession: vi.fn(async () => ({ status: "success" })),
+}));
+
+vi.mock("@/lib/reviews/actions", () => ({
+  updateCookingNotes: vi.fn(async () => ({ status: "success" })),
 }));
 
 const mockedToggle = vi.mocked(toggleChecklistItem);
@@ -69,6 +73,8 @@ const baseProps = {
   sourceOutputQuantity: null,
   sourceOutputUnit: null,
   timerSoundEnabled: true,
+  cookingNotes: null,
+  hasReview: false,
 };
 
 /**
@@ -235,6 +241,10 @@ describe("CookingModeShell", () => {
     expect(screen.getByText("Session ×2")).toBeInTheDocument();
     expect(screen.getByText("This unit ×1.5")).toBeInTheDocument();
     expect(screen.getByText("Effective ×3")).toBeInTheDocument();
-    expect(screen.getByRole("textbox")).toHaveValue("6");
+    // Cooking notes' own textarea also has role "textbox" — scope to the
+    // open scale dialog, which contains exactly one.
+    expect(within(screen.getByRole("dialog")).getByRole("textbox")).toHaveValue(
+      "6",
+    );
   });
 });

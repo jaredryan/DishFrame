@@ -2,7 +2,9 @@ import Link from "next/link";
 import { UtensilsCrossed } from "lucide-react";
 import { Card, CardContent, CardTitle } from "@/components/ui/card";
 import { StageBadge } from "@/components/domain/dish/stage-badge";
+import { RatingBadge } from "@/components/domain/dish/rating-badge";
 import type { DishKindValue, StageValue } from "@/lib/dishes/schema";
+import type { PrincipalRating } from "@/lib/reviews/queries";
 
 export type DishCardItem = {
   id: string;
@@ -11,6 +13,7 @@ export type DishCardItem = {
   cuisine: string | null;
   updatedAt: Date;
   imageAssetId: string | null;
+  rating?: PrincipalRating;
 };
 
 // Shared with dish-compact-card.tsx, the other library view of the same data.
@@ -60,6 +63,7 @@ export function DishCard({
           </CardTitle>
           <div className="flex flex-wrap items-center gap-1.5">
             <StageBadge stage={dish.stage} />
+            {dish.rating && <RatingBadge rating={dish.rating} />}
             {dish.cuisine && (
               <span className="text-muted-foreground text-xs">
                 {dish.cuisine}

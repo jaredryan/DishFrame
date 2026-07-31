@@ -134,6 +134,30 @@ export async function restoreDish(
   }
 }
 
+/**
+ * PRODUCT_SPEC.md §40: the learning loop's "Change Stage" action and Stage-
+ * progression suggestion confirmation both land here — a direct,
+ * user-confirmed Stage change, never triggered automatically (§40.2).
+ * Shares `restoreDishSchema`'s shape (same restorable Stage set) since both
+ * are an ordinary Stage/archive-only change with no Version created.
+ */
+export async function updateDishStage(
+  kind: DishKindValue,
+  values: { dishId: string; stage: string },
+): Promise<DishActionState> {
+  try {
+    const userId = await requireUserId();
+    const { dishId, stage } = restoreDishSchema.parse(values);
+
+    await dishService.updateDishStage(userId, dishId, stage, kind);
+
+    revalidateDish(kind, dishId);
+    return { status: "success", dishId, message: "Stage updated." };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
 export async function duplicateDish(
   kind: DishKindValue,
   values: { dishId: string; sourceVersionId?: string },

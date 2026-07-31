@@ -4,10 +4,12 @@ import { getServerSession } from "@/lib/auth/session";
 import {
   getOwnedDishOrThrow,
   getDishScopedVersionContentOrThrow,
+  getDishVersionMajorMinor,
   getHighestMajorVersion,
   getHighestMinorVersion,
   listDistinctCuisines,
 } from "@/lib/dishes/queries";
+import { getSessionEvidenceForEditor } from "@/lib/reviews/queries";
 import { NotFoundError } from "@/lib/errors";
 import { DishEditor } from "@/components/domain/dish/dish-editor";
 import { dishToFormValues } from "@/components/domain/dish/dish-form-values";
@@ -22,7 +24,7 @@ export default async function EditRecipePage({
   searchParams,
 }: {
   params: Promise<{ dishId: string }>;
-  searchParams: Promise<{ versionId?: string }>;
+  searchParams: Promise<{ versionId?: string; sessionId?: string }>;
 }) {
   const session = await getServerSession();
   if (!session) {
@@ -30,7 +32,7 @@ export default async function EditRecipePage({
   }
 
   const { dishId } = await params;
-  const { versionId } = await searchParams;
+  const { versionId, sessionId } = await searchParams;
 
   let dish, version, highestMajorVersion, highestMinorInBaseLine;
   try {
@@ -55,7 +57,18 @@ export default async function EditRecipePage({
     throw error;
   }
 
+  const isCurrent = version.id === dish.currentVersionId;
   const cuisineOptions = await listDistinctCuisines(session.user.id, "RECIPE");
+  const currentVersion = isCurrent
+    ? null
+    : await getDishVersionMajorMinor(dish.id, dish.currentVersionId);
+  // PRODUCT_SPEC.md §39.5: only trust a `sessionId` deep-link when it
+  // actually belongs to this Dish — otherwise silently drop it rather than
+  // surface another item's evidence.
+  const evidenceRaw = sessionId
+    ? await getSessionEvidenceForEditor(session.user.id, sessionId)
+    : null;
+  const evidence = evidenceRaw?.dishId === dish.id ? evidenceRaw : null;
 
   return (
     <DishEditor
@@ -72,7 +85,9 @@ export default async function EditRecipePage({
         // since the base may be an older saved minor with later ones
         // already existing in the same line.
         nextMinorVersion: highestMinorInBaseLine + 1,
-        isCurrent: version.id === dish.currentVersionId,
+        isCurrent,
+        currentMajorVersion: currentVersion?.majorVersion ?? null,
+        currentMinorVersion: currentVersion?.minorVersion ?? null,
         note: version.versionNote,
         defaultScale: decimalToNumber(dish.defaultScale),
         values: dishToFormValues({
@@ -81,6 +96,7 @@ export default async function EditRecipePage({
           currentTitle: dish.currentTitle,
           version,
         }),
+        evidence,
       }}
     />
   );

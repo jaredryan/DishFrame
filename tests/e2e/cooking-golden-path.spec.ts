@@ -101,6 +101,7 @@ test.describe("Cooking: setup, start, edit active plan, end early", () => {
     // dev-mode compile cost for that route (observed ~6s) on top of the
     // network round trip — a known cause of slowness, not a hang.
     await expect(page).toHaveURL(/\/cook\/[^/]+$/, { timeout: 15_000 });
+    const sessionId = page.url().match(/\/cook\/([^/]+)/)![1];
     await expect(page.getByRole("heading", { name: "Prep" })).toBeVisible();
     await expect(page.getByText("Ginger")).toBeVisible();
 
@@ -122,12 +123,17 @@ test.describe("Cooking: setup, start, edit active plan, end early", () => {
     ).not.toBeVisible();
     await page.getByRole("button", { name: "Done" }).click();
 
-    // --- End early: partial progress is preserved, state updates ---
+    // --- End early: redirected to the optional Review (§30.2); "Not now"
+    // returns to the session with partial progress preserved and state
+    // updated ---
     await page.getByRole("button", { name: "End" }).click();
     await page
       .getByRole("dialog")
       .getByRole("button", { name: "End early" })
       .click();
+    await expect(page).toHaveURL(`/cook/${sessionId}/review`);
+    await page.getByRole("link", { name: "Not now" }).click();
+    await expect(page).toHaveURL(`/cook/${sessionId}`);
     await expect(page.getByText("Ended early")).toBeVisible();
     await expect(page.getByRole("button", { name: "End" })).not.toBeVisible();
   });

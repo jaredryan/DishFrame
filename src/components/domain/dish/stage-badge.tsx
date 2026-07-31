@@ -5,7 +5,7 @@ import type { StageValue } from "@/lib/dishes/schema";
 // PRODUCT_SPEC.md §5.3 / BRANDING.md §5.3 — Stage is user-facing "Recipe
 // Status" language, with the evolution-purple/positive-green accents
 // BRANDING.md §6 assigns (Proven/Active read as "what works").
-const STAGE_LABEL: Record<StageValue, string> = {
+export const STAGE_LABEL: Record<StageValue, string> = {
   IDEA: "Idea",
   EXPERIMENTAL: "Experimental",
   PROVEN: "Proven",

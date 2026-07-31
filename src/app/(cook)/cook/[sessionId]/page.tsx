@@ -44,10 +44,16 @@ export default async function CookingModePage({
     cookingSession.dishId,
     cookingSession.dishVersionId,
   );
-  const preference = await prisma.userPreference.findUnique({
-    where: { userId: session.user.id },
-    select: { timerSoundEnabled: true },
-  });
+  const [preference, review] = await Promise.all([
+    prisma.userPreference.findUnique({
+      where: { userId: session.user.id },
+      select: { timerSoundEnabled: true },
+    }),
+    prisma.sessionReview.findUnique({
+      where: { sessionId: cookingSession.id },
+      select: { sessionId: true },
+    }),
+  ]);
 
   const isActive = cookingSession.state === "IN_PROGRESS";
   const sessionMultiplier = decimalToNumber(cookingSession.scaleFactor) ?? 1;
@@ -147,6 +153,8 @@ export default async function CookingModePage({
       sourceOutputUnit={sourceOutputUnit}
       timerSoundEnabled={preference?.timerSoundEnabled ?? true}
       initialFocusedUnitId={focusedUnitIdParam ?? null}
+      cookingNotes={cookingSession.cookingNotes}
+      hasReview={review != null}
     />
   );
 }
