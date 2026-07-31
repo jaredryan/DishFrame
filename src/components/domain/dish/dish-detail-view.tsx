@@ -13,7 +13,6 @@ import { dishBasePath } from "@/components/domain/dish/dish-card";
 import type { DishKindValue } from "@/lib/dishes/schema";
 import {
   listCurrentPartUsages,
-  listAttachableParts,
   type dishDetailInclude,
   type sectionContentInclude,
 } from "@/lib/dishes/queries";
@@ -89,10 +88,6 @@ export async function DishDetailView({
   // PartLink target, so it can never have "usages" of its own.
   const usages =
     kind === "PART" ? await listCurrentPartUsages(dish.ownerId, dish.id) : null;
-  // §74.2: replacement candidates for the delete-resolution flow, excluding
-  // this Part itself.
-  const attachableParts =
-    kind === "PART" ? await listAttachableParts(dish.ownerId, dish.id) : [];
 
   if (!version) {
     return (
@@ -135,10 +130,23 @@ export async function DishDetailView({
   const effectiveYieldQuantity =
     yieldQuantity != null ? yieldQuantity * effectiveScale : null;
 
-  const titleEl = (
-    <h1 className="font-heading text-foreground text-2xl font-semibold [grid-area:title]">
-      {displayTitle}
-    </h1>
+  // Slice 6A browser-review correction pass: title and actions always
+  // share one ordinary flex row, at every breakpoint — never a separate
+  // grid column/row, never pushed below the chips on mobile.
+  const titleRowEl = (
+    <div className="flex items-start justify-between gap-3">
+      <h1 className="font-heading text-foreground min-w-0 text-2xl font-semibold text-balance">
+        {displayTitle}
+      </h1>
+      <div className="shrink-0">
+        <DishDetailActions
+          dishId={dish.id}
+          kind={kind}
+          stage={dish.stage}
+          currentVersionId={version.id}
+        />
+      </div>
+    </div>
   );
 
   // Slice 6A: lifecycle Stage, Version, and cuisine all render as chips
@@ -146,7 +154,7 @@ export async function DishDetailView({
   // keeps its own meaningful color treatment (`StageBadge`); Version/
   // cuisine are neutral outline chips beside it.
   const chipsEl = (
-    <div className="flex flex-wrap items-center gap-1.5 [grid-area:chips]">
+    <div className="flex flex-wrap items-center gap-1.5">
       <StageBadge stage={dish.stage} />
       <Badge variant="outline" className="tabular-nums">
         {versionLabel}
@@ -155,20 +163,8 @@ export async function DishDetailView({
     </div>
   );
 
-  const actionsEl = (
-    <div className="[grid-area:actions]">
-      <DishDetailActions
-        dishId={dish.id}
-        kind={kind}
-        stage={dish.stage}
-        currentVersionId={version.id}
-        attachableParts={attachableParts}
-      />
-    </div>
-  );
-
   const descriptionEl = (version.description || version.versionNote) && (
-    <div className="flex flex-col gap-2 [grid-area:description]">
+    <div className="flex flex-col gap-2">
       {version.description && (
         <p className="text-foreground text-sm whitespace-pre-wrap">
           {version.description}
@@ -189,7 +185,7 @@ export async function DishDetailView({
     version.prepTimeMinutes != null ||
     version.cookTimeMinutes != null ||
     version.difficulty) && (
-    <div className="flex flex-wrap gap-1.5 [grid-area:metadata]">
+    <div className="flex flex-wrap gap-1.5">
       {effectiveYieldQuantity != null && (
         <Badge variant="outline" className="gap-1">
           <Soup className="size-3" aria-hidden="true" />
@@ -217,8 +213,38 @@ export async function DishDetailView({
     </div>
   );
 
-  const imageEl = (
-    <div className="border-border bg-muted aspect-[4/3] w-full overflow-hidden rounded-lg border [grid-area:image]">
+  const imagePlaceholder = (
+    <div className="text-muted-foreground/40 flex size-full items-center justify-center">
+      <UtensilsCrossed className="size-10" aria-hidden="true" />
+    </div>
+  );
+
+  // Slice 6A browser-review correction pass: the wide right-column image
+  // is absolutely positioned inside a flex item with no in-flow height of
+  // its own, so `items-stretch` on the row below sizes it off the left
+  // column's own content height (never a fixed aspect ratio that could
+  // make the hero far taller than its text) — `lg:min-h-40` only floors it
+  // for a sparse Part with almost no left-column content.
+  const wideImageEl = (
+    <div className="border-border bg-muted relative hidden w-full overflow-hidden rounded-lg border lg:block lg:min-h-40 lg:w-[320px] lg:shrink-0">
+      {version.imageAssetId ? (
+        // eslint-disable-next-line @next/next/no-img-element -- private, authenticated route, not a static/optimizable asset
+        <img
+          src={`/api/images/${version.imageAssetId}`}
+          alt=""
+          className="absolute inset-0 size-full object-cover"
+        />
+      ) : (
+        <div className="absolute inset-0">{imagePlaceholder}</div>
+      )}
+    </div>
+  );
+
+  // Narrow layout: a compact, capped-height image so it adds context
+  // without delaying the authored content that follows — never a large
+  // full-width poster.
+  const narrowImageEl = (
+    <div className="border-border bg-muted h-[200px] w-full overflow-hidden rounded-lg border lg:hidden">
       {version.imageAssetId ? (
         // eslint-disable-next-line @next/next/no-img-element -- private, authenticated route, not a static/optimizable asset
         <img
@@ -227,9 +253,7 @@ export async function DishDetailView({
           className="size-full object-cover"
         />
       ) : (
-        <div className="text-muted-foreground/40 flex size-full items-center justify-center">
-          <UtensilsCrossed className="size-10" aria-hidden="true" />
-        </div>
+        imagePlaceholder
       )}
     </div>
   );
@@ -243,24 +267,25 @@ export async function DishDetailView({
         ]}
       />
 
-      {/* Slice 6A fix: every hero piece renders exactly once, in a single
-          grid — repositioned between narrow (stacked, spec order:
-          title, chips, actions, description, metadata, image) and wide
-          (title+actions share row 1, image as a right column) purely via
-          `.dish-hero-grid`'s responsive `grid-template-areas`
-          (globals.css). The previous lg:hidden/hidden-lg:grid pair
-          duplicated every element — including the stateful
-          `DishDetailActions` overflow menu/dialogs — in the DOM at once,
-          which is both a real bug (two live copies of interactive state)
-          and the cause of repeated Playwright strict-mode failures on
-          this page (e.g. two "Idea" stage badges). */}
-      <div className="dish-hero-grid">
-        {titleEl}
-        {chipsEl}
-        {actionsEl}
-        {descriptionEl}
-        {metadataChipsEl}
-        {imageEl}
+      {/* Slice 6A browser-review correction pass: an ordinary two-column
+          flex shell — left column is a plain `flex-col` content flow
+          (title+actions row, then chips/description/note/metadata),
+          right column is the image, stretched to the left column's
+          resulting height via `items-stretch` (the default). Narrow
+          collapses to one column via `flex-col`, with its own compact
+          capped-height image last in the flow, right before the
+          authored content below. Replaces the previous `.dish-hero-grid`
+          grid-template-areas scheme, which over-used grid placement and
+          split Edit/overflow into their own column/row. */}
+      <div className="flex flex-col gap-4 lg:flex-row lg:gap-6">
+        <div className="flex min-w-0 flex-1 flex-col gap-3">
+          {titleRowEl}
+          {chipsEl}
+          {descriptionEl}
+          {metadataChipsEl}
+        </div>
+        {wideImageEl}
+        {narrowImageEl}
       </div>
 
       {kind === "PART" && (

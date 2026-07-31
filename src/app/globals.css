@@ -159,37 +159,6 @@
   .no-scrollbar {
     scrollbar-width: none;
   }
-
-  /* Dish detail hero (Slice 6A): a single set of elements repositioned by
-     breakpoint via named grid areas — deliberately NOT two parallel
-     lg:hidden/hidden-lg:grid trees, which would render every hero element
-     (including the stateful DishDetailActions overflow menu/dialogs) twice
-     in the DOM at once. */
-  .dish-hero-grid {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 1rem;
-    grid-template-areas:
-      "title"
-      "chips"
-      "actions"
-      "description"
-      "metadata"
-      "image";
-  }
-  @media (min-width: 1024px) {
-    .dish-hero-grid {
-      grid-template-columns: 1fr auto 320px;
-      column-gap: 1.5rem;
-      row-gap: 1rem;
-      align-items: start;
-      grid-template-areas:
-        "title actions image"
-        "chips chips image"
-        "description description image"
-        "metadata metadata image";
-    }
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

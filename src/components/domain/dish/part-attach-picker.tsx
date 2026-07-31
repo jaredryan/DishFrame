@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Link2, Plus, Search } from "lucide-react";
+import { Link2, RotateCcw, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -22,6 +22,7 @@ import {
 import {
   validatePartAttachment,
   listAttachablePartVersions,
+  listAttachableParts,
   type PartVersionOption,
 } from "@/lib/sections/actions";
 import type { DishKindValue } from "@/lib/dishes/schema";
@@ -39,17 +40,29 @@ export type AttachablePartOption = {
  * handing the resolved target back to the caller; never persists anything
  * itself — the actual `PartLink` is only written by the container's next
  * save.
+ *
+ * Slice 6A browser-review correction pass §5: the candidate list is never
+ * passed in as a prop captured when the parent editor/detail page first
+ * rendered — it's fetched fresh every time this dialog opens, so a Part
+ * created from `/parts/new` in a separate tab shows up here without
+ * reloading or abandoning the parent's draft. The server still re-runs
+ * ownership/duplicate/cycle validation on `confirm()` regardless of what
+ * this fetch returned.
  */
 export function PartAttachPicker({
   containerDishId,
   containerKind,
-  attachableParts,
+  excludeDishId,
   onAttach,
   triggerLabel = "Attach a Part",
 }: {
   containerDishId: string | null;
   containerKind: DishKindValue;
-  attachableParts: AttachablePartOption[];
+  // The Dish id to exclude from the candidate list — the Dish being edited
+  // (self-attach is meaningless) or, from the delete-resolution flow, the
+  // Part being deleted (can't replace a usage with the very Part it came
+  // from).
+  excludeDishId?: string;
   onAttach: (link: {
     targetDishId: string;
     targetDishVersionId: string;
@@ -70,6 +83,39 @@ export function PartAttachPicker({
   const [error, setError] = React.useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
+  const [parts, setParts] = React.useState<AttachablePartOption[] | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = React.useState(0);
+  // The requestKey this fetch's result reflects, or null before it resolves.
+  // Cleared to null whenever the dialog opens/retries (see onOpenChange and
+  // the Retry button below), so isLoadingParts stays derived rather than set
+  // synchronously in the effect.
+  const [loadedKey, setLoadedKey] = React.useState<string | null>(null);
+
+  const requestKey = open ? `${excludeDishId ?? ""}::${loadAttempt}` : null;
+  const isLoadingParts = requestKey !== null && loadedKey !== requestKey;
+
+  // Fetches fresh every time the dialog opens (and on Retry) — never reuses
+  // a previous opening's result.
+  React.useEffect(() => {
+    if (requestKey === null) return;
+    let cancelled = false;
+    listAttachableParts(excludeDishId).then((result) => {
+      if (cancelled) return;
+      setLoadedKey(requestKey);
+      if (result.status === "success") {
+        setParts(result.parts);
+        setLoadError(null);
+      } else {
+        setParts(null);
+        setLoadError(result.message);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [requestKey, excludeDishId]);
+
   function reset() {
     setQuery("");
     setSelected(null);
@@ -78,7 +124,7 @@ export function PartAttachPicker({
     setError(null);
   }
 
-  const filtered = attachableParts.filter((part) =>
+  const filtered = (parts ?? []).filter((part) =>
     (part.currentTitle ?? "Untitled")
       .toLowerCase()
       .includes(query.trim().toLowerCase()),
@@ -131,7 +177,12 @@ export function PartAttachPicker({
         open={open}
         onOpenChange={(next) => {
           setOpen(next);
-          if (!next) reset();
+          if (!next) {
+            reset();
+            setParts(null);
+            setLoadError(null);
+            setLoadedKey(null);
+          }
         }}
       >
         <DialogContent>
@@ -157,25 +208,43 @@ export function PartAttachPicker({
                   onChange={(event) => setQuery(event.target.value)}
                 />
               </div>
-              <div className="flex max-h-72 flex-col gap-1 overflow-y-auto">
-                {filtered.length === 0 && (
-                  <p className="text-muted-foreground py-6 text-center text-sm">
-                    {attachableParts.length === 0
-                      ? "You don't have any reusable Parts yet."
-                      : "Nothing matches that search."}
-                  </p>
-                )}
-                {filtered.map((part) => (
-                  <button
-                    key={part.id}
+              {isLoadingParts ? (
+                <p className="text-muted-foreground py-6 text-center text-sm">
+                  Loading Parts…
+                </p>
+              ) : loadError ? (
+                <div className="flex flex-col items-center gap-2 py-6 text-center">
+                  <p className="text-destructive text-sm">{loadError}</p>
+                  <Button
                     type="button"
-                    onClick={() => selectPart(part)}
-                    className="hover:bg-muted focus-visible:bg-muted rounded-md px-3 py-2 text-left text-sm outline-none"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setLoadAttempt((n) => n + 1)}
                   >
-                    {part.currentTitle ?? "Untitled part"}
-                  </button>
-                ))}
-              </div>
+                    <RotateCcw /> Retry
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex max-h-72 flex-col gap-1 overflow-y-auto">
+                  {filtered.length === 0 && (
+                    <p className="text-muted-foreground py-6 text-center text-sm">
+                      {(parts ?? []).length === 0
+                        ? "You don't have any reusable Parts yet."
+                        : "Nothing matches that search."}
+                    </p>
+                  )}
+                  {filtered.map((part) => (
+                    <button
+                      key={part.id}
+                      type="button"
+                      onClick={() => selectPart(part)}
+                      className="hover:bg-muted focus-visible:bg-muted focus-visible:ring-ring cursor-pointer rounded-md px-3 py-2 text-left text-sm outline-none focus-visible:ring-2"
+                    >
+                      {part.currentTitle ?? "Untitled part"}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           ) : (
             <div className="flex flex-col gap-3">
@@ -210,7 +279,7 @@ export function PartAttachPicker({
                   Back
                 </Button>
                 <Button onClick={confirm} disabled={isSubmitting}>
-                  <Plus /> {isSubmitting ? "Attaching…" : "Attach"}
+                  {isSubmitting ? "Attaching…" : "Attach"}
                 </Button>
               </DialogFooter>
             </div>

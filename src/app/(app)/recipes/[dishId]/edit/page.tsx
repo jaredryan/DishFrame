@@ -7,7 +7,6 @@ import {
   getHighestMajorVersion,
   getHighestMinorVersion,
   listDistinctCuisines,
-  listAttachableParts,
 } from "@/lib/dishes/queries";
 import { NotFoundError } from "@/lib/errors";
 import { DishEditor } from "@/components/domain/dish/dish-editor";
@@ -57,13 +56,11 @@ export default async function EditRecipePage({
   }
 
   const cuisineOptions = await listDistinctCuisines(session.user.id, "RECIPE");
-  const attachableParts = await listAttachableParts(session.user.id, dish.id);
 
   return (
     <DishEditor
       kind="RECIPE"
       cuisineOptions={cuisineOptions}
-      attachableParts={attachableParts}
       dish={{
         id: dish.id,
         baseVersionId: version.id,

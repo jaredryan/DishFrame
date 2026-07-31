@@ -55,7 +55,6 @@ import {
   type StageValue,
 } from "@/lib/dishes/schema";
 import { PartUsageResolutionDialog } from "@/components/domain/dish/part-usage-resolution-dialog";
-import type { AttachablePartOption } from "@/components/domain/dish/part-attach-picker";
 
 const STAGE_LABEL: Record<RestorableStageValue, string> = {
   IDEA: "Idea",
@@ -71,7 +70,6 @@ export function DishDetailActions({
   kind,
   stage,
   currentVersionId,
-  attachableParts = [],
 }: {
   dishId: string;
   kind: DishKindValue;
@@ -80,7 +78,6 @@ export function DishDetailActions({
   // menu (moved off the detail page's own separate links row) — needs the
   // current Version's id to build that route.
   currentVersionId: string;
-  attachableParts?: AttachablePartOption[];
 }) {
   const router = useRouter();
   const [openDialog, setOpenDialog] = React.useState<DialogKind>(null);
@@ -343,7 +340,6 @@ export function DishDetailActions({
           open={resolutionOpen}
           onOpenChange={setResolutionOpen}
           partDishId={dishId}
-          attachableParts={attachableParts}
           onDeleted={() => {
             setResolutionOpen(false);
             router.push(basePath);

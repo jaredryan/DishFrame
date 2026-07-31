@@ -21,11 +21,8 @@ import { ItemToolbar } from "@/components/domain/dish/reorder-buttons";
 import { IngredientFields } from "@/components/domain/dish/ingredient-fields";
 import { InstructionFields } from "@/components/domain/dish/instruction-fields";
 import { PartLinkFields } from "@/components/domain/dish/part-link-fields";
-import {
-  PartAttachPicker,
-  type AttachablePartOption,
-} from "@/components/domain/dish/part-attach-picker";
-import { CreatePartDialog } from "@/components/domain/dish/create-part-dialog";
+import { PartAttachPicker } from "@/components/domain/dish/part-attach-picker";
+import { CreatePartLink } from "@/components/domain/dish/create-part-link";
 import { ConvertSectionToPartDialog } from "@/components/domain/dish/convert-section-to-part-dialog";
 import { formatIngredientLine } from "@/lib/dishes/format";
 import type { DetachedContent } from "@/lib/sections/service";
@@ -57,7 +54,6 @@ export function SectionFields({
   onConvertToPart,
   containerDishId,
   containerKind,
-  attachableParts,
 }: {
   id: string;
   sectionIndex: number;
@@ -68,7 +64,6 @@ export function SectionFields({
   }) => void;
   containerDishId: string | null;
   containerKind: DishKindValue;
-  attachableParts: AttachablePartOption[];
 }) {
   const { control, register, watch, getValues } = useFormContext();
   const prefix = `sections.${sectionIndex}`;
@@ -195,6 +190,8 @@ export function SectionFields({
           />
           <ItemToolbar
             label={label}
+            toggleLabel={sectionName || sectionNumberLabel}
+            variant="edit"
             collapsed={!editing}
             onToggleCollapsed={() => setEditing((prev) => !prev)}
             onRemove={onRemove}
@@ -403,7 +400,7 @@ export function SectionFields({
           <PartAttachPicker
             containerDishId={containerDishId}
             containerKind={containerKind}
-            attachableParts={attachableParts}
+            excludeDishId={containerDishId ?? undefined}
             onAttach={(link) =>
               partLinks.append({
                 ...link,
@@ -412,15 +409,7 @@ export function SectionFields({
               })
             }
           />
-          <CreatePartDialog
-            onCreated={(link) =>
-              partLinks.append({
-                ...link,
-                position: partLinks.fields.length,
-                multiplier: 1,
-              })
-            }
-          />
+          <CreatePartLink />
         </div>
       )}
     </div>

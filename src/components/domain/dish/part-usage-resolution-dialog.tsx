@@ -12,10 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
-import {
-  PartAttachPicker,
-  type AttachablePartOption,
-} from "@/components/domain/dish/part-attach-picker";
+import { PartAttachPicker } from "@/components/domain/dish/part-attach-picker";
 import {
   getCurrentPartUsages,
   resolvePartUsageOccurrence,
@@ -50,13 +47,11 @@ export function PartUsageResolutionDialog({
   open,
   onOpenChange,
   partDishId,
-  attachableParts,
   onDeleted,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   partDishId: string;
-  attachableParts: AttachablePartOption[];
   onDeleted: () => void;
 }) {
   const [usages, setUsages] = React.useState<PartUsage[] | null>(null);
@@ -204,7 +199,7 @@ export function PartUsageResolutionDialog({
                     <PartAttachPicker
                       containerDishId={usage.containerDishId}
                       containerKind={usage.containerKind}
-                      attachableParts={attachableParts}
+                      excludeDishId={partDishId}
                       triggerLabel="Replace with…"
                       onAttach={(replacement) =>
                         requestResolution(usage, "REPLACE", replacement)

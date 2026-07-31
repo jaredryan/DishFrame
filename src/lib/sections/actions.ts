@@ -7,8 +7,33 @@ import {
   validatePartAttachmentSchema,
   resolvePartVersionForDetachSchema,
 } from "@/lib/sections/schema";
+import { listAttachableParts as queryAttachableParts } from "@/lib/dishes/queries";
+import type { AttachablePart } from "@/lib/dishes/queries";
 import type { DishKindValue } from "@/lib/dishes/schema";
 import type { DetachedContent, PartLinkTree } from "@/lib/sections/service";
+
+export type ListAttachablePartsActionState =
+  | { status: "success"; parts: AttachablePart[] }
+  | { status: "error"; message: string };
+
+/**
+ * Slice 6A browser-review correction pass §5: the Attach Part picker's own
+ * fetch, called fresh every time it opens rather than trusting a list
+ * captured once when the parent editor/detail page first rendered — a Part
+ * created from `/parts/new` in a separate tab must become attachable
+ * without reloading or losing the parent's unsaved draft.
+ */
+export async function listAttachableParts(
+  excludeDishId?: string,
+): Promise<ListAttachablePartsActionState> {
+  try {
+    const userId = await requireUserId();
+    const parts = await queryAttachableParts(userId, excludeDishId);
+    return { status: "success", parts };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
 
 export type PartLinkDisplayActionState =
   | {

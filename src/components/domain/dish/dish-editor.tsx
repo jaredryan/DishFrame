@@ -47,11 +47,8 @@ import { SectionFields } from "@/components/domain/dish/section-fields";
 import { CuisineField } from "@/components/domain/dish/cuisine-field";
 import { ImageField } from "@/components/domain/dish/image-field";
 import { PartLinkFields } from "@/components/domain/dish/part-link-fields";
-import {
-  PartAttachPicker,
-  type AttachablePartOption,
-} from "@/components/domain/dish/part-attach-picker";
-import { CreatePartDialog } from "@/components/domain/dish/create-part-dialog";
+import { PartAttachPicker } from "@/components/domain/dish/part-attach-picker";
+import { CreatePartLink } from "@/components/domain/dish/create-part-link";
 import type { DetachedContent } from "@/lib/sections/service";
 import { useUnsavedChangesGuard } from "@/components/domain/dish/use-unsaved-changes-guard";
 import { useReorderSensors } from "@/lib/dnd/sensors";
@@ -110,7 +107,6 @@ export function DishEditor({
   kind,
   dish,
   cuisineOptions = [],
-  attachableParts = [],
 }: {
   kind: DishKindValue;
   dish?: {
@@ -149,10 +145,6 @@ export function DishEditor({
     defaultScale: number | null;
   };
   cuisineOptions?: string[];
-  // Slice 6, PRODUCT_SPEC.md §68: candidate Parts this owner may attach —
-  // fetched server-side (the same pattern as `cuisineOptions`), excluding
-  // this Dish itself when editing an existing Part.
-  attachableParts?: AttachablePartOption[];
 }) {
   const router = useRouter();
   const [serverError, setServerError] = React.useState<string | null>(null);
@@ -588,6 +580,7 @@ export function DishEditor({
                 </div>
                 {dish && (
                   <div className="border-border mt-2 flex flex-col gap-1.5 border-t pt-3">
+                    
                     <FieldLabel htmlFor="dish-default-scale">
                       Default scale
                     </FieldLabel>
@@ -596,16 +589,18 @@ export function DishEditor({
                       {kindLabel.toLowerCase()} is opened.
                     </FieldDescription>
                     <div className="flex flex-wrap items-center gap-2">
-                      <NumberField
-                        name="defaultScale"
-                        id="dish-default-scale"
-                        placeholder="1"
-                        step="any"
-                        aria-label="Default scale multiplier"
-                        className="w-16"
-                        emptyDisplay="1"
-                      />
-                      <span aria-hidden="true">×</span>
+                      <div className="flex items-center gap-1">
+                        <span aria-hidden="true">×</span>
+                        <NumberField
+                          name="defaultScale"
+                          id="dish-default-scale"
+                          placeholder="1"
+                          step="any"
+                          aria-label="Default scale multiplier"
+                          className="w-13"
+                          emptyDisplay="1"
+                        />
+                      </div>
                       <Button
                         type="button"
                         variant="ghost"
@@ -637,7 +632,7 @@ export function DishEditor({
                     id="dish-prep-time"
                     placeholder="Optional"
                     aria-label="Prep time in minutes"
-                    className="w-16"
+                    className="w-13"
                   />
                   <span className="text-muted-foreground text-sm">minutes</span>
                 </div>
@@ -650,7 +645,7 @@ export function DishEditor({
                     id="dish-cook-time"
                     placeholder="Optional"
                     aria-label="Cook time in minutes"
-                    className="w-16"
+                    className="w-13"
                   />
                   <span className="text-muted-foreground text-sm">minutes</span>
                 </div>
@@ -717,7 +712,6 @@ export function DishEditor({
                       }}
                       containerDishId={dish?.id ?? null}
                       containerKind={kind}
-                      attachableParts={attachableParts}
                     />
                   ) : (
                     <PartLinkFields
@@ -755,7 +749,7 @@ export function DishEditor({
               <PartAttachPicker
                 containerDishId={dish?.id ?? null}
                 containerKind={kind}
-                attachableParts={attachableParts}
+                excludeDishId={dish?.id}
                 onAttach={(link) =>
                   topLevelPartLinks.append({
                     ...link,
@@ -764,15 +758,7 @@ export function DishEditor({
                   })
                 }
               />
-              <CreatePartDialog
-                onCreated={(link) =>
-                  topLevelPartLinks.append({
-                    ...link,
-                    position: nextTopLevelPosition(),
-                    multiplier: 1,
-                  })
-                }
-              />
+              <CreatePartLink />
             </div>
           </div>
 

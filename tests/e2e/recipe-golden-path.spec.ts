@@ -116,7 +116,7 @@ test.describe("Recipes: create, view, edit, archive, restore, duplicate, delete"
     // Dish now defaults to its view-first (collapsed) presentation — the
     // explicit Edit toggle must be clicked before its editable fields
     // (including "Add instruction") appear.
-    await page.getByRole("button", { name: "Expand section 1" }).click();
+    await page.getByRole("button", { name: "Edit Section 1" }).click();
     await page.getByRole("button", { name: "Add instruction" }).click();
     await page
       .getByRole("textbox", { name: "Instruction 1" })
@@ -241,7 +241,7 @@ test.describe("Recipes: create, view, edit, archive, restore, duplicate, delete"
     // a new major Version ---
     await page.getByRole("link", { name: "Edit" }).click();
     // Slice 6 correction pass §4: see the golden path test above.
-    await page.getByRole("button", { name: "Expand section 1" }).click();
+    await page.getByRole("button", { name: "Edit Section 1" }).click();
     const nameInput = page.getByLabel("Ingredient name");
     await nameInput.fill("");
     await nameInput.fill("Roasted vegetable broth");

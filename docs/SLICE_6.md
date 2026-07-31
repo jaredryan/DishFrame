@@ -582,3 +582,75 @@ label change are exactly the kind of change `recipe-golden-path.spec.ts`
 already broke on once; re-check it and any other spec touching Section/
 Ingredient controls or the image-upload flow specifically before
 considering Slice 6 closed.
+
+## Slice 6A browser-review correction pass (final)
+
+One focused pass fixing the specific issues an owner browser review found
+in the design-remediation pass above — no Slice 6B work.
+
+- **Detail hero**: replaced `.dish-hero-grid`'s `grid-template-areas`
+  scheme with an ordinary two-column flex shell (`dish-detail-view.tsx`) —
+  title+actions always share one flex row; chips/description/note/
+  metadata are a plain `flex-col` beneath, at every breakpoint. Wide: the
+  image is absolutely positioned inside a flex item with no in-flow
+  height, so the left column's own content (never a fixed aspect ratio)
+  sizes the row via `items-stretch`. Narrow: a capped `h-[200px]` image,
+  last in the flow, right before the authored content.
+- **Section Edit/Collapse**: `ItemToolbar` (`reorder-buttons.tsx`) gained a
+  `variant`/`toggleLabel` pair — Sections now use `variant="edit"`
+  (collapsed = pencil "Edit …", expanded = chevron-up "Collapse …");
+  Ingredient rows and linked Parts (`PartLinkFields`) are unchanged
+  (chevron-down "Expand …" when collapsed) — this reverses the design-
+  remediation pass's "Edit X" → "Expand X" change, but only for Sections.
+- **Attach Part modal**: rows are `cursor-pointer` with a visible
+  focus-visible ring; the confirmation button lost its `Plus` icon (now
+  plain "Attach" text, matching other modal confirmations). Page-level
+  triggers (the picker's own "Attach a Part", `Create Part`) keep theirs.
+- **Create Part**: the embedded `create-part-dialog.tsx` (a simplified
+  form omitting supported Part fields) is removed. `CreatePartLink`
+  (`create-part-link.tsx`) replaces it in both `DishEditor` and
+  `SectionFields` — a plain link to `/parts/new`, `target="_blank"`,
+  `rel="noopener noreferrer"`. The parent draft is never touched; the new
+  Part is attached back explicitly via Attach Part. Convert Section to
+  Part is unaffected — still an embedded transformation of existing
+  parent content.
+- **Attach Part fetches fresh on open**: `PartAttachPicker` no longer
+  takes an `attachableParts` prop captured once server-side — it now
+  fetches via a new `listAttachableParts` Server Action
+  (`sections/actions.ts`, wrapping the existing `dishes/queries.ts` query)
+  every time the dialog opens, with loading/retryable-error states. The
+  four editor pages (`recipes|parts/new`, `recipes|parts/[dishId]/edit`)
+  and `dish-detail-view.tsx`/`dish-detail-actions.tsx`/
+  `part-usage-resolution-dialog.tsx` (the delete-resolution "Replace
+  with…" picker, same shared component) all dropped their now-unnecessary
+  server-side `attachableParts` fetch/prop-threading. Server-side
+  ownership/duplicate/cycle validation on attach is unchanged.
+- **Tests**: new `create-part-link.test.tsx` and `part-attach-picker.test.tsx`
+  (fresh-fetch-per-opening, loading/retry states, server-validation-still-
+  applies); `create-part-dialog.test.tsx` removed with the dialog it
+  covered; `dish-editor.test.tsx`'s `sections/actions` mock gained the new
+  `listAttachableParts` export. Written but not run this pass, per the
+  owner's explicit instruction — no automated tests were added for the
+  hero layout, Section pencil/chevron presentation, cursor/focus styling,
+  or modal icon changes (visual-only, reviewed in the browser instead).
+  Note: `dish-editor.test.tsx`'s existing "collapses a Section into a
+  summary and expands it again" test still queries button name "Expand
+  Sauce"/"Collapse Sauce" — the collapsed label is now "Edit Sauce"
+  (Section pencil change above), so that one assertion will fail until
+  updated; left as-is per the instruction not to touch Section pencil/
+  chevron test coverage this pass.
+
+## Owner intervention recommendation
+
+**Focused manual review** — verify the specific corrections above in the
+browser: the hero at real tablet/desktop widths (image height tracking
+left-column content, no oversized empty space, title+actions never
+splitting), Section pencil vs. chevron across a blank/named/saved
+Section, the Attach Part modal's cursor/focus/Attach-button styling, the
+new-tab Create Part link (parent draft untouched on return), and Attach
+Part showing a Part created in a separate tab after reopening. Also
+update `dish-editor.test.tsx`'s stale "Expand Sauce"/"Collapse Sauce"
+assertion (noted above) and `recipe-golden-path.spec.ts` (Playwright,
+already known to break on Section-header/Create-Part changes per the
+prior pass's note) before considering Slice 6 fully closed —
+`pnpm run verify:all` remains owner-run.

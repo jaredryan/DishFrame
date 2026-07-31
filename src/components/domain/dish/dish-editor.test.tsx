@@ -37,6 +37,10 @@ vi.mock("@/lib/sections/actions", () => ({
     status: "success",
     versions: [{ id: "new-part-1-v1", majorVersion: 1, minorVersion: 0 }],
   })),
+  // Slice 6A browser-review correction pass §5: PartAttachPicker fetches
+  // this itself on open — not exercised by these tests, but the mock must
+  // exist so an accidental open doesn't throw on a missing export.
+  listAttachableParts: vi.fn(async () => ({ status: "success", parts: [] })),
   validatePartAttachment: vi.fn(),
   resolvePartVersionForDetach: vi.fn(),
 }));
@@ -231,7 +235,9 @@ describe("DishEditor Sections", () => {
     expect(screen.queryByLabelText("Section name")).not.toBeInTheDocument();
     expect(screen.getByText(/Sauce/)).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Expand Sauce" }));
+    // Slice 6A browser-review correction pass: a collapsed Section shows a
+    // pencil "Edit …" action, not the chevron "Expand …" used elsewhere.
+    await user.click(screen.getByRole("button", { name: "Edit Sauce" }));
     expect(screen.getByLabelText("Section name")).toBeInTheDocument();
   });
 });
@@ -492,9 +498,10 @@ describe("DishEditor minor/major version choice", () => {
     const user = userEvent.setup();
     render(<DishEditor kind="RECIPE" dish={existingDish} />);
 
-    // A saved Section (has a lineageId) starts view-first — Expand reveals
-    // its editable fields.
-    await user.click(screen.getByRole("button", { name: "Expand section 1" }));
+    // A saved Section (has a lineageId) starts view-first — the pencil Edit
+    // action reveals its editable fields (Slice 6A browser-review
+    // correction pass: collapsed Sections show "Edit …", not "Expand …").
+    await user.click(screen.getByRole("button", { name: "Edit Section 1" }));
     const nameInput = screen.getByLabelText("Ingredient name");
     await user.clear(nameInput);
     await user.type(nameInput, "Kosher salt");
@@ -519,7 +526,7 @@ describe("DishEditor minor/major version choice", () => {
     const user = userEvent.setup();
     render(<DishEditor kind="RECIPE" dish={existingDish} />);
 
-    await user.click(screen.getByRole("button", { name: "Expand section 1" }));
+    await user.click(screen.getByRole("button", { name: "Edit Section 1" }));
     const nameInput = screen.getByLabelText("Ingredient name");
     await user.clear(nameInput);
     await user.type(nameInput, "Kosher salt");
