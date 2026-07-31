@@ -1748,6 +1748,30 @@ If a nested Part is selected without its parent Section’s local content:
 
 The final visual treatment belongs in frontend design work.
 
+### 23.4a Authoring versus Cooking Setup (settled 2026-07-31)
+
+A Part linked into a Recipe or another Part is authored as a complete,
+reusable object. Editing a Recipe or Part never selectively removes or
+alters content nested inside a linked Part — a different composition is
+modeled through more modular Parts, a different Part, or Recipe-local
+content, never by editing inside someone else's linked Part.
+
+Cooking Setup is a separate, session-scoped concern. This rule generalizes
+independent inclusion/exclusion beyond the Section→Part case above: a Part
+linked inside another Part is *also* its own independent cookable unit, at
+any nesting depth (Recipe → Sauce → Garlic Paste is two levels). The cook
+may include Sauce while excluding Garlic Paste from one particular
+session, or the reverse, without changing the authored Recipe or Part.
+This is session planning, not source editing, and it is why every such
+nested Part must be exposed as its own selectable Cooking Setup unit —
+never usage implied merely by selecting its container.
+
+A nested Part's own Last cooked and cooking history follow its own
+selected session unit, not its container's: removing the container from a
+session does not stop a separately-selected nested Part from counting as
+cooked, and excluding or removing the nested Part's own unit does not stop
+its container from counting (§41.3/§41.4).
+
 ## 23.5 Suggested order
 
 DishFrame suggests cookable-unit order by:

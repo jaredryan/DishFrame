@@ -18,12 +18,12 @@ import {
   getOwnedSessionOrThrow,
   findActiveSessionForDish,
   buildCookableUnits,
-  buildPartUsageOccurrences,
   sessionUnitKey,
   type CookableChecklistRaw,
   type CookableUnit,
   type OwnedCookingSession,
 } from "@/lib/cooking/queries";
+import { versionLabel } from "@/lib/dishes/version-note";
 import type { StartCookingSessionInput } from "@/lib/cooking/schema";
 
 /**
@@ -147,17 +147,20 @@ function renderChecklistDisplay(
 }
 
 /**
- * SLICE_9.md correction pass — persists the durable Part-use log for one
- * PART-kind unit's own recursive occurrence set (its direct target, plus
- * every Part nested inside it). A no-op for a SECTION unit. Called once,
- * inside the same transaction as the unit's own creation, from both
- * `startCookingSession` and `addSessionUnits` — the only two places a
- * `CookingSessionUnit` is ever created.
+ * SLICE_9.md refinement pass (2026-07-31) — persists exactly one
+ * `CookingSessionPartUsage` row for one selected PART-kind unit, straight
+ * from that unit's own fields (`buildCookableUnits`/`buildPartUnitTree`
+ * already resolved its exact identity, relation, and authored path when the
+ * unit was built). A no-op for a SECTION unit. Never re-walks the source
+ * graph here — a nested Part only gets a usage row because it was itself an
+ * independently selected session unit, not because some ancestor unit was
+ * selected (PRODUCT_SPEC.md §23.4's Section→Part rule, generalized to
+ * Part→Part). Called once, inside the same transaction as the unit's own
+ * creation, from both `startCookingSession` and `addSessionUnits` — the
+ * only two places a `CookingSessionUnit` is ever created.
  */
 async function createPartUsageRows(
   tx: Prisma.TransactionClient,
-  ownerId: string,
-  rootDishTitle: string,
   sessionId: string,
   unitId: string,
   unit: CookableUnit,
@@ -165,27 +168,19 @@ async function createPartUsageRows(
   if (unit.kind !== "PART" || !unit.targetDishId || !unit.targetDishVersionId) {
     return;
   }
-  const occurrences = await buildPartUsageOccurrences(
-    ownerId,
-    rootDishTitle,
-    unit.targetDishId,
-    unit.targetDishVersionId,
-  );
-  for (const occurrence of occurrences) {
-    await tx.cookingSessionPartUsage.create({
-      data: {
-        sessionId,
-        unitId,
-        partDishId: occurrence.partDishId,
-        partVersionId: occurrence.partVersionId,
-        partTitleSnapshot: occurrence.partTitleSnapshot,
-        partVersionLabelSnapshot: occurrence.partVersionLabelSnapshot,
-        relation: occurrence.relation,
-        viaPartTitleSnapshot: occurrence.viaPartTitleSnapshot,
-        pathSnapshot: occurrence.pathSnapshot,
-      },
-    });
-  }
+  await tx.cookingSessionPartUsage.create({
+    data: {
+      sessionId,
+      unitId,
+      partDishId: unit.targetDishId,
+      partVersionId: unit.targetDishVersionId,
+      partTitleSnapshot: unit.label,
+      partVersionLabelSnapshot: unit.sourceDishVersionLabel,
+      relation: unit.partRelation ?? "DIRECT",
+      viaPartTitleSnapshot: unit.partViaTitleSnapshot,
+      pathSnapshot: unit.partPathSnapshot ?? unit.label,
+    },
+  });
 }
 
 /**
@@ -278,14 +273,7 @@ export async function startCookingSession(
           });
         }
 
-        await createPartUsageRows(
-          tx,
-          ownerId,
-          dish.currentTitle ?? "Untitled",
-          session.id,
-          unitRow.id,
-          unit,
-        );
+        await createPartUsageRows(tx, session.id, unitRow.id, unit);
       }
 
       return session;
@@ -366,14 +354,7 @@ export async function addSessionUnits(
         });
       }
 
-      await createPartUsageRows(
-        tx,
-        ownerId,
-        dish.currentTitle ?? "Untitled",
-        sessionId,
-        unitRow.id,
-        unit,
-      );
+      await createPartUsageRows(tx, sessionId, unitRow.id, unit);
     }
     await tx.cookingSession.update({
       where: { id: sessionId },
@@ -502,19 +483,23 @@ export async function reorderSessionUnits(
 }
 
 /**
- * SLICE_9.md correction pass — one-time backfill for `CookingSessionUnit`
- * rows created before the durable Part-use log existed. Idempotent: only
- * considers a PART-kind unit with zero `CookingSessionPartUsage` rows, so
- * it is safe to run more than once (or resume after an interruption)
- * without ever creating duplicates. Reconstructs occurrences only where the
- * source is still resolvable — the unit's own root `PartLink` must still be
- * `LIVE` with a live target (the same recursive walk `startCookingSession`/
- * `addSessionUnits` now run at creation time, applied here retroactively
- * while the graph still exists). A session whose Part was already
- * permanently deleted before this backfill runs has nothing left to
- * reconstruct from and is left as-is — its own `CookingSession`/
- * `CookingSessionUnit` rows are never touched or discarded, only the
- * derived usage-log join can't be populated for that one occurrence.
+ * SLICE_9.md refinement pass (2026-07-31) — one-time backfill for
+ * `CookingSessionUnit` rows created before the durable Part-use log
+ * existed. Idempotent: only considers a PART-kind unit with zero
+ * `CookingSessionPartUsage` rows, so it is safe to run more than once (or
+ * resume after an interruption) without ever creating duplicates. Every
+ * candidate unit predates the independently-selectable nested-Part model
+ * (a session with a nested unit already gets its usage row written at
+ * creation time, so it is never a zero-usage candidate here) — so a
+ * candidate's `sourcePartLinkLineageId` always resolves against the
+ * session's own top-level `dishVersionId` and always reconstructs as
+ * `DIRECT`, never `NESTED`. Reconstructs only where the source is still
+ * resolvable — the unit's own `PartLink` must still be `LIVE` with a live
+ * target. A session whose Part was already permanently deleted before this
+ * backfill runs has nothing left to reconstruct from and is left as-is —
+ * its own `CookingSession`/`CookingSessionUnit` rows are never touched or
+ * discarded, only the derived usage-log join can't be populated for that
+ * one unit.
  */
 export async function backfillCookingSessionPartUsage(): Promise<{
   scanned: number;
@@ -551,36 +536,48 @@ export async function backfillCookingSessionPartUsage(): Promise<{
     });
     if (!rootLink?.targetDishId || !rootLink.targetDishVersionId) continue;
 
+    const targetDish = await prisma.dish.findFirst({
+      where: {
+        id: rootLink.targetDishId,
+        ownerId: unit.session.ownerId,
+        kind: "PART",
+      },
+      select: { currentTitle: true },
+    });
+    if (!targetDish) continue;
+
+    const targetVersion = await prisma.dishVersion.findFirst({
+      where: {
+        id: rootLink.targetDishVersionId,
+        dishId: rootLink.targetDishId,
+      },
+      select: { majorVersion: true, minorVersion: true },
+    });
+    if (!targetVersion) continue;
+
     const rootDish = await prisma.dish.findFirst({
       where: { id: unit.session.dishId },
       select: { currentTitle: true },
     });
-    const occurrences = await buildPartUsageOccurrences(
-      unit.session.ownerId,
-      rootDish?.currentTitle ?? "Untitled",
-      rootLink.targetDishId,
-      rootLink.targetDishVersionId,
-    );
-    if (occurrences.length === 0) continue;
+    const title = targetDish.currentTitle ?? "Untitled Part";
 
-    await prisma.$transaction(
-      occurrences.map((occurrence) =>
-        prisma.cookingSessionPartUsage.create({
-          data: {
-            sessionId: unit.session.id,
-            unitId: unit.id,
-            partDishId: occurrence.partDishId,
-            partVersionId: occurrence.partVersionId,
-            partTitleSnapshot: occurrence.partTitleSnapshot,
-            partVersionLabelSnapshot: occurrence.partVersionLabelSnapshot,
-            relation: occurrence.relation,
-            viaPartTitleSnapshot: occurrence.viaPartTitleSnapshot,
-            pathSnapshot: occurrence.pathSnapshot,
-          },
-        }),
-      ),
-    );
-    created += occurrences.length;
+    await prisma.cookingSessionPartUsage.create({
+      data: {
+        sessionId: unit.session.id,
+        unitId: unit.id,
+        partDishId: rootLink.targetDishId,
+        partVersionId: rootLink.targetDishVersionId,
+        partTitleSnapshot: title,
+        partVersionLabelSnapshot: versionLabel(
+          targetVersion.majorVersion,
+          targetVersion.minorVersion,
+        ),
+        relation: "DIRECT",
+        viaPartTitleSnapshot: null,
+        pathSnapshot: `${rootDish?.currentTitle ?? "Untitled"} → ${title}`,
+      },
+    });
+    created += 1;
   }
 
   return { scanned: candidateUnits.length, created };

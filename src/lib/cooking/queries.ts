@@ -202,11 +202,21 @@ export type CookableUnit = {
   outputQuantity: number | null;
   outputUnit: string | null;
   // SLICE_9.md correction pass — the unit's own direct PartLink target,
-  // null for a SECTION unit. Lets the service layer walk
-  // `collectPartUsageOccurrences` from the exact target without a second
-  // PartLink lookup at session-creation/plan-edit time.
+  // null for a SECTION unit. Lets the service layer persist a
+  // `CookingSessionPartUsage` row straight from this unit's own fields,
+  // without a second PartLink lookup at session-creation/plan-edit time.
   targetDishId: string | null;
   targetDishVersionId: string | null;
+  // SLICE_9.md refinement pass (2026-07-31) — this unit's place in the
+  // authored Part-nesting graph relative to the Recipe/Part actually being
+  // cooked. Null for a SECTION unit. "DIRECT" is a Part linked straight
+  // into the cooked Recipe/Part (top-level or Section-nested); "NESTED" is
+  // a Part reached only by linking through another Part, which is itself
+  // its own independently selectable unit, not a sub-item of its container
+  // (see `buildPartUnitTree`).
+  partRelation: PartUsageOccurrenceRelation | null;
+  partViaTitleSnapshot: string | null;
+  partPathSnapshot: string | null;
 };
 
 const MAX_PART_FLATTEN_DEPTH = 12;
@@ -239,51 +249,65 @@ function scaleRaw(
   };
 }
 
+export type PartUsageOccurrenceRelation = "DIRECT" | "NESTED";
+
 /**
- * Flattens one Part Version's own cooking content — including any further
- * Parts nested inside *it* — into one flat checklist for a single cookable
- * unit (PRODUCT_SPEC.md §23.1/§23.4: only a Recipe's direct local Sections
- * and directly-linked Parts are independently selectable; a Part's own
- * nested Parts are not promoted a further level and simply contribute their
- * content to the containing Part unit). Re-checks ownerId at every level,
- * mirroring `sections/service.ts`'s `resolvePartLinkTreeInner`.
+ * SLICE_9.md refinement pass (2026-07-31) — builds one linked Part's own
+ * cookable unit, plus a further `CookableUnit` for every Part linked inside
+ * *it* at any depth (recursively). This generalizes the Section→Part split
+ * immediately below (PRODUCT_SPEC.md §23.4) to Part→Part nesting: a Part's
+ * own checklist is only its own directly-authored ingredients/instructions
+ * (never a further-nested Part's content folded in), and every Part it
+ * itself links to becomes its own independent, independently selectable
+ * sibling unit — never invisibly bundled into a parent's inclusion/exclusion.
+ * Each unit carries its own authored path/relation/via-title so
+ * `createPartUsageRows` can persist one `CookingSessionPartUsage` row
+ * straight from the exact unit a Cooking Session actually included, never by
+ * re-walking the source graph at session-creation time. Re-checks ownerId at
+ * every level, mirroring `sections/service.ts`'s `resolvePartLinkTreeInner`.
  */
-async function flattenPartChecklist(
+async function buildPartUnitTree(
   ownerId: string,
-  targetDishId: string,
-  targetDishVersionId: string,
-  cumulativeMultiplier: number,
+  link: VersionPartLinkRow,
+  authoredIndex: number,
+  relation: PartUsageOccurrenceRelation,
+  viaPartTitleSnapshot: string | null,
+  pathPrefix: string[],
   visited: Set<string>,
   depth: number,
-): Promise<CookableChecklistRaw[]> {
-  if (depth >= MAX_PART_FLATTEN_DEPTH || visited.has(targetDishId)) return [];
+): Promise<CookableUnit[]> {
+  if (!link.targetDishId || !link.targetDishVersionId) return [];
+  if (depth >= MAX_PART_FLATTEN_DEPTH || visited.has(link.targetDishId)) {
+    return [];
+  }
 
   const targetDish = await prisma.dish.findFirst({
-    where: { id: targetDishId, ownerId, kind: "PART" },
-    select: { id: true },
+    where: { id: link.targetDishId, ownerId, kind: "PART" },
+    select: { currentTitle: true },
   });
   if (!targetDish) return [];
 
-  const version = await prisma.dishVersion.findFirst({
-    where: { id: targetDishVersionId, dishId: targetDishId },
+  const targetVersion = await prisma.dishVersion.findFirst({
+    where: { id: link.targetDishVersionId, dishId: link.targetDishId },
     include: {
       sections: sectionContentInclude,
       partLinks: partLinkContentInclude,
     },
   });
-  if (!version) return [];
+  if (!targetVersion) return [];
 
-  const nextVisited = new Set(visited);
-  nextVisited.add(targetDishId);
+  const label = targetDish.currentTitle ?? "Untitled Part";
+  const multiplier = decimalToNumber(link.multiplier) ?? 1;
+  const pathSnapshot = [...pathPrefix, label].join(" → ");
 
-  const items: CookableChecklistRaw[] = [];
-  for (const section of version.sections) {
+  const checklist: CookableChecklistRaw[] = [];
+  for (const section of targetVersion.sections) {
     for (const ingredient of section.ingredients) {
       if (ingredient.substituteForIngredientId) continue;
-      items.push(scaleRaw(ingredientToRaw(ingredient), cumulativeMultiplier));
+      checklist.push(scaleRaw(ingredientToRaw(ingredient), multiplier));
     }
     for (const instruction of section.instructions) {
-      items.push({
+      checklist.push({
         kind: "INSTRUCTION",
         sourceLineageId: instruction.lineageId,
         text: instruction.text,
@@ -291,59 +315,6 @@ async function flattenPartChecklist(
     }
   }
 
-  for (const link of version.partLinks) {
-    if (!link.targetDishId || !link.targetDishVersionId) continue;
-    items.push(
-      ...(await flattenPartChecklist(
-        ownerId,
-        link.targetDishId,
-        link.targetDishVersionId,
-        cumulativeMultiplier * (decimalToNumber(link.multiplier) ?? 1),
-        nextVisited,
-        depth + 1,
-      )),
-    );
-  }
-
-  return items;
-}
-
-async function buildPartUnit(
-  ownerId: string,
-  link: VersionPartLinkRow,
-  authoredIndex: number,
-): Promise<CookableUnit | null> {
-  if (!link.targetDishId || !link.targetDishVersionId) return null;
-
-  const targetDish = await prisma.dish.findFirst({
-    where: { id: link.targetDishId, ownerId, kind: "PART" },
-    select: { currentTitle: true },
-  });
-  if (!targetDish) return null;
-
-  const targetVersion = await prisma.dishVersion.findFirst({
-    where: { id: link.targetDishVersionId, dishId: link.targetDishId },
-    select: {
-      majorVersion: true,
-      minorVersion: true,
-      prepTimeMinutes: true,
-      cookTimeMinutes: true,
-      yieldQuantity: true,
-      yieldUnit: true,
-    },
-  });
-  if (!targetVersion) return null;
-
-  const multiplier = decimalToNumber(link.multiplier) ?? 1;
-  const checklist = await flattenPartChecklist(
-    ownerId,
-    link.targetDishId,
-    link.targetDishVersionId,
-    multiplier,
-    new Set(),
-    0,
-  );
-  const label = targetDish.currentTitle ?? "Untitled Part";
   const estimatedDurationMinutes =
     targetVersion.prepTimeMinutes != null ||
     targetVersion.cookTimeMinutes != null
@@ -351,7 +322,7 @@ async function buildPartUnit(
         (targetVersion.cookTimeMinutes ?? 0)
       : null;
 
-  return {
+  const unit: CookableUnit = {
     unitKey: `part:${link.lineageId}`,
     kind: "PART",
     label,
@@ -369,19 +340,48 @@ async function buildPartUnit(
     outputUnit: targetVersion.yieldUnit,
     targetDishId: link.targetDishId,
     targetDishVersionId: link.targetDishVersionId,
+    partRelation: relation,
+    partViaTitleSnapshot: viaPartTitleSnapshot,
+    partPathSnapshot: pathSnapshot,
   };
+
+  const nextVisited = new Set(visited);
+  nextVisited.add(link.targetDishId);
+  const nextPathPrefix = [...pathPrefix, label];
+
+  const nestedLinks = [...targetVersion.partLinks].sort(
+    (a, b) => a.position - b.position,
+  );
+  const nested: CookableUnit[] = [];
+  for (const [offset, nestedLink] of nestedLinks.entries()) {
+    nested.push(
+      ...(await buildPartUnitTree(
+        ownerId,
+        nestedLink,
+        authoredIndex + (offset + 1) / (nestedLinks.length + 1),
+        "NESTED",
+        label,
+        nextPathPrefix,
+        nextVisited,
+        depth + 1,
+      )),
+    );
+  }
+
+  return [unit, ...nested];
 }
 
 /**
  * Builds the full set of cookable units a given, owner-verified Dish
- * Version offers (PRODUCT_SPEC.md §23) — local Sections and directly
- * linked Parts (top-level or Section-nested) as independent units, each
- * with its own flattened checklist and estimated duration for the §23.5
- * suggested-order rule. Called fresh by both the Setup screen (to render
- * the picker) and every session-mutating service function (to validate a
- * client-supplied `unitKey` and re-derive its real content) — never cached
- * or trusted from client input (PRODUCT_SPEC.md §22.4/Gate 4 authorization
- * requirements).
+ * Version offers (PRODUCT_SPEC.md §23) — local Sections and every linked
+ * Part as an independent unit, at any nesting depth (SLICE_9.md refinement
+ * pass generalizes §23.4's Section→Part split to Part→Part, see
+ * `buildPartUnitTree`), each with its own flattened checklist and estimated
+ * duration for the §23.5 suggested-order rule. Called fresh by both the
+ * Setup screen (to render the picker) and every session-mutating service
+ * function (to validate a client-supplied `unitKey` and re-derive its real
+ * content) — never cached or trusted from client input (PRODUCT_SPEC.md
+ * §22.4/Gate 4 authorization requirements).
  */
 export async function buildCookableUnits(
   ownerId: string,
@@ -456,6 +456,9 @@ export async function buildCookableUnits(
           outputUnit: null,
           targetDishId: null,
           targetDishVersionId: null,
+          partRelation: null,
+          partViaTitleSnapshot: null,
+          partPathSnapshot: null,
           checklist: [
             ...localIngredients.map(ingredientToRaw),
             ...section.instructions.map((instruction) => ({
@@ -469,16 +472,32 @@ export async function buildCookableUnits(
 
       const nestedLinks = partLinksBySection.get(section.id) ?? [];
       for (const [nestedOffset, link] of nestedLinks.entries()) {
-        const unit = await buildPartUnit(
-          ownerId,
-          link,
-          authoredIndex + (nestedOffset + 1) / (nestedLinks.length + 1),
+        units.push(
+          ...(await buildPartUnitTree(
+            ownerId,
+            link,
+            authoredIndex + (nestedOffset + 1) / (nestedLinks.length + 1),
+            "DIRECT",
+            null,
+            [dishTitle],
+            new Set(),
+            0,
+          )),
         );
-        if (unit) units.push(unit);
       }
     } else {
-      const unit = await buildPartUnit(ownerId, entry.value, authoredIndex);
-      if (unit) units.push(unit);
+      units.push(
+        ...(await buildPartUnitTree(
+          ownerId,
+          entry.value,
+          authoredIndex,
+          "DIRECT",
+          null,
+          [dishTitle],
+          new Set(),
+          0,
+        )),
+      );
     }
   }
 
@@ -501,128 +520,6 @@ export async function buildCookableUnits(
     }
     return a.authoredIndex - b.authoredIndex;
   });
-}
-
-export type PartUsageOccurrenceRelation = "DIRECT" | "NESTED";
-
-export type PartUsageOccurrence = {
-  partDishId: string;
-  partVersionId: string;
-  partTitleSnapshot: string;
-  partVersionLabelSnapshot: string;
-  relation: PartUsageOccurrenceRelation;
-  viaPartTitleSnapshot: string | null;
-  pathSnapshot: string;
-};
-
-/**
- * SLICE_9.md correction pass — walks the immutable `PartLink` graph once,
- * down from a directly-included PART unit's own target Version, collecting
- * one occurrence per Part encountered (the direct target itself, plus every
- * Part nested inside it at any depth, §23.4's Recipe → Sauce → Garlic Paste
- * example). Called only at session-creation/plan-edit time
- * (`startCookingSession`/`addSessionUnits`) to build durable
- * `CookingSessionPartUsage` rows — never at read time, so a later-deleted
- * intermediate Part can never erase a surviving nested Part's own history
- * (the prior read-time recursive-reconstruction approach this replaces was
- * exactly broken by that scenario: deleting an intermediate Part cascades
- * away its own `DishVersion`/`PartLink` rows, so a read-time walk down from
- * it has nothing left to walk).
- */
-async function collectPartUsageOccurrences(
-  ownerId: string,
-  targetDishId: string,
-  targetDishVersionId: string,
-  pathPrefix: string[],
-  relation: PartUsageOccurrenceRelation,
-  viaPartTitleSnapshot: string | null,
-  visited: Set<string>,
-  depth: number,
-): Promise<PartUsageOccurrence[]> {
-  if (depth >= MAX_PART_FLATTEN_DEPTH || visited.has(targetDishId)) return [];
-
-  const targetDish = await prisma.dish.findFirst({
-    where: { id: targetDishId, ownerId, kind: "PART" },
-    select: { currentTitle: true },
-  });
-  if (!targetDish) return [];
-
-  const version = await prisma.dishVersion.findFirst({
-    where: { id: targetDishVersionId, dishId: targetDishId },
-    select: {
-      majorVersion: true,
-      minorVersion: true,
-      partLinks: {
-        select: { targetDishId: true, targetDishVersionId: true },
-      },
-    },
-  });
-  if (!version) return [];
-
-  const title = targetDish.currentTitle ?? "Untitled Part";
-  const partVersionLabelSnapshot = versionLabel(
-    version.majorVersion,
-    version.minorVersion,
-  );
-  const pathSnapshot = [...pathPrefix, title].join(" → ");
-
-  const occurrence: PartUsageOccurrence = {
-    partDishId: targetDishId,
-    partVersionId: targetDishVersionId,
-    partTitleSnapshot: title,
-    partVersionLabelSnapshot,
-    relation,
-    viaPartTitleSnapshot,
-    pathSnapshot,
-  };
-
-  const nextVisited = new Set(visited);
-  nextVisited.add(targetDishId);
-  const nextPathPrefix = [...pathPrefix, title];
-
-  const nested: PartUsageOccurrence[] = [];
-  for (const link of version.partLinks) {
-    if (!link.targetDishId || !link.targetDishVersionId) continue;
-    nested.push(
-      ...(await collectPartUsageOccurrences(
-        ownerId,
-        link.targetDishId,
-        link.targetDishVersionId,
-        nextPathPrefix,
-        "NESTED",
-        title,
-        nextVisited,
-        depth + 1,
-      )),
-    );
-  }
-
-  return [occurrence, ...nested];
-}
-
-/**
- * Entry point for one directly-included PART-kind cookable unit (top-level
- * or Section-nested `PartLink`) — `rootDishTitle` is the session's own
- * cooked Recipe/parent-Part title, so every occurrence's `pathSnapshot`
- * reads as a full trail from the thing actually being cooked down to that
- * exact Part (e.g. "Chicken Curry → Sauce → Garlic Paste").
- */
-export async function buildPartUsageOccurrences(
-  ownerId: string,
-  rootDishTitle: string,
-  targetDishId: string,
-  targetDishVersionId: string,
-): Promise<PartUsageOccurrence[]> {
-  return collectPartUsageOccurrences(
-    ownerId,
-    targetDishId,
-    targetDishVersionId,
-    [rootDishTitle],
-    "DIRECT",
-    null,
-    new Set(),
-    0,
-  );
 }
 
 /**

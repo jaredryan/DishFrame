@@ -325,3 +325,66 @@ trigger + `Dialog`), and its own content is data-driven, factual history
 rather than a new design surface. A brief sanity check of the Part detail
 page (confirm the dialog opens/renders for a Part with history) is
 reasonable but not required before continuing other work.
+
+## Refinement pass (2026-07-31) — Part-usage now follows the selected session plan
+
+**Authoring vs. Cooking Setup, settled (PRODUCT_SPEC.md §23.4a, new).** A
+linked Part is authored as a complete object — the editor never selectively
+alters content nested inside it. Cooking Setup is separate and session-
+scoped: §23.4's Section→Part independent-inclusion rule now generalizes to
+Part→Part at any depth, so a nested Part's own Last cooked/history follow
+its own selected session unit, not its container's.
+
+**Root cause of the prior correction pass's bug.** The previous durable-log
+design (`collectPartUsageOccurrences`) recursively walked the *entire*
+authored `PartLink` graph beneath a selected Part unit's target and wrote a
+usage row for every descendant, with no way to exclude a deeper Part — there
+was no session concept of "select Sauce but not Garlic Paste" to exclude
+in the first place.
+
+**Fix: nested Parts are now real, independently selectable units.**
+`buildCookableUnits`/`buildPartUnitTree` (`cooking/queries.ts`) now exposes
+every linked Part as its own `CookableUnit`, at any nesting depth — a
+Part's own checklist is only its own directly-authored content; nothing is
+folded in from a further-nested Part. Each unit carries its own
+`partRelation`/`partViaTitleSnapshot`/`partPathSnapshot`, computed once
+while walking the authored graph. `createPartUsageRows` (`cooking/
+service.ts`) now writes exactly one `CookingSessionPartUsage` row per
+selected PART-kind unit, straight from that unit's own fields — no re-walk
+at session-creation time. `collectPartUsageOccurrences`/
+`buildPartUsageOccurrences`/`PartUsageOccurrence` were removed as
+redundant. Setup/add-unit screens show a "nested in {parent}" hint
+(`SetupUnit.parentPartLabel`/`AddableUnit.parentPartLabel`) so a nested
+unit doesn't read as a sibling of its container.
+
+**Backfill corrected the same way.** `backfillCookingSessionPartUsage`
+only ever reconstructs from a `CookingSessionUnit` that actually exists —
+every pre-refinement-pass session predates independent nested selection,
+so a candidate's `sourcePartLinkLineageId` always resolves against the
+session's own top-level `dishVersionId` and always reconstructs as
+`DIRECT`. It cannot and does not fabricate a row for a nested Part that
+was never its own selected unit in the saved session.
+
+**Production upgrade command.** `pnpm db:deploy:upgrade` (new) runs
+`prisma migrate deploy && pnpm db:backfill:part-usage` — the command
+production deployment should invoke going forward, documented in
+`README.md`. Not wired into `build`/`postinstall`/CI. No schema or
+migration change was needed for this pass.
+
+**Tests.** `reviews.integration.test.ts`: replaced the three tests that
+assumed automatic recursive nested-Part usage with a
+`createNestedPartFixture` helper plus five focused cases (both included;
+nested excluded from Setup; nested removed then Ended-early; nested
+restored; container removed while the independently-selected nested unit
+remains), updated the repeated-occurrence and intermediate-deletion tests
+to select the nested unit explicitly, and added a backfill case proving it
+doesn't fabricate usage for a nested Part absent from the saved plan. 25
+cases total in that file (up from 23); `cooking.integration.test.ts`'s 18
+cases (no Part-in-Part nesting there) pass unmodified.
+
+**Verification.** `pnpm run verify:feature` — see result below.
+
+**Limitation.** The Setup/add-unit "nested in {parent}" hint is a plain
+text line, not a visual hierarchy (indentation/tree), matching §23.4's
+"final visual treatment belongs in frontend design work" — a real design
+pass for multi-level nesting display is still open.

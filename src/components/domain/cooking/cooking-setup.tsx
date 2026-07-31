@@ -34,6 +34,11 @@ export type SetupUnit = {
   instructionCount: number;
   outputQuantity: number | null;
   outputUnit: string | null;
+  // SLICE_9.md refinement pass — set only for a Part reached by linking
+  // through another Part (never a top-level or Section-nested Part), so the
+  // list can show it's a nested, independently selectable unit rather than a
+  // sibling of the thing that links to it (PRODUCT_SPEC.md §23.4).
+  parentPartLabel: string | null;
 };
 
 function countsLabel(unit: SetupUnit): string {
@@ -197,7 +202,11 @@ export function CookingSetup({
                     </p>
                     <p className="text-muted-foreground text-xs">
                       {[
-                        unit.kind === "PART" ? "Part" : "Section",
+                        unit.parentPartLabel
+                          ? `Part · nested in ${unit.parentPartLabel}`
+                          : unit.kind === "PART"
+                            ? "Part"
+                            : "Section",
                         unit.estimatedDurationMinutes != null
                           ? `~${unit.estimatedDurationMinutes} min`
                           : null,

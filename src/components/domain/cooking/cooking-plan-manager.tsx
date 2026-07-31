@@ -48,7 +48,14 @@ export type PlanUnit = {
   removedAfterProgress: boolean;
 };
 
-export type AddableUnit = { unitKey: string; label: string };
+export type AddableUnit = {
+  unitKey: string;
+  label: string;
+  // SLICE_9.md refinement pass — set only for a Part reached by linking
+  // through another Part, so it can be shown as its own nested, independently
+  // selectable unit (PRODUCT_SPEC.md §23.4).
+  parentPartLabel: string | null;
+};
 
 /**
  * Active-plan editing (PRODUCT_SPEC.md §27), tucked behind a Sheet trigger
@@ -196,9 +203,16 @@ export function CookingPlanManager({
                       key={unit.unitKey}
                       className="border-border flex items-center justify-between gap-2 rounded-lg border border-dashed p-3"
                     >
-                      <p className="text-muted-foreground text-sm">
-                        {unit.label}
-                      </p>
+                      <div className="min-w-0">
+                        <p className="text-muted-foreground text-sm">
+                          {unit.label}
+                        </p>
+                        {unit.parentPartLabel && (
+                          <p className="text-muted-foreground text-xs">
+                            Nested in {unit.parentPartLabel}
+                          </p>
+                        )}
+                      </div>
                       <TooltipIconButton
                         label={`Add ${unit.label}`}
                         icon={Plus}

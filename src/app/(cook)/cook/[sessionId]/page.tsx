@@ -58,7 +58,11 @@ export default async function CookingModePage({
   const isActive = cookingSession.state === "IN_PROGRESS";
   const sessionMultiplier = decimalToNumber(cookingSession.scaleFactor) ?? 1;
 
-  let addableUnits: Array<{ unitKey: string; label: string }> = [];
+  let addableUnits: Array<{
+    unitKey: string;
+    label: string;
+    parentPartLabel: string | null;
+  }> = [];
   const outputByUnitKey = new Map<
     string,
     { outputQuantity: number | null; outputUnit: string | null }
@@ -80,7 +84,11 @@ export default async function CookingModePage({
     const existingKeys = new Set(cookingSession.units.map(sessionUnitKey));
     addableUnits = cookableUnits
       .filter((unit) => !existingKeys.has(unit.unitKey))
-      .map((unit) => ({ unitKey: unit.unitKey, label: unit.label }));
+      .map((unit) => ({
+        unitKey: unit.unitKey,
+        label: unit.label,
+        parentPartLabel: unit.partViaTitleSnapshot,
+      }));
     for (const unit of cookableUnits) {
       outputByUnitKey.set(unit.unitKey, {
         outputQuantity: unit.outputQuantity,

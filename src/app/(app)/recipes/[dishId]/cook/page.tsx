@@ -66,6 +66,7 @@ export default async function RecipeCookingSetupPage({
       .length,
     outputQuantity: unit.outputQuantity,
     outputUnit: unit.outputUnit,
+    parentPartLabel: unit.partViaTitleSnapshot,
   }));
 
   return (

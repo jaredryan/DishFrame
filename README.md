@@ -83,17 +83,24 @@ disabled and a setup notice instead of a broken flow.
 ### Migrations
 
 ```bash
-pnpm db:migrate    # prisma migrate dev — local/dev database only.
-                    # Creates + applies a migration from schema changes.
-pnpm db:deploy      # prisma migrate deploy — production-safe.
-                    # Applies committed migrations, no shadow DB, no prompts.
+pnpm db:migrate         # prisma migrate dev — local/dev database only.
+                         # Creates + applies a migration from schema changes.
+pnpm db:deploy           # prisma migrate deploy — production-safe.
+                         # Applies committed migrations, no shadow DB, no prompts.
+pnpm db:deploy:upgrade   # prisma migrate deploy, then the idempotent
+                         # CookingSessionPartUsage backfill (SLICE_9.md).
+                         # This is the command production deployment should
+                         # invoke, not the bare `db:deploy` above.
 ```
 
-`pnpm db:deploy` must be run by hand (or as a deploy-time hook) against
-Neon whenever `prisma/migrations/` changes — **Vercel builds do not run
-it automatically**, and a successful `next build` / a healthy
+`pnpm db:deploy:upgrade` must be run by hand (or as a deploy-time hook)
+against Neon whenever `prisma/migrations/` changes — **Vercel builds do
+not run it automatically**, and a successful `next build` / a healthy
 `/api/health` do not imply the migration was applied. Running it against
-an already-up-to-date database is a no-op.
+an already-up-to-date, already-backfilled database is a no-op in both
+steps. The migration step and the backfill step are sequenced with `&&`,
+so a failed migration never runs the backfill, and a failed backfill still
+surfaces as a non-zero exit even though the migration itself succeeded.
 
 ### Google OAuth setup
 
@@ -139,7 +146,9 @@ pnpm format:check    # prettier --check
 pnpm check           # format:check + lint + typecheck + test + build
 pnpm db:generate     # generate the Prisma client
 pnpm db:migrate      # create/apply a migration in development
-pnpm db:deploy       # apply pending migrations (CI/production)
+pnpm db:deploy       # apply pending migrations only (CI)
+pnpm db:deploy:upgrade # apply pending migrations, then the Part-usage
+                       # backfill — what production deployment should run
 pnpm db:studio       # Prisma Studio
 ```
 
@@ -221,24 +230,33 @@ brief and `docs/BRANDING.md` for the visual and voice reference.
 
 ## Production deployment
 
-Production runs on Vercel at **https://dish-frame.vercel.app**, backed by
-the same Neon project referenced by `DATABASE_URL` locally.
+Production runs on Vercel at **https://dish-frame.vercel.app**, deployed
+automatically by **Vercel's Git integration** on push to `main` — there is
+no `vercel.json`, no custom build command, and no production-only
+pre-deploy hook in this repository. That means the database upgrade step
+below **cannot be enforced automatically**; it stays an explicit manual
+step the release author runs before the release push/merge lands.
+
+**Release checklist — run in this order:**
+
+1. Apply the database upgrade to production (migration, then the
+   idempotent Part-usage backfill — see [Migrations](#migrations)):
+
+   ```bash
+   DATABASE_URL="<neon pooled url>" DIRECT_URL="<neon direct url>" \
+     pnpm db:deploy:upgrade
+   ```
+
+   (or export those two vars from Vercel's dashboard values first). Stop
+   here — do not proceed to step 2 — if this command fails. Verify with
+   `pnpm exec prisma migrate status` against the same URL.
+2. Only once step 1 has succeeded, push/merge to `main` so Vercel's Git
+   integration builds and deploys the application.
 
 - Environment variables live in Vercel under **Project Settings →
   Environment Variables** (Production + Preview): `DATABASE_URL`,
   `DIRECT_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`,
   `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `NEXT_PUBLIC_APP_URL`.
-- `next build` / a passing deploy do **not** run Prisma migrations.
-  After any schema change, apply it to production explicitly:
-
-  ```bash
-  DATABASE_URL="<neon pooled url>" DIRECT_URL="<neon direct url>" \
-    pnpm db:deploy
-  ```
-
-  (or export those two vars from Vercel's dashboard values first). Verify
-  with `pnpm exec prisma migrate status` against the same URL.
-
 - `/api/health` proves Postgres connectivity, not schema correctness —
   a missing-table error only surfaces when an actual query runs (e.g.
   sign-in), as a `500` from `/api/auth/*`. Check `vercel logs` /
@@ -254,8 +272,8 @@ the build all work regardless. Sign-in and any database-backed page
 additionally require:
 
 1. A Neon project with `DATABASE_URL` / `DIRECT_URL` set, and the
-   migration applied (`pnpm db:migrate` locally, `pnpm db:deploy` in
-   production — see [Migrations](#migrations)).
+   migration applied (`pnpm db:migrate` locally, `pnpm db:deploy:upgrade`
+   in production — see [Migrations](#migrations)).
 2. A Google OAuth client with `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`
    set, and both origins/redirect URIs registered (see
    [Google OAuth setup](#google-oauth-setup)).
