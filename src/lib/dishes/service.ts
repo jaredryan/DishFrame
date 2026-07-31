@@ -293,6 +293,7 @@ export async function insertSections(
           displayText: ingredient.displayText || null,
           preparationNote: ingredient.preparationNote || null,
           isOptional: ingredient.isOptional,
+          originalImportedText: ingredient.originalImportedText || null,
           position: ii,
         },
       });
@@ -539,6 +540,12 @@ export async function createDish(
   ownerId: string,
   kind: DishKindValue,
   input: DishContentInput,
+  // Slice 11, PRODUCT_SPEC.md §57's "source information": set only by
+  // `importExport/service.ts`'s `confirmImport`, which is otherwise this
+  // exact same function — the same "one atomic Dish.create write" pattern
+  // `duplicateDish` already uses for `sourceKind: "DUPLICATE"`, not a
+  // second, parallel creation path.
+  source?: { title: string | null },
 ): Promise<string> {
   const sections = sanitizedSectionsOrThrow(input);
 
@@ -567,6 +574,9 @@ export async function createDish(
         cuisine: input.cuisine || null,
         archivedAt: input.stage === "ARCHIVED" ? new Date() : null,
         currentTitle: input.title,
+        ...(source
+          ? { sourceKind: "IMPORT" as const, sourceTitle: source.title }
+          : {}),
       },
     });
 

@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { LogOut } from "lucide-react";
+import { LogOut, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { signOut } from "@/lib/auth/client";
 
@@ -22,6 +22,23 @@ export function ProfileActions() {
 
   return (
     <div className="flex flex-col gap-6">
+      <div className="border-border bg-card flex items-center justify-between gap-4 rounded-xl border p-4">
+        <div>
+          <p className="text-foreground text-sm font-medium">Export my data</p>
+          <p className="text-muted-foreground text-sm">
+            Downloads a full private backup of everything in your account —
+            Recipes, Parts, Cooking Sessions, Cooking notes, Session Reviews,
+            and Taster data included. Keep the file private.
+          </p>
+        </div>
+        <Button variant="outline" asChild>
+          <a href="/api/export/account" download>
+            <Download />
+            Export
+          </a>
+        </Button>
+      </div>
+
       <div className="border-border bg-card flex items-center justify-between rounded-xl border p-4">
         <div>
           <p className="text-foreground text-sm font-medium">Sign out</p>

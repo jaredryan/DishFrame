@@ -139,6 +139,12 @@ export const ingredientInputSchema = z.object({
   preparationNote: z.string().trim().max(200).nullable().optional(),
   isOptional: z.boolean().default(false),
   substitute: nullableSubstituteSchema,
+  // §10.1's "original imported text, optional" — the raw source line the
+  // deterministic paste parser (Slice 11, `src/lib/importExport/`) read
+  // this ingredient from, preserved as read-only provenance so a reviewer
+  // can cross-check a structured guess against its source even after
+  // editing the structured fields. Never set by the ordinary editor UI.
+  originalImportedText: z.string().trim().max(500).nullable().optional(),
 });
 export type IngredientInput = z.infer<typeof ingredientInputSchema>;
 

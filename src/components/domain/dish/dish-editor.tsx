@@ -136,8 +136,29 @@ export function DishEditor({
   kind,
   dish,
   cuisineOptions = [],
+  initialValues,
+  onCreate,
+  heading,
 }: {
   kind: DishKindValue;
+  // Slice 11: seeds create-mode `defaultValues` in place of
+  // `blankDishFormValues()` — used by the paste-and-review importer to
+  // pre-fill the editor with the deterministic parser's proposal, so the
+  // reviewer edits/corrects/confirms through this exact same form rather
+  // than a parallel review UI. Ignored once `dish` is set (edit mode
+  // already has its own loaded values).
+  initialValues?: DishFormValues;
+  // Slice 11: overrides the create-mode save call — the paste importer
+  // passes `confirmImport` (which tags the new Dish's `sourceKind` as
+  // `IMPORT` before funneling into this exact same `createDish` service
+  // function) instead of the ordinary `createDish` action. Defaults to the
+  // ordinary action so every existing "New Recipe/Part" caller is
+  // unaffected.
+  onCreate?: typeof createDish;
+  // Slice 11: overrides the computed "New Recipe/Part" heading — the
+  // importer uses this for "Review imported recipe/part" so the reviewer
+  // understands they're confirming a parsed proposal, not starting blank.
+  heading?: string;
   dish?: {
     id: string;
     // The Version this edit is based on — any saved Version belonging to
@@ -202,7 +223,7 @@ export function DishEditor({
           defaultScale: dish.defaultScale,
         }
       : {
-          ...blankDishFormValues(),
+          ...(initialValues ?? blankDishFormValues()),
           note: "",
           defaultScale: null,
         },
@@ -378,7 +399,7 @@ export function DishEditor({
           cleaned,
           versionChoice,
         )
-      : await createDish(kind, cleaned);
+      : await (onCreate ?? createDish)(kind, cleaned);
 
     if (result.status === "success" && result.dishId) {
       await applyEditorExtras(extras);
@@ -495,7 +516,8 @@ export function DishEditor({
     : null;
   const editingNonCurrentVersion = !!dish && !dish.isCurrent;
 
-  const editorHeading = `${dish ? "Edit" : "New"} ${kindLabel.toLowerCase()}`;
+  const editorHeading =
+    heading ?? `${dish ? "Edit" : "New"} ${kindLabel.toLowerCase()}`;
   const collectionLabel = kind === "PART" ? "Parts" : "Recipes";
   const breadcrumbItems = dish
     ? [

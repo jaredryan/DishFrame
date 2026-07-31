@@ -35,11 +35,16 @@ export default async function RecipesPage({
             sections you write or reuse.
           </p>
         </div>
-        <Button asChild>
-          <Link href="/recipes/new">
-            <Plus /> Create Recipe
-          </Link>
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button asChild variant="outline">
+            <Link href="/recipes/import">Import</Link>
+          </Button>
+          <Button asChild>
+            <Link href="/recipes/new">
+              <Plus /> Create Recipe
+            </Link>
+          </Button>
+        </div>
       </div>
 
       <DishLibraryView

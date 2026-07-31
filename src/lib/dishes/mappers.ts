@@ -37,6 +37,7 @@ export function toIngredientInput(
     displayText: ingredient.displayText,
     preparationNote: ingredient.preparationNote,
     isOptional: ingredient.isOptional,
+    originalImportedText: ingredient.originalImportedText,
     substitute: ingredient.substitute
       ? {
           lineageId: ingredient.substitute.lineageId,

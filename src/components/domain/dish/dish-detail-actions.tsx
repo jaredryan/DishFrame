@@ -7,6 +7,7 @@ import {
   Archive,
   ChefHat,
   Copy,
+  Download,
   GitCompareArrows,
   History,
   MoreHorizontal,
@@ -64,7 +65,8 @@ const STAGE_LABEL: Record<RestorableStageValue, string> = {
   ACTIVE: "Active",
 };
 
-type DialogKind = "archive" | "restore" | "duplicate" | "delete" | null;
+type DialogKind =
+  "archive" | "restore" | "duplicate" | "delete" | "export" | null;
 
 export function DishDetailActions({
   dishId,
@@ -205,6 +207,9 @@ export function DishDetailActions({
             <DropdownMenuItem onSelect={() => setOpenDialog("duplicate")}>
               <Copy /> Duplicate
             </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setOpenDialog("export")}>
+              <Download /> Export
+            </DropdownMenuItem>
             {stage === "ARCHIVED" ? (
               <DropdownMenuItem onSelect={() => setOpenDialog("restore")}>
                 <RotateCcw /> Restore
@@ -310,6 +315,84 @@ export function DishDetailActions({
             </Button>
             <Button onClick={handleDuplicate} disabled={isPending}>
               {isPending ? "Duplicating…" : "Duplicate"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={openDialog === "export"}
+        onOpenChange={(open) => !open && close()}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Export this {label}</DialogTitle>
+            <DialogDescription>
+              Choose how much evidence to include. Every tier includes the full
+              Version history.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-3">
+            <div className="border-border flex items-center justify-between gap-3 rounded-lg border p-3">
+              <div>
+                <p className="text-foreground text-sm font-medium">Standard</p>
+                <p className="text-muted-foreground text-sm">
+                  Content and aggregate rating only — no Taster names,
+                  individual ratings, Cooking notes, or session history.
+                </p>
+              </div>
+              <Button asChild variant="outline" size="sm">
+                <a
+                  href={`/api/export/dish/${dishId}?kind=${kind}&tier=STANDARD`}
+                  download
+                >
+                  Download
+                </a>
+              </Button>
+            </div>
+            <div className="border-border flex items-center justify-between gap-3 rounded-lg border p-3">
+              <div>
+                <p className="text-foreground text-sm font-medium">
+                  Detailed evidence
+                </p>
+                <p className="text-muted-foreground text-sm">
+                  Adds per-Version and per-session rating breakdowns. Taster
+                  names stay anonymized.
+                </p>
+              </div>
+              <Button asChild variant="outline" size="sm">
+                <a
+                  href={`/api/export/dish/${dishId}?kind=${kind}&tier=DETAILED`}
+                  download
+                >
+                  Download
+                </a>
+              </Button>
+            </div>
+            <div className="border-destructive/30 bg-destructive/5 flex items-center justify-between gap-3 rounded-lg border p-3">
+              <div>
+                <p className="text-foreground text-sm font-medium">
+                  Full private history
+                </p>
+                <p className="text-muted-foreground text-sm">
+                  Adds real Taster names, Cooking notes, Session Reviews, and
+                  full Cooking Session history. This file contains private
+                  information — only share it with someone you trust.
+                </p>
+              </div>
+              <Button asChild variant="outline" size="sm">
+                <a
+                  href={`/api/export/dish/${dishId}?kind=${kind}&tier=FULL_PRIVATE_HISTORY`}
+                  download
+                >
+                  Download
+                </a>
+              </Button>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={close}>
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>
