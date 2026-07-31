@@ -41,7 +41,8 @@
     "test:integration": "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dishframe DIRECT_URL=postgresql://postgres:postgres@localhost:5432/dishframe_shadow DATABASE_DRIVER=pg vitest run --config vitest.integration.config.mts",
     "dev:production-db": "node scripts/dev-production-db.mjs",
     "db:seed": "NODE_OPTIONS=--conditions=react-server DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dishframe DIRECT_URL=postgresql://postgres:postgres@localhost:5432/dishframe_shadow DATABASE_DRIVER=pg tsx scripts/seed.ts",
-    "db:reset": "NODE_OPTIONS=--conditions=react-server DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dishframe DIRECT_URL=postgresql://postgres:postgres@localhost:5432/dishframe_shadow DATABASE_DRIVER=pg tsx scripts/db-reset.ts"
+    "db:reset": "NODE_OPTIONS=--conditions=react-server DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dishframe DIRECT_URL=postgresql://postgres:postgres@localhost:5432/dishframe_shadow DATABASE_DRIVER=pg tsx scripts/db-reset.ts",
+    "db:backfill:part-usage": "NODE_OPTIONS=--conditions=react-server tsx scripts/backfill-cooking-session-part-usage.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

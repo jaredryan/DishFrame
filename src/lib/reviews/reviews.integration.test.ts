@@ -13,7 +13,7 @@ import {
   listReviewTasterOptions,
   getSessionEvidenceForEditor,
 } from "@/lib/reviews/queries";
-import { getLastCookedAt } from "@/lib/cooking/queries";
+import { getLastCookedAt, getPartCookingHistory } from "@/lib/cooking/queries";
 import { getStageSuggestion } from "@/lib/dishes/stage-suggestions";
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import type { DishContentInput } from "@/lib/dishes/schema";
@@ -830,6 +830,42 @@ describe("reviews and ratings", () => {
     expect(await getLastCookedAt(userId, sauceId, "PART")).toBeNull();
     expect(await getLastCookedAt(userId, garlicPasteId, "PART")).toBeNull();
 
+    // Restoring a removed unit before the session ends makes its occurrences
+    // eligible again (SLICE_9.md correction pass — the durable usage-log
+    // rows are keyed to the unit's own `removedAt`, so no separate bookkeeping
+    // is needed for restore to "just work").
+    const restoredSession = await cookingService.startCookingSession(userId, {
+      dishId: recipeId,
+      dishVersionId: recipeVersion.id,
+      units: [
+        { unitKey: `section:${sectionLineageId}` },
+        { unitKey: `part:${sauceLink.lineageId}` },
+      ],
+    });
+    const restoredUnit = await prisma.cookingSessionUnit.findFirstOrThrow({
+      where: {
+        sessionId: restoredSession.id,
+        sourcePartLinkLineageId: sauceLink.lineageId,
+      },
+    });
+    await cookingService.removeSessionUnit(
+      userId,
+      restoredSession.id,
+      restoredUnit.id,
+    );
+    await cookingService.restoreSessionUnit(
+      userId,
+      restoredSession.id,
+      restoredUnit.id,
+    );
+    await cookingService.endCookingSession(
+      userId,
+      restoredSession.id,
+      "COMPLETED",
+    );
+    expect(await getLastCookedAt(userId, sauceId, "PART")).not.toBeNull();
+    expect(await getLastCookedAt(userId, garlicPasteId, "PART")).not.toBeNull();
+
     // Completed and included: updates the directly-linked Part and the
     // Part nested two levels deep inside it, without creating a duplicate
     // standalone session for either.
@@ -848,6 +884,309 @@ describe("reviews and ratings", () => {
     expect(
       await prisma.cookingSession.count({ where: { dishId: garlicPasteId } }),
     ).toBe(0);
+
+    // The durable usage log itself: one DIRECT row for Sauce, one NESTED row
+    // for Garlic Paste (two levels down), with exact identity/snapshots and
+    // a readable path — never inferred from titles at read time.
+    const usageRows = await prisma.cookingSessionPartUsage.findMany({
+      where: { sessionId: completed.id },
+    });
+    const sauceUsage = usageRows.find((r) => r.partDishId === sauceId)!;
+    const garlicUsage = usageRows.find((r) => r.partDishId === garlicPasteId)!;
+    expect(usageRows).toHaveLength(2);
+    expect(sauceUsage.relation).toBe("DIRECT");
+    expect(sauceUsage.viaPartTitleSnapshot).toBeNull();
+    expect(sauceUsage.pathSnapshot).toBe("Test Bowl → Sauce");
+    expect(sauceUsage.partVersionLabelSnapshot).toBe("V1.0");
+    expect(garlicUsage.relation).toBe("NESTED");
+    expect(garlicUsage.viaPartTitleSnapshot).toBe("Sauce");
+    expect(garlicUsage.pathSnapshot).toBe("Test Bowl → Sauce → Garlic Paste");
+
+    // Part-history listing (not only Last cooked) — one event per Part per
+    // Cooking Session, from the same underlying Completed sessions above.
+    const sauceHistory = await getPartCookingHistory(userId, sauceId);
+    const garlicHistory = await getPartCookingHistory(userId, garlicPasteId);
+    const sauceEvent = sauceHistory.find((e) => e.sessionId === completed.id)!;
+    const garlicEvent = garlicHistory.find(
+      (e) => e.sessionId === completed.id,
+    )!;
+    expect(sauceEvent.isStandalone).toBe(false);
+    expect(sauceEvent.dishTitle).toBe("Test Bowl");
+    expect(sauceEvent.occurrences).toHaveLength(1);
+    expect(garlicEvent.occurrences).toHaveLength(1);
+    expect(garlicEvent.occurrences[0]!.pathSnapshot).toBe(
+      "Test Bowl → Sauce → Garlic Paste",
+    );
+  });
+
+  it("collapses a Part used both directly and nested in the same session into one history event, and keeps a Section-nested Part's usage DIRECT", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+    await initializeNewUser(userId);
+
+    const garlicPasteId = await dishService.createDish(
+      userId,
+      "PART",
+      partContent("Garlic Paste"),
+    );
+    const garlicPasteVersionId = await currentVersionId(garlicPasteId);
+
+    const sauceId = await dishService.createDish(
+      userId,
+      "PART",
+      partContent("Sauce", {
+        partLinks: [
+          {
+            targetDishId: garlicPasteId,
+            targetDishVersionId: garlicPasteVersionId,
+            position: 1,
+            multiplier: 1,
+          },
+        ],
+      }),
+    );
+    const sauceVersionId = await currentVersionId(sauceId);
+
+    // Garlic Paste is used BOTH directly at the top level AND nested inside
+    // Sauce (also linked directly) — two distinct occurrences of the same
+    // Part in one session. The Sauce link also lives inside the Recipe's
+    // own Section (Section-nesting), which must still resolve as a DIRECT
+    // occurrence (only nesting through another Part counts as NESTED).
+    const recipeId = await dishService.createDish(
+      userId,
+      "RECIPE",
+      recipeContent({
+        sections: [
+          {
+            name: "Prep",
+            guidanceNote: null,
+            position: 0,
+            ingredients: [],
+            instructions: [],
+            partLinks: [
+              {
+                targetDishId: sauceId,
+                targetDishVersionId: sauceVersionId,
+                position: 0,
+                multiplier: 1,
+              },
+            ],
+          },
+        ],
+        partLinks: [
+          {
+            targetDishId: garlicPasteId,
+            targetDishVersionId: garlicPasteVersionId,
+            position: 1,
+            multiplier: 1,
+          },
+        ],
+      }),
+    );
+    const recipeVersion = await prisma.dishVersion.findUniqueOrThrow({
+      where: { id: await currentVersionId(recipeId) },
+      include: { partLinks: true },
+    });
+    const directGarlicLink = recipeVersion.partLinks.find(
+      (l) => l.targetDishId === garlicPasteId,
+    )!;
+    const sauceLink = recipeVersion.partLinks.find(
+      (l) => l.targetDishId === sauceId,
+    )!;
+
+    const session = await cookingService.startCookingSession(userId, {
+      dishId: recipeId,
+      dishVersionId: recipeVersion.id,
+      units: [
+        { unitKey: `part:${directGarlicLink.lineageId}` },
+        { unitKey: `part:${sauceLink.lineageId}` },
+      ],
+    });
+    await cookingService.endCookingSession(userId, session.id, "COMPLETED");
+
+    const garlicUsageRows = await prisma.cookingSessionPartUsage.findMany({
+      where: { sessionId: session.id, partDishId: garlicPasteId },
+    });
+    expect(garlicUsageRows).toHaveLength(2);
+    expect(garlicUsageRows.map((r) => r.relation).sort()).toEqual([
+      "DIRECT",
+      "NESTED",
+    ]);
+    const sauceUsageRow = await prisma.cookingSessionPartUsage.findFirstOrThrow(
+      { where: { sessionId: session.id, partDishId: sauceId } },
+    );
+    expect(sauceUsageRow.relation).toBe("DIRECT");
+
+    // One history event per Part per session, even with two occurrences.
+    const garlicHistory = await getPartCookingHistory(userId, garlicPasteId);
+    const eventsForSession = garlicHistory.filter(
+      (e) => e.sessionId === session.id,
+    );
+    expect(eventsForSession).toHaveLength(1);
+    expect(eventsForSession[0]!.occurrences).toHaveLength(2);
+  });
+
+  it("keeps a surviving nested Part's Recipe-session history and Last cooked after the intermediate Part is permanently deleted", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+    await initializeNewUser(userId);
+
+    // Recipe -> Sauce Part (to be deleted) -> Garlic Paste Part (must survive).
+    const garlicPasteId = await dishService.createDish(
+      userId,
+      "PART",
+      partContent("Garlic Paste"),
+    );
+    const garlicPasteVersionId = await currentVersionId(garlicPasteId);
+
+    const sauceId = await dishService.createDish(
+      userId,
+      "PART",
+      partContent("Sauce", {
+        partLinks: [
+          {
+            targetDishId: garlicPasteId,
+            targetDishVersionId: garlicPasteVersionId,
+            position: 1,
+            multiplier: 1,
+          },
+        ],
+      }),
+    );
+    const sauceVersionId = await currentVersionId(sauceId);
+
+    const recipeId = await dishService.createDish(
+      userId,
+      "RECIPE",
+      recipeContent({
+        partLinks: [
+          {
+            targetDishId: sauceId,
+            targetDishVersionId: sauceVersionId,
+            position: 1,
+            multiplier: 1,
+          },
+        ],
+      }),
+    );
+    const recipeVersion = await prisma.dishVersion.findUniqueOrThrow({
+      where: { id: await currentVersionId(recipeId) },
+      include: { partLinks: true },
+    });
+    const sauceLink = recipeVersion.partLinks.find(
+      (l) => l.targetDishId === sauceId,
+    )!;
+
+    const session = await cookingService.startCookingSession(userId, {
+      dishId: recipeId,
+      dishVersionId: recipeVersion.id,
+      units: [{ unitKey: `part:${sauceLink.lineageId}` }],
+    });
+    await cookingService.endCookingSession(userId, session.id, "COMPLETED");
+
+    expect(await getLastCookedAt(userId, garlicPasteId, "PART")).not.toBeNull();
+    const historyBefore = await getPartCookingHistory(userId, garlicPasteId);
+    expect(historyBefore.some((e) => e.sessionId === session.id)).toBe(true);
+
+    // Permanently delete the intermediate Part (Sauce) through the normal
+    // two-phase deletion flow: it still has a current usage (the Recipe's
+    // only Version links it), so resolve that first, exactly like
+    // dishes.integration.test.ts's "deletePart (Phase 2)" tests do.
+    await expect(dishService.deleteDish(userId, sauceId)).rejects.toThrow();
+    await dishService.resolvePartUsageOccurrence(
+      userId,
+      sauceId,
+      recipeId,
+      sauceLink.lineageId,
+      "DETACH",
+      "MINOR",
+    );
+    await dishService.deleteDish(userId, sauceId);
+
+    expect(await prisma.dish.findUnique({ where: { id: sauceId } })).toBeNull();
+    expect(
+      await prisma.dish.findUnique({ where: { id: garlicPasteId } }),
+    ).not.toBeNull();
+
+    // Garlic Paste's own usage row is untouched (never referenced Sauce via
+    // a live relation, only a snapshot) — its history/Last cooked survive.
+    expect(await getLastCookedAt(userId, garlicPasteId, "PART")).not.toBeNull();
+    const historyAfter = await getPartCookingHistory(userId, garlicPasteId);
+    const eventAfter = historyAfter.find((e) => e.sessionId === session.id)!;
+    expect(eventAfter).toBeDefined();
+    expect(eventAfter.occurrences[0]!.pathSnapshot).toBe(
+      "Test Bowl → Sauce → Garlic Paste",
+    );
+
+    // The deleted Part's own DIRECT usage row survives too (frozen snapshot,
+    // relation to the live Dish/Version nulled by the DB itself).
+    const sauceUsageRow = await prisma.cookingSessionPartUsage.findFirstOrThrow(
+      { where: { sessionId: session.id, partTitleSnapshot: "Sauce" } },
+    );
+    expect(sauceUsageRow.partDishId).toBeNull();
+    expect(sauceUsageRow.partVersionId).toBeNull();
+  });
+
+  it("backfills CookingSessionPartUsage rows for pre-existing sessions, idempotently and only where the source PartLink still resolves", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+    await initializeNewUser(userId);
+
+    const partId = await dishService.createDish(
+      userId,
+      "PART",
+      partContent("Sauce"),
+    );
+    const partVersionId = await currentVersionId(partId);
+    const recipeId = await dishService.createDish(
+      userId,
+      "RECIPE",
+      recipeContent({
+        partLinks: [
+          {
+            targetDishId: partId,
+            targetDishVersionId: partVersionId,
+            position: 1,
+            multiplier: 1,
+          },
+        ],
+      }),
+    );
+    const recipeVersion = await prisma.dishVersion.findUniqueOrThrow({
+      where: { id: await currentVersionId(recipeId) },
+      include: { partLinks: true },
+    });
+    const partLink = recipeVersion.partLinks.find(
+      (l) => l.targetDishId === partId,
+    )!;
+    const session = await cookingService.startCookingSession(userId, {
+      dishId: recipeId,
+      dishVersionId: recipeVersion.id,
+      units: [{ unitKey: `part:${partLink.lineageId}` }],
+    });
+    await cookingService.endCookingSession(userId, session.id, "COMPLETED");
+
+    // Simulate a pre-Slice-9-correction session by deleting the rows the
+    // (now current) creation-time code just wrote.
+    await prisma.cookingSessionPartUsage.deleteMany({
+      where: { sessionId: session.id },
+    });
+    expect(await getLastCookedAt(userId, partId, "PART")).toBeNull();
+
+    const first = await cookingService.backfillCookingSessionPartUsage();
+    expect(first.created).toBeGreaterThan(0);
+    expect(await getLastCookedAt(userId, partId, "PART")).not.toBeNull();
+    const rowsAfterFirst = await prisma.cookingSessionPartUsage.count({
+      where: { sessionId: session.id },
+    });
+
+    // Idempotent: a second run finds nothing left to backfill for this unit.
+    const second = await cookingService.backfillCookingSessionPartUsage();
+    const rowsAfterSecond = await prisma.cookingSessionPartUsage.count({
+      where: { sessionId: session.id },
+    });
+    expect(rowsAfterSecond).toBe(rowsAfterFirst);
+    expect(second.created).toBe(0);
   });
 
   it("never mutates Recipe/Part content or Stage when saving a Review or rating", async () => {

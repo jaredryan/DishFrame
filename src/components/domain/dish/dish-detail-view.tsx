@@ -18,6 +18,7 @@ import {
   type ScaledSectionRow,
 } from "@/components/domain/dish/scaled-version-view";
 import { PartUsagePanel } from "@/components/domain/dish/part-usage-panel";
+import { CookingHistoryDialog } from "@/components/domain/dish/cooking-history-dialog";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
 import type { DishKindValue } from "@/lib/dishes/schema";
 import {
@@ -31,7 +32,7 @@ import {
   resolvePartLinkTrees,
   type PartLinkTree,
 } from "@/lib/sections/service";
-import { getLastCookedAt } from "@/lib/cooking/queries";
+import { getLastCookedAt, getPartCookingHistory } from "@/lib/cooking/queries";
 import {
   getRatingSummary,
   computePrincipalRating,
@@ -106,15 +107,25 @@ export async function DishDetailView({
 
   // Slice 9: principal rating (§36.4/§49.1-49.3), Last cooked (§41), and the
   // "Starting point" inherited-context block for a duplicate (§19.4) — all
-  // read-time aggregates, never cached.
-  const [preference, ratingSummary, lastCookedAt] = await Promise.all([
-    prisma.userPreference.findUnique({
-      where: { userId: dish.ownerId },
-      select: { primaryRatingDisplay: true },
-    }),
-    getRatingSummary(dish.id, dish.currentVersionId),
-    getLastCookedAt(dish.ownerId, dish.id, kind),
-  ]);
+  // read-time aggregates, never cached. SLICE_9.md correction pass: cooking
+  // history (§41.4/§41.5) is also only meaningful for a Part — a Recipe's
+  // own session list isn't surfaced here.
+  const [preference, ratingSummary, lastCookedAt, cookingHistory] =
+    await Promise.all([
+      prisma.userPreference.findUnique({
+        where: { userId: dish.ownerId },
+        select: { primaryRatingDisplay: true },
+      }),
+      getRatingSummary(dish.id, dish.currentVersionId),
+      getLastCookedAt(dish.ownerId, dish.id, kind),
+      kind === "PART"
+        ? getPartCookingHistory(dish.ownerId, dish.id)
+        : Promise.resolve([]),
+    ]);
+  const cookingHistoryEvents = cookingHistory.map((event) => ({
+    ...event,
+    endedAt: event.endedAt.toISOString(),
+  }));
   const principalRating = computePrincipalRating(
     ratingSummary,
     dish.currentVersionId,
@@ -242,13 +253,17 @@ export async function DishDetailView({
     version.prepTimeMinutes != null ||
     version.cookTimeMinutes != null ||
     version.difficulty ||
-    lastCookedAt) && (
+    lastCookedAt ||
+    cookingHistoryEvents.length > 0) && (
     <div className="flex flex-wrap gap-1.5">
       {lastCookedAt && (
         <Badge variant="outline" className="gap-1">
           <History className="size-3" aria-hidden="true" />
           Last cooked {lastCookedAt.toLocaleDateString()}
         </Badge>
+      )}
+      {kind === "PART" && cookingHistoryEvents.length > 0 && (
+        <CookingHistoryDialog events={cookingHistoryEvents} />
       )}
       {effectiveYieldQuantity != null && (
         <Badge variant="outline" className="gap-1">

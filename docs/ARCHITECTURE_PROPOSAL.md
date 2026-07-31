@@ -559,6 +559,42 @@ model Timer {
 }
 ```
 
+### D.7a `CookingSessionPartUsage` (SLICE_9.md correction pass — durable Part-use log)
+
+```
+enum PartUsageRelation { DIRECT NESTED }
+
+model CookingSessionPartUsage {
+  id            String @id @default(cuid())
+  sessionId     String
+  unitId        String            // the top-level, PART-kind CookingSessionUnit responsible for including this occurrence
+
+  partDishId    String?           // nullable/onDelete:SetNull, same pattern as Rating.dishId — a later Part deletion nulls this
+  partVersionId String?
+
+  partTitleSnapshot        String
+  partVersionLabelSnapshot String
+
+  relation             PartUsageRelation // DIRECT: this unit's own PartLink target. NESTED: found nested inside it.
+  viaPartTitleSnapshot String?           // immediate containing Part's title, set only when relation is NESTED
+  pathSnapshot         String            // e.g. "Chicken Curry → Sauce → Garlic Paste"
+
+  createdAt     DateTime @default(now())
+}
+```
+
+**Why this replaced read-time recursive reconstruction.** Slice 9 originally computed Part Last-cooked/history for a nested Part (§23.4's Recipe → Sauce → Garlic Paste example) by walking the *live* `PartLink` graph at read time, starting from the session's own pinned root link and descending through each Part's own current `PartLink` rows. That walk silently broke once an intermediate Part (Sauce) was permanently deleted: `deletePart`'s cascade (§J) removes the deleted Part's own `DishVersion`/`PartLink` rows entirely, so a later read-time walk down from it has nothing left to traverse — Garlic Paste's own Last-cooked/history would incorrectly disappear even though Garlic Paste itself, and the Recipe session that used it, both still exist.
+
+**The corrected model.** The recursive `PartLink`-graph walk still happens exactly once — not at read time, but at session-creation/plan-edit time (`startCookingSession`/`addSessionUnits`, the only two places a `CookingSessionUnit` is ever created), inside the same transaction as the unit's own row. It discovers every Part occurrence reachable from that unit's own direct target (the direct target itself, `relation: DIRECT`, plus every Part nested inside it at any depth, `relation: NESTED`) and persists one `CookingSessionPartUsage` row per occurrence — identity via `partDishId`/`partVersionId` (never inferred from titles), plus title/Version-label/path snapshots for display that stay readable regardless of what happens to the source later.
+
+**Active/removed state has no separate flag.** A `CookingSessionPartUsage` row's own "does this currently count as cooked" status is derived entirely from its `unit`'s own `removedAt` (join, not a duplicated column) — removing a unit from an active plan and later restoring it just works, with zero extra bookkeeping on the usage rows themselves.
+
+**Deletion durability.** `CookingSessionPartUsage.partDishId`/`partVersionId` is a nullable, `onDelete: SetNull` composite FK to `DishVersion` — identical to `Rating`'s own pattern (§D.8). When an intermediate Part (Sauce) is later permanently deleted, only *its own* DIRECT usage row's live relation is nulled (snapshot fields survive); a deeper, surviving Part's (Garlic Paste's) own NESTED usage row was never related to Sauce via a live FK in the first place — only `viaPartTitleSnapshot: "Sauce"`, a frozen string — so there is nothing for Sauce's deletion to cascade into or null out. Garlic Paste's Last-cooked/history read straight off its own row, entirely unaffected.
+
+**Read-time queries.** `getLastCookedAt`/`getPartCookingHistory` (`cooking/queries.ts`) now join against this table directly (`CookingSessionPartUsage.partDishId = <Part>` and `unit.removedAt IS NULL` and `session.state = 'COMPLETED'`) instead of walking `PartLink`. Multiple occurrences of the same Part within one session (used both directly and nested, or via two distinct nested paths) collapse into one history event per session, with occurrences summarized rather than duplicated.
+
+**Migration/backfill.** The new table is purely additive — no existing column changed. Pre-existing `CookingSessionUnit` rows (created before this correction) have no usage rows at all; `backfillCookingSessionPartUsage()` (`cooking/service.ts`, run via `pnpm db:backfill:part-usage`) is an idempotent, one-time pass that re-derives them by re-running the same recursive walk against each such unit's still-resolvable root `PartLink` (skipping any whose target Part was already deleted before the backfill runs — nothing to reconstruct from, and the original session/unit rows are never touched or discarded either way).
+
 ### D.8 `SessionReview` and `Rating`
 
 ```

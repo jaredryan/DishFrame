@@ -84,15 +84,14 @@ separately from the item's own history, per §19.4's example.
 
 ## Last cooked / cooking history
 
-`getLastCookedAt` (`cooking/queries.ts`) is read-time, not denormalized.
-Recipe: latest `COMPLETED` session for that `dishId` (Ended-early excluded,
-§41.2). Part: the later of its own standalone `COMPLETED` sessions and any
-`COMPLETED` Recipe session that used it as a top-level unit — resolved by
-matching the session's own `dishVersionId` against `PartLink.
-containerVersionId`/`lineageId` (a `CookingSessionUnit` only stores the
-Part's *display* snapshot, never its live `dishId`). No duplicate
-standalone Part session is ever created for this (§41.4) — verified
-directly.
+**Superseded by the 2026-07-31 correction pass below** — `getLastCookedAt`
+originally reconstructed a Part's Recipe-session usage by walking the live
+`PartLink` graph at read time; it now joins against the durable
+`CookingSessionPartUsage` log instead. See the correction section for the
+current architecture. Recipe: latest `COMPLETED` session for that `dishId`
+(Ended-early excluded, §41.2) — unchanged. No duplicate standalone Part
+session is ever created for Recipe-session usage (§41.4) — verified
+directly, unchanged.
 
 ## Learning loop and Stage suggestions
 
@@ -187,20 +186,20 @@ in-progress edits, and nothing from the Review/notes is copied into any
 form field — read-only display only. This is genuinely new: no prior path
 surfaced session evidence from within the Recipe/Part editor at all.
 
-**Nested-Part Last cooked/history (§23.4/§41.3/§41.4).** `getLastCookedAt`
-(`cooking/queries.ts`) previously only matched a Part linked directly into
-the cooked Recipe Version (top-level or Section-nested); a Part nested
-inside another Part (e.g. Recipe → Sauce → Garlic Paste) was invisible.
-Fixed with a recursive `partIsNestedInVersion` walk down the immutable
-`PartLink` graph from the directly-included unit's own target Version —
-the same exact-Version-pinned identity `flattenPartChecklist` already uses
-for cooking checklists, so results stay correct after later Recipe/Part
-edits (each historical Version's own `PartLink` rows never change). Also
-now excludes units removed from the session's plan before it ended
-(`removedAt: null`), so a nested Part whose containing unit was never
-actually part of what was cooked doesn't count. No schema/migration
-change — the fix is entirely a read-time query change using existing
-persisted `PartLink`/`CookingSessionUnit` identity.
+**Nested-Part Last cooked/history (§23.4/§41.3/§41.4) — superseded, see the
+2026-07-31 correction section below.** `getLastCookedAt` (`cooking/queries.ts`)
+previously only matched a Part linked directly into the cooked Recipe
+Version (top-level or Section-nested); a Part nested inside another Part
+(e.g. Recipe → Sauce → Garlic Paste) was invisible. This pass fixed it with
+a recursive `partIsNestedInVersion` walk down the *live* `PartLink` graph at
+read time — which was itself a design mistake, since permanently deleting
+an intermediate Part (Sauce) cascades away its own `PartLink` rows and
+breaks that same walk for a surviving nested Part (Garlic Paste). The
+2026-07-31 correction pass replaces this read-time reconstruction with a
+durable `CookingSessionPartUsage` log written once at session-creation
+time, while the source graph still exists. The removed-unit exclusion rule
+(`removedAt: null`) is unchanged in spirit, now expressed as a join against
+the owning `CookingSessionUnit`'s own `removedAt`.
 
 **Tests.** `reviews.integration.test.ts`: a dedicated clearing-a-rating
 test (no Rating row, no Taster mutation); `getSessionEvidenceForEditor`
@@ -222,3 +221,107 @@ typecheck all green.
 **Remaining limitation.** None identified for the three items in scope —
 Tier 2 per-Part ratings and everything else under "Unresolved / deferred"
 above still stands as originally scoped.
+
+## Correction pass (2026-07-31) — durable Cooking Session Part-use records
+
+**Why.** The recursive read-time `PartLink`-graph reconstruction the prior
+correction pass added for nested-Part Last cooked/history (above) was
+rejected as too fragile: permanently deleting an intermediate Part cascades
+away its own `DishVersion`/`PartLink` rows, so a later read-time walk down
+from it has nothing left to traverse — a surviving, deeper-nested Part's
+own Last cooked and history would silently disappear even though nothing
+about *that* Part or its own session ever changed. Full architecture is
+documented in `ARCHITECTURE_PROPOSAL.md` §D.7a; this section covers only
+the DishFrame-specific deltas.
+
+**Persisted Part-use model.** New `CookingSessionPartUsage` model (Migration
+`20260731173746_cooking_session_part_usage` +
+`20260731173814_cooking_session_part_usage`, `PartUsageRelation` enum:
+`DIRECT`/`NESTED`). One row per exact Part-Version occurrence: owning
+session/unit, `partDishId`/`partVersionId` (nullable, `onDelete: SetNull`,
+same pattern as `Rating`), title/Version-label/path snapshots, and
+`viaPartTitleSnapshot` for the immediate containing Part when nested. A new
+hand-authored `cooking_session_part_usage_pair_consistency` CHECK
+constraint (paired nullability, mirroring `rating_dish_pair_consistency`)
+was added and registered in both `scan-migrations.ts` and
+`verify-db-objects.ts`'s protected-object lists.
+
+**Migration correction note.** The first `--create-only` migration Prisma
+generated proposed spurious `DROP`s for several pre-existing hand-authored
+objects (`dish_current_version_ownership`, the Ingredient/Instruction/
+PartLink consistency CHECKs, three trigram indexes) — the same documented
+shadow-diff issue as `SLICE_2.md` §5.2. These were stripped by hand before
+applying. `prisma migrate dev` then auto-generated and applied a *second*
+migration re-proposing and executing those exact drops against the local
+dev database before it was caught mid-pass; that second migration file was
+corrected to a no-op (so it can never drop those objects on any other
+database), and the local dev database — disposable by design — was reset
+and cleanly reapplied from the corrected migration history.
+`db:scan-migrations`/`db:verify:local` both pass clean against the final
+state.
+
+**Creation-time discovery.** `collectPartUsageOccurrences`
+(`cooking/queries.ts`) walks the immutable `PartLink` graph once, only
+inside `startCookingSession`/`addSessionUnits` — the only two places a
+`CookingSessionUnit` is ever created — recording the unit's own direct
+Part target (`DIRECT`) plus every Part nested inside it at any depth
+(`NESTED`), each with a readable `pathSnapshot` (e.g. "Chicken Curry →
+Sauce → Garlic Paste"). Historical reads never re-walk the source graph.
+
+**Last cooked / Part cooking history.** `getLastCookedAt`'s Part branch and
+the new `getPartCookingHistory` (`cooking/queries.ts`) both query
+`CookingSessionPartUsage` directly: a row counts only while its owning
+`CookingSessionUnit.removedAt` is null and its session is `COMPLETED` —
+removal/restoration needs no separate bookkeeping since there is no
+duplicated active flag on the usage row itself. `getPartCookingHistory`
+returns one event per Part per Cooking Session (standalone sessions, both
+outcomes, plus Completed Recipe/parent-Part sessions with an active usage
+row), collapsing multiple occurrences of the same Part within one session
+(used both directly and nested) into that event's own `occurrences` list
+rather than duplicate rows. Surfaced via a new "View cooking history"
+dialog (`components/domain/dish/cooking-history-dialog.tsx`) on the Part
+detail page, alongside the existing Last-cooked badge.
+
+**Deletion durability.** Verified the exact scenario from the prompt:
+Recipe → Part A (Sauce) → Part B (Garlic Paste), Recipe session Completed,
+Part A permanently deleted via the normal two-phase
+resolve-then-delete flow. Part B's own `NESTED` usage row was never
+related to Part A via a live FK — only a frozen `viaPartTitleSnapshot`
+string — so Part A's deletion has nothing to cascade into for Part B; Part
+B's Last cooked and history both survive unchanged. Part A's own `DIRECT`
+usage row also survives (its `partDishId`/`partVersionId` nulled by the
+database's own `onDelete: SetNull`, snapshot fields intact).
+
+**Backfill.** `backfillCookingSessionPartUsage` (`cooking/service.ts`, run
+via `pnpm db:backfill:part-usage`) is an idempotent one-time pass:
+finds every `CookingSessionUnit` with a `sourcePartLinkLineageId` and zero
+usage rows, re-derives them via the same recursive walk from the unit's own
+root `PartLink` when it's still `LIVE` with a live target, and skips (does
+not fabricate) any unit whose source Part was already deleted before the
+backfill runs. Existing `CookingSession`/`CookingSessionUnit` rows are never
+read-destructively touched by this pass.
+
+**Tests.** `reviews.integration.test.ts`: extended the existing nested
+Last-cooked test with unit restore-then-complete eligibility and direct
+assertions against the persisted usage rows (relation/path/snapshot
+fields) and `getPartCookingHistory` output; a new test for a Part used both
+directly and Section-nested-plus-nested-in-another-Part within one session
+(collapses to one history event, confirms Section-nesting alone stays
+`DIRECT`); a new test for the intermediate-Part-deletion survival scenario
+above; a new idempotent backfill test. 23 cases total in that file (up from
+19), all passing.
+
+**Verification.** `pnpm run verify:feature` passed clean on first run: 281
+frontend tests, 199 backend integration tests (23 in
+`reviews.integration.test.ts`, up from 19), `db:verify:local` (16 protected
+constraints/7 protected indexes, including the new
+`cooking_session_part_usage_pair_consistency`) and `db:scan-migrations`
+both clean, lint/typecheck/build all green.
+
+**Owner intervention recommendation: Proceed without manual UI review.**
+No product/design decision is pending — the new "View cooking history"
+dialog reuses `RatingDetailDialog`'s exact visual pattern (ghost-button
+trigger + `Dialog`), and its own content is data-driven, factual history
+rather than a new design surface. A brief sanity check of the Part detail
+page (confirm the dialog opens/renders for a Part with history) is
+reasonable but not required before continuing other work.

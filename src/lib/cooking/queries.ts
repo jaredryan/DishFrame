@@ -201,6 +201,12 @@ export type CookableUnit = {
   // read directly off that Version by the caller, not per-unit here).
   outputQuantity: number | null;
   outputUnit: string | null;
+  // SLICE_9.md correction pass — the unit's own direct PartLink target,
+  // null for a SECTION unit. Lets the service layer walk
+  // `collectPartUsageOccurrences` from the exact target without a second
+  // PartLink lookup at session-creation/plan-edit time.
+  targetDishId: string | null;
+  targetDishVersionId: string | null;
 };
 
 const MAX_PART_FLATTEN_DEPTH = 12;
@@ -361,6 +367,8 @@ async function buildPartUnit(
     checklist,
     outputQuantity: decimalToNumber(targetVersion.yieldQuantity),
     outputUnit: targetVersion.yieldUnit,
+    targetDishId: link.targetDishId,
+    targetDishVersionId: link.targetDishVersionId,
   };
 }
 
@@ -446,6 +454,8 @@ export async function buildCookableUnits(
           authoredIndex,
           outputQuantity: null,
           outputUnit: null,
+          targetDishId: null,
+          targetDishVersionId: null,
           checklist: [
             ...localIngredients.map(ingredientToRaw),
             ...section.instructions.map((instruction) => ({
@@ -493,62 +503,140 @@ export async function buildCookableUnits(
   });
 }
 
+export type PartUsageOccurrenceRelation = "DIRECT" | "NESTED";
+
+export type PartUsageOccurrence = {
+  partDishId: string;
+  partVersionId: string;
+  partTitleSnapshot: string;
+  partVersionLabelSnapshot: string;
+  relation: PartUsageOccurrenceRelation;
+  viaPartTitleSnapshot: string | null;
+  pathSnapshot: string;
+};
+
 /**
- * PRODUCT_SPEC.md §23.4/§41.3/§41.4 — is `targetDishId` reachable by walking
- * the immutable `PartLink` graph down from `fromVersionId` (a Part Version
- * that was itself directly included in a session)? Mirrors
- * `flattenPartChecklist`'s recursive descent — each `PartLink` row is
- * pinned to the exact Version that authored it, so this stays correct after
- * later edits to the Recipe or any Part (§41's "remain correct after later
- * edits") without needing to store nested identity on the session itself.
+ * SLICE_9.md correction pass — walks the immutable `PartLink` graph once,
+ * down from a directly-included PART unit's own target Version, collecting
+ * one occurrence per Part encountered (the direct target itself, plus every
+ * Part nested inside it at any depth, §23.4's Recipe → Sauce → Garlic Paste
+ * example). Called only at session-creation/plan-edit time
+ * (`startCookingSession`/`addSessionUnits`) to build durable
+ * `CookingSessionPartUsage` rows — never at read time, so a later-deleted
+ * intermediate Part can never erase a surviving nested Part's own history
+ * (the prior read-time recursive-reconstruction approach this replaces was
+ * exactly broken by that scenario: deleting an intermediate Part cascades
+ * away its own `DishVersion`/`PartLink` rows, so a read-time walk down from
+ * it has nothing left to walk).
  */
-async function partIsNestedInVersion(
-  fromVersionId: string,
+async function collectPartUsageOccurrences(
+  ownerId: string,
   targetDishId: string,
+  targetDishVersionId: string,
+  pathPrefix: string[],
+  relation: PartUsageOccurrenceRelation,
+  viaPartTitleSnapshot: string | null,
   visited: Set<string>,
   depth: number,
-): Promise<boolean> {
-  if (depth >= MAX_PART_FLATTEN_DEPTH || visited.has(fromVersionId)) {
-    return false;
-  }
-  const links = await prisma.partLink.findMany({
-    where: { containerVersionId: fromVersionId },
-    select: { targetDishId: true, targetDishVersionId: true },
+): Promise<PartUsageOccurrence[]> {
+  if (depth >= MAX_PART_FLATTEN_DEPTH || visited.has(targetDishId)) return [];
+
+  const targetDish = await prisma.dish.findFirst({
+    where: { id: targetDishId, ownerId, kind: "PART" },
+    select: { currentTitle: true },
   });
+  if (!targetDish) return [];
+
+  const version = await prisma.dishVersion.findFirst({
+    where: { id: targetDishVersionId, dishId: targetDishId },
+    select: {
+      majorVersion: true,
+      minorVersion: true,
+      partLinks: {
+        select: { targetDishId: true, targetDishVersionId: true },
+      },
+    },
+  });
+  if (!version) return [];
+
+  const title = targetDish.currentTitle ?? "Untitled Part";
+  const partVersionLabelSnapshot = versionLabel(
+    version.majorVersion,
+    version.minorVersion,
+  );
+  const pathSnapshot = [...pathPrefix, title].join(" → ");
+
+  const occurrence: PartUsageOccurrence = {
+    partDishId: targetDishId,
+    partVersionId: targetDishVersionId,
+    partTitleSnapshot: title,
+    partVersionLabelSnapshot,
+    relation,
+    viaPartTitleSnapshot,
+    pathSnapshot,
+  };
+
   const nextVisited = new Set(visited);
-  nextVisited.add(fromVersionId);
-  for (const link of links) {
+  nextVisited.add(targetDishId);
+  const nextPathPrefix = [...pathPrefix, title];
+
+  const nested: PartUsageOccurrence[] = [];
+  for (const link of version.partLinks) {
     if (!link.targetDishId || !link.targetDishVersionId) continue;
-    if (link.targetDishId === targetDishId) return true;
-    if (
-      await partIsNestedInVersion(
+    nested.push(
+      ...(await collectPartUsageOccurrences(
+        ownerId,
+        link.targetDishId,
         link.targetDishVersionId,
-        targetDishId,
+        nextPathPrefix,
+        "NESTED",
+        title,
         nextVisited,
         depth + 1,
-      )
-    ) {
-      return true;
-    }
+      )),
+    );
   }
-  return false;
+
+  return [occurrence, ...nested];
+}
+
+/**
+ * Entry point for one directly-included PART-kind cookable unit (top-level
+ * or Section-nested `PartLink`) — `rootDishTitle` is the session's own
+ * cooked Recipe/parent-Part title, so every occurrence's `pathSnapshot`
+ * reads as a full trail from the thing actually being cooked down to that
+ * exact Part (e.g. "Chicken Curry → Sauce → Garlic Paste").
+ */
+export async function buildPartUsageOccurrences(
+  ownerId: string,
+  rootDishTitle: string,
+  targetDishId: string,
+  targetDishVersionId: string,
+): Promise<PartUsageOccurrence[]> {
+  return collectPartUsageOccurrences(
+    ownerId,
+    targetDishId,
+    targetDishVersionId,
+    [rootDishTitle],
+    "DIRECT",
+    null,
+    new Set(),
+    0,
+  );
 }
 
 /**
  * PRODUCT_SPEC.md §41.1/§41.3/§41.4 — Last cooked, computed at read time
- * from stored session evidence rather than a denormalized field. A Recipe's
- * value comes only from its own Completed sessions (full or partial;
- * Ended-early never counts, §41.2). A Part's value additionally considers
- * every Completed Recipe session that used this exact Part Version, at any
- * nesting depth (§23.4's Recipe → Sauce → Garlic Paste example) — resolved
- * by matching each session's own `dishVersionId` (the container Version
- * actually cooked) against `PartLink.containerVersionId`, keyed by an
- * *included* unit's own `sourcePartLinkLineageId` snapshot (a
- * `CookingSessionUnit` never stores the target Part's `dishId` directly,
- * Correction 3), then walking down from that directly-linked Part's own
- * Version via `partIsNestedInVersion` for any deeper match. No duplicate
- * standalone Part session is ever created for this usage (§41.4), so this
- * join is the only way to surface it.
+ * from stored session evidence. A Recipe's value comes only from its own
+ * Completed sessions (full or partial; Ended-early never counts, §41.2). A
+ * Part's value additionally considers every persisted `CookingSessionPartUsage`
+ * row for this exact Part whose owning unit is still active in a Completed
+ * session (SLICE_9.md correction pass — previously reconstructed by a
+ * read-time recursive `PartLink` walk, which broke once an intermediate Part
+ * was permanently deleted; now a plain join against durable rows written
+ * once at session-creation/plan-edit time). No duplicate standalone Part
+ * session is ever created for this usage (§41.4), so this join is the only
+ * way to surface it.
  */
 export async function getLastCookedAt(
   ownerId: string,
@@ -565,52 +653,148 @@ export async function getLastCookedAt(
     return standalone?.endedAt ?? null;
   }
 
-  // Only *included* units count as actually cooked (a unit removed from the
-  // plan before it had any progress was never part of what was made).
-  const units = await prisma.cookingSessionUnit.findMany({
+  // Only a unit still active (not removed from the plan before the session
+  // ended) counts as actually cooked.
+  const usage = await prisma.cookingSessionPartUsage.findFirst({
     where: {
-      removedAt: null,
-      sourcePartLinkLineageId: { not: null },
+      partDishId: dishId,
+      unit: { removedAt: null },
       session: { ownerId, state: "COMPLETED" },
     },
-    select: {
-      sourcePartLinkLineageId: true,
-      session: { select: { dishVersionId: true, endedAt: true } },
-    },
+    orderBy: { session: { endedAt: "desc" } },
+    select: { session: { select: { endedAt: true } } },
   });
 
-  let latestUsage: Date | null = null;
-  for (const unit of units) {
-    if (!unit.session.endedAt) continue;
-    if (latestUsage && unit.session.endedAt <= latestUsage) continue;
-
-    const rootLink = await prisma.partLink.findFirst({
-      where: {
-        containerVersionId: unit.session.dishVersionId,
-        lineageId: unit.sourcePartLinkLineageId!,
-      },
-      select: { targetDishId: true, targetDishVersionId: true },
-    });
-    if (!rootLink?.targetDishId || !rootLink.targetDishVersionId) continue;
-
-    const matches =
-      rootLink.targetDishId === dishId ||
-      (await partIsNestedInVersion(
-        rootLink.targetDishVersionId,
-        dishId,
-        new Set(),
-        0,
-      ));
-    if (matches) {
-      latestUsage = unit.session.endedAt;
-    }
-  }
-
-  const candidates = [standalone?.endedAt, latestUsage].filter(
+  const candidates = [standalone?.endedAt, usage?.session.endedAt].filter(
     (d): d is Date => d != null,
   );
   if (candidates.length === 0) return null;
   return candidates.reduce((a, b) => (a > b ? a : b));
+}
+
+export type PartHistoryOccurrenceView = {
+  partVersionLabelSnapshot: string;
+  pathSnapshot: string | null;
+  relation: PartUsageOccurrenceRelation | null;
+};
+
+export type PartHistoryEvent = {
+  sessionId: string;
+  state: "COMPLETED" | "ENDED_EARLY";
+  endedAt: Date;
+  isStandalone: boolean;
+  dishTitle: string;
+  occurrences: PartHistoryOccurrenceView[];
+};
+
+/**
+ * PRODUCT_SPEC.md §41.4/§41.5 — a Part's own cooking history, not only its
+ * Last-cooked timestamp: standalone sessions for the Part itself (both
+ * outcomes, matching §41.5's general "both remain visible in history"), plus
+ * every Completed Recipe/parent-Part session that used this exact Part
+ * Version through a still-active unit. Multiple occurrences of the same
+ * Part within one session (e.g. used both directly and nested) collapse
+ * into a single event with a summarized occurrence list, never duplicate
+ * history rows for the same session.
+ */
+export async function getPartCookingHistory(
+  ownerId: string,
+  partDishId: string,
+): Promise<PartHistoryEvent[]> {
+  const standaloneSessions = await prisma.cookingSession.findMany({
+    where: {
+      ownerId,
+      dishId: partDishId,
+      state: { in: ["COMPLETED", "ENDED_EARLY"] },
+    },
+    orderBy: { endedAt: "desc" },
+    select: { id: true, state: true, endedAt: true, dishVersionId: true },
+  });
+  const standaloneVersionIds = [
+    ...new Set(standaloneSessions.map((s) => s.dishVersionId)),
+  ];
+  const standaloneVersions = standaloneVersionIds.length
+    ? await prisma.dishVersion.findMany({
+        where: { id: { in: standaloneVersionIds } },
+        select: { id: true, majorVersion: true, minorVersion: true },
+      })
+    : [];
+  const versionById = new Map(standaloneVersions.map((v) => [v.id, v]));
+
+  const usageRows = await prisma.cookingSessionPartUsage.findMany({
+    where: {
+      partDishId,
+      unit: { removedAt: null },
+      session: { ownerId, state: "COMPLETED" },
+    },
+    select: {
+      sessionId: true,
+      partVersionLabelSnapshot: true,
+      pathSnapshot: true,
+      relation: true,
+      session: { select: { endedAt: true, dishId: true } },
+    },
+  });
+  const rootDishIds = [...new Set(usageRows.map((r) => r.session.dishId))];
+  const rootDishes = rootDishIds.length
+    ? await prisma.dish.findMany({
+        where: { id: { in: rootDishIds } },
+        select: { id: true, currentTitle: true },
+      })
+    : [];
+  const rootDishTitleById = new Map(
+    rootDishes.map((d) => [d.id, d.currentTitle ?? "Deleted item"]),
+  );
+
+  const usageBySession = new Map<string, typeof usageRows>();
+  for (const row of usageRows) {
+    const list = usageBySession.get(row.sessionId) ?? [];
+    list.push(row);
+    usageBySession.set(row.sessionId, list);
+  }
+
+  const events: PartHistoryEvent[] = [];
+
+  for (const session of standaloneSessions) {
+    if (!session.endedAt) continue;
+    const version = versionById.get(session.dishVersionId);
+    events.push({
+      sessionId: session.id,
+      state: session.state as "COMPLETED" | "ENDED_EARLY",
+      endedAt: session.endedAt,
+      isStandalone: true,
+      dishTitle: "This Part",
+      occurrences: [
+        {
+          partVersionLabelSnapshot: version
+            ? versionLabel(version.majorVersion, version.minorVersion)
+            : "—",
+          pathSnapshot: null,
+          relation: null,
+        },
+      ],
+    });
+  }
+
+  for (const [sessionId, rows] of usageBySession) {
+    const endedAt = rows[0]!.session.endedAt;
+    if (!endedAt) continue;
+    events.push({
+      sessionId,
+      state: "COMPLETED",
+      endedAt,
+      isStandalone: false,
+      dishTitle:
+        rootDishTitleById.get(rows[0]!.session.dishId) ?? "Deleted item",
+      occurrences: rows.map((r) => ({
+        partVersionLabelSnapshot: r.partVersionLabelSnapshot,
+        pathSnapshot: r.pathSnapshot,
+        relation: r.relation,
+      })),
+    });
+  }
+
+  return events.sort((a, b) => b.endedAt.getTime() - a.endedAt.getTime());
 }
 
 /** PRODUCT_SPEC.md §40.3: "meaningful use" evidence behind a Stage

@@ -38,6 +38,7 @@ const PROTECTED_OBJECT_NAMES = [
   "nutrition_basis_consistency",
   "rating_value_range",
   "rating_dish_pair_consistency",
+  "cooking_session_part_usage_pair_consistency",
   "grocery_list_source_dish_pair_consistency",
   "meal_plan_entry_dish_pair_consistency",
   "direct_share_dish_pair_consistency",

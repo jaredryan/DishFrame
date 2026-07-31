@@ -41,6 +41,7 @@ const PROTECTED_CONSTRAINTS = [
   "nutrition_basis_consistency",
   "rating_value_range",
   "rating_dish_pair_consistency",
+  "cooking_session_part_usage_pair_consistency",
   "grocery_list_mode_consistency",
   "meal_plan_date_order",
   "grocery_list_source_dish_pair_consistency",

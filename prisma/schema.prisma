@@ -229,6 +229,7 @@ model DishVersion {
   // scalar the composite relation also uses.
   cookingSessions    CookingSession[]
   ratings            Rating[]
+  partUsages         CookingSessionPartUsage[]
   groceryListSources GroceryListSource[]
   mealPlanEntries    MealPlanEntry[]
   shareLinksFixed    ShareLink[]
@@ -540,11 +541,12 @@ model CookingSession {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  owner           User                 @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  dishVersion     DishVersion          @relation(fields: [dishId, dishVersionId], references: [dishId, id], onDelete: Cascade)
+  owner           User                      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  dishVersion     DishVersion               @relation(fields: [dishId, dishVersionId], references: [dishId, id], onDelete: Cascade)
   units           CookingSessionUnit[]
   review          SessionReview?
   ratings         Rating[]
+  partUsages      CookingSessionPartUsage[]
   mealPlanEntries MealPlanEntry[]
 
   @@index([ownerId, state, updatedAt])
@@ -573,8 +575,58 @@ model CookingSessionUnit {
   session        CookingSession                @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   checklistItems CookingSessionChecklistItem[]
   timers         Timer[]
+  partUsages     CookingSessionPartUsage[]
 
   @@index([sessionId])
+}
+
+enum PartUsageRelation {
+  DIRECT
+  NESTED
+}
+
+/**
+ * Durable Part-use log (SLICE_9.md correction pass, replacing read-time
+ * recursive `PartLink`-graph reconstruction). One row per exact Part-Version
+ * occurrence discovered by walking the source `PartLink` graph once, at
+ * session-creation/plan-edit time (`startCookingSession`/`addSessionUnits`)
+ * — never re-derived later, so a since-deleted intermediate Part can never
+ * erase a surviving nested Part's own history. `unitId` is the top-level
+ * `CookingSessionUnit` (always PART-kind) responsible for including this
+ * occurrence — its own `removedAt` is the single source of truth for
+ * whether the occurrence currently counts as cooked (no separate active
+ * flag to keep in sync). `partDishId`/`partVersionId` mirror `Rating`'s own
+ * paired-nullable, `onDelete: SetNull` pattern: a later Part deletion nulls
+ * the live relation while every snapshot field stays readable.
+ */
+model CookingSessionPartUsage {
+  id        String @id @default(cuid())
+  sessionId String
+  unitId    String
+
+  partDishId    String?
+  partVersionId String?
+
+  partTitleSnapshot        String
+  partVersionLabelSnapshot String
+
+  relation             PartUsageRelation
+  // Immediate containing Part's title snapshot — set only when relation is
+  // NESTED (the Part one level up the walk from this occurrence).
+  viaPartTitleSnapshot String?
+  // Full readable trail from the session's own cooked Recipe/Part down to
+  // this occurrence, e.g. "Chicken Curry → Sauce → Garlic Paste".
+  pathSnapshot         String
+
+  createdAt DateTime @default(now())
+
+  session     CookingSession     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  unit        CookingSessionUnit @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  partVersion DishVersion?       @relation(fields: [partDishId, partVersionId], references: [dishId, id], onDelete: SetNull)
+
+  @@index([sessionId])
+  @@index([unitId])
+  @@index([partDishId])
 }
 
 enum ChecklistItemKind {
