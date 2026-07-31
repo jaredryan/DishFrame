@@ -24,17 +24,6 @@ describe("site constants", () => {
     expect(SITE_URL).toBe("http://localhost:3000");
   });
 
-  it("exposes the locked hero title and description", async () => {
-    const { SITE_TITLE, SITE_DESCRIPTION, SITE_NAME } = await import("./site");
-    expect(SITE_NAME).toBe("DishFrame");
-    expect(SITE_TITLE).toBe(
-      "DishFrame — A better framework for the way you cook",
-    );
-    expect(SITE_DESCRIPTION).toBe(
-      "Keep recipes organized, reuse what already works, and save what you learn each time you cook.",
-    );
-  });
-
   it("absoluteUrl resolves paths against the configured origin", async () => {
     process.env.NEXT_PUBLIC_APP_URL = "https://dish-frame.vercel.app";
     const { absoluteUrl } = await import("./site");

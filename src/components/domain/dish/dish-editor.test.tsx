@@ -622,9 +622,7 @@ describe("DishEditor consolidated note and default scale", () => {
     const dishWithCustomScale = { ...existingDish, defaultScale: 2 };
     render(<DishEditor kind="RECIPE" dish={dishWithCustomScale} />);
 
-    expect(screen.getByLabelText("Default scale multiplier")).toHaveValue(
-      "2",
-    );
+    expect(screen.getByLabelText("Default scale multiplier")).toHaveValue("2");
   });
 
   it("blurring an emptied input resolves the visible value back to 1", async () => {

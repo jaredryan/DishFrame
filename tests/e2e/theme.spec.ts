@@ -40,17 +40,6 @@ test("theme can be changed on the public site", async ({ page }) => {
   await expect(html).not.toHaveClass(/dark/);
 });
 
-// Gate 2 remediation: theme controls were removed from the sign-in screen
-// and from the account-menu dropdown — the complete Appearance setting now
-// lives only in /settings.
-test("the sign-in screen has no theme controls", async ({ page }) => {
-  await page.goto("/sign-in");
-
-  await expect(
-    page.getByRole("radiogroup", { name: "Theme" }),
-  ).not.toBeVisible();
-});
-
 test.describe("theme in the signed-in app", () => {
   let userId: string;
 
@@ -78,20 +67,7 @@ test.describe("theme in the signed-in app", () => {
     seed("cleanup", userId);
   });
 
-  test("the account menu has no theme selector, and Appearance in Settings changes the theme", async ({
-    page,
-  }) => {
-    await page.goto("/home");
-
-    await page.getByRole("button", { name: "Account menu" }).click();
-    const menu = page.getByRole("menu");
-    await expect(menu).toBeVisible();
-    await expect(
-      menu.getByRole("radiogroup", { name: "Theme" }),
-    ).not.toBeVisible();
-    await expect(menu.getByText("Settings")).toHaveCount(0);
-    await page.keyboard.press("Escape");
-
+  test("Appearance in Settings changes the theme", async ({ page }) => {
     await page.goto("/settings");
     await expect(
       page.getByRole("heading", { name: "Appearance" }),

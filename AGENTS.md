@@ -50,9 +50,9 @@ should:
 - keep `docs/SLICE_*.md` concise and centered on current truth (see
   "Implementation report policy" below).
 
-A separate testing-strategy audit is planned to revisit test coverage
-and verification scope more broadly; this section does not preempt that
-audit and does not itself change what tests exist or delete any.
+A test-value audit (2026-07-30) revisited existing test coverage against
+this policy — see "Test-value policy" under "Owner intervention and
+manual-review policy" below for the durable rule it produced.
 
 # Subagent delegation and model selection
 
@@ -278,6 +278,43 @@ Do not use brittle presentation tests as a substitute for product or
 design review while the UI is evolving. Detailed browser review may be
 combined across related slices when the next slice does not depend on the
 current presentation being settled.
+
+## Test-value policy (added 2026-07-30, after the test-value audit)
+
+A test should protect consequential behavior — user-impacting, security,
+persistence, calculation, workflow, or data-integrity — not stand as a
+changelog of a completed polish pass. Apply this when writing or
+reviewing any DishFrame test:
+
+- test consequential behavior, not completed polish or a frozen visual
+  arrangement;
+- match coverage depth to feature maturity — defer detailed coverage for
+  UI/workflows still under active design iteration;
+- prefer the cheapest durable layer capable of protecting a behavior
+  (unit for pure calculation/validation, component for meaningful client
+  state/interaction, integration for persistence/authorization/domain
+  workflows, a small number of E2E journeys for critical cross-boundary
+  paths);
+- strongly preserve authentication/ownership boundaries, Recipe/Part
+  lifecycle operations, Version classification and allocation, PartLink
+  pinning/composition/cycle-prevention, propagation, two-phase Part
+  deletion, historical materialization/comparison, image authorization,
+  scaling/quantity calculations, and database constraints/transactions;
+- avoid presentation-only assertions (CSS, spacing, exact DOM nesting,
+  icon choice, tooltip styling) and avoid absence assertions unless the
+  absence itself is a real invariant (authorization, private-data
+  exposure, an archived/deleted item's exclusion, a validation error
+  clearing) rather than a snapshot of where a control isn't shown today;
+- avoid duplicating the same detailed behavior across multiple layers
+  without a distinct reason to;
+- simplify or remove a test once the design/copy/primitive it verified no
+  longer exists, rather than leaving it as historical proof a past
+  correction landed;
+- require a new test to protect a plausible future regression, not merely
+  to document that a change happened;
+- keep Playwright/E2E limited to journeys that need a real browser,
+  session, or full-stack round trip — not coverage already fully
+  protected more cheaply below it.
 
 # Implementation report policy
 

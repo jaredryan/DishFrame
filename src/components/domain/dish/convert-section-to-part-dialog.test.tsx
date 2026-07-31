@@ -125,13 +125,9 @@ describe("ConvertSectionToPartDialog", () => {
       targetDishVersionId: "new-part-1-v1",
     });
 
-    // Closes the conversion interaction — no "Save a copy as Part" action
-    // exists anywhere in this flow (the removed pre-gate primitive).
+    // Closes the conversion interaction.
     expect(
       screen.queryByText(/Convert Sauce to a Part/),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: /Save a copy as Part/ }),
     ).not.toBeInTheDocument();
   });
 
