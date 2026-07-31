@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Clock, Flame, Gauge, Soup } from "lucide-react";
+import { ChefHat, Clock, Flame, Gauge, Soup } from "lucide-react";
 import { notFound, redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth/session";
 import {
@@ -231,6 +231,15 @@ export default async function RecipeVersionPage({
         />
 
         <div className="flex flex-wrap items-center gap-2">
+          {/* Slice 7, PRODUCT_SPEC.md §22.3: cooking a historical Version
+              never makes it current, changes Stage, or restores it — just
+              opens the same Cooking Setup pinned to this exact Version. */}
+          <Button asChild>
+            <Link href={`${basePath}/${dish.id}/cook?versionId=${version.id}`}>
+              <ChefHat aria-hidden="true" />
+              {isCurrent ? "Prepare to cook" : "Prepare to cook this version"}
+            </Link>
+          </Button>
           {/* Slice 4 correction pass §1: any saved Version may be an
               editing base or a promotion source — not only a major line's
               latest minor. */}

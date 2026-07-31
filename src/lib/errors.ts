@@ -49,6 +49,36 @@ export class PartHasLiveUsagesError extends ValidationError {
   }
 }
 
+/**
+ * PRODUCT_SPEC.md §26.2/§26.3: thrown by `startCookingSession` when the
+ * partial unique index (`one_active_session_per_dish`) rejects a duplicate
+ * "Start cooking" for a Dish that already has an In-progress session — the
+ * database is the authoritative concurrency guard (Gate 4), this is only
+ * the friendly mapping. Carries the existing session's id so the action
+ * layer can offer Resume without a second query racing the same check.
+ */
+export class ActiveSessionConflictError extends ConflictError {
+  existingSessionId: string | null;
+  constructor(existingSessionId: string | null) {
+    super("A cooking session is already in progress for this item.");
+    this.name = "ActiveSessionConflictError";
+    this.existingSessionId = existingSessionId;
+  }
+}
+
+/**
+ * PRODUCT_SPEC.md §27.4: thrown by `removeSessionUnit` when removing the
+ * requested unit would leave the active plan empty — the removal is never
+ * committed in this case; the action layer surfaces the documented
+ * Delete-session/Keep-editing choice instead.
+ */
+export class FinalUnitGuardError extends ValidationError {
+  constructor(message = "This is the last active unit in this session.") {
+    super(message);
+    this.name = "FinalUnitGuardError";
+  }
+}
+
 export type ActionResult<T = undefined> =
   | ({ ok: true } & (T extends undefined ? object : { data: T }))
   | { ok: false; message: string };

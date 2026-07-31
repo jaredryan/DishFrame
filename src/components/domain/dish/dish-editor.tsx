@@ -580,7 +580,6 @@ export function DishEditor({
                 </div>
                 {dish && (
                   <div className="border-border mt-2 flex flex-col gap-1.5 border-t pt-3">
-                    
                     <FieldLabel htmlFor="dish-default-scale">
                       Default scale
                     </FieldLabel>
