@@ -250,6 +250,7 @@ step the release author runs before the release push/merge lands.
    (or export those two vars from Vercel's dashboard values first). Stop
    here — do not proceed to step 2 — if this command fails. Verify with
    `pnpm exec prisma migrate status` against the same URL.
+
 2. Only once step 1 has succeeded, push/merge to `main` so Vercel's Git
    integration builds and deploys the application.
 

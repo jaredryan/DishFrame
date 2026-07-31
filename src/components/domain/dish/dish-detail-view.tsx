@@ -19,6 +19,8 @@ import {
 } from "@/components/domain/dish/scaled-version-view";
 import { PartUsagePanel } from "@/components/domain/dish/part-usage-panel";
 import { CookingHistoryDialog } from "@/components/domain/dish/cooking-history-dialog";
+import { FavoriteToggle } from "@/components/domain/dish/favorite-toggle";
+import { DishTagFlavorEditor } from "@/components/domain/dish/dish-tag-flavor-editor";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
 import type { DishKindValue } from "@/lib/dishes/schema";
 import {
@@ -37,6 +39,8 @@ import {
   getRatingSummary,
   computePrincipalRating,
 } from "@/lib/reviews/queries";
+import { listTags } from "@/lib/tags/queries";
+import { listFlavorProfileValues } from "@/lib/flavor-profiles/queries";
 import { prisma } from "@/lib/db/prisma";
 
 type DishDetail = Prisma.DishGetPayload<{ include: typeof dishDetailInclude }>;
@@ -110,18 +114,37 @@ export async function DishDetailView({
   // read-time aggregates, never cached. SLICE_9.md correction pass: cooking
   // history (§41.4/§41.5) is also only meaningful for a Part — a Recipe's
   // own session list isn't surfaced here.
-  const [preference, ratingSummary, lastCookedAt, cookingHistory] =
-    await Promise.all([
-      prisma.userPreference.findUnique({
-        where: { userId: dish.ownerId },
-        select: { primaryRatingDisplay: true },
-      }),
-      getRatingSummary(dish.id, dish.currentVersionId),
-      getLastCookedAt(dish.ownerId, dish.id, kind),
-      kind === "PART"
-        ? getPartCookingHistory(dish.ownerId, dish.id)
-        : Promise.resolve([]),
-    ]);
+  const [
+    preference,
+    ratingSummary,
+    lastCookedAt,
+    cookingHistory,
+    tagOptions,
+    flavorProfileOptions,
+  ] = await Promise.all([
+    prisma.userPreference.findUnique({
+      where: { userId: dish.ownerId },
+      select: { primaryRatingDisplay: true },
+    }),
+    getRatingSummary(dish.id, dish.currentVersionId),
+    getLastCookedAt(dish.ownerId, dish.id, kind),
+    kind === "PART"
+      ? getPartCookingHistory(dish.ownerId, dish.id)
+      : Promise.resolve([]),
+    listTags(dish.ownerId),
+    listFlavorProfileValues(dish.ownerId),
+  ]);
+  const selectedTagIds = dish.tags.map((t) => t.tagId);
+  const selectedFlavorProfileValueIds = dish.flavorProfiles.map(
+    (f) => f.flavorProfileValueId,
+  );
+  const isFavorite = dish.tags.some((t) => t.tag.isFavorite);
+  const nonFavoriteTagNames = dish.tags
+    .filter((t) => !t.tag.isFavorite)
+    .map((t) => t.tag.displayName);
+  const flavorProfileNames = dish.flavorProfiles.map(
+    (f) => f.flavorProfileValue.displayName,
+  );
   const cookingHistoryEvents = cookingHistory.map((event) => ({
     ...event,
     endedAt: event.endedAt.toISOString(),
@@ -198,7 +221,8 @@ export async function DishDetailView({
       <h1 className="font-heading text-foreground min-w-0 text-2xl font-semibold text-balance">
         {displayTitle}
       </h1>
-      <div className="shrink-0">
+      <div className="flex shrink-0 items-center gap-2">
+        <FavoriteToggle dishId={dish.id} kind={kind} isFavorite={isFavorite} />
         <DishDetailActions
           dishId={dish.id}
           kind={kind}
@@ -212,7 +236,9 @@ export async function DishDetailView({
   // Slice 6A: lifecycle Stage, Version, and cuisine all render as chips
   // together (never Version/cuisine as loose unrelated text) — Stage
   // keeps its own meaningful color treatment (`StageBadge`); Version/
-  // cuisine are neutral outline chips beside it.
+  // cuisine are neutral outline chips beside it. Slice 10: tags/Flavor
+  // profiles (Favorite excluded — already shown via the star toggle above)
+  // join the same row, with the editor popover right beside them.
   const chipsEl = (
     <div className="flex flex-wrap items-center gap-1.5">
       <StageBadge stage={dish.stage} />
@@ -223,6 +249,24 @@ export async function DishDetailView({
         <RatingBadge rating={principalRating} />
       )}
       {dish.cuisine && <Badge variant="outline">{dish.cuisine}</Badge>}
+      {flavorProfileNames.map((name) => (
+        <Badge key={`flavor-${name}`} variant="outline">
+          {name}
+        </Badge>
+      ))}
+      {nonFavoriteTagNames.map((name) => (
+        <Badge key={`tag-${name}`} variant="outline">
+          {name}
+        </Badge>
+      ))}
+      <DishTagFlavorEditor
+        dishId={dish.id}
+        kind={kind}
+        tagOptions={tagOptions}
+        flavorProfileOptions={flavorProfileOptions}
+        selectedTagIds={selectedTagIds}
+        selectedFlavorProfileValueIds={selectedFlavorProfileValueIds}
+      />
       <RatingDetailDialog
         kindLabel={label as "Recipe" | "Part"}
         summary={ratingSummary}

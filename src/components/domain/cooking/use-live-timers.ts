@@ -23,7 +23,12 @@ export function useLiveTimers(
   timers: LiveTimer[],
   onExpire: (timer: LiveTimer) => void,
 ): Map<string, LiveTimerState> {
-  const [now, setNow] = React.useState(() => Date.now());
+  // `now` starts `null` (rather than `Date.now()`) so the pre-mount render
+  // is identical on server and client — reading the real clock only in an
+  // effect avoids a hydration mismatch on the countdown text (the server's
+  // and the client hydration pass's `Date.now()` calls happen at different
+  // moments, e.g. "5:00" vs "4:59").
+  const [now, setNow] = React.useState<number | null>(null);
   const previouslyExpired = React.useRef<Set<string>>(new Set());
   const onExpireRef = React.useRef(onExpire);
 
@@ -34,8 +39,10 @@ export function useLiveTimers(
   const hasRunningTimer = timers.some((t) => t.state === "RUNNING");
 
   React.useEffect(() => {
+    const tick = () => setNow(Date.now());
+    tick();
     if (!hasRunningTimer) return;
-    const interval = setInterval(() => setNow(Date.now()), 1000);
+    const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
   }, [hasRunningTimer]);
 
@@ -43,8 +50,11 @@ export function useLiveTimers(
     const map = new Map<string, LiveTimerState>();
     for (const timer of timers) {
       map.set(timer.id, {
-        remainingSeconds: remainingSecondsAt(timer, now),
-        isExpired: isTimerExpired(timer, now),
+        remainingSeconds:
+          now === null
+            ? Math.max(0, timer.remainingSeconds ?? timer.durationSeconds)
+            : remainingSecondsAt(timer, now),
+        isExpired: now === null ? false : isTimerExpired(timer, now),
       });
     }
     return map;

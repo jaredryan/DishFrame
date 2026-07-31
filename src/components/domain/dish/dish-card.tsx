@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { UtensilsCrossed } from "lucide-react";
+import { Star, UtensilsCrossed } from "lucide-react";
 import { Card, CardContent, CardTitle } from "@/components/ui/card";
 import { StageBadge } from "@/components/domain/dish/stage-badge";
 import { RatingBadge } from "@/components/domain/dish/rating-badge";
@@ -13,6 +13,7 @@ export type DishCardItem = {
   cuisine: string | null;
   updatedAt: Date;
   imageAssetId: string | null;
+  isFavorite?: boolean;
   rating?: PrincipalRating;
 };
 
@@ -55,6 +56,12 @@ export function DishCard({
             <div className="text-muted-foreground/40 flex size-full items-center justify-center">
               <UtensilsCrossed className="size-8" aria-hidden="true" />
             </div>
+          )}
+          {dish.isFavorite && (
+            <Star
+              className="fill-brand-orange text-brand-orange absolute top-2 right-2 size-4 drop-shadow"
+              aria-label="Favorite"
+            />
           )}
         </div>
         <CardContent className="flex flex-col gap-1.5 pt-3">

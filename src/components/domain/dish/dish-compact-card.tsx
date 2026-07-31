@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Star } from "lucide-react";
 import { StageBadge } from "@/components/domain/dish/stage-badge";
 import { RatingBadge } from "@/components/domain/dish/rating-badge";
 import { Badge } from "@/components/ui/badge";
@@ -31,7 +32,13 @@ export function DishCompactCard({
       href={`${dishBasePath(kind)}/${dish.id}`}
       className="group border-border bg-card hover:border-ring/50 focus-visible:ring-ring/50 flex flex-col gap-2 rounded-lg border px-4 py-3 transition-colors focus-visible:ring-2 focus-visible:outline-none"
     >
-      <span className="text-sm font-medium break-words sm:text-base">
+      <span className="flex items-center gap-1.5 text-sm font-medium break-words sm:text-base">
+        {dish.isFavorite && (
+          <Star
+            className="fill-brand-orange text-brand-orange size-3.5 shrink-0"
+            aria-label="Favorite"
+          />
+        )}
         {dish.currentTitle || "Untitled"}
       </span>
       <div className="flex flex-wrap items-center gap-1.5">

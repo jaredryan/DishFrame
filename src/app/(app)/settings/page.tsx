@@ -4,8 +4,12 @@ import { getServerSession } from "@/lib/auth/session";
 import { PreferencesForm } from "@/components/app/preferences-form";
 import { GroceryCategoryManager } from "@/components/app/grocery-category-manager";
 import { TasterManager } from "@/components/app/taster-manager";
+import { FlavorProfileManager } from "@/components/app/flavor-profile-manager";
+import { TagManager } from "@/components/app/tag-manager";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { listTasters } from "@/lib/tasters/queries";
+import { listFlavorProfileValues } from "@/lib/flavor-profiles/queries";
+import { listTagsWithUsageCount } from "@/lib/tags/queries";
 import { prisma } from "@/lib/db/prisma";
 
 export const metadata: Metadata = {
@@ -34,6 +38,8 @@ export default async function SettingsPage() {
     select: { id: true, displayName: true, position: true, isFallback: true },
   });
   const tasters = await listTasters(user.id);
+  const flavorProfiles = await listFlavorProfileValues(user.id);
+  const tags = await listTagsWithUsageCount(user.id);
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-8">
@@ -81,6 +87,29 @@ export default async function SettingsPage() {
         </p>
         <div className="border-border bg-card rounded-xl border p-5">
           <TasterManager initialTasters={tasters} />
+        </div>
+      </section>
+
+      <section className="flex flex-col gap-4">
+        <h2 className="text-foreground text-lg font-semibold">Tags</h2>
+        <p className="text-muted-foreground -mt-2 text-sm">
+          Your own organizing labels — used for filtering Recipes and Parts.
+        </p>
+        <div className="border-border bg-card rounded-xl border p-5">
+          <TagManager initialTags={tags} />
+        </div>
+      </section>
+
+      <section className="flex flex-col gap-4">
+        <h2 className="text-foreground text-lg font-semibold">
+          Flavor Profiles
+        </h2>
+        <p className="text-muted-foreground -mt-2 text-sm">
+          A dedicated classification for how something tastes — separate from
+          ordinary tags.
+        </p>
+        <div className="border-border bg-card rounded-xl border p-5">
+          <FlavorProfileManager initialFlavorProfiles={flavorProfiles} />
         </div>
       </section>
 

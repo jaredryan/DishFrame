@@ -7,19 +7,18 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 # Workflow rules
 
-- Write stable automated tests as part of the implementation. During a
-  normal implementation pass, targeted tests directly relevant to the
-  changed behavior may be run while implementing, and `verify:feature`
-  may be self-run once as the completion check — see "Usage-efficient
-  execution" below and "Owner intervention and manual-review policy" for
-  the full workflow. Broad verification beyond that (`verify:backend`,
-  `verify:fullstack`, `verify:all`, Playwright, migration scripts) stays
-  owner-run, with the narrow debugging exception described there.
+- Write stable automated tests as part of the implementation. The
+  testing/verification workflow — what may run during implementation,
+  what stays owner-run, and the fresh-session repair path — is owned by
+  the global `~/.claude/CLAUDE.md` "Testing / verification policy", not
+  restated here. DishFrame's own commands are `verify:feature`/
+  `verify:backend`/`verify:fullstack`/`verify:all` (see `CLAUDE.md`'s
+  "Verification scripts").
 - Never `git commit` or `git push` unless the user explicitly asks for it
   in that turn. Leave changes staged/unstaged for the user to review and
   commit themselves.
 
-# Usage-efficient execution (added 2026-07-30)
+# Usage-efficient execution (added 2026-07-30; verification bullets amended 2026-07-31)
 
 Applies the global `~/.claude/CLAUDE.md` "Usage-efficient execution
 policy" section to DishFrame. Normal DishFrame implementation passes
@@ -38,14 +37,11 @@ should:
   targeted canonical-doc sections, the one directly relevant concise
   handoff, and the affected code — not more;
 - not automatically reread every prior `docs/SLICE_*.md` file;
-- write focused tests appropriate to feature maturity, and run targeted
-  tests directly relevant to the changed behavior while implementing;
-- self-run `pnpm run verify:feature` at most once, as the normal
-  completion check, after a major pass;
-- debug any failure from that run with focused subcommands, not by
-  rerunning the whole suite after every small fix;
-- not run Playwright or `pnpm run verify:all`/`verify:backend`/
-  `verify:fullstack` unless the owner explicitly requests it;
+- write focused tests appropriate to feature maturity, and run only
+  narrowly targeted commands while implementing — never `verify:feature`,
+  `check`, `verify:all`, `verify:backend`/`verify:fullstack`, or
+  Playwright as an end-of-pass gate (full policy in the global
+  `~/.claude/CLAUDE.md`; see "Workflow rules" above);
 - not dispatch a subagent merely to run routine tests;
 - keep `docs/SLICE_*.md` concise and centered on current truth (see
   "Implementation report policy" below).
@@ -58,18 +54,15 @@ manual-review policy" below for the durable rule it produced.
 
 General rubric lives in the global `~/.claude/CLAUDE.md` ("Subagent
 usage judgment" and "Subagent model selection"); this section only adds
-DishFrame-specific examples, it doesn't restate the rubric. Per "Usage-
-efficient execution" above, the default is still to run `verify:feature`
-directly in-session — the note below describes the narrow exception,
-not the normal path.
+DishFrame-specific examples, it doesn't restate the rubric.
 
-- **`verify:feature` may go to a Haiku subagent only when the general
-  two-condition test for dispatching a subagent at all is met** (session
-  context too valuable to `/clear`/`/compact` mid-task, and the run is
-  expected to be noisy enough that keeping its lint/typecheck/test/build
-  output out of the main session is worth the cold-start cost) — not
-  merely because delegating feels cheaper. When that test isn't met, run
-  it directly and summarize narrowly.
+- Broad verification, including `verify:feature`, is never run
+  in-session (see "Workflow rules" above), so it's not a
+  subagent-delegation candidate. Delegating a narrowly targeted command
+  during implementation still follows the general two-condition test
+  from the global rubric: only worth it when session context is too
+  valuable to `/clear`/`/compact` mid-task and the run is expected to be
+  noisy enough that isolating its output is worth the cold-start cost.
 - **Reading canonical docs for synthesis stays a capable-model job.**
   Delegating a read of `docs/PRODUCT_SPEC.md`,
   `docs/ARCHITECTURE_PROPOSAL.md`, etc. for a conclusion (not a simple
@@ -136,14 +129,13 @@ is the failure mode this whole section exists to prevent.
 # Owner intervention and manual-review policy
 
 The project uses layered review. The owner does not manually re-verify
-every completed implementation slice, and Claude does not run automated
-verification during normal implementation — each side has one job:
+every completed implementation slice — each side has one job:
 
 1. The implementation agent builds the approved scope and writes stable
-   automated tests, but does not run them.
-2. The owner runs the broad completion verification command, and Git
-   operations, themselves after each implementation pass, to conserve
-   Claude usage.
+   automated tests, running only narrowly targeted commands as needed
+   (see "Testing responsibility" below).
+2. The owner runs full verification and Git operations themselves, in a
+   fresh session, after each implementation pass.
 3. The implementation report is reviewed for architecture, product
    implications, unresolved decisions, and design-review needs.
 4. The owner intervenes manually — via verification, and separately via
@@ -152,45 +144,18 @@ verification during normal implementation — each side has one job:
 
 ## Testing responsibility
 
-The implementation agent:
+Full workflow — what the implementation agent may run, what stays
+owner-run, and the fresh-session repair path — is owned by the global
+`~/.claude/CLAUDE.md` "Testing / verification policy"; not restated
+here. DishFrame specifics:
 
-- implements the approved scope;
-- writes stable automated tests for domain contracts, validation,
-  authorization, integrity rules, and mature workflows;
-- documents which tests were added;
-- may run tests directly relevant to the changed behavior while
-  implementing (see "Usage-efficient execution" above);
-- does **not** run `verify:backend`, `verify:fullstack`, `verify:all`,
-  Playwright, or migration/db scripts on its own initiative during a
-  normal implementation pass;
-- **self-initiated exception (added 2026-07-27):** after completing a
-  major prompt — a slice, or a large polish/revision pass, not a small
-  isolated edit — runs `pnpm run verify:feature` (see `CLAUDE.md` for the
-  script's exact composition) without being asked, since it's the
-  low-cost subset that excludes Playwright. If it fails, fixes the
-  failure narrowly, reruns `verify:feature` to confirm, and reports both
-  the original failure and the fix in the completion report. This does
-  not extend to `verify:backend`/`verify:fullstack`/`verify:all`/
-  Playwright themselves — those stay owner-run. If `verify:feature` fails
-  because Docker Desktop itself isn't running, start it directly and wait
-  for it rather than stopping to ask (see `CLAUDE.md`'s verification
-  section for the exact procedure) — this is autonomous, not something to
-  confirm with the owner first;
-- may also run a failing subcommand narrowly when the owner explicitly
-  returns a _different_ failure (e.g. from a Playwright run) and asks for
-  a debugging pass — never re-running the broader suite or any Playwright
-  test itself under this exception.
-
-The owner:
-
-- runs the broad completion command (`verify:all`) after the
-  implementation pass;
-- returns failures to the implementation agent for targeted debugging;
-- performs Git inspection, commits, and pushes.
-
-Do not treat tests as having passed until either the owner reports the
-verification result, or (for the self-run `verify:feature` check
-specifically) that check has completed and been reported.
+- the owner's full completion command is `pnpm run verify:all` (see
+  `CLAUDE.md`'s "Verification scripts" for the full command list);
+- in a fresh repair session, read the relevant `docs/SLICE_N.md`
+  current-truth handoff alongside the failing test/config and directly
+  affected files;
+- a repair never expands into `verify:e2e`/Playwright — the owner always
+  runs that themselves, even for a single narrowly-scoped spec.
 
 ## Manual review is separate from automated verification
 
@@ -269,10 +234,9 @@ gates.
 ## Testing and evolving presentation
 
 Write automated tests for stable domain contracts, authorization,
-integrity rules, calculations, and mature workflows, but do not run them
-during a normal implementation pass. The owner runs the broad completion
-verification afterward and returns failures for a separate targeted
-debugging pass.
+integrity rules, calculations, and mature workflows — see "Testing
+responsibility" above for what may run during implementation vs. what
+stays owner-run.
 
 Do not use brittle presentation tests as a substitute for product or
 design review while the UI is evolving. Detailed browser review may be

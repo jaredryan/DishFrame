@@ -1,55 +1,39 @@
 import { DishLibraryDisplay } from "@/components/domain/dish/dish-library-display";
-import type { DishCardItem } from "@/components/domain/dish/dish-card";
-import { listDishes } from "@/lib/dishes/queries";
-import { decimalToNumber } from "@/lib/dishes/format";
-import { getPrincipalRatingsForDishes } from "@/lib/reviews/queries";
+import { queryDishLibrary, listDistinctCuisines } from "@/lib/dishes/queries";
+import { listTags } from "@/lib/tags/queries";
+import { listFlavorProfileValues } from "@/lib/flavor-profiles/queries";
 import { prisma } from "@/lib/db/prisma";
 import type { DishKindValue } from "@/lib/dishes/schema";
+import type { LibraryFilters } from "@/lib/dishes/library-filters";
 
 // Shared by /recipes and /parts (ARCHITECTURE_PROPOSAL.md §C.7) — differs
 // only in `kind`; page-specific heading copy and the Create action stay in
-// each route's page.tsx (Slice 6A: Create moved up beside the page title),
-// so Recipe/Part terminology (BRANDING.md §14) stays distinct.
+// each route's page.tsx.
 export async function DishLibraryView({
   ownerId,
   kind,
-  includeArchived,
+  filters,
 }: {
   ownerId: string;
   kind: DishKindValue;
-  includeArchived: boolean;
+  filters: LibraryFilters;
 }) {
-  const [rawDishes, preference] = await Promise.all([
-    listDishes(ownerId, kind, { includeArchived }),
+  const [preference, tags, cuisines, flavorProfiles] = await Promise.all([
     prisma.userPreference.findUnique({
       where: { userId: ownerId },
       select: { primaryRatingDisplay: true },
     }),
+    listTags(ownerId),
+    listDistinctCuisines(ownerId, kind),
+    listFlavorProfileValues(ownerId),
   ]);
-
-  const ratingInputs = rawDishes.map((dish) => ({
-    id: dish.id,
-    currentVersionId: dish.currentVersionId,
-    sourceKind: dish.sourceKind,
-    sourceAggregateRating: decimalToNumber(dish.sourceAggregateRating),
-    sourceRatingCount: dish.sourceRatingCount,
-    sourceTitle: dish.sourceTitle,
-    sourceDishVersionLabel: dish.sourceDishVersionLabel,
-  }));
-  const ratings = await getPrincipalRatingsForDishes(
-    ratingInputs,
+  const dishes = await queryDishLibrary(
+    ownerId,
+    kind,
+    filters,
     preference?.primaryRatingDisplay ?? "GROUP_AVERAGE",
   );
 
-  const dishes: DishCardItem[] = rawDishes.map((dish) => ({
-    id: dish.id,
-    currentTitle: dish.currentTitle,
-    stage: dish.stage,
-    cuisine: dish.cuisine,
-    updatedAt: dish.updatedAt,
-    imageAssetId: dish.currentVersion?.imageAssetId ?? null,
-    rating: ratings.get(dish.id),
-  }));
   const basePath = kind === "PART" ? "/parts" : "/recipes";
   const label = kind === "PART" ? "part" : "recipe";
 
@@ -59,7 +43,16 @@ export async function DishLibraryView({
       kind={kind}
       label={label}
       basePath={basePath}
-      includeArchived={includeArchived}
+      filters={filters}
+      tagOptions={tags.map((tag) => ({
+        id: tag.id,
+        displayName: tag.displayName,
+      }))}
+      cuisineOptions={cuisines}
+      flavorProfileOptions={flavorProfiles.map((value) => ({
+        id: value.id,
+        displayName: value.displayName,
+      }))}
     />
   );
 }

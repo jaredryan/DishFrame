@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth/session";
 import { Button } from "@/components/ui/button";
 import { DishLibraryView } from "@/components/domain/dish/dish-library-view";
+import { parseLibrarySearchParams } from "@/lib/dishes/library-filters";
 
 export const metadata: Metadata = {
   title: "Parts",
@@ -13,14 +14,14 @@ export const metadata: Metadata = {
 export default async function PartsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ archived?: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const session = await getServerSession();
   if (!session) {
     redirect("/sign-in");
   }
 
-  const { archived } = await searchParams;
+  const filters = parseLibrarySearchParams(await searchParams);
 
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-6">
@@ -44,7 +45,7 @@ export default async function PartsPage({
       <DishLibraryView
         ownerId={session.user.id}
         kind="PART"
-        includeArchived={archived === "1"}
+        filters={filters}
       />
     </div>
   );

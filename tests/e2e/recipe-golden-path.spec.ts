@@ -141,10 +141,21 @@ test.describe("Recipes: create, view, edit, archive, restore, duplicate, delete"
       .click();
     await expect(page.getByText("Archived")).toBeVisible();
 
+    // Slice 10 (BUILD_PLAN.md, §43.3): the old "Show archived" link is gone
+    // — Stage's own value set now includes Archived, and selecting it as a
+    // Stage filter chip is the one and only way archived items appear.
     await page.goto("/recipes");
     await expect(page.getByText(title)).not.toBeVisible();
-    await page.getByRole("link", { name: "Show archived" }).click();
+    await page.getByRole("button", { name: "Stage" }).click();
+    await page
+      .locator('[data-slot="popover-content"]')
+      .getByText("Archived")
+      .click();
     await expect(page.getByText(title)).toBeVisible();
+
+    // Clear the Stage filter before continuing — the rest of the golden
+    // path re-navigates to /recipes expecting the ordinary default view.
+    await page.getByRole("button", { name: "Clear all" }).click();
 
     // --- Restore ---
     await page.goto(dishUrl);

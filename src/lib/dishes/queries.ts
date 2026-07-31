@@ -1,7 +1,24 @@
 import "server-only";
+import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { NotFoundError } from "@/lib/errors";
 import type { DishKindValue } from "@/lib/dishes/schema";
+import { decimalToNumber } from "@/lib/dishes/format";
+import {
+  buildLibraryWhere,
+  compareDishesForLibrary,
+  computeSearchTier,
+  matchesRatingFilter,
+  ratingNumericValue,
+  searchQueryTokens,
+  type LibraryFilters,
+} from "@/lib/dishes/library-filters";
+import {
+  getPrincipalRatingsForDishes,
+  type PrincipalRating,
+} from "@/lib/reviews/queries";
+import { getLastCookedAtForDishes } from "@/lib/cooking/queries";
+import type { PrimaryRatingDisplayValue } from "@/lib/preferences/schema";
 
 /**
  * Ownership guard (ARCHITECTURE_PROPOSAL.md §K.6): every mutation walks up
@@ -35,10 +52,21 @@ export const dishCardSelect = {
   currentVersionId: true,
   createdAt: true,
   updatedAt: true,
+  // Slice 10: tier-7 search fallback (Section names + linked Part-Version
+  // titles) — never denormalized further, read live like everything else.
+  currentStructuralSearchText: true,
   // Design remediation pass: the library grid renders the current
   // Version's image, when set — fetched here so `listDishes` stays the
   // one query the library page needs, not a second per-card round trip.
-  currentVersion: { select: { imageAssetId: true } },
+  // Slice 10: prep/cook time ride along too, for the "Shortest estimated
+  // duration" sort (§48.7) — no second query per card.
+  currentVersion: {
+    select: {
+      imageAssetId: true,
+      prepTimeMinutes: true,
+      cookTimeMinutes: true,
+    },
+  },
   // Slice 9: the duplication-time rating snapshot (§19.1), read alongside
   // everything else the card needs so the library page can batch-resolve
   // every card's principal rating in one extra query rather than N.
@@ -47,6 +75,16 @@ export const dishCardSelect = {
   sourceRatingCount: true,
   sourceTitle: true,
   sourceDishVersionLabel: true,
+  // Slice 10: tags/Flavor profiles are queried live at search/filter time
+  // (Arch round-3 Correction 6 — never denormalized), and the same join
+  // also yields each card's Favorite state and searchable name lists at no
+  // extra query cost.
+  tags: {
+    select: { tag: { select: { displayName: true, isFavorite: true } } },
+  },
+  flavorProfiles: {
+    select: { flavorProfileValue: { select: { displayName: true } } },
+  },
 } as const;
 
 export const sectionContentInclude = {
@@ -97,22 +135,201 @@ export const dishDetailInclude = {
   // saved per-ingredient preferred unit consistently on load, not just
   // after an in-session "accept" action.
   preferredUnitOverrides: true,
+  // Slice 10: current tag/Flavor-profile selections for the detail page's
+  // one-tap Favorite toggle, tag/Flavor-profile editor popover, and their
+  // read-only display chips.
+  tags: {
+    select: {
+      tagId: true,
+      tag: { select: { displayName: true, isFavorite: true } },
+    },
+  },
+  flavorProfiles: {
+    select: {
+      flavorProfileValueId: true,
+      flavorProfileValue: { select: { displayName: true } },
+    },
+  },
 } as const;
 
-export function listDishes(
+const librarySortValueSet = new Set<string>([
+  "RECENTLY_COOKED",
+  "LEAST_RECENTLY_COOKED",
+]);
+
+/**
+ * BUILD_PLAN.md Slice 10 — the full search/filter/sort query builder shared
+ * by `/recipes` and `/parts` (Arch §C.7). Runs one Dish query (base filters
+ * AND, when searching, a broad OR pre-filter across every searchable field),
+ * then applies the pure ranking/rating/sort logic from `library-filters.ts`
+ * — proportionate to a personal library's scale rather than a second
+ * database round trip per candidate.
+ */
+export async function queryDishLibrary(
   ownerId: string,
   kind: DishKindValue,
-  { includeArchived }: { includeArchived: boolean },
+  filters: LibraryFilters,
+  ratingPreference: PrimaryRatingDisplayValue,
 ) {
-  return prisma.dish.findMany({
-    where: {
-      ownerId,
-      kind,
-      ...(includeArchived ? {} : { archivedAt: null }),
-    },
-    select: dishCardSelect,
-    orderBy: { updatedAt: "desc" },
+  const searchActive = filters.search.trim().length > 0;
+  // Slice 10 correction (§44.5's punctuation tolerance): tokenizing the
+  // query and OR-ing every field against each token — rather than a single
+  // `contains: filters.search` — keeps this prefilter a strict superset of
+  // what `computeSearchTier`'s punctuation-normalized matching will accept
+  // below. A verbatim `contains` on "lemon garlic" would never match a
+  // stored "Lemon-Garlic Chicken" (the hyphen breaks the substring), so the
+  // JS ranking layer would never even see that candidate. Falls back to the
+  // raw query when it normalizes to no tokens at all (e.g. punctuation-only
+  // input) — harmless, since `computeSearchTier` will then rank everything
+  // null anyway.
+  const searchTokens = searchActive
+    ? (() => {
+        const tokens = searchQueryTokens(filters.search);
+        return tokens.length ? tokens : [filters.search];
+      })()
+    : [];
+  const where: Prisma.DishWhereInput = {
+    ...buildLibraryWhere(ownerId, kind, filters),
+    ...(searchActive
+      ? {
+          OR: searchTokens.flatMap((token): Prisma.DishWhereInput[] => [
+            { currentTitle: { contains: token, mode: "insensitive" } },
+            { cuisine: { contains: token, mode: "insensitive" } },
+            {
+              currentStructuralSearchText: {
+                contains: token,
+                mode: "insensitive",
+              },
+            },
+            {
+              tags: {
+                some: {
+                  tag: {
+                    displayName: { contains: token, mode: "insensitive" },
+                  },
+                },
+              },
+            },
+            {
+              flavorProfiles: {
+                some: {
+                  flavorProfileValue: {
+                    displayName: { contains: token, mode: "insensitive" },
+                  },
+                },
+              },
+            },
+          ]),
+        }
+      : {}),
+  };
+
+  const rows = await prisma.dish.findMany({ where, select: dishCardSelect });
+
+  let candidates = rows;
+  const tierById = new Map<string, number>();
+  if (searchActive) {
+    candidates = rows.filter((row) => {
+      const tier = computeSearchTier(
+        {
+          currentTitle: row.currentTitle,
+          cuisine: row.cuisine,
+          currentStructuralSearchText: row.currentStructuralSearchText,
+          tagNames: row.tags.map((t) => t.tag.displayName),
+          flavorProfileNames: row.flavorProfiles.map(
+            (f) => f.flavorProfileValue.displayName,
+          ),
+        },
+        filters.search,
+      );
+      if (tier == null) return false;
+      tierById.set(row.id, tier);
+      return true;
+    });
+  }
+
+  const ratingInputs = candidates.map((row) => ({
+    id: row.id,
+    currentVersionId: row.currentVersionId,
+    sourceKind: row.sourceKind,
+    sourceAggregateRating: decimalToNumber(row.sourceAggregateRating),
+    sourceRatingCount: row.sourceRatingCount,
+    sourceTitle: row.sourceTitle,
+    sourceDishVersionLabel: row.sourceDishVersionLabel,
+  }));
+  const ratings = await getPrincipalRatingsForDishes(
+    ratingInputs,
+    ratingPreference,
+  );
+
+  const filtered = filters.rating
+    ? candidates.filter((row) =>
+        matchesRatingFilter(
+          ratings.get(row.id) ?? ({ kind: "none" } as PrincipalRating),
+          filters.rating,
+        ),
+      )
+    : candidates;
+
+  const lastCookedMap = librarySortValueSet.has(filters.sort)
+    ? await getLastCookedAtForDishes(
+        ownerId,
+        filtered.map((row) => row.id),
+        kind,
+      )
+    : null;
+
+  const decorated = filtered.map((row) => {
+    const rating = ratings.get(row.id) ?? ({ kind: "none" } as PrincipalRating);
+    const prep = row.currentVersion?.prepTimeMinutes ?? null;
+    const cook = row.currentVersion?.cookTimeMinutes ?? null;
+    return {
+      row,
+      rating,
+      searchTier: tierById.get(row.id) ?? null,
+      ratingValue: ratingNumericValue(rating),
+      lastCookedAt: lastCookedMap?.get(row.id) ?? null,
+      durationMinutes:
+        prep != null || cook != null ? (prep ?? 0) + (cook ?? 0) : null,
+    };
   });
+
+  decorated.sort((a, b) =>
+    compareDishesForLibrary(
+      {
+        currentTitle: a.row.currentTitle,
+        updatedAt: a.row.updatedAt,
+        createdAt: a.row.createdAt,
+        ratingValue: a.ratingValue,
+        lastCookedAt: a.lastCookedAt,
+        durationMinutes: a.durationMinutes,
+        searchTier: a.searchTier,
+      },
+      {
+        currentTitle: b.row.currentTitle,
+        updatedAt: b.row.updatedAt,
+        createdAt: b.row.createdAt,
+        ratingValue: b.ratingValue,
+        lastCookedAt: b.lastCookedAt,
+        durationMinutes: b.durationMinutes,
+        searchTier: b.searchTier,
+      },
+      filters.sort,
+      searchActive,
+      filters.sortIsExplicit,
+    ),
+  );
+
+  return decorated.map(({ row, rating }) => ({
+    id: row.id,
+    currentTitle: row.currentTitle,
+    stage: row.stage,
+    cuisine: row.cuisine,
+    updatedAt: row.updatedAt,
+    imageAssetId: row.currentVersion?.imageAssetId ?? null,
+    isFavorite: row.tags.some((t) => t.tag.isFavorite),
+    rating,
+  }));
 }
 
 export async function getOwnedDishDetailOrThrow(

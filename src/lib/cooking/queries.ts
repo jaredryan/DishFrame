@@ -569,6 +569,53 @@ export async function getLastCookedAt(
   return candidates.reduce((a, b) => (a > b ? a : b));
 }
 
+/**
+ * Batched sibling of `getLastCookedAt` for the library's "Recently cooked"/
+ * "Least recently cooked" sorts (BUILD_PLAN.md Slice 10) — one pair of
+ * queries for every candidate Dish rather than N round trips. Same rules as
+ * the single-item version: only a `COMPLETED` session counts, and a Part
+ * usage only counts while its owning unit is still active in the plan.
+ */
+export async function getLastCookedAtForDishes(
+  ownerId: string,
+  dishIds: string[],
+  kind: "RECIPE" | "PART",
+): Promise<Map<string, Date | null>> {
+  const result = new Map<string, Date | null>();
+  if (dishIds.length === 0) return result;
+
+  function considerCandidate(dishId: string | null, endedAt: Date | null) {
+    if (!dishId || !endedAt) return;
+    const existing = result.get(dishId);
+    if (!existing || endedAt > existing) result.set(dishId, endedAt);
+  }
+
+  const standaloneRows = await prisma.cookingSession.findMany({
+    where: { dishId: { in: dishIds }, state: "COMPLETED" },
+    select: { dishId: true, endedAt: true },
+  });
+  for (const row of standaloneRows) considerCandidate(row.dishId, row.endedAt);
+
+  if (kind === "PART") {
+    const usageRows = await prisma.cookingSessionPartUsage.findMany({
+      where: {
+        partDishId: { in: dishIds },
+        unit: { removedAt: null },
+        session: { ownerId, state: "COMPLETED" },
+      },
+      select: { partDishId: true, session: { select: { endedAt: true } } },
+    });
+    for (const row of usageRows) {
+      considerCandidate(row.partDishId, row.session.endedAt);
+    }
+  }
+
+  for (const dishId of dishIds) {
+    if (!result.has(dishId)) result.set(dishId, null);
+  }
+  return result;
+}
+
 export type PartHistoryOccurrenceView = {
   partVersionLabelSnapshot: string;
   pathSnapshot: string | null;

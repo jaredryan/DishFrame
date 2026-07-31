@@ -35,11 +35,9 @@ context. Outside that situation the default above still holds.
 
 Once dispatching a subagent, pick its model deliberately — see
 `AGENTS.md`'s "Subagent delegation and model selection" section for the
-DishFrame-specific examples (e.g. running `verify:feature` in a Haiku
-subagent to keep noisy output out of this session) and the global
-`~/.claude/CLAUDE.md` "Subagent model selection" section for the
-general two-axis rubric (intelligence fit vs. context isolation) this
-project follows.
+DishFrame-specific examples and the global `~/.claude/CLAUDE.md`
+"Subagent model selection" section for the general two-axis rubric
+(intelligence fit vs. context isolation) this project follows.
 
 The global "Usage-efficient execution policy" (added 2026-07-30) also
 applies here: work directly from the owner's implementation prompt
@@ -47,21 +45,16 @@ without automatically generating a second plan, and don't invoke
 Superpowers planning/execution skills (`writing-plans`,
 `executing-plans`, etc.) by default — see `AGENTS.md`'s "Usage-efficient
 execution" section for the DishFrame-specific application (targeted
-tests during implementation, single `verify:feature` completion check,
+commands during implementation only, no self-run completion check,
 tightened subagent defaults).
 
 # Verification and Git policy (DishFrame-specific)
 
 Full policy lives in `AGENTS.md`'s "Owner intervention and manual-review
-policy" section (@-included above — write tests, and don't run broad
-verification or Git commands on your own initiative during a normal
-pass; the owner runs `verify:all` and all Git operations; self-initiated
-exceptions are (1) running `verify:feature` after every major pass and
-(2) debugging an owner-reported failure narrowly; manual UI review is
-separate from, and rarer than, automated verification) and, as the
-cross-project default, the global `~/.claude/CLAUDE.md` "General
-development preferences" section. This section is only the
-DishFrame-scoped script reference.
+policy" section (@-included above) and, as the cross-project default,
+the global `~/.claude/CLAUDE.md` "Testing / verification policy" and
+"Git policy" sections. This section is only the DishFrame-scoped script
+reference.
 
 ## Verification scripts (current meanings — updated 2026-07-27 for `verify:feature`)
 
@@ -69,8 +62,8 @@ DishFrame-scoped script reference.
   (format check, lint, typecheck, build) + `verify:frontend` (vitest
   unit/component tests) + `verify:backend` (`db:verify:local`,
   `db:scan-migrations`, `test:integration`). Requires local Postgres.
-  Excludes Playwright entirely. **Self-run by the assistant after every
-  major pass** — see "When to run these" below.
+  Excludes Playwright entirely. Owner-run only, in a fresh session — see
+  "When to run these" below.
 - `pnpm run verify:frontend` — `test:frontend` (vitest unit/component
   tests) only.
 - `pnpm run verify:backend` — `db:docker:up` (starts/waits for the local
@@ -90,51 +83,16 @@ first step (via `db:docker:up`), so this cascades automatically to
 `db:docker:up` step needed before running any of them. Docker Desktop
 itself (the daemon/app) still has to be running; if it's fully quit,
 `db:docker:up` fails immediately with a connection error rather than
-launching Docker Desktop for you.
-
-**If that happens during a self-run `verify:feature` (added 2026-07-27):
-handle it autonomously, don't stop to ask.** Start Docker Desktop directly
-(`open -a Docker` on macOS), then poll for readiness at short intervals
-(e.g. retry `docker info` or just retry `pnpm run db:docker:up` every
-few seconds) rather than one blind long sleep, up to a reasonable
-timeout (~90s) — then continue straight into `verify:feature`. Report in
-the completion report that Docker had to be started, but do not pause
-for owner input to do it; this exists specifically to avoid the relay
-round-trip the self-run check was introduced to eliminate.
+launching Docker Desktop for you. This is the owner's concern when
+running these scripts themselves.
 
 ## When to run these
 
-- The owner runs `pnpm run verify:all` themselves after each completed
-  implementation pass. Never run `verify:backend`/`verify:fullstack`/
-  `verify:all`, or lint/typecheck/tests/Playwright/Prisma
-  validate/migration scans/build individually, on your own initiative —
-  not even a "narrowly targeted diagnostic" or a check you judge
-  "genuinely necessary." (`verify:feature` is the one exception — see
-  next bullet.)
-- **Self-run exception — `verify:feature` after every major pass (added
-  2026-07-27):** after completing a major prompt — a slice, or a large
-  polish/revision pass, not a small isolated edit — run
-  `pnpm run verify:feature` on your own initiative, without being asked.
-  If it fails, fix the failure narrowly, rerun `verify:feature` to
-  confirm the fix, and report both the original failure and the fix in
-  the completion report. This exists to catch mechanical/shallow bugs
-  (type errors, lint, simple test failures) before the owner finds them
-  manually and has to relay them back one at a time — expensive because
-  each relay round-trip resends the whole pass's accumulated context.
-  This does not replace the owner's own `verify:all` run, which still
-  covers Playwright/E2E and stays entirely owner-run.
-- **Debugging exception:** when the owner has already run verification
-  (or reviewed the `verify:feature` self-run report), reports a specific
-  _further_ failure, and explicitly asks for it to be debugged, run the
-  relevant failing subcommand(s) while diagnosing, then run the full
-  reported command once at the end to confirm the repair. This never
-  extends to unrelated or broad suites, and never to Playwright — the
-  owner always runs `verify:e2e`/Playwright himself, even a single
-  narrowly-scoped spec.
-- Write/update tests only for behavior stable enough not to be
-  substantially redesigned soon (domain rules, service-boundary
-  contracts, fixed regressions, persistence). Defer tests for UI/flows
-  still under active visual design.
+Full behavioral policy — what the assistant may run during
+implementation, what stays owner-run, and the fresh-session repair
+exception — lives in the global `~/.claude/CLAUDE.md` "Testing /
+verification policy" and `AGENTS.md`'s "Testing responsibility" section.
+This file only names the scripts above.
 
 ## Git
 

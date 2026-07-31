@@ -20,6 +20,11 @@ export default defineConfig({
   plugins: [react()],
   test: {
     environment: "jsdom",
+    // Default 5000ms is too tight once enough files/workers run in
+    // parallel (jsdom environment setup + module transform contend for
+    // CPU) — individually-fast tests were intermittently timing out
+    // under full-suite load, not due to any defect in the tests.
+    testTimeout: 15000,
     setupFiles: ["./src/test/setup.ts"],
     include: ["src/**/*.test.{ts,tsx}", "*.test.{ts,tsx}"],
     // Integration tests hit a real disposable Postgres and run separately

@@ -240,8 +240,18 @@ export async function insertSections(
   sections: SectionInput[],
   topLevelPartLinks: PartLinkInput[],
   { mintFreshLineage }: { mintFreshLineage: boolean },
-): Promise<{ sectionNames: string[] }> {
+): Promise<{ sectionNames: string[]; partLinkTargetDishIds: string[] }> {
   const sectionNames: string[] = [];
+  // Slice 10 correction (§44.1/§44.2's "linked Part names" tier): every
+  // direct linked-Part occurrence this Version references, top-level and
+  // Section-nested alike — feeds `structuralSearchTextFor`'s rebuild of
+  // `Dish.currentStructuralSearchText` below, alongside `sectionNames`.
+  const partLinkTargetDishIds = [
+    ...topLevelPartLinks.map((link) => link.targetDishId),
+    ...sections.flatMap((section) =>
+      section.partLinks.map((link) => link.targetDishId),
+    ),
+  ];
 
   function lineageFor(id: string | undefined): string {
     return mintFreshLineage ? randomUUID() : (id ?? randomUUID());
@@ -329,7 +339,96 @@ export async function insertSections(
     );
   }
 
-  return { sectionNames };
+  return { sectionNames, partLinkTargetDishIds };
+}
+
+/**
+ * Slice 10 correction: the single rebuild path for
+ * `Dish.currentStructuralSearchText` (tier 7, §44.5/§44.1-44.2's "Section or
+ * linked Part name") — Section names plus the *current* stable title
+ * (`Dish.currentTitle`) of every Part this Version directly links, resolved
+ * live at rebuild time rather than frozen from `DishVersion.title`. Reading
+ * live here (not the linked Version's own title snapshot) is what lets
+ * `refreshStructuralSearchTextForPartUsages` below correctly pick up a
+ * Part's rename without needing to touch that Part's own Version content.
+ */
+async function structuralSearchTextFor(
+  client: Prisma.TransactionClient | typeof prisma,
+  sectionNames: string[],
+  partLinkTargetDishIds: string[],
+): Promise<string | null> {
+  const distinctIds = [...new Set(partLinkTargetDishIds)];
+  const targets = distinctIds.length
+    ? await client.dish.findMany({
+        where: { id: { in: distinctIds } },
+        select: { currentTitle: true },
+      })
+    : [];
+  const partTitles = targets
+    .map((target) => target.currentTitle)
+    .filter((title): title is string => !!title);
+  const combined = [...sectionNames, ...partTitles].join(" ");
+  return combined || null;
+}
+
+/**
+ * Slice 10 correction: a Part's `currentTitle` is stable Dish metadata that
+ * can change without creating a Version (§7.1), but it's also denormalized
+ * into every current parent's `currentStructuralSearchText` (via
+ * `structuralSearchTextFor` above) — so a rename must refresh every current
+ * parent that directly links this Part right now, not just the Part's own
+ * row. Mirrors `listCurrentPartUsages` (queries.ts) — LIVE links whose
+ * container is some Dish's *current* Version, owned by the same owner —
+ * but resolves each affected container's full current search text (its own
+ * Section names plus every one of *its* linked Parts' current titles, not
+ * just the renamed one) rather than returning usage rows for display.
+ */
+async function refreshStructuralSearchTextForPartUsages(
+  client: Prisma.TransactionClient | typeof prisma,
+  ownerId: string,
+  partDishId: string,
+): Promise<void> {
+  const containers = await client.dish.findMany({
+    where: {
+      ownerId,
+      currentVersionId: { not: null },
+      currentVersion: {
+        partLinks: { some: { targetDishId: partDishId, linkState: "LIVE" } },
+      },
+    },
+    select: { id: true, currentVersionId: true },
+  });
+
+  for (const container of containers) {
+    if (!container.currentVersionId) continue;
+    const version = await client.dishVersion.findUnique({
+      where: { id: container.currentVersionId },
+      select: {
+        sections: { select: { name: true } },
+        partLinks: {
+          where: { linkState: "LIVE" },
+          select: { targetDishId: true },
+        },
+      },
+    });
+    if (!version) continue;
+    const sectionNames = version.sections
+      .map((section) => section.name)
+      .filter((name): name is string => !!name);
+    const partLinkTargetDishIds = version.partLinks
+      .map((link) => link.targetDishId)
+      .filter((id): id is string => !!id);
+    await client.dish.update({
+      where: { id: container.id },
+      data: {
+        currentStructuralSearchText: await structuralSearchTextFor(
+          client,
+          sectionNames,
+          partLinkTargetDishIds,
+        ),
+      },
+    });
+  }
 }
 
 /** Slice 6: the full flat set of proposed linked-Part occurrences across a
@@ -500,7 +599,7 @@ export async function createDish(
     // introduce a cycle — ARCHITECTURE_PROPOSAL.md §G.3's check is only
     // meaningful once a Dish already has an identity other content could
     // reference.
-    const { sectionNames } = await insertSections(
+    const { sectionNames, partLinkTargetDishIds } = await insertSections(
       tx,
       version.id,
       sections,
@@ -512,7 +611,11 @@ export async function createDish(
       where: { id: dish.id },
       data: {
         currentVersionId: version.id,
-        currentStructuralSearchText: sectionNames.join(" ") || null,
+        currentStructuralSearchText: await structuralSearchTextFor(
+          tx,
+          sectionNames,
+          partLinkTargetDishIds,
+        ),
       },
     });
 
@@ -614,14 +717,28 @@ export async function editDish(
     // mutable Version metadata (description/image) are applied directly,
     // independently of each other; a save with neither is a true no-op.
     if (stableChanged) {
-      await prisma.dish.update({
-        where: { id: dish.id },
-        data: {
-          stage: input.stage,
-          cuisine: input.cuisine || null,
-          archivedAt: nextArchivedAt(dish.stage, dish.archivedAt, input.stage),
-          currentTitle: input.title,
-        },
+      const titleChanged = input.title !== (dish.currentTitle ?? "");
+      await prisma.$transaction(async (tx) => {
+        await tx.dish.update({
+          where: { id: dish.id },
+          data: {
+            stage: input.stage,
+            cuisine: input.cuisine || null,
+            archivedAt: nextArchivedAt(
+              dish.stage,
+              dish.archivedAt,
+              input.stage,
+            ),
+            currentTitle: input.title,
+          },
+        });
+        // Slice 10 correction: a Part's title is denormalized into every
+        // current parent's search text (see `structuralSearchTextFor`) — a
+        // rename must refresh them, even though renaming itself never
+        // creates a Version.
+        if (dish.kind === "PART" && titleChanged) {
+          await refreshStructuralSearchTextForPartUsages(tx, ownerId, dish.id);
+        }
       });
     }
     if (versionMetadataChanged) {
@@ -738,7 +855,7 @@ export async function editDish(
       },
     });
 
-    const { sectionNames } = await insertSections(
+    const { sectionNames, partLinkTargetDishIds } = await insertSections(
       tx,
       version.id,
       sections,
@@ -760,11 +877,23 @@ export async function editDish(
         ...(becomesCurrent
           ? {
               currentVersionId: version.id,
-              currentStructuralSearchText: sectionNames.join(" ") || null,
+              currentStructuralSearchText: await structuralSearchTextFor(
+                tx,
+                sectionNames,
+                partLinkTargetDishIds,
+              ),
             }
           : {}),
       },
     });
+
+    // Slice 10 correction: same as the no-version-bump branch above — a
+    // Part-title rename must refresh every other current parent that
+    // directly links this Part, independent of whether *this* save also
+    // created a Version.
+    if (dish.kind === "PART" && input.title !== (dish.currentTitle ?? "")) {
+      await refreshStructuralSearchTextForPartUsages(tx, ownerId, dish.id);
+    }
 
     return dish.id;
   });
@@ -915,7 +1044,7 @@ export async function promoteHistoricalVersion(
       },
     });
 
-    const { sectionNames } = await insertSections(
+    const { sectionNames, partLinkTargetDishIds } = await insertSections(
       tx,
       version.id,
       sections,
@@ -930,7 +1059,11 @@ export async function promoteHistoricalVersion(
         // Deliberately no `currentTitle` write here — see the doc comment
         // above. Promotion changes which content is current; it never
         // changes the Dish's own stable title.
-        currentStructuralSearchText: sectionNames.join(" ") || null,
+        currentStructuralSearchText: await structuralSearchTextFor(
+          tx,
+          sectionNames,
+          partLinkTargetDishIds,
+        ),
       },
     });
 
@@ -1101,7 +1234,7 @@ async function propagateToOneContainer(
         },
       });
 
-      const { sectionNames } = await insertSections(
+      const { sectionNames, partLinkTargetDishIds } = await insertSections(
         tx,
         version.id,
         retargetedSections,
@@ -1116,7 +1249,11 @@ async function propagateToOneContainer(
         where: { id: container.id },
         data: {
           currentVersionId: version.id,
-          currentStructuralSearchText: sectionNames.join(" ") || null,
+          currentStructuralSearchText: await structuralSearchTextFor(
+            tx,
+            sectionNames,
+            partLinkTargetDishIds,
+          ),
         },
       });
 
@@ -1386,7 +1523,7 @@ export async function duplicateDish(
       },
     });
 
-    const { sectionNames } = await insertSections(
+    const { sectionNames, partLinkTargetDishIds } = await insertSections(
       tx,
       version.id,
       sections,
@@ -1398,7 +1535,11 @@ export async function duplicateDish(
       where: { id: newDish.id },
       data: {
         currentVersionId: version.id,
-        currentStructuralSearchText: sectionNames.join(" ") || null,
+        currentStructuralSearchText: await structuralSearchTextFor(
+          tx,
+          sectionNames,
+          partLinkTargetDishIds,
+        ),
       },
     });
 
@@ -1797,7 +1938,7 @@ export async function resolvePartUsageOccurrence(
       },
     });
 
-    const { sectionNames } = await insertSections(
+    const { sectionNames, partLinkTargetDishIds } = await insertSections(
       tx,
       version.id,
       sanitizedSections,
@@ -1812,7 +1953,11 @@ export async function resolvePartUsageOccurrence(
       where: { id: container.id },
       data: {
         currentVersionId: version.id,
-        currentStructuralSearchText: sectionNames.join(" ") || null,
+        currentStructuralSearchText: await structuralSearchTextFor(
+          tx,
+          sectionNames,
+          partLinkTargetDishIds,
+        ),
       },
     });
 

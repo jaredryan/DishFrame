@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireUserId } from "@/lib/auth/session";
 import { toActionErrorMessage, PartHasLiveUsagesError } from "@/lib/errors";
 import * as dishService from "@/lib/dishes/service";
+import * as dishMetadata from "@/lib/dishes/dish-metadata";
 import {
   listCurrentPartUsages,
   getOwnedDishOrThrow,
@@ -22,6 +23,9 @@ import {
   clearPreferredUnitOverrideSchema,
   propagatePartUpdateSchema,
   resolvePartUsageOccurrenceSchema,
+  setDishTagsSchema,
+  setDishFlavorProfilesSchema,
+  toggleFavoriteSchema,
   type DishActionState,
   type DishContentInput,
   type DishKindValue,
@@ -316,6 +320,71 @@ export async function clearPreferredUnitOverride(
 
     revalidateDish(kind, dishId);
     return { status: "success", dishId };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export async function setDishTags(
+  kind: DishKindValue,
+  values: { dishId: string; tagIds: string[] },
+): Promise<DishActionState> {
+  try {
+    const userId = await requireUserId();
+    const { dishId, tagIds } = setDishTagsSchema.parse(values);
+
+    await dishMetadata.setDishTags(userId, dishId, kind, tagIds);
+
+    revalidateDish(kind, dishId);
+    return { status: "success", dishId };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export async function setDishFlavorProfiles(
+  kind: DishKindValue,
+  values: { dishId: string; flavorProfileValueIds: string[] },
+): Promise<DishActionState> {
+  try {
+    const userId = await requireUserId();
+    const { dishId, flavorProfileValueIds } =
+      setDishFlavorProfilesSchema.parse(values);
+
+    await dishMetadata.setDishFlavorProfiles(
+      userId,
+      dishId,
+      kind,
+      flavorProfileValueIds,
+    );
+
+    revalidateDish(kind, dishId);
+    return { status: "success", dishId };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export type ToggleFavoriteActionState =
+  | { status: "success"; dishId: string; isFavorite: boolean }
+  | { status: "error"; message: string };
+
+export async function toggleFavorite(
+  kind: DishKindValue,
+  values: { dishId: string },
+): Promise<ToggleFavoriteActionState> {
+  try {
+    const userId = await requireUserId();
+    const { dishId } = toggleFavoriteSchema.parse(values);
+
+    const { isFavorite } = await dishMetadata.toggleFavorite(
+      userId,
+      dishId,
+      kind,
+    );
+
+    revalidateDish(kind, dishId);
+    return { status: "success", dishId, isFavorite };
   } catch (error) {
     return { status: "error", message: toActionErrorMessage(error) };
   }

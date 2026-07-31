@@ -670,6 +670,24 @@ export const clearPreferredUnitOverrideSchema = z.object({
   ingredientLineageId: z.string().min(1),
 });
 
+// Slice 10, PRODUCT_SPEC.md §45.2/§79.2: tags/Flavor profiles are stable
+// Dish metadata, always submitted as a complete replacement set (same
+// "submit the whole thing" shape as `reorderTastersSchema`), never a
+// single add/remove — simpler than diffing partial toggles client-side.
+export const setDishTagsSchema = z.object({
+  dishId: z.string().min(1),
+  tagIds: z.array(z.string().min(1)),
+});
+
+export const setDishFlavorProfilesSchema = z.object({
+  dishId: z.string().min(1),
+  flavorProfileValueIds: z.array(z.string().min(1)),
+});
+
+export const toggleFavoriteSchema = z.object({
+  dishId: z.string().min(1),
+});
+
 export type ActionState = {
   status: "idle" | "success" | "error";
   message?: string;
