@@ -316,7 +316,10 @@ test.describe("Settings: Preferences, Grocery Categories, and Tasters", () => {
     );
     expect(dadIndexReloaded).toBe(dadIndexAfter);
 
-    await page.getByRole("button", { name: "Delete Dad" }).click();
+    await clickAndWaitForServerAction(
+      page,
+      page.getByRole("button", { name: "Delete Dad" }),
+    );
     await expect(page.getByText("Dad", { exact: true })).not.toBeVisible();
 
     await page.getByRole("button", { name: "Rename Mom" }).click();

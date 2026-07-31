@@ -28,8 +28,9 @@ function seed(...args: string[]): string {
 }
 
 /**
- * BUILD_PLAN.md Slice 7's one required journey (Gate 4): Cooking Setup →
- * Start cooking → edit the active plan → End early. Uses a two-Section
+ * BUILD_PLAN.md Slice 7's required journey (Gate 4), updated for Slice 8's
+ * dedicated Cooking Mode UI: Cooking Setup → Start cooking → edit the
+ * active plan via the Manage-plan sheet → End early. Uses a two-Section
  * Recipe so plan editing (remove/restore) can be exercised without ever
  * hitting the final-unit guard (§27.4) — that guard's own dialog is
  * covered by the integration suite, not here.
@@ -92,19 +93,25 @@ test.describe("Cooking: setup, start, edit active plan, end early", () => {
     await expect(page.getByText("Prep", { exact: true })).toBeVisible();
     await expect(page.getByText("Sear", { exact: true })).toBeVisible();
 
-    // --- Start cooking: a real Cooking Session is created ---
+    // --- Start cooking: a real Cooking Session is created, landing in the
+    // dedicated Cooking Mode surface focused on the first unit ---
     await page.getByRole("button", { name: "Start cooking" }).click();
     // Generous timeout, not the default: this is the first navigation to
     // /cook/[sessionId] in the whole suite, so it pays Turbopack's one-time
     // dev-mode compile cost for that route (observed ~6s) on top of the
     // network round trip — a known cause of slowness, not a hang.
     await expect(page).toHaveURL(/\/cook\/[^/]+$/, { timeout: 15_000 });
-    await expect(page.getByText("In progress")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Prep" })).toBeVisible();
     await expect(page.getByText("Ginger")).toBeVisible();
+
+    // --- Switch focus to the other unit in one tap ---
+    await page.getByRole("button", { name: /Sear/ }).click();
+    await expect(page.getByRole("heading", { name: "Sear" })).toBeVisible();
     await expect(page.getByText("Soy sauce")).toBeVisible();
 
-    // --- Edit the active plan: remove "Prep", confirm it moves to Removed,
-    // then restore it back to the active plan ---
+    // --- Edit the active plan via the Manage-plan sheet: remove "Prep",
+    // confirm it moves to Removed, then restore it ---
+    await page.getByRole("button", { name: "Manage plan" }).click();
     await page.getByRole("button", { name: "Remove Prep" }).click();
     await expect(
       page.getByRole("heading", { name: "Removed from this session" }),
@@ -113,16 +120,15 @@ test.describe("Cooking: setup, start, edit active plan, end early", () => {
     await expect(
       page.getByRole("heading", { name: "Removed from this session" }),
     ).not.toBeVisible();
+    await page.getByRole("button", { name: "Done" }).click();
 
     // --- End early: partial progress is preserved, state updates ---
-    await page.getByRole("button", { name: "End early" }).click();
+    await page.getByRole("button", { name: "End" }).click();
     await page
       .getByRole("dialog")
       .getByRole("button", { name: "End early" })
       .click();
     await expect(page.getByText("Ended early")).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Finish session" }),
-    ).not.toBeVisible();
+    await expect(page.getByRole("button", { name: "End" })).not.toBeVisible();
   });
 });

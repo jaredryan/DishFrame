@@ -2,6 +2,7 @@ import "server-only";
 import { prisma } from "@/lib/db/prisma";
 import { NotFoundError } from "@/lib/errors";
 import { decimalToNumber } from "@/lib/dishes/format";
+import { scaleQuantity } from "@/lib/units/scaling";
 import { versionLabel } from "@/lib/dishes/version-note";
 import {
   sectionContentInclude,
@@ -89,6 +90,19 @@ export async function getOwnedSessionOrThrow(
 export type OwnedCookingSession = Awaited<
   ReturnType<typeof getOwnedSessionOrThrow>
 >;
+
+/** Derives a persisted `CookingSessionUnit`'s own `CookableUnit.unitKey`,
+ * shared by the service layer (validating add/exclude) and any caller that
+ * needs to join a session's units back against a fresh `buildCookableUnits`
+ * result (e.g. matching each unit's own output basis for scaling). */
+export function sessionUnitKey(unit: {
+  sourceSectionLineageId: string | null;
+  sourcePartLinkLineageId: string | null;
+}): string {
+  return unit.sourceSectionLineageId
+    ? `section:${unit.sourceSectionLineageId}`
+    : `part:${unit.sourcePartLinkLineageId}`;
+}
 
 // PRODUCT_SPEC.md §26.2/§26.3 — one active session per stable Dish. Used
 // only to enrich a conflict response with the existing session's id for the
@@ -180,6 +194,13 @@ export type CookableUnit = {
   estimatedDurationMinutes: number | null;
   authoredIndex: number;
   checklist: CookableChecklistRaw[];
+  // Slice 8 §24.1/§24.2 — the unit's own authored "Makes" basis, used for
+  // natural target-output scaling instead of a plain multiplier. Only a PART
+  // unit has its own yield (a Section has no independent "Makes" of its
+  // own — the containing Recipe Version's yield is the whole-session basis,
+  // read directly off that Version by the caller, not per-unit here).
+  outputQuantity: number | null;
+  outputUnit: string | null;
 };
 
 const MAX_PART_FLATTEN_DEPTH = 12;
@@ -301,6 +322,8 @@ async function buildPartUnit(
       minorVersion: true,
       prepTimeMinutes: true,
       cookTimeMinutes: true,
+      yieldQuantity: true,
+      yieldUnit: true,
     },
   });
   if (!targetVersion) return null;
@@ -336,6 +359,8 @@ async function buildPartUnit(
     estimatedDurationMinutes,
     authoredIndex,
     checklist,
+    outputQuantity: decimalToNumber(targetVersion.yieldQuantity),
+    outputUnit: targetVersion.yieldUnit,
   };
 }
 
@@ -419,6 +444,8 @@ export async function buildCookableUnits(
           sourcePartLinkLineageId: null,
           estimatedDurationMinutes: null,
           authoredIndex,
+          outputQuantity: null,
+          outputUnit: null,
           checklist: [
             ...localIngredients.map(ingredientToRaw),
             ...section.instructions.map((instruction) => ({
@@ -464,4 +491,38 @@ export async function buildCookableUnits(
     }
     return a.authoredIndex - b.authoredIndex;
   });
+}
+
+const QUANTITY_CONFLICT_TOLERANCE = 0.01;
+
+export type ChecklistItemConflict =
+  | { type: "needs-more"; amount: number }
+  | { type: "exceeds"; amount: number }
+  | null;
+
+/**
+ * PRODUCT_SPEC.md §24.5 — purely derived, never persisted: compares a
+ * checked item's snapshotted `checkedQuantity` (the amount in effect when it
+ * was checked) against what the *current* scale now requires. Scaling up
+ * flags "needs more" (checked amount is now short); scaling down flags
+ * "exceeds" (checked amount now exceeds the target) without ever implying
+ * the excess can or should be removed (§24.5's own wording). Returns null
+ * for unchecked items, free-text/quantity-less items, and negligible
+ * floating-point noise within tolerance.
+ */
+export function computeChecklistItemConflict(
+  baseQuantity: number | null,
+  checkedQuantity: number | null,
+  effectiveMultiplier: number,
+): ChecklistItemConflict {
+  if (baseQuantity == null || checkedQuantity == null) return null;
+  const currentQuantity = scaleQuantity(baseQuantity, effectiveMultiplier);
+  const delta = currentQuantity - checkedQuantity;
+  if (delta > QUANTITY_CONFLICT_TOLERANCE) {
+    return { type: "needs-more", amount: delta };
+  }
+  if (delta < -QUANTITY_CONFLICT_TOLERANCE) {
+    return { type: "exceeds", amount: -delta };
+  }
+  return null;
 }

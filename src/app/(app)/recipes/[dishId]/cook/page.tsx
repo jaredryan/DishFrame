@@ -12,6 +12,7 @@ import {
   type SetupUnit,
 } from "@/components/domain/cooking/cooking-setup";
 import { versionLabel } from "@/lib/dishes/version-note";
+import { decimalToNumber } from "@/lib/dishes/format";
 
 export const metadata: Metadata = { title: "Cooking setup" };
 
@@ -63,6 +64,8 @@ export default async function RecipeCookingSetupPage({
       .length,
     instructionCount: unit.checklist.filter((i) => i.kind === "INSTRUCTION")
       .length,
+    outputQuantity: unit.outputQuantity,
+    outputUnit: unit.outputUnit,
   }));
 
   return (
@@ -74,6 +77,8 @@ export default async function RecipeCookingSetupPage({
       versionLabel={versionLabel(version.majorVersion, version.minorVersion)}
       isCurrent={version.id === dish.currentVersionId}
       units={units}
+      sourceOutputQuantity={decimalToNumber(version.yieldQuantity)}
+      sourceOutputUnit={version.yieldUnit}
     />
   );
 }

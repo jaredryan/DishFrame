@@ -135,3 +135,17 @@ and the full integration suite — 171 tests including this slice's 9).
   leaves "final visual treatment" to frontend design work.
 
 Do not begin Slice 8.
+
+## Correction (Slice 8 closeout)
+
+Two issues flagged above were closed out as part of Slice 8 rather than a
+separate Slice 7 pass — see `docs/SLICE_8.md`'s "Slice 7 closeout" section
+for the detail:
+
+- **Setup's plain-multiplier batch scale** is replaced by natural
+  target-output scaling (`ScaleControl`) wherever a usable `Makes` basis
+  exists, multiplier retained only as the documented fallback.
+- **Concurrent final-unit removal** could previously empty a session under
+  a genuine race (read-then-write guard); `removeSessionUnit` now holds a
+  row lock for the guard check inside its transaction. Verified with an
+  actual `Promise.allSettled` race, not a sequential test.

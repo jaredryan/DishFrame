@@ -5,8 +5,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronDown, ChevronUp, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Field, FieldLabel, FieldDescription } from "@/components/ui/field";
 import {
   ContentCard,
   CONTENT_CARD_TITLE_CLASS,
@@ -21,6 +19,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { startCookingSession, endCookingSession } from "@/lib/cooking/actions";
+import { ScaleControl } from "@/components/domain/cooking/scale-control";
 import type { DishKindValue } from "@/lib/dishes/schema";
 
 export type SetupUnit = {
@@ -30,14 +29,9 @@ export type SetupUnit = {
   estimatedDurationMinutes: number | null;
   ingredientCount: number;
   instructionCount: number;
+  outputQuantity: number | null;
+  outputUnit: string | null;
 };
-
-function parseScale(text: string): number | null {
-  const trimmed = text.trim();
-  if (!trimmed) return null;
-  const value = Number(trimmed);
-  return Number.isFinite(value) && value > 0 ? value : null;
-}
 
 function countsLabel(unit: SetupUnit): string {
   const parts: string[] = [];
@@ -68,6 +62,8 @@ export function CookingSetup({
   versionLabel,
   isCurrent,
   units,
+  sourceOutputQuantity,
+  sourceOutputUnit,
 }: {
   kind: DishKindValue;
   dishId: string;
@@ -76,6 +72,8 @@ export function CookingSetup({
   versionLabel: string;
   isCurrent: boolean;
   units: SetupUnit[];
+  sourceOutputQuantity: number | null;
+  sourceOutputUnit: string | null;
 }) {
   const router = useRouter();
   const basePath = kind === "PART" ? "/parts" : "/recipes";
@@ -86,10 +84,12 @@ export function CookingSetup({
   const [includedKeys, setIncludedKeys] = React.useState<string[]>(
     units.map((u) => u.unitKey),
   );
-  const [sessionScaleText, setSessionScaleText] = React.useState("");
-  const [unitScales, setUnitScales] = React.useState<Record<string, string>>(
-    {},
-  );
+  const [sessionMultiplier, setSessionMultiplier] = React.useState<
+    number | null
+  >(null);
+  const [unitMultipliers, setUnitMultipliers] = React.useState<
+    Record<string, number | null>
+  >({});
   const [isPending, startTransition] = React.useTransition();
   const [error, setError] = React.useState<string | null>(null);
   const [conflict, setConflict] = React.useState<{
@@ -129,10 +129,10 @@ export function CookingSetup({
       const result = await startCookingSession({
         dishId,
         dishVersionId,
-        scaleFactor: parseScale(sessionScaleText),
+        scaleFactor: sessionMultiplier,
         units: includedKeys.map((unitKey) => ({
           unitKey,
-          scaleFactor: parseScale(unitScales[unitKey] ?? ""),
+          scaleFactor: unitMultipliers[unitKey] ?? null,
         })),
       });
 
@@ -225,22 +225,18 @@ export function CookingSetup({
                     />
                   </div>
                 </div>
-                <Field className="max-w-40 gap-1">
-                  <FieldLabel className="text-xs font-normal">
-                    Scale this unit (optional)
-                  </FieldLabel>
-                  <Input
-                    inputMode="decimal"
-                    placeholder="1"
-                    value={unitScales[unitKey] ?? ""}
-                    onChange={(e) =>
-                      setUnitScales((prev) => ({
-                        ...prev,
-                        [unitKey]: e.target.value,
-                      }))
-                    }
-                  />
-                </Field>
+                <ScaleControl
+                  outputQuantity={unit.outputQuantity}
+                  outputUnit={unit.outputUnit}
+                  targetLabel={`Make`}
+                  multiplierLabel="Scale this unit"
+                  onMultiplierChange={(multiplier) =>
+                    setUnitMultipliers((prev) => ({
+                      ...prev,
+                      [unitKey]: multiplier,
+                    }))
+                  }
+                />
               </li>
             );
           })}
@@ -277,20 +273,14 @@ export function CookingSetup({
       </ContentCard>
 
       <ContentCard>
-        <h2 className={CONTENT_CARD_TITLE_CLASS}>Batch scale</h2>
-        <Field className="max-w-48 gap-1">
-          <FieldLabel>Scale (optional)</FieldLabel>
-          <Input
-            inputMode="decimal"
-            placeholder="1"
-            value={sessionScaleText}
-            onChange={(e) => setSessionScaleText(e.target.value)}
-          />
-          <FieldDescription>
-            E.g. 2 to double the whole session. Leave blank for the authored
-            amount.
-          </FieldDescription>
-        </Field>
+        <h2 className={CONTENT_CARD_TITLE_CLASS}>Whole-session scale</h2>
+        <ScaleControl
+          outputQuantity={sourceOutputQuantity}
+          outputUnit={sourceOutputUnit}
+          targetLabel="Cook for"
+          multiplierLabel="Scale the whole session"
+          onMultiplierChange={setSessionMultiplier}
+        />
       </ContentCard>
 
       {error && <p className="text-destructive text-sm">{error}</p>}

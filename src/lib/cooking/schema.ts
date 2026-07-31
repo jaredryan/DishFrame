@@ -57,3 +57,63 @@ export const sessionIdSchema = z.object({ sessionId: z.string().min(1) });
 export type ActionState =
   | { status: "success"; message?: string }
   | { status: "error"; message: string };
+
+/**
+ * Slice 8 — Cooking Mode: checkoffs, unit completion, mid-session scaling,
+ * timers. Same rule as above: client sends only identifiers, booleans, and
+ * numbers — never label/content text.
+ */
+
+export const toggleChecklistItemSchema = z.object({
+  sessionId: z.string().min(1),
+  itemId: z.string().min(1),
+  checked: z.boolean(),
+});
+
+export const setUnitCompletionSchema = z.object({
+  sessionId: z.string().min(1),
+  unitId: z.string().min(1),
+  completed: z.boolean(),
+});
+
+export const updateSessionScaleSchema = z.object({
+  sessionId: z.string().min(1),
+  scaleFactor: scaleFactorSchema,
+});
+
+export const updateUnitScaleSchema = z.object({
+  sessionId: z.string().min(1),
+  unitId: z.string().min(1),
+  scaleFactor: scaleFactorSchema,
+});
+
+export const createTimerSchema = z.object({
+  sessionId: z.string().min(1),
+  unitId: z.string().min(1),
+  name: z.string().trim().min(1).max(60),
+  durationSeconds: z
+    .number()
+    .int()
+    .min(1)
+    .max(24 * 60 * 60),
+});
+
+export const renameTimerSchema = z.object({
+  sessionId: z.string().min(1),
+  timerId: z.string().min(1),
+  name: z.string().trim().min(1).max(60),
+});
+
+export const timerIdSchema = z.object({
+  sessionId: z.string().min(1),
+  timerId: z.string().min(1),
+});
+
+export const adjustTimerSchema = z.object({
+  sessionId: z.string().min(1),
+  timerId: z.string().min(1),
+  deltaSeconds: z
+    .number()
+    .int()
+    .refine((v) => v !== 0, "No time change given."),
+});

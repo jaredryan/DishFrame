@@ -529,8 +529,13 @@ model CookingSession {
   rawElapsedSeconds       Int?
   adjustedDurationSeconds Int?
 
-  scaleFactor  Decimal? @db.Decimal(8, 4)
-  cookingNotes String?
+  scaleFactor         Decimal? @db.Decimal(8, 4)
+  // Slice 8 correction (Gate 4 forward note, PRODUCT_SPEC.md §24.4): captured once at
+  // creation and never written again, so the original scale stays distinguishable from
+  // `scaleFactor`, which keeps mutating as the current/final value through mid-session
+  // adjustments and freezes naturally once the session ends (read-only).
+  originalScaleFactor Decimal? @db.Decimal(8, 4)
+  cookingNotes        String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -551,6 +556,9 @@ model CookingSessionUnit {
   sessionId            String
   position             Int
   scaleFactor          Decimal?  @db.Decimal(8, 4)
+  // Slice 8 correction — same original-vs-current rule as CookingSession.originalScaleFactor,
+  // applied per-unit (§24.4's "an individual Section scale; an individual Part scale").
+  originalScaleFactor  Decimal?  @db.Decimal(8, 4)
   completedAt          DateTime?
   removedAt            DateTime?
   removedAfterProgress Boolean   @default(false)
@@ -585,6 +593,19 @@ model CookingSessionChecklistItem {
   displayUnit     String?
   sourceLineageId String?
 
+  // Slice 8 correction: `displayQuantity` is a formatted string (e.g. "1 1/2") that mid-session
+  // scaling must never re-parse as a source of truth (PRODUCT_SPEC.md §24.3/§24.4). These carry
+  // the structured, unscaled (multiplier-1) numeric value scaling recalculates from directly —
+  // null for free-text or quantity-less ingredient rows and always null for INSTRUCTION rows,
+  // matching `displayQuantity`'s own nullability rule so scaling leaves those rows untouched.
+  baseQuantity    Decimal? @db.Decimal(12, 3)
+  baseQuantityEnd Decimal? @db.Decimal(12, 3)
+  isApproximate   Boolean  @default(false)
+  // Snapshot of the numeric quantity in effect at the moment this item was last checked —
+  // compared against the current scaled quantity to flag progress discrepancies after a later
+  // scale change (§24.5) without needing a full scale-change log. Cleared when unchecked.
+  checkedQuantity Decimal? @db.Decimal(12, 3)
+
   unit CookingSessionUnit @relation(fields: [unitId], references: [id], onDelete: Cascade)
 
   @@index([unitId])
@@ -601,6 +622,9 @@ model Timer {
   id               String     @id @default(cuid())
   unitId           String
   name             String
+  // Slice 8 correction: the nominal duration Reset returns to and Add/Subtract time adjusts —
+  // without it, Reset has no correct value to restore once a timer has ever counted down.
+  durationSeconds  Int
   targetEndAt      DateTime?
   remainingSeconds Int?
   state            TimerState @default(RUNNING)

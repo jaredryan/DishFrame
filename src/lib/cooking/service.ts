@@ -9,6 +9,7 @@ import {
 } from "@/lib/errors";
 import { decimalToNumber } from "@/lib/dishes/format";
 import {
+  scaleQuantity,
   scaleIngredientQuantity,
   formatCalculatedQuantity,
 } from "@/lib/units/scaling";
@@ -17,6 +18,7 @@ import {
   getOwnedSessionOrThrow,
   findActiveSessionForDish,
   buildCookableUnits,
+  sessionUnitKey,
   type CookableChecklistRaw,
   type OwnedCookingSession,
 } from "@/lib/cooking/queries";
@@ -44,23 +46,40 @@ function assertActive(session: OwnedCookingSession): void {
   }
 }
 
-function unitKeyFor(unit: {
-  sourceSectionLineageId: string | null;
-  sourcePartLinkLineageId: string | null;
-}): string {
-  return unit.sourceSectionLineageId
-    ? `section:${unit.sourceSectionLineageId}`
-    : `part:${unit.sourcePartLinkLineageId}`;
-}
-
 /**
- * Renders one checklist row's self-contained display fields (Correction 3)
- * at the effective multiplier for its unit — matching the same authored-
+ * Formats a structured quantity at `multiplier`, matching the same authored-
  * vs-calculated formatting split `scaled-display.ts` already established
  * for the Recipe/Part detail view's own temporary-scaling control
  * (PRODUCT_SPEC.md §52.6/§52.7): unscaled (`multiplier === 1`) renders in
  * plain authored style, any real scaling renders in kitchen-fraction/
- * decimal calculated style.
+ * decimal calculated style. Shared by checklist-row creation (below) and
+ * mid-session scale recalculation (`recomputeUnitChecklistDisplay`), both of
+ * which must produce byte-identical formatting for the same inputs.
+ */
+function formatScaledQuantity(
+  quantity: number,
+  quantityEnd: number | null,
+  isApproximate: boolean,
+  multiplier: number,
+): string {
+  const scaled = scaleIngredientQuantity(
+    { quantity, quantityEnd, isApproximate, displayText: null },
+    multiplier,
+  );
+  const formatFn = multiplier === 1 ? String : formatCalculatedQuantity;
+  const approxPrefix = isApproximate ? "about " : "";
+  const rangeText =
+    scaled.quantityEnd != null ? `–${formatFn(scaled.quantityEnd)}` : "";
+  return `${approxPrefix}${formatFn(scaled.quantity!)}${rangeText}`;
+}
+
+/**
+ * Renders one checklist row's self-contained display fields (Correction 3)
+ * at the effective multiplier for its unit, plus the structured `base*`
+ * fields (Slice 8 correction) mid-session scaling recalculates from later —
+ * never re-parses `displayQuantity`'s formatted string. `baseQuantity`/
+ * `baseQuantityEnd` stay null for free-text or quantity-less rows, matching
+ * `displayQuantity`'s own nullability so a later rescale leaves them alone.
  */
 function renderChecklistDisplay(
   raw: CookableChecklistRaw,
@@ -69,9 +88,19 @@ function renderChecklistDisplay(
   displayText: string;
   displayQuantity: string | null;
   displayUnit: string | null;
+  baseQuantity: number | null;
+  baseQuantityEnd: number | null;
+  isApproximate: boolean;
 } {
   if (raw.kind === "INSTRUCTION") {
-    return { displayText: raw.text, displayQuantity: null, displayUnit: null };
+    return {
+      displayText: raw.text,
+      displayQuantity: null,
+      displayUnit: null,
+      baseQuantity: null,
+      baseQuantityEnd: null,
+      isApproximate: false,
+    };
   }
 
   const name = raw.name?.trim() || "Untitled ingredient";
@@ -80,30 +109,38 @@ function renderChecklistDisplay(
     : name;
 
   if (raw.freeText) {
-    return { displayText, displayQuantity: raw.freeText, displayUnit: null };
+    return {
+      displayText,
+      displayQuantity: raw.freeText,
+      displayUnit: null,
+      baseQuantity: null,
+      baseQuantityEnd: null,
+      isApproximate: false,
+    };
   }
   if (raw.quantity == null) {
-    return { displayText, displayQuantity: null, displayUnit: null };
+    return {
+      displayText,
+      displayQuantity: null,
+      displayUnit: null,
+      baseQuantity: null,
+      baseQuantityEnd: null,
+      isApproximate: false,
+    };
   }
-
-  const scaled = scaleIngredientQuantity(
-    {
-      quantity: raw.quantity,
-      quantityEnd: raw.quantityEnd,
-      isApproximate: raw.isApproximate,
-      displayText: null,
-    },
-    multiplier,
-  );
-  const formatFn = multiplier === 1 ? String : formatCalculatedQuantity;
-  const approxPrefix = raw.isApproximate ? "about " : "";
-  const rangeText =
-    scaled.quantityEnd != null ? `–${formatFn(scaled.quantityEnd)}` : "";
 
   return {
     displayText,
-    displayQuantity: `${approxPrefix}${formatFn(scaled.quantity!)}${rangeText}`,
+    displayQuantity: formatScaledQuantity(
+      raw.quantity,
+      raw.quantityEnd,
+      raw.isApproximate,
+      multiplier,
+    ),
     displayUnit: raw.unit,
+    baseQuantity: raw.quantity,
+    baseQuantityEnd: raw.quantityEnd,
+    isApproximate: raw.isApproximate,
   };
 }
 
@@ -160,6 +197,7 @@ export async function startCookingSession(
           dishId: input.dishId,
           dishVersionId: input.dishVersionId,
           scaleFactor: sessionScale,
+          originalScaleFactor: sessionScale,
         },
       });
 
@@ -170,6 +208,7 @@ export async function startCookingSession(
             sessionId: session.id,
             position: index,
             scaleFactor,
+            originalScaleFactor: scaleFactor,
             label: unit.label,
             sourceDishTitle: unit.sourceDishTitle,
             sourceDishVersionLabel: unit.sourceDishVersionLabel,
@@ -187,6 +226,9 @@ export async function startCookingSession(
               displayText: display.displayText,
               displayQuantity: display.displayQuantity,
               displayUnit: display.displayUnit,
+              baseQuantity: display.baseQuantity,
+              baseQuantityEnd: display.baseQuantityEnd,
+              isApproximate: display.isApproximate,
               sourceLineageId: raw.sourceLineageId,
             },
           });
@@ -228,7 +270,7 @@ export async function addSessionUnits(
   const cookableUnits = await buildCookableUnits(ownerId, dish, version);
   const byKey = new Map(cookableUnits.map((unit) => [unit.unitKey, unit]));
 
-  const existingKeys = new Set(session.units.map(unitKeyFor));
+  const existingKeys = new Set(session.units.map(sessionUnitKey));
   const toAdd = [...new Set(unitKeys)].filter(
     (key) => byKey.has(key) && !existingKeys.has(key),
   );
@@ -263,6 +305,9 @@ export async function addSessionUnits(
             displayText: display.displayText,
             displayQuantity: display.displayQuantity,
             displayUnit: display.displayUnit,
+            baseQuantity: display.baseQuantity,
+            baseQuantityEnd: display.baseQuantityEnd,
+            isApproximate: display.isApproximate,
             sourceLineageId: raw.sourceLineageId,
           },
         });
@@ -278,10 +323,14 @@ export async function addSessionUnits(
 /**
  * PRODUCT_SPEC.md §27.2/§27.3/§27.4: removal is a clean delete from the
  * *active* view (`removedAt`), never a row delete — evidence (checked
- * items, timers, completion) survives regardless. The final-unit guard is
- * a pre-transaction read-then-decide check (Gate 4), not a DB constraint —
- * a removal that would empty the plan is rejected before anything is
- * written, so the caller can offer Delete session / Keep editing.
+ * items, timers, completion) survives regardless. The final-unit guard
+ * re-checks the active count *inside* a transaction holding a row lock on
+ * the parent `CookingSession` (`SELECT ... FOR UPDATE`), not from the
+ * pre-fetched `session` snapshot above — a plain read-then-write (the
+ * original Slice 7 approach) let two near-simultaneous removals of the last
+ * two units both read `activeCount > 1` and both commit, silently emptying
+ * the session under real concurrency. The lock serializes concurrent
+ * removals for the same session so only one can win the guard check.
  */
 export async function removeSessionUnit(
   ownerId: string,
@@ -295,26 +344,37 @@ export async function removeSessionUnit(
   if (!unit) throw new NotFoundError("Unit not found in this session.");
   if (unit.removedAt) return;
 
-  const activeCount = session.units.filter((u) => !u.removedAt).length;
-  if (activeCount <= 1) {
-    throw new FinalUnitGuardError();
-  }
+  await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "CookingSession" WHERE id = ${sessionId} FOR UPDATE`;
 
-  const hasProgress =
-    unit.completedAt != null ||
-    unit.checklistItems.some((item) => item.checkedAt != null) ||
-    unit.timers.length > 0;
+    const freshUnit = await tx.cookingSessionUnit.findFirst({
+      where: { id: unitId, sessionId },
+      include: { checklistItems: true, timers: true },
+    });
+    if (!freshUnit) throw new NotFoundError("Unit not found in this session.");
+    if (freshUnit.removedAt) return;
 
-  await prisma.$transaction([
-    prisma.cookingSessionUnit.update({
+    const activeCount = await tx.cookingSessionUnit.count({
+      where: { sessionId, removedAt: null },
+    });
+    if (activeCount <= 1) {
+      throw new FinalUnitGuardError();
+    }
+
+    const hasProgress =
+      freshUnit.completedAt != null ||
+      freshUnit.checklistItems.some((item) => item.checkedAt != null) ||
+      freshUnit.timers.length > 0;
+
+    await tx.cookingSessionUnit.update({
       where: { id: unitId },
       data: { removedAt: new Date(), removedAfterProgress: hasProgress },
-    }),
-    prisma.cookingSession.update({
+    });
+    await tx.cookingSession.update({
       where: { id: sessionId },
       data: { updatedAt: new Date() },
-    }),
-  ]);
+    });
+  });
 }
 
 export async function restoreSessionUnit(
@@ -383,6 +443,12 @@ export async function reorderSessionUnits(
  * PRODUCT_SPEC.md §25/§30: Finish or End early. Ended sessions never
  * silently return to In progress — this is the only lifecycle-state
  * transition, and it is rejected outright once already ended.
+ *
+ * §30.3/§30.4: both outcomes "stop active timer countdowns" while
+ * "preserving timer state" — every still-RUNNING timer is frozen into
+ * PAUSED with its remaining time snapshotted at `endedAt`, rather than left
+ * counting down against a target time a now-ended session can no longer
+ * meaningfully represent.
  */
 export async function endCookingSession(
   ownerId: string,
@@ -398,9 +464,25 @@ export async function endCookingSession(
     Math.floor((endedAt.getTime() - session.startedAt.getTime()) / 1000),
   );
 
-  return prisma.cookingSession.update({
-    where: { id: sessionId },
-    data: { state: outcome, endedAt, rawElapsedSeconds },
+  return prisma.$transaction(async (tx) => {
+    for (const unit of session.units) {
+      for (const timer of unit.timers) {
+        if (timer.state !== "RUNNING" || !timer.targetEndAt) continue;
+        const remainingSeconds = Math.max(
+          0,
+          Math.round((timer.targetEndAt.getTime() - endedAt.getTime()) / 1000),
+        );
+        await tx.timer.update({
+          where: { id: timer.id },
+          data: { state: "PAUSED", remainingSeconds, targetEndAt: null },
+        });
+      }
+    }
+
+    return tx.cookingSession.update({
+      where: { id: sessionId },
+      data: { state: outcome, endedAt, rawElapsedSeconds },
+    });
   });
 }
 
@@ -413,4 +495,455 @@ export async function endCookingSession(
 export async function deleteCookingSession(ownerId: string, sessionId: string) {
   await getOwnedSessionOrThrow(ownerId, sessionId);
   await prisma.cookingSession.delete({ where: { id: sessionId } });
+}
+
+// ============================================================================
+// Slice 8 — checklist checkoffs, unit completion, mid-session scaling, timers
+// ============================================================================
+
+function findOwnedUnit(session: OwnedCookingSession, unitId: string) {
+  return session.units.find((u) => u.id === unitId) ?? null;
+}
+
+function findOwnedChecklistItem(session: OwnedCookingSession, itemId: string) {
+  for (const unit of session.units) {
+    const item = unit.checklistItems.find((i) => i.id === itemId);
+    if (item) return { unit, item };
+  }
+  return null;
+}
+
+function findOwnedTimer(session: OwnedCookingSession, timerId: string) {
+  for (const unit of session.units) {
+    const timer = unit.timers.find((t) => t.id === timerId);
+    if (timer) return { unit, timer };
+  }
+  return null;
+}
+
+/**
+ * PRODUCT_SPEC.md §28.1: checkoffs belong only to the session, are always
+ * optional, and persist across navigation/refresh. Checking an item snapshots
+ * its current scaled quantity into `checkedQuantity` — the reference value
+ * `updateSessionScale`/`updateUnitScale` later compare a fresh scale against
+ * to flag a progress discrepancy (§24.5); unchecking clears it, since the
+ * item is no longer asserting any particular amount was added.
+ */
+export async function toggleChecklistItem(
+  ownerId: string,
+  sessionId: string,
+  itemId: string,
+  checked: boolean,
+) {
+  const session = await getOwnedSessionOrThrow(ownerId, sessionId);
+  assertActive(session);
+
+  const found = findOwnedChecklistItem(session, itemId);
+  if (!found)
+    throw new NotFoundError("Checklist item not found in this session.");
+  const { unit, item } = found;
+
+  if (!checked) {
+    await prisma.cookingSessionChecklistItem.update({
+      where: { id: itemId },
+      data: { checkedAt: null, checkedQuantity: null },
+    });
+  } else {
+    const effectiveMultiplier =
+      (decimalToNumber(session.scaleFactor) ?? 1) *
+      (decimalToNumber(unit.scaleFactor) ?? 1);
+    const baseQuantity = decimalToNumber(item.baseQuantity);
+    const checkedQuantity =
+      baseQuantity != null
+        ? scaleQuantity(baseQuantity, effectiveMultiplier)
+        : null;
+    await prisma.cookingSessionChecklistItem.update({
+      where: { id: itemId },
+      data: { checkedAt: new Date(), checkedQuantity },
+    });
+  }
+
+  await prisma.cookingSession.update({
+    where: { id: sessionId },
+    data: { updatedAt: new Date() },
+  });
+}
+
+/**
+ * PRODUCT_SPEC.md §28.3: completing a unit checks off whatever the user left
+ * unchecked (never requires checking every item by hand) and marks the unit
+ * complete; reversible while the session stays In progress (`completed:
+ * false` simply clears `completedAt` — it deliberately does not un-check
+ * items, since checkoffs are informational evidence of what happened, not a
+ * transaction this reverses).
+ */
+export async function setUnitCompletion(
+  ownerId: string,
+  sessionId: string,
+  unitId: string,
+  completed: boolean,
+) {
+  const session = await getOwnedSessionOrThrow(ownerId, sessionId);
+  assertActive(session);
+
+  const unit = findOwnedUnit(session, unitId);
+  if (!unit) throw new NotFoundError("Unit not found in this session.");
+
+  if (!completed) {
+    await prisma.$transaction([
+      prisma.cookingSessionUnit.update({
+        where: { id: unitId },
+        data: { completedAt: null },
+      }),
+      prisma.cookingSession.update({
+        where: { id: sessionId },
+        data: { updatedAt: new Date() },
+      }),
+    ]);
+    return;
+  }
+
+  const effectiveMultiplier =
+    (decimalToNumber(session.scaleFactor) ?? 1) *
+    (decimalToNumber(unit.scaleFactor) ?? 1);
+  const now = new Date();
+
+  await prisma.$transaction([
+    ...unit.checklistItems
+      .filter((item) => item.checkedAt == null)
+      .map((item) => {
+        const baseQuantity = decimalToNumber(item.baseQuantity);
+        const checkedQuantity =
+          baseQuantity != null
+            ? scaleQuantity(baseQuantity, effectiveMultiplier)
+            : null;
+        return prisma.cookingSessionChecklistItem.update({
+          where: { id: item.id },
+          data: { checkedAt: now, checkedQuantity },
+        });
+      }),
+    prisma.cookingSessionUnit.update({
+      where: { id: unitId },
+      data: { completedAt: now },
+    }),
+    prisma.cookingSession.update({
+      where: { id: sessionId },
+      data: { updatedAt: new Date() },
+    }),
+  ]);
+}
+
+/**
+ * Recalculates every ingredient checklist row's `displayQuantity` for one
+ * unit at a new effective multiplier, reading from the structured `base*`
+ * fields rather than re-parsing any formatted string (Slice 8 correction).
+ * Free-text/quantity-less rows (`baseQuantity == null`) are left untouched,
+ * matching §24.3's "leaves free-text quantities unchanged."
+ */
+async function recomputeUnitChecklistDisplay(
+  tx: Prisma.TransactionClient,
+  unit: {
+    checklistItems: OwnedCookingSession["units"][number]["checklistItems"];
+  },
+  effectiveMultiplier: number,
+) {
+  for (const item of unit.checklistItems) {
+    const baseQuantity = decimalToNumber(item.baseQuantity);
+    if (baseQuantity == null) continue;
+    const baseQuantityEnd = decimalToNumber(item.baseQuantityEnd);
+    const displayQuantity = formatScaledQuantity(
+      baseQuantity,
+      baseQuantityEnd,
+      item.isApproximate,
+      effectiveMultiplier,
+    );
+    await tx.cookingSessionChecklistItem.update({
+      where: { id: item.id },
+      data: { displayQuantity },
+    });
+  }
+}
+
+/**
+ * PRODUCT_SPEC.md §24.4: whole-session scale change. `originalScaleFactor`
+ * is never touched after creation (Slice 8 correction) — only the current/
+ * final `scaleFactor` mutates. Every active unit's checklist is recalculated
+ * against its own per-unit override composed with the new session scale;
+ * removed units are skipped (nothing to show).
+ */
+export async function updateSessionScale(
+  ownerId: string,
+  sessionId: string,
+  scaleFactor: number | null,
+) {
+  const session = await getOwnedSessionOrThrow(ownerId, sessionId);
+  assertActive(session);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.cookingSession.update({
+      where: { id: sessionId },
+      data: { scaleFactor },
+    });
+    for (const unit of session.units) {
+      if (unit.removedAt) continue;
+      const unitMultiplier = decimalToNumber(unit.scaleFactor) ?? 1;
+      await recomputeUnitChecklistDisplay(
+        tx,
+        unit,
+        (scaleFactor ?? 1) * unitMultiplier,
+      );
+    }
+    await tx.cookingSession.update({
+      where: { id: sessionId },
+      data: { updatedAt: new Date() },
+    });
+  });
+}
+
+/**
+ * PRODUCT_SPEC.md §24.4: an individual Section's or Part's own scale.
+ * Composes with the session's current whole-session scale, same as at
+ * session-start (`startCookingSession`'s `effectiveMultiplier`).
+ */
+export async function updateUnitScale(
+  ownerId: string,
+  sessionId: string,
+  unitId: string,
+  scaleFactor: number | null,
+) {
+  const session = await getOwnedSessionOrThrow(ownerId, sessionId);
+  assertActive(session);
+
+  const unit = findOwnedUnit(session, unitId);
+  if (!unit) throw new NotFoundError("Unit not found in this session.");
+  if (unit.removedAt) {
+    throw new ValidationError("Removed units cannot be rescaled.");
+  }
+
+  const sessionMultiplier = decimalToNumber(session.scaleFactor) ?? 1;
+
+  await prisma.$transaction(async (tx) => {
+    await tx.cookingSessionUnit.update({
+      where: { id: unitId },
+      data: { scaleFactor },
+    });
+    await recomputeUnitChecklistDisplay(
+      tx,
+      unit,
+      sessionMultiplier * (scaleFactor ?? 1),
+    );
+    await tx.cookingSession.update({
+      where: { id: sessionId },
+      data: { updatedAt: new Date() },
+    });
+  });
+}
+
+const MIN_TIMER_DURATION_SECONDS = 1;
+
+/**
+ * PRODUCT_SPEC.md §29.1/§29.2: creating a timer starts it immediately (the
+ * natural single action for "set 10 minutes" while cooking) — reset/pause
+ * are the separate actions for anything past that.
+ */
+export async function createTimer(
+  ownerId: string,
+  sessionId: string,
+  unitId: string,
+  name: string,
+  durationSeconds: number,
+) {
+  const session = await getOwnedSessionOrThrow(ownerId, sessionId);
+  assertActive(session);
+
+  const unit = findOwnedUnit(session, unitId);
+  if (!unit) throw new NotFoundError("Unit not found in this session.");
+  if (unit.removedAt) {
+    throw new ValidationError("Removed units cannot start new timers.");
+  }
+  if (
+    !Number.isFinite(durationSeconds) ||
+    durationSeconds < MIN_TIMER_DURATION_SECONDS
+  ) {
+    throw new ValidationError("Enter a timer duration greater than zero.");
+  }
+
+  const now = new Date();
+  return prisma.timer.create({
+    data: {
+      unitId,
+      name: name.trim() || "Timer",
+      durationSeconds,
+      targetEndAt: new Date(now.getTime() + durationSeconds * 1000),
+      state: "RUNNING",
+    },
+  });
+}
+
+export async function renameTimer(
+  ownerId: string,
+  sessionId: string,
+  timerId: string,
+  name: string,
+) {
+  const session = await getOwnedSessionOrThrow(ownerId, sessionId);
+  assertActive(session);
+
+  const found = findOwnedTimer(session, timerId);
+  if (!found) throw new NotFoundError("Timer not found in this session.");
+
+  await prisma.timer.update({
+    where: { id: timerId },
+    data: { name: name.trim() || "Timer" },
+  });
+}
+
+/**
+ * Starts a never-run (post-reset) timer or resumes a paused one — both are
+ * "count down from the current remaining duration," so one function covers
+ * both PRODUCT_SPEC.md §29.2 actions; the UI decides whether to label its
+ * button "Start" or "Resume".
+ */
+export async function startTimer(
+  ownerId: string,
+  sessionId: string,
+  timerId: string,
+) {
+  const session = await getOwnedSessionOrThrow(ownerId, sessionId);
+  assertActive(session);
+
+  const found = findOwnedTimer(session, timerId);
+  if (!found) throw new NotFoundError("Timer not found in this session.");
+  const { timer } = found;
+  if (timer.state === "DISMISSED") {
+    throw new ValidationError("This timer was dismissed.");
+  }
+
+  const remaining = Math.max(
+    0,
+    timer.remainingSeconds ?? timer.durationSeconds,
+  );
+  await prisma.timer.update({
+    where: { id: timerId },
+    data: {
+      state: "RUNNING",
+      targetEndAt: new Date(Date.now() + remaining * 1000),
+      remainingSeconds: null,
+    },
+  });
+}
+
+export async function pauseTimer(
+  ownerId: string,
+  sessionId: string,
+  timerId: string,
+) {
+  const session = await getOwnedSessionOrThrow(ownerId, sessionId);
+  assertActive(session);
+
+  const found = findOwnedTimer(session, timerId);
+  if (!found) throw new NotFoundError("Timer not found in this session.");
+  const { timer } = found;
+  if (timer.state !== "RUNNING" || !timer.targetEndAt) return;
+
+  const remainingSeconds = Math.max(
+    0,
+    Math.round((timer.targetEndAt.getTime() - Date.now()) / 1000),
+  );
+  await prisma.timer.update({
+    where: { id: timerId },
+    data: { state: "PAUSED", remainingSeconds, targetEndAt: null },
+  });
+}
+
+/** Returns to the timer's current nominal duration, paused (not auto-running). */
+export async function resetTimer(
+  ownerId: string,
+  sessionId: string,
+  timerId: string,
+) {
+  const session = await getOwnedSessionOrThrow(ownerId, sessionId);
+  assertActive(session);
+
+  const found = findOwnedTimer(session, timerId);
+  if (!found) throw new NotFoundError("Timer not found in this session.");
+  const { timer } = found;
+  if (timer.state === "DISMISSED") {
+    throw new ValidationError("This timer was dismissed.");
+  }
+
+  await prisma.timer.update({
+    where: { id: timerId },
+    data: {
+      state: "PAUSED",
+      remainingSeconds: timer.durationSeconds,
+      targetEndAt: null,
+    },
+  });
+}
+
+/**
+ * Add (positive) or subtract (negative) time. Updates the nominal
+ * `durationSeconds` too, so a later Reset returns to the adjusted duration,
+ * not the original creation value — the natural reading of "add 2 minutes"
+ * while cooking.
+ */
+export async function adjustTimer(
+  ownerId: string,
+  sessionId: string,
+  timerId: string,
+  deltaSeconds: number,
+) {
+  const session = await getOwnedSessionOrThrow(ownerId, sessionId);
+  assertActive(session);
+
+  const found = findOwnedTimer(session, timerId);
+  if (!found) throw new NotFoundError("Timer not found in this session.");
+  const { timer } = found;
+  if (timer.state === "DISMISSED") {
+    throw new ValidationError("This timer was dismissed.");
+  }
+  if (!Number.isFinite(deltaSeconds) || deltaSeconds === 0) return;
+
+  const durationSeconds = Math.max(0, timer.durationSeconds + deltaSeconds);
+
+  if (timer.state === "RUNNING" && timer.targetEndAt) {
+    await prisma.timer.update({
+      where: { id: timerId },
+      data: {
+        durationSeconds,
+        targetEndAt: new Date(
+          timer.targetEndAt.getTime() + deltaSeconds * 1000,
+        ),
+      },
+    });
+  } else {
+    const remainingSeconds = Math.max(
+      0,
+      (timer.remainingSeconds ?? timer.durationSeconds) + deltaSeconds,
+    );
+    await prisma.timer.update({
+      where: { id: timerId },
+      data: { durationSeconds, remainingSeconds },
+    });
+  }
+}
+
+/** PRODUCT_SPEC.md §29.2 "complete or dismiss" — one terminal action; the UI
+ * may label it either way depending on whether the timer had expired. */
+export async function dismissTimer(
+  ownerId: string,
+  sessionId: string,
+  timerId: string,
+) {
+  const session = await getOwnedSessionOrThrow(ownerId, sessionId);
+  assertActive(session);
+
+  const found = findOwnedTimer(session, timerId);
+  if (!found) throw new NotFoundError("Timer not found in this session.");
+
+  await prisma.timer.update({
+    where: { id: timerId },
+    data: { state: "DISMISSED" },
+  });
 }
