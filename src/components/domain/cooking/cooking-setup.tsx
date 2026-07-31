@@ -19,7 +19,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { startCookingSession, endCookingSession } from "@/lib/cooking/actions";
-import { ScaleControl } from "@/components/domain/cooking/scale-control";
+import {
+  ScaleControl,
+  computeOutputBasis,
+} from "@/components/domain/cooking/scale-control";
 import type { DishKindValue } from "@/lib/dishes/schema";
 
 export type SetupUnit = {
@@ -226,7 +229,10 @@ export function CookingSetup({
                   </div>
                 </div>
                 <ScaleControl
-                  outputQuantity={unit.outputQuantity}
+                  outputQuantity={computeOutputBasis(
+                    unit.outputQuantity,
+                    sessionMultiplier ?? 1,
+                  )}
                   outputUnit={unit.outputUnit}
                   targetLabel={`Make`}
                   multiplierLabel="Scale this unit"

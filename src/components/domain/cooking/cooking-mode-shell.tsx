@@ -31,7 +31,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
-import { ScaleControl } from "@/components/domain/cooking/scale-control";
+import {
+  ScaleControl,
+  computeOutputBasis,
+} from "@/components/domain/cooking/scale-control";
 import {
   CookingPlanManager,
   type PlanUnit,
@@ -112,6 +115,10 @@ function useElapsedSeconds(startedAt: string, isActive: boolean): number {
     return () => clearInterval(interval);
   }, [startedAt, isActive]);
   return elapsed;
+}
+
+function formatMultiplier(value: number): string {
+  return String(Math.round(value * 1000) / 1000);
 }
 
 function formatElapsed(totalSeconds: number): string {
@@ -749,8 +756,9 @@ export function CookingModeShell({
           <DialogHeader>
             <DialogTitle>Scale the whole session</DialogTitle>
             <DialogDescription>
-              Current: {sessionScaleFactor}×. Updates remaining quantities;
-              anything already checked off is flagged, not silently changed.
+              Current: {sessionScaleFactor}×. Updates remaining quantities for
+              every unit — anything already checked off is flagged, not silently
+              changed.
             </DialogDescription>
           </DialogHeader>
           <ScaleControl
@@ -758,6 +766,7 @@ export function CookingModeShell({
             outputUnit={sourceOutputUnit}
             targetLabel="Cook for"
             multiplierLabel="Scale"
+            currentMultiplier={sessionScaleFactor}
             onMultiplierChange={setPendingSessionScale}
           />
           <DialogFooter>
@@ -782,15 +791,26 @@ export function CookingModeShell({
           <DialogHeader>
             <DialogTitle>Scale {focusedUnit?.label}</DialogTitle>
             <DialogDescription>
-              Current: {focusedUnit?.scaleFactor}×. Updates this unit&apos;s
-              remaining quantities only.
+              A relative adjustment on top of the whole session&apos;s scale —
+              updates this unit&apos;s remaining quantities only.
             </DialogDescription>
           </DialogHeader>
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+            <Badge variant="outline">{`Session ×${formatMultiplier(sessionScaleFactor)}`}</Badge>
+            <span className="text-muted-foreground">×</span>
+            <Badge variant="outline">{`This unit ×${formatMultiplier(pendingUnitScale ?? 1)}`}</Badge>
+            <span className="text-muted-foreground">=</span>
+            <Badge>{`Effective ×${formatMultiplier(sessionScaleFactor * (pendingUnitScale ?? 1))}`}</Badge>
+          </div>
           <ScaleControl
-            outputQuantity={focusedUnit?.outputQuantity ?? null}
+            outputQuantity={computeOutputBasis(
+              focusedUnit?.outputQuantity ?? null,
+              sessionScaleFactor,
+            )}
             outputUnit={focusedUnit?.outputUnit ?? null}
             targetLabel="Make"
             multiplierLabel="Scale this unit"
+            currentMultiplier={focusedUnit?.scaleFactor ?? null}
             onMultiplierChange={setPendingUnitScale}
           />
           <DialogFooter>

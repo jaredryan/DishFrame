@@ -1816,8 +1816,20 @@ While a session is In progress, the user may adjust:
 DishFrame must preserve enough context to distinguish:
 
 - the original scale;
-- later scale adjustments;
+- the scale currently in effect;
 - the final scale used.
+
+This is exactly two persisted values per session/unit — the original
+(captured once at creation, never rewritten) and the current (which mutates
+with each adjustment and simply *is* the final scale once the session ends).
+DishFrame does not log a timeline of every intermediate adjustment made
+along the way.
+
+An individual Section's or Part's scale is a relative adjustment on top of
+the whole session's scale, not an absolute override — e.g. a session scaled
+2× with a Part additionally scaled 1.5× yields that Part at 3× (2 × 1.5)
+effective. Changing the whole-session scale continues to affect every unit,
+including ones with their own adjustment.
 
 ## 24.5 Progress discrepancies after scaling
 

@@ -5,7 +5,7 @@ import {
   CookingModeShell,
   type CookingModeUnit,
 } from "@/components/domain/cooking/cooking-mode-shell";
-import { toggleChecklistItem } from "@/lib/cooking/actions";
+import { toggleChecklistItem, updateSessionScale } from "@/lib/cooking/actions";
 
 const push = vi.fn();
 const refresh = vi.fn();
@@ -34,6 +34,7 @@ vi.mock("@/lib/cooking/actions", () => ({
 }));
 
 const mockedToggle = vi.mocked(toggleChecklistItem);
+const mockedUpdateSessionScale = vi.mocked(updateSessionScale);
 
 function unit(overrides: Partial<CookingModeUnit>): CookingModeUnit {
   return {
@@ -179,5 +180,61 @@ describe("CookingModeShell", () => {
     );
 
     expect(screen.getByRole("checkbox")).toBeDisabled();
+  });
+
+  /**
+   * Slice 8 scaling cleanup: the mid-session scale dialogs used to leave
+   * their input blank and reset scale to authored on an unedited Save. The
+   * dialog now prefills with the current scale, so an unedited Save must
+   * preserve it exactly.
+   */
+  it("saves the current whole-session scale unchanged when the dialog is submitted without editing", async () => {
+    const user = userEvent.setup();
+    render(
+      <CookingModeShell
+        {...baseProps}
+        sessionScaleFactor={2}
+        units={[unit({})]}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /scale session/i }));
+    await user.click(
+      screen.getByRole("button", { name: /save scale change/i }),
+    );
+
+    expect(mockedUpdateSessionScale).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      scaleFactor: 2,
+    });
+  });
+
+  /**
+   * PRODUCT_SPEC.md §24.4: a Part's own scale is relative to the whole
+   * session's scale, not absolute — Session ×2 with the unit's own ×1.5
+   * yields ×3 effective, and the default target output composes both.
+   */
+  it("composes session and unit scale multiplicatively for a yielded Part", async () => {
+    const user = userEvent.setup();
+    const units: CookingModeUnit[] = [
+      unit({
+        id: "unit-1",
+        label: "Sauce",
+        scaleFactor: 1.5,
+        outputQuantity: 2,
+        outputUnit: "cups",
+      }),
+    ];
+
+    render(
+      <CookingModeShell {...baseProps} sessionScaleFactor={2} units={units} />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Scale" }));
+
+    expect(screen.getByText("Session ×2")).toBeInTheDocument();
+    expect(screen.getByText("This unit ×1.5")).toBeInTheDocument();
+    expect(screen.getByText("Effective ×3")).toBeInTheDocument();
+    expect(screen.getByRole("textbox")).toHaveValue("6");
   });
 });

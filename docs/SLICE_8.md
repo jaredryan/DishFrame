@@ -167,13 +167,6 @@ tests), and backend (`db:verify:local`, `db:scan-migrations`,
 
 ## Owner review targets
 
-- **Focused manual review recommended**: the mid-session scale dialogs
-  (whole-session and per-unit) show "Current: N×" but leave the input
-  blank by default — leaving it blank and clicking "Save" resets scale to
-  1×/authored (matching Setup's own blank-means-authored convention),
-  rather than pre-filling the current value. Intentional simplification,
-  flagged because it's the one place this differs from "leave it alone if
-  you don't touch it."
 - Cooking Mode on phone width in particular — the unit-switcher's
   horizontal scroll, the timer strip's chip layout, and touch-target sizing
   for checkboxes/timer controls.
@@ -184,3 +177,28 @@ tests), and backend (`db:verify:local`, `db:scan-migrations`,
 ## Unresolved issues
 
 None outstanding. Do not begin Slice 9.
+
+## Correction (scaling cleanup pass)
+
+The "blank Save resets to authored" simplification flagged above as an
+owner-review target has been corrected, not kept: `ScaleControl` gained a
+`currentMultiplier` prop that puts the mid-session dialogs (whole-session
+and per-unit) into a "safe" mode — the field prefills with the value that
+produces the current scale, blank input never changes the pending value,
+and an explicit "Reset to authored amount" button shows its resulting value
+before Save is clicked. Setup is unaffected (still blank-means-authored,
+since it has no persisted "current" to preserve).
+
+Separately, the per-unit target-output math was wrong whenever composed
+with a non-1 whole-session scale: it divided the entered target by the
+Part's *raw authored* yield, producing an absolute multiplier rather than
+the intended *relative* one, so composing it with the session scale in
+`updateUnitScale` silently double-counted the session's own scale. Fixed by
+composing the authored yield with the current whole-session scale first
+(`computeOutputBasis`, `scale-control.tsx`) before handing it to
+`ScaleControl` as the basis — applied in both Cooking Setup and mid-session
+scaling. The per-unit scale dialog now also shows Session/This unit/
+Effective chips so the composition is visible, not just correct.
+PRODUCT_SPEC.md §24.4 was updated to state the settled two-value (original +
+current) scale-history rule explicitly, and to spell out the multiplicative
+composition rule, rather than leaving both implicit in code.
