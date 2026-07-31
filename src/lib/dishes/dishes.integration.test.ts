@@ -2618,8 +2618,8 @@ describe("dishes service", () => {
     });
   });
 
-  describe("setDefaultBatchScale (Slice 5)", () => {
-    it("sets and resets the Dish's default batch scale without creating a Version", async () => {
+  describe("setDefaultScale (Slice 6A)", () => {
+    it("sets and resets the Dish's default scale multiplier without creating a Version", async () => {
       const user = await createTestUser();
       userId = user.id;
       const dishId = await dishService.createDish(
@@ -2628,16 +2628,14 @@ describe("dishes service", () => {
         content({ yieldQuantity: 6, yieldUnit: "servings" }),
       );
 
-      await dishService.setDefaultBatchScale(userId, dishId, 9, "servings");
+      await dishService.setDefaultScale(userId, dishId, 1.5);
       let dish = await prisma.dish.findUniqueOrThrow({ where: { id: dishId } });
-      expect(decimalToNumber(dish.defaultBatchQuantity)).toBe(9);
-      expect(dish.defaultBatchUnit).toBe("servings");
+      expect(decimalToNumber(dish.defaultScale)).toBe(1.5);
       expect(await versionCount(dishId)).toBe(1);
 
-      await dishService.setDefaultBatchScale(userId, dishId, null, null);
+      await dishService.setDefaultScale(userId, dishId, null);
       dish = await prisma.dish.findUniqueOrThrow({ where: { id: dishId } });
-      expect(dish.defaultBatchQuantity).toBeNull();
-      expect(dish.defaultBatchUnit).toBeNull();
+      expect(dish.defaultScale).toBeNull();
     });
 
     it("rejects cross-user access with NotFoundError", async () => {
@@ -2651,7 +2649,7 @@ describe("dishes service", () => {
       );
 
       await expect(
-        dishService.setDefaultBatchScale(intruder.id, dishId, 9, null),
+        dishService.setDefaultScale(intruder.id, dishId, 9),
       ).rejects.toThrow(NotFoundError);
 
       await deleteTestUser(intruder.id);

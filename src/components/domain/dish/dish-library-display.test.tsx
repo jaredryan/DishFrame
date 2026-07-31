@@ -29,7 +29,15 @@ describe("DishLibraryDisplay", () => {
   });
 
   it("defaults to the grid view", () => {
-    render(<DishLibraryDisplay dishes={dishes} kind="RECIPE" label="recipe" />);
+    render(
+      <DishLibraryDisplay
+        dishes={dishes}
+        kind="RECIPE"
+        label="recipe"
+        basePath="/recipes"
+        includeArchived={false}
+      />,
+    );
 
     expect(screen.getByRole("radio", { name: "Grid view" })).toHaveAttribute(
       "aria-checked",
@@ -43,7 +51,15 @@ describe("DishLibraryDisplay", () => {
 
   it("switches to the compact view without losing any dish from the (already archived-filtered) list", async () => {
     const user = userEvent.setup();
-    render(<DishLibraryDisplay dishes={dishes} kind="RECIPE" label="recipe" />);
+    render(
+      <DishLibraryDisplay
+        dishes={dishes}
+        kind="RECIPE"
+        label="recipe"
+        basePath="/recipes"
+        includeArchived={false}
+      />,
+    );
 
     expect(screen.getByText("Ginger Bowl")).toBeInTheDocument();
     expect(screen.getByText("Old Stew")).toBeInTheDocument();
@@ -63,7 +79,15 @@ describe("DishLibraryDisplay", () => {
 
   it("switching back to grid still shows every dish", async () => {
     const user = userEvent.setup();
-    render(<DishLibraryDisplay dishes={dishes} kind="RECIPE" label="recipe" />);
+    render(
+      <DishLibraryDisplay
+        dishes={dishes}
+        kind="RECIPE"
+        label="recipe"
+        basePath="/recipes"
+        includeArchived={false}
+      />,
+    );
 
     await user.click(screen.getByRole("radio", { name: "Compact view" }));
     await user.click(screen.getByRole("radio", { name: "Grid view" }));

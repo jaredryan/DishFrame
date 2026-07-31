@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Clock, Flame, Gauge, Soup } from "lucide-react";
 import { notFound, redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth/session";
 import {
@@ -120,9 +121,9 @@ export default async function RecipeVersionPage({
           <h1 className="font-heading text-foreground text-2xl font-semibold">
             {displayTitle}
           </h1>
-          <span className="text-muted-foreground text-xs tabular-nums">
+          <Badge variant="outline" className="tabular-nums">
             {versionLabel}
-          </span>
+          </Badge>
         </div>
 
         <p className="text-muted-foreground text-sm">
@@ -161,23 +162,29 @@ export default async function RecipeVersionPage({
           version.difficulty) && (
           <div className="flex flex-wrap gap-1.5">
             {version.yieldQuantity != null && (
-              <Badge variant="outline">
+              <Badge variant="outline" className="gap-1">
+                <Soup className="size-3" aria-hidden="true" />
                 Makes {decimalToNumber(version.yieldQuantity)}{" "}
                 {version.yieldUnit ?? "servings"}
               </Badge>
             )}
             {version.prepTimeMinutes != null && (
-              <Badge variant="outline">
+              <Badge variant="outline" className="gap-1">
+                <Clock className="size-3" aria-hidden="true" />
                 Prep {version.prepTimeMinutes} min
               </Badge>
             )}
             {version.cookTimeMinutes != null && (
-              <Badge variant="outline">
+              <Badge variant="outline" className="gap-1">
+                <Flame className="size-3" aria-hidden="true" />
                 Cook {version.cookTimeMinutes} min
               </Badge>
             )}
             {version.difficulty && (
-              <Badge variant="outline">{version.difficulty}</Badge>
+              <Badge variant="outline" className="gap-1">
+                <Gauge className="size-3" aria-hidden="true" />
+                {version.difficulty}
+              </Badge>
             )}
           </div>
         )}

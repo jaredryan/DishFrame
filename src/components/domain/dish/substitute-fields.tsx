@@ -2,13 +2,13 @@
 
 import { X } from "lucide-react";
 import { useFormContext } from "react-hook-form";
-import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import { AmountModeField } from "@/components/domain/dish/amount-mode-field";
 import { useAmountMode } from "@/components/domain/dish/use-amount-mode";
 import { getFieldErrorMessage } from "@/components/domain/dish/form-errors";
+import { TooltipIconButton } from "@/components/domain/dish/reorder-buttons";
 
 // Untyped useFormContext — see ingredient-fields.tsx's doc comment.
 export function SubstituteFields({
@@ -34,16 +34,11 @@ export function SubstituteFields({
         <span className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
           Substitute
         </span>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
+        <TooltipIconButton
+          label="Remove substitute"
+          icon={X}
           onClick={onRemove}
-          aria-label="Remove substitute"
-          title="Remove substitute"
-        >
-          <X className="size-4" aria-hidden="true" />
-        </Button>
+        />
       </div>
 
       <Field>

@@ -1,8 +1,12 @@
 import Link from "next/link";
-import { ExternalLink } from "lucide-react";
+import { Eye } from "lucide-react";
 import { scaledIngredientDisplay } from "@/lib/dishes/scaled-display";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
 import { Badge } from "@/components/ui/badge";
+import {
+  ContentCard,
+  CONTENT_CARD_TITLE_CLASS,
+} from "@/components/domain/dish/content-card";
 import {
   Tooltip,
   TooltipContent,
@@ -41,62 +45,72 @@ export function PartLinkTreeView({
 }) {
   const effectiveScale = scaleFactor * tree.multiplier;
 
-  return (
-    <div
-      className={
-        depth > 0
-          ? "border-border border-l-2 pl-3"
-          : "border-border bg-muted/20 rounded-lg border p-3"
-      }
-    >
-      <div className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-            <h4 className="font-heading text-foreground text-base font-medium">
-              {tree.title ?? "Untitled part"}
-            </h4>
-            <Badge variant="outline">Part</Badge>
-            <Badge variant="outline" className="tabular-nums">
-              {tree.versionLabel}
-            </Badge>
-            {tree.multiplier !== 1 && (
-              <Badge variant="outline">× {tree.multiplier}</Badge>
-            )}
-          </div>
-          {/* Slice 6 correction pass, §H: a MATERIALIZED tree (the Part was
-              since deleted) has no live target to navigate to — the stored
-              snapshot's own former name/version are shown above, but never
-              a link, and never the internal linkState term itself. */}
-          {tree.kind === "LIVE" ? (
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Link
-                    href={`${dishBasePath("PART")}/${tree.targetDishId}`}
-                    target="_blank"
-                    aria-label="Open Part"
-                    className="text-muted-foreground hover:text-foreground shrink-0"
-                  >
-                    <ExternalLink className="size-4" aria-hidden="true" />
-                  </Link>
-                </TooltipTrigger>
-                <TooltipContent>Open Part</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          ) : (
-            <span className="text-muted-foreground shrink-0 text-xs italic">
-              Deleted since
-            </span>
-          )}
-        </div>
-
-        <PartLinkTreeContent
-          tree={tree}
-          effectiveScale={effectiveScale}
-          depth={depth}
-        />
+  const header = (
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+        <h4 className={CONTENT_CARD_TITLE_CLASS}>
+          {tree.title ?? "Untitled part"}
+        </h4>
+        <Badge variant="outline">Part</Badge>
+        <Badge variant="outline" className="tabular-nums">
+          {tree.versionLabel}
+        </Badge>
+        {tree.multiplier !== 1 && (
+          <Badge variant="outline">× {tree.multiplier}</Badge>
+        )}
       </div>
+      {/* Slice 6 correction pass, §H: a MATERIALIZED tree (the Part was
+          since deleted) has no live target to navigate to — the stored
+          snapshot's own former name/version are shown above, but never
+          a link, and never the internal linkState term itself. */}
+      {tree.kind === "LIVE" ? (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Link
+                href={`${dishBasePath("PART")}/${tree.targetDishId}`}
+                target="_blank"
+                aria-label="View Part"
+                className="text-muted-foreground hover:text-foreground shrink-0"
+              >
+                <Eye className="size-4" aria-hidden="true" />
+              </Link>
+            </TooltipTrigger>
+            <TooltipContent>View Part</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      ) : (
+        <span className="text-muted-foreground shrink-0 text-xs italic">
+          Deleted since
+        </span>
+      )}
     </div>
+  );
+
+  const content = (
+    <PartLinkTreeContent
+      tree={tree}
+      effectiveScale={effectiveScale}
+      depth={depth}
+    />
+  );
+
+  if (depth > 0) {
+    return (
+      <div className="border-border border-l-2 pl-3">
+        <div className="flex flex-col gap-3">
+          {header}
+          {content}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <ContentCard>
+      {header}
+      {content}
+    </ContentCard>
   );
 }
 

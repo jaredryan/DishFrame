@@ -15,6 +15,12 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -86,6 +92,7 @@ export function DishDetailActions({
 
   const basePath = kind === "PART" ? "/parts" : "/recipes";
   const label = kind === "PART" ? "part" : "recipe";
+  const kindLabel = kind === "PART" ? "Part" : "Recipe";
 
   function close() {
     setOpenDialog(null);
@@ -151,22 +158,34 @@ export function DishDetailActions({
 
   return (
     <>
-      {/* Design remediation pass: one prominent Edit action near the title,
-          room left beside it for a future Cook action, with every other
-          action moved into this overflow menu. */}
-      <div className="flex items-center gap-2">
-        <Button asChild>
-          <Link href={`${basePath}/${dishId}/edit`}>
-            <Pencil /> Edit
-          </Link>
-        </Button>
+      {/* Slice 6A: the primary Edit action is now icon-only (a pencil, with
+          a styled Tooltip) so it fits beside the title in the responsive
+          hero's top-right, with room left for a future Cook action —
+          everything else moved into this overflow menu, widened so its
+          longer labels (Version history, Compare versions) never wrap. */}
+      <div className="flex items-center gap-1">
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button asChild variant="outline" size="icon">
+                <Link
+                  href={`${basePath}/${dishId}/edit`}
+                  aria-label={`Edit ${kindLabel}`}
+                >
+                  <Pencil aria-hidden="true" />
+                </Link>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Edit {kindLabel}</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" size="icon" aria-label="More actions">
               <MoreHorizontal aria-hidden="true" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
+          <DropdownMenuContent align="end" className="w-56">
             <DropdownMenuItem asChild>
               <Link href={`${basePath}/${dishId}/versions/${currentVersionId}`}>
                 <History /> Version history

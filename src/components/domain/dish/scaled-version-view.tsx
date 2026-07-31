@@ -2,8 +2,11 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import {
+  ContentCard,
+  CONTENT_CARD_TITLE_CLASS,
+} from "@/components/domain/dish/content-card";
 import { scaledIngredientDisplay } from "@/lib/dishes/scaled-display";
 import { normalizeUnitName, type CanonicalUnit } from "@/lib/units/conversion";
 import {
@@ -69,40 +72,34 @@ export type ScaledSectionRow = {
  * are both purely client-side *display* concerns layered on top of the
  * same server-fetched Version content — neither ever mutates the
  * immutable Version itself. Only two actions persist anything: "Save as
- * default" (`Dish.defaultBatchQuantity/Unit`) and "Save for this
- * ingredient" (`PreferredUnitOverride`), both explicitly Dish-level/
- * stable-content changes per §51.4/§53.6, never a new Version.
+ * default" (`Dish.defaultScale`) and "Save for this ingredient"
+ * (`PreferredUnitOverride`), both explicitly Dish-level/stable-content
+ * changes per §51.4/§53.6, never a new Version.
  */
 export function ScaledVersionView({
   kind,
   dishId,
   sections,
   topLevelPartLinks,
-  yieldQuantity,
-  defaultBatchQuantity,
+  defaultScale,
   preferredUnitOverrides,
 }: {
   kind: DishKindValue;
   dishId: string;
   sections: ScaledSectionRow[];
   topLevelPartLinks: PartLinkTree[];
-  yieldQuantity: number | null;
-  defaultBatchQuantity: number | null;
+  defaultScale: number | null;
   preferredUnitOverrides: { ingredientLineageId: string; unit: string }[];
 }) {
   const router = useRouter();
   // Design remediation pass, PRODUCT_SPEC.md §51.4: the view page is not
   // Cooking Mode — no editable "View for" scaling here anymore (that
   // becomes Cooking Mode's job later). The one remaining scale source is
-  // the saved default batch size, edited in the consolidated editor;
-  // `dish-detail-view.tsx` renders the matching "Makes N servings" chip
-  // from these same two fields, directly above this component.
-  const authoredQuantity = yieldQuantity;
-  const effectiveQuantity = defaultBatchQuantity ?? authoredQuantity;
+  // Slice 6A's saved "default scale" multiplier, edited in the
+  // consolidated editor; `dish-detail-view.tsx` renders the matching
+  // "Makes N servings" chip from the same multiplier.
   const scaleFactor =
-    authoredQuantity && effectiveQuantity && authoredQuantity > 0
-      ? effectiveQuantity / authoredQuantity
-      : 1;
+    defaultScale != null && defaultScale > 0 ? defaultScale : 1;
 
   // Accepted "for this view only" unit overrides (§53.5) — never persisted
   // unless the user explicitly also saves it (§53.6).
@@ -151,59 +148,90 @@ export function ScaledVersionView({
   return (
     <div className="flex flex-col gap-4">
       {sections.map((section) => (
-        <Card key={section.id}>
-          <CardContent className="flex flex-col gap-3">
-            {section.name && (
-              <h2 className="font-heading text-lg font-medium">
-                {section.name}
-              </h2>
-            )}
-            {section.guidanceNote && (
-              <p className="text-muted-foreground text-sm italic">
-                {section.guidanceNote}
-              </p>
-            )}
+        <ContentCard key={section.id}>
+          {section.name && (
+            <h2 className={CONTENT_CARD_TITLE_CLASS}>{section.name}</h2>
+          )}
+          {section.guidanceNote && (
+            <p className="text-muted-foreground text-sm italic">
+              {section.guidanceNote}
+            </p>
+          )}
 
-            {section.ingredients.length > 0 && (
-              <ul className="flex flex-col gap-2">
-                {section.ingredients
-                  .filter((i) => i.substituteForIngredientId === null)
-                  .map((ingredient) => {
-                    const effectiveOverride =
-                      tempUnits[ingredient.lineageId] ??
-                      savedOverrideByLineage.get(ingredient.lineageId) ??
-                      null;
-                    const isSaved = savedOverrideByLineage.has(
-                      ingredient.lineageId,
-                    );
-                    const display = scaledIngredientDisplay(
-                      {
-                        quantity: ingredient.quantity,
-                        quantityEnd: ingredient.quantityEnd,
-                        isApproximate: ingredient.isApproximate,
-                        unit: ingredient.unit,
-                        displayText: ingredient.displayText,
-                        name: ingredient.name,
-                        preparationNote: ingredient.preparationNote,
-                      },
-                      scaleFactor,
-                      effectiveOverride,
-                    );
-                    const isPending = pendingLineageId === ingredient.lineageId;
+          {section.ingredients.length > 0 && (
+            <ul className="flex flex-col gap-2">
+              {section.ingredients
+                .filter((i) => i.substituteForIngredientId === null)
+                .map((ingredient) => {
+                  const effectiveOverride =
+                    tempUnits[ingredient.lineageId] ??
+                    savedOverrideByLineage.get(ingredient.lineageId) ??
+                    null;
+                  const isSaved = savedOverrideByLineage.has(
+                    ingredient.lineageId,
+                  );
+                  const display = scaledIngredientDisplay(
+                    {
+                      quantity: ingredient.quantity,
+                      quantityEnd: ingredient.quantityEnd,
+                      isApproximate: ingredient.isApproximate,
+                      unit: ingredient.unit,
+                      displayText: ingredient.displayText,
+                      name: ingredient.name,
+                      preparationNote: ingredient.preparationNote,
+                    },
+                    scaleFactor,
+                    effectiveOverride,
+                  );
+                  const isPending = pendingLineageId === ingredient.lineageId;
 
-                    return (
-                      <li key={ingredient.id} className="text-sm">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span>
-                            {display.line}
-                            {ingredient.isOptional && (
-                              <span className="text-muted-foreground">
-                                {" "}
-                                (optional)
-                              </span>
-                            )}
-                          </span>
-                          {effectiveOverride && (
+                  return (
+                    <li key={ingredient.id} className="text-sm">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span>
+                          {display.line}
+                          {ingredient.isOptional && (
+                            <span className="text-muted-foreground">
+                              {" "}
+                              (optional)
+                            </span>
+                          )}
+                        </span>
+                        {effectiveOverride && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-auto py-0 text-xs"
+                            disabled={isPending}
+                            onClick={() =>
+                              handleClearOverride(ingredient.lineageId)
+                            }
+                          >
+                            {isSaved
+                              ? "Saved unit — reset"
+                              : "Reset to authored unit"}
+                          </Button>
+                        )}
+                        {!effectiveOverride && display.suggestion && (
+                          <span className="text-muted-foreground flex items-center gap-1 text-xs">
+                            ≈ {display.suggestion.quantity}{" "}
+                            {display.suggestion.unit}
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-auto py-0 text-xs"
+                              onClick={() =>
+                                setTempUnits((prev) => ({
+                                  ...prev,
+                                  [ingredient.lineageId]:
+                                    display.suggestion!.unit,
+                                }))
+                              }
+                            >
+                              Use
+                            </Button>
                             <Button
                               type="button"
                               variant="ghost"
@@ -211,103 +239,66 @@ export function ScaledVersionView({
                               className="h-auto py-0 text-xs"
                               disabled={isPending}
                               onClick={() =>
-                                handleClearOverride(ingredient.lineageId)
+                                handleSaveOverride(
+                                  ingredient.lineageId,
+                                  display.suggestion!.unit,
+                                )
                               }
                             >
-                              {isSaved
-                                ? "Saved unit — reset"
-                                : "Reset to authored unit"}
+                              Save
                             </Button>
-                          )}
-                          {!effectiveOverride && display.suggestion && (
-                            <span className="text-muted-foreground flex items-center gap-1 text-xs">
-                              ≈ {display.suggestion.quantity}{" "}
-                              {display.suggestion.unit}
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="h-auto py-0 text-xs"
-                                onClick={() =>
-                                  setTempUnits((prev) => ({
-                                    ...prev,
-                                    [ingredient.lineageId]:
-                                      display.suggestion!.unit,
-                                  }))
-                                }
-                              >
-                                Use
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="h-auto py-0 text-xs"
-                                disabled={isPending}
-                                onClick={() =>
-                                  handleSaveOverride(
-                                    ingredient.lineageId,
-                                    display.suggestion!.unit,
-                                  )
-                                }
-                              >
-                                Save
-                              </Button>
-                            </span>
-                          )}
-                        </div>
-                        {ingredient.substitute && (
-                          <span className="text-muted-foreground block pl-4 text-xs">
-                            Substitute:{" "}
-                            {
-                              scaledIngredientDisplay(
-                                {
-                                  quantity: ingredient.substitute.quantity,
-                                  quantityEnd:
-                                    ingredient.substitute.quantityEnd,
-                                  isApproximate:
-                                    ingredient.substitute.isApproximate,
-                                  unit: ingredient.substitute.unit,
-                                  displayText:
-                                    ingredient.substitute.displayText,
-                                  name: ingredient.substitute.name,
-                                  preparationNote:
-                                    ingredient.substitute.preparationNote,
-                                },
-                                scaleFactor,
-                                null,
-                              ).line
-                            }
                           </span>
                         )}
-                      </li>
-                    );
-                  })}
-              </ul>
-            )}
+                      </div>
+                      {ingredient.substitute && (
+                        <span className="text-muted-foreground block pl-4 text-xs">
+                          Substitute:{" "}
+                          {
+                            scaledIngredientDisplay(
+                              {
+                                quantity: ingredient.substitute.quantity,
+                                quantityEnd: ingredient.substitute.quantityEnd,
+                                isApproximate:
+                                  ingredient.substitute.isApproximate,
+                                unit: ingredient.substitute.unit,
+                                displayText: ingredient.substitute.displayText,
+                                name: ingredient.substitute.name,
+                                preparationNote:
+                                  ingredient.substitute.preparationNote,
+                              },
+                              scaleFactor,
+                              null,
+                            ).line
+                          }
+                        </span>
+                      )}
+                    </li>
+                  );
+                })}
+            </ul>
+          )}
 
-            {section.instructions.length > 0 && (
-              <ol className="flex flex-col gap-2">
-                {section.instructions.map((instruction, i) => (
-                  <li key={instruction.id} className="flex gap-2 text-sm">
-                    <span className="text-muted-foreground tabular-nums">
-                      {i + 1}.
-                    </span>
-                    <span>{instruction.text}</span>
-                  </li>
-                ))}
-              </ol>
-            )}
+          {section.instructions.length > 0 && (
+            <ol className="flex flex-col gap-2">
+              {section.instructions.map((instruction, i) => (
+                <li key={instruction.id} className="flex gap-2 text-sm">
+                  <span className="text-muted-foreground tabular-nums">
+                    {i + 1}.
+                  </span>
+                  <span>{instruction.text}</span>
+                </li>
+              ))}
+            </ol>
+          )}
 
-            {section.partLinks.map((tree, treeIndex) => (
-              <PartLinkTreeView
-                key={`${tree.targetDishId ?? "materialized"}:${tree.targetDishVersionId ?? treeIndex}`}
-                tree={tree}
-                scaleFactor={scaleFactor}
-              />
-            ))}
-          </CardContent>
-        </Card>
+          {section.partLinks.map((tree, treeIndex) => (
+            <PartLinkTreeView
+              key={`${tree.targetDishId ?? "materialized"}:${tree.targetDishVersionId ?? treeIndex}`}
+              tree={tree}
+              scaleFactor={scaleFactor}
+            />
+          ))}
+        </ContentCard>
       ))}
 
       {topLevelPartLinks.map((tree, treeIndex) => (

@@ -1,5 +1,3 @@
-import { z } from "zod";
-
 /**
  * PRODUCT_SPEC.md §12 / ARCHITECTURE_PROPOSAL.md §M: server-side MIME-type
  * and size validation before ever issuing an upload token — never trusted
@@ -18,20 +16,16 @@ export type AllowedImageContentType =
 
 export const MAX_IMAGE_BYTES = 8 * 1024 * 1024; // 8 MB
 
-export const requestImageUploadSchema = z.object({
-  // Absent/null when uploading during "New recipe/part" creation, before
-  // any Dish row exists to check ownership against (Slice 5 — the editor
-  // reuses one component for both create and edit, and `createDish` itself
-  // accepts an already-uploaded `imageAssetId`). Present for every upload
-  // from an existing Dish's edit flow, and checked against real ownership
-  // in that case.
-  dishId: z.string().min(1).nullable().optional(),
-  fileName: z.string().min(1).max(255),
-  contentType: z.enum(ALLOWED_IMAGE_CONTENT_TYPES),
-  sizeBytes: z
-    .number()
-    .int()
-    .positive()
-    .max(MAX_IMAGE_BYTES, "Image is too large."),
-});
-export type RequestImageUploadInput = z.infer<typeof requestImageUploadSchema>;
+/**
+ * Slice 6A: image normalization limits/quality — centralized here so
+ * `processing.ts` (the actual sharp pipeline) and any caller that needs to
+ * describe the behavior (tests, error messages) share one source rather
+ * than scattering magic numbers.
+ */
+// Longest edge, in pixels, an uploaded image is resized down to (never up —
+// see `processing.ts`'s `withoutEnlargement`). A generous ceiling for food
+// photography that still meaningfully caps storage/bandwidth.
+export const MAX_IMAGE_DIMENSION_PX = 2400;
+// sharp's 0-100 WebP quality scale — a reasonable visual-quality default,
+// not a canonical spec figure.
+export const IMAGE_WEBP_QUALITY = 82;

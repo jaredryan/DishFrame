@@ -1,12 +1,60 @@
-import { Trash2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Trash2, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
-// Consistent per-item toolbar (Gate 2 remediation, final correction pass)
-// for Section/Ingredient/Instruction rows: a local Collapse/Edit toggle and
-// Remove. Reordering now lives on a separate drag handle rendered by each
-// row itself (`DragHandle`, `src/components/ui/drag-handle.tsx`) — no
-// move-up/move-down buttons here anymore. Every control carries both an
-// accessible name and a hover tooltip (`title`).
+// Slice 6A: every icon-only row action goes through the app's styled
+// Tooltip, never a native `title` attribute.
+export function TooltipIconButton({
+  label,
+  tooltip,
+  onClick,
+  icon: Icon,
+  className,
+  disabled,
+}: {
+  label: string;
+  // Defaults to `label` — pass explicitly when the tooltip should say more
+  // than the accessible name (e.g. "Copy to Section"'s aria-label vs. its
+  // longer "Copy this Part into a Section" tooltip copy).
+  tooltip?: string;
+  onClick: () => void;
+  icon: LucideIcon;
+  className?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            onClick={onClick}
+            disabled={disabled}
+            aria-label={label}
+            className={className}
+          >
+            <Icon className="size-4" aria-hidden="true" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>{tooltip ?? label}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+// Consistent per-item toolbar (Gate 2 remediation, final correction pass;
+// icons + styled Tooltip since Slice 6A) for Section/Ingredient rows: a
+// local Collapse/Expand chevron and Remove. Reordering lives on a separate
+// drag handle rendered by each row itself (`DragHandle`,
+// src/components/ui/drag-handle.tsx). Instruction rows don't use this —
+// they have no collapse state (Slice 6A) — see `InstructionFields`.
 export function ItemToolbar({
   label,
   collapsed,
@@ -20,27 +68,17 @@ export function ItemToolbar({
 }) {
   return (
     <div className="flex items-center gap-0.5">
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
+      <TooltipIconButton
+        label={collapsed ? `Expand ${label}` : `Collapse ${label}`}
+        icon={collapsed ? ChevronDown : ChevronUp}
         onClick={onToggleCollapsed}
-        aria-label={collapsed ? `Edit ${label}` : `Collapse ${label}`}
-        title={collapsed ? `Edit ${label}` : `Collapse ${label}`}
-      >
-        {collapsed ? "Edit" : "Collapse"}
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-sm"
-        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+      />
+      <TooltipIconButton
+        label={`Remove ${label}`}
+        icon={Trash2}
         onClick={onRemove}
-        aria-label={`Remove ${label}`}
-        title={`Remove ${label}`}
-      >
-        <Trash2 className="size-4" aria-hidden="true" />
-      </Button>
+        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+      />
     </div>
   );
 }

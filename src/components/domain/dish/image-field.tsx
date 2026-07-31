@@ -1,28 +1,33 @@
 "use client";
 
 import * as React from "react";
-import { put } from "@vercel/blob/client";
 import { ImagePlus, Loader2, X } from "lucide-react";
 import { useFormContext } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import { Field, FieldLabel } from "@/components/ui/field";
-import { requestImageUpload } from "@/lib/images/actions";
+import { TooltipIconButton } from "@/components/domain/dish/reorder-buttons";
 import {
   ALLOWED_IMAGE_CONTENT_TYPES,
   MAX_IMAGE_BYTES,
 } from "@/lib/images/schema";
 
+type UploadResponse =
+  | { status: "success"; imageAssetId: string }
+  | { status: "error"; message: string };
+
 /**
- * PRODUCT_SPEC.md §12: zero-or-one image per Version, never required. The
- * signed-URL client-upload pattern (ARCHITECTURE_PROPOSAL.md §M) —
- * `requestImageUpload` (a Server Action) validates ownership/MIME/size and
- * returns a short-lived Blob client token; the actual bytes go straight
- * from this browser to Blob storage via `@vercel/blob/client`'s `upload()`,
- * never through a Server Action request body.
+ * PRODUCT_SPEC.md §12: zero-or-one image per Version, never required.
  *
- * `dishId` is `null` for a brand-new, not-yet-saved Recipe/Part — see
- * `requestImageUploadUrl`'s own doc comment for why that's a supported
- * case, not an oversight.
+ * Slice 6A: uploads now post the raw file to `/api/images/upload`
+ * (`src/app/api/images/upload/route.ts`), which validates, normalizes
+ * (orientation, max dimension, WebP conversion/compression —
+ * `src/lib/images/processing.ts`), and stores the result server-side —
+ * replacing the earlier client-direct-to-Blob signed-token pattern, which
+ * never gave the server a chance to touch the bytes.
+ *
+ * `dishId` is `null` for a brand-new, not-yet-saved Recipe/Part — the
+ * upload route still accepts it, scoped by the uploader's own id instead
+ * of a Dish id, matching the prior implementation's behavior.
  */
 export function ImageField({ dishId }: { dishId: string | null }) {
   const { setValue, watch } = useFormContext();
@@ -70,29 +75,22 @@ export function ImageField({ dishId }: { dishId: string | null }) {
     setLocalPreviewUrl(URL.createObjectURL(file));
     setIsUploading(true);
     try {
-      const requested = await requestImageUpload({
-        dishId,
-        fileName: file.name,
-        contentType: file.type,
-        sizeBytes: file.size,
+      const formData = new FormData();
+      formData.set("file", file);
+      if (dishId) formData.set("dishId", dishId);
+
+      const response = await fetch("/api/images/upload", {
+        method: "POST",
+        body: formData,
       });
-      if (requested.status === "error") {
-        setError(requested.message);
+      const result = (await response.json()) as UploadResponse;
+
+      if (result.status === "error") {
+        setError(result.message);
         return;
       }
 
-      // `put()`, not `upload()`: a client token was already issued by the
-      // `requestImageUpload` Server Action above, so there's no need for
-      // `@vercel/blob/client`'s own `handleUploadUrl` token-fetch round
-      // trip — `access` must still be passed (the SDK's own required
-      // field), and matches the store's actual configuration (the
-      // `dishframe-images` store is provisioned private-only).
-      await put(requested.storageKey, file, {
-        access: "private",
-        token: requested.clientToken,
-      });
-
-      setValue("imageAssetId", requested.imageAssetId, { shouldDirty: true });
+      setValue("imageAssetId", result.imageAssetId, { shouldDirty: true });
     } catch {
       setError("Upload failed. Please try again.");
     } finally {
@@ -117,17 +115,12 @@ export function ImageField({ dishId }: { dishId: string | null }) {
               alt=""
               className="size-full object-cover"
             />
-            <Button
-              type="button"
-              variant="secondary"
-              size="icon-sm"
-              className="absolute top-1 right-1"
+            <TooltipIconButton
+              label="Remove photo"
+              icon={X}
               onClick={handleRemove}
-              aria-label="Remove photo"
-              title="Remove photo"
-            >
-              <X className="size-4" aria-hidden="true" />
-            </Button>
+              className="bg-card/90 hover:bg-card absolute top-1 right-1"
+            />
           </div>
         ) : (
           <Button

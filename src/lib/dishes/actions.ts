@@ -17,7 +17,7 @@ import {
   promoteHistoricalVersionSchema,
   updateVersionNoteSchema,
   updateVersionMetadataSchema,
-  setDefaultBatchScaleSchema,
+  setDefaultScaleSchema,
   savePreferredUnitOverrideSchema,
   clearPreferredUnitOverrideSchema,
   propagatePartUpdateSchema,
@@ -230,26 +230,18 @@ export async function updateVersionMetadata(
   }
 }
 
-export async function setDefaultBatchScale(
+export async function setDefaultScale(
   kind: DishKindValue,
   values: {
     dishId: string;
-    defaultBatchQuantity: number | null;
-    defaultBatchUnit: string | null;
+    defaultScale: number | null;
   },
 ): Promise<DishActionState> {
   try {
     const userId = await requireUserId();
-    const { dishId, defaultBatchQuantity, defaultBatchUnit } =
-      setDefaultBatchScaleSchema.parse(values);
+    const { dishId, defaultScale } = setDefaultScaleSchema.parse(values);
 
-    await dishService.setDefaultBatchScale(
-      userId,
-      dishId,
-      defaultBatchQuantity,
-      defaultBatchUnit,
-      kind,
-    );
+    await dishService.setDefaultScale(userId, dishId, defaultScale, kind);
 
     revalidateDish(kind, dishId);
     return { status: "success", dishId };

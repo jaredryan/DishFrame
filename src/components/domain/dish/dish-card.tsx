@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ImageOff } from "lucide-react";
+import { UtensilsCrossed } from "lucide-react";
 import { Card, CardContent, CardTitle } from "@/components/ui/card";
 import { StageBadge } from "@/components/domain/dish/stage-badge";
 import type { DishKindValue, StageValue } from "@/lib/dishes/schema";
@@ -35,7 +35,7 @@ export function DishCard({
 }) {
   return (
     <Link href={`${dishBasePath(kind)}/${dish.id}`} className="group block">
-      <Card className="ring-border overflow-hidden transition-shadow group-hover:shadow-md">
+      <Card className="ring-border gap-0 overflow-hidden pt-0 transition-shadow group-hover:shadow-md">
         <div className="bg-muted relative aspect-[4/3] w-full overflow-hidden">
           {dish.imageAssetId ? (
             // eslint-disable-next-line @next/next/no-img-element -- private, authenticated route, not a static/optimizable asset
@@ -45,8 +45,12 @@ export function DishCard({
               className="size-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
             />
           ) : (
+            // Slice 6A: a restrained food-themed placeholder rather than a
+            // generic "missing image" glyph — reads as intentional in both
+            // themes without competing with a real photo elsewhere in the
+            // grid.
             <div className="text-muted-foreground/40 flex size-full items-center justify-center">
-              <ImageOff className="size-8" aria-hidden="true" />
+              <UtensilsCrossed className="size-8" aria-hidden="true" />
             </div>
           )}
         </div>

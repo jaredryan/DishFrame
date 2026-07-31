@@ -77,8 +77,7 @@ export default async function EditRecipePage({
         nextMinorVersion: highestMinorInBaseLine + 1,
         isCurrent: version.id === dish.currentVersionId,
         note: version.versionNote,
-        defaultBatchQuantity: decimalToNumber(dish.defaultBatchQuantity),
-        defaultBatchUnit: dish.defaultBatchUnit,
+        defaultScale: decimalToNumber(dish.defaultScale),
         values: dishToFormValues({
           stage: dish.stage,
           cuisine: dish.cuisine,

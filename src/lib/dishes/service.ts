@@ -486,8 +486,8 @@ export async function createDish(
         // Select) still lands on the current approved set.
         difficulty: normalizeDifficultyValue(input.difficulty),
         // Slice 5, PRODUCT_SPEC.md §12: an image may already have been
-        // uploaded (and its ImageAsset row reserved via
-        // `requestImageUploadUrl`) before the very first save.
+        // uploaded (and its ImageAsset row created via
+        // `uploadAndNormalizeImage`) before the very first save.
         imageAssetId: input.imageAssetId ?? null,
       },
     });
@@ -1205,26 +1205,22 @@ export async function updateVersionNote(
 }
 
 /**
- * PRODUCT_SPEC.md §51.4: "Save as default" persists a temporary scale as
- * the stable Dish's own default batch presentation — never creates a
- * Version, never touches the authored Version's own `yieldQuantity`/
- * `yieldUnit`. Passing `null` resets it back to the authored Version
- * yield (§51.4's "remains resettable").
+ * Slice 6A, PRODUCT_SPEC.md §51.4: the saved "default scale" is a
+ * preference-only positive multiplier applied to the authored yield —
+ * never creates a Version, never touches the authored Version's own
+ * `yieldQuantity`/`yieldUnit`. Passing `null` resets it back to no saved
+ * preference (an effective 1x, §51.4's "remains resettable").
  */
-export async function setDefaultBatchScale(
+export async function setDefaultScale(
   ownerId: string,
   dishId: string,
-  defaultBatchQuantity: number | null,
-  defaultBatchUnit: string | null,
+  defaultScale: number | null,
   kind?: DishKindValue,
 ): Promise<void> {
   const dish = await getOwnedDishOrThrow(ownerId, dishId, kind);
   await prisma.dish.update({
     where: { id: dish.id },
-    data: {
-      defaultBatchQuantity,
-      defaultBatchUnit: defaultBatchQuantity == null ? null : defaultBatchUnit,
-    },
+    data: { defaultScale },
   });
 }
 

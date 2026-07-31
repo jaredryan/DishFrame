@@ -5,7 +5,11 @@ import { FormProvider, useForm } from "react-hook-form";
 import { DndContext } from "@dnd-kit/core";
 import { SortableContext } from "@dnd-kit/sortable";
 import { PartLinkFields } from "@/components/domain/dish/part-link-fields";
-import { getPartLinkDisplay, getPartLinkPreview } from "@/lib/sections/actions";
+import {
+  getPartLinkDisplay,
+  getPartLinkPreview,
+  resolvePartVersionForDetach,
+} from "@/lib/sections/actions";
 
 vi.mock("@/lib/sections/actions", () => ({
   getPartLinkDisplay: vi.fn(),
@@ -15,6 +19,9 @@ vi.mock("@/lib/sections/actions", () => ({
 
 const mockedGetPartLinkDisplay = vi.mocked(getPartLinkDisplay);
 const mockedGetPartLinkPreview = vi.mocked(getPartLinkPreview);
+const mockedResolvePartVersionForDetach = vi.mocked(
+  resolvePartVersionForDetach,
+);
 
 type HostValues = {
   partLinks: {
@@ -24,7 +31,13 @@ type HostValues = {
   }[];
 };
 
-function Host() {
+function Host({
+  onRemove = vi.fn(),
+  onDetach = vi.fn(),
+}: {
+  onRemove?: () => void;
+  onDetach?: (content: unknown) => void;
+}) {
   const form = useForm<HostValues>({
     defaultValues: {
       partLinks: [
@@ -43,8 +56,9 @@ function Host() {
           <PartLinkFields
             id="row-1"
             prefix="partLinks.0"
-            onRemove={vi.fn()}
-            onDetach={vi.fn()}
+            containerKind="RECIPE"
+            onRemove={onRemove}
+            onDetach={onDetach}
           />
         </SortableContext>
       </DndContext>
@@ -114,5 +128,78 @@ describe("PartLinkFields Scaling", () => {
     // not the mid-session Applied value (5).
     expect(await screen.findByText("× 2")).toBeInTheDocument();
     expect(input).toHaveValue("2");
+  });
+});
+
+// Slice 6A: "Copy to Section" is the renamed, icon-swapped user-facing
+// label for the existing detach behavior — the underlying call and its
+// wiring back into the parent draft (via `onDetach`) must be unchanged.
+describe("PartLinkFields Copy to Section", () => {
+  beforeEach(() => {
+    mockedGetPartLinkDisplay.mockReset();
+    mockedGetPartLinkPreview.mockReset();
+    mockedResolvePartVersionForDetach.mockReset();
+    mockedGetPartLinkDisplay.mockResolvedValue({
+      status: "success",
+      title: "Nuoc Cham",
+      majorVersion: 1,
+      minorVersion: 0,
+      description: null,
+    });
+    mockedGetPartLinkPreview.mockResolvedValue({
+      status: "success",
+      tree: null,
+    });
+  });
+
+  it("invokes resolvePartVersionForDetach and hands the result to onDetach", async () => {
+    const user = userEvent.setup();
+    const detachedContent = { sections: [], partLinks: [] };
+    mockedResolvePartVersionForDetach.mockResolvedValue({
+      status: "success",
+      content: detachedContent,
+    });
+    const onDetach = vi.fn();
+    render(<Host onDetach={onDetach} />);
+
+    await screen.findByText("Nuoc Cham");
+    await user.click(screen.getByRole("button", { name: "Copy to Section" }));
+
+    await vi.waitFor(() =>
+      expect(mockedResolvePartVersionForDetach).toHaveBeenCalledWith({
+        targetDishVersionId: "part-1-v1",
+        multiplier: 2,
+      }),
+    );
+    expect(onDetach).toHaveBeenCalledWith(detachedContent);
+  });
+});
+
+// Slice 6A: Edit Part opens the standalone Part editor in a new tab from
+// the parent editor — it must never touch the parent's own pinned Version
+// or draft (no embedded nested-Part editing).
+describe("PartLinkFields Edit Part", () => {
+  beforeEach(() => {
+    mockedGetPartLinkDisplay.mockReset();
+    mockedGetPartLinkPreview.mockReset();
+    mockedGetPartLinkDisplay.mockResolvedValue({
+      status: "success",
+      title: "Nuoc Cham",
+      majorVersion: 1,
+      minorVersion: 0,
+      description: null,
+    });
+    mockedGetPartLinkPreview.mockResolvedValue({
+      status: "success",
+      tree: null,
+    });
+  });
+
+  it("links to the standalone Part editor in a new tab, without any parent-mutating action", async () => {
+    render(<Host />);
+
+    const editLink = await screen.findByRole("link", { name: "Edit Part" });
+    expect(editLink).toHaveAttribute("href", "/parts/part-1/edit");
+    expect(editLink).toHaveAttribute("target", "_blank");
   });
 });

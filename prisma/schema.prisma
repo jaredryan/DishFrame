@@ -126,8 +126,13 @@ model Dish {
   cuisine    String?
   archivedAt DateTime?
 
-  defaultBatchQuantity Decimal? @db.Decimal(12, 3)
-  defaultBatchUnit     String?
+  // Slice 6A: the saved "default scale" preference — a positive multiplier
+  // applied to the authored yield when this Recipe/Part is opened, not a
+  // separately-authored desired quantity/unit (the retired
+  // defaultBatchQuantity/defaultBatchUnit pair). Null means no saved
+  // preference (equivalent to 1x). A preference-only field — changing it
+  // alone never creates a cooking Version (PRODUCT_SPEC.md §51.4).
+  defaultScale Decimal? @db.Decimal(8, 4)
 
   // Round-3 Correction 6: split search maintenance. currentTitle (title only) and
   // currentStructuralSearchText (Section names + linked Part-Version titles) are both

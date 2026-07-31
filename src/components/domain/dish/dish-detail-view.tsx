@@ -1,3 +1,4 @@
+import { Clock, Flame, Gauge, Soup, UtensilsCrossed } from "lucide-react";
 import { Prisma } from "@/generated/prisma/client";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { Badge } from "@/components/ui/badge";
@@ -122,114 +123,160 @@ export async function DishDetailView({
   // (an inert historical mirror since title can now change independently).
   const displayTitle = dish.currentTitle || version.title;
 
-  // Design remediation pass: the saved default batch size (edited in the
-  // consolidated editor now, PRODUCT_SPEC.md §51.4) is this view's one
-  // static, readable yield — falling back to the authored Version yield
-  // when no default is saved. `ScaledVersionView` derives the identical
-  // scale factor from the same two Dish/Version fields, so the ingredient
-  // quantities rendered below always match what this chip says.
+  // Slice 6A: the saved default scale is a plain multiplier applied to the
+  // authored yield — replaces the retired defaultBatchQuantity/Unit pair.
+  // `ScaledVersionView` derives the identical scale factor from the same
+  // field, so the ingredient quantities rendered below always match what
+  // this chip says.
+  const yieldQuantity = decimalToNumber(version.yieldQuantity);
+  const defaultScale = decimalToNumber(dish.defaultScale);
+  const effectiveScale =
+    defaultScale != null && defaultScale > 0 ? defaultScale : 1;
   const effectiveYieldQuantity =
-    decimalToNumber(dish.defaultBatchQuantity) ??
-    decimalToNumber(version.yieldQuantity);
-  const effectiveYieldUnit =
-    (dish.defaultBatchQuantity != null ? dish.defaultBatchUnit : null) ??
-    version.yieldUnit ??
-    "servings";
+    yieldQuantity != null ? yieldQuantity * effectiveScale : null;
+
+  const titleEl = (
+    <h1 className="font-heading text-foreground text-2xl font-semibold [grid-area:title]">
+      {displayTitle}
+    </h1>
+  );
+
+  // Slice 6A: lifecycle Stage, Version, and cuisine all render as chips
+  // together (never Version/cuisine as loose unrelated text) — Stage
+  // keeps its own meaningful color treatment (`StageBadge`); Version/
+  // cuisine are neutral outline chips beside it.
+  const chipsEl = (
+    <div className="flex flex-wrap items-center gap-1.5 [grid-area:chips]">
+      <StageBadge stage={dish.stage} />
+      <Badge variant="outline" className="tabular-nums">
+        {versionLabel}
+      </Badge>
+      {dish.cuisine && <Badge variant="outline">{dish.cuisine}</Badge>}
+    </div>
+  );
+
+  const actionsEl = (
+    <div className="[grid-area:actions]">
+      <DishDetailActions
+        dishId={dish.id}
+        kind={kind}
+        stage={dish.stage}
+        currentVersionId={version.id}
+        attachableParts={attachableParts}
+      />
+    </div>
+  );
+
+  const descriptionEl = (version.description || version.versionNote) && (
+    <div className="flex flex-col gap-2 [grid-area:description]">
+      {version.description && (
+        <p className="text-foreground text-sm whitespace-pre-wrap">
+          {version.description}
+        </p>
+      )}
+      {version.versionNote && (
+        <p className="text-muted-foreground text-sm italic">
+          {version.versionNote}
+        </p>
+      )}
+    </div>
+  );
+
+  // Slice 6A: restrained per-kind icons give these factual chips a scan-
+  // able identity without four competing saturated colors — lifecycle
+  // Stage (above) stays the only chip carrying real color meaning.
+  const metadataChipsEl = (effectiveYieldQuantity != null ||
+    version.prepTimeMinutes != null ||
+    version.cookTimeMinutes != null ||
+    version.difficulty) && (
+    <div className="flex flex-wrap gap-1.5 [grid-area:metadata]">
+      {effectiveYieldQuantity != null && (
+        <Badge variant="outline" className="gap-1">
+          <Soup className="size-3" aria-hidden="true" />
+          Makes {effectiveYieldQuantity} {version.yieldUnit ?? ""}
+        </Badge>
+      )}
+      {version.prepTimeMinutes != null && (
+        <Badge variant="outline" className="gap-1">
+          <Clock className="size-3" aria-hidden="true" />
+          Prep {version.prepTimeMinutes} min
+        </Badge>
+      )}
+      {version.cookTimeMinutes != null && (
+        <Badge variant="outline" className="gap-1">
+          <Flame className="size-3" aria-hidden="true" />
+          Cook {version.cookTimeMinutes} min
+        </Badge>
+      )}
+      {version.difficulty && (
+        <Badge variant="outline" className="gap-1">
+          <Gauge className="size-3" aria-hidden="true" />
+          {version.difficulty}
+        </Badge>
+      )}
+    </div>
+  );
+
+  const imageEl = (
+    <div className="border-border bg-muted aspect-[4/3] w-full overflow-hidden rounded-lg border [grid-area:image]">
+      {version.imageAssetId ? (
+        // eslint-disable-next-line @next/next/no-img-element -- private, authenticated route, not a static/optimizable asset
+        <img
+          src={`/api/images/${version.imageAssetId}`}
+          alt=""
+          className="size-full object-cover"
+        />
+      ) : (
+        <div className="text-muted-foreground/40 flex size-full items-center justify-center">
+          <UtensilsCrossed className="size-10" aria-hidden="true" />
+        </div>
+      )}
+    </div>
+  );
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6">
+    <div className="mx-auto flex max-w-4xl flex-col gap-6">
       <Breadcrumbs
         items={[
           { label: collectionLabel, href: dishBasePath(kind) },
           { label: displayTitle },
         ]}
       />
-      <div className="flex flex-col gap-4">
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="font-heading text-foreground text-2xl font-semibold">
-              {displayTitle}
-            </h1>
-            <StageBadge stage={dish.stage} />
-            <span className="text-muted-foreground text-xs tabular-nums">
-              {versionLabel}
-            </span>
-          </div>
-          {dish.cuisine && (
-            <p className="text-muted-foreground text-sm">{dish.cuisine}</p>
-          )}
-          <DishDetailActions
-            dishId={dish.id}
-            kind={kind}
-            stage={dish.stage}
-            currentVersionId={version.id}
-            attachableParts={attachableParts}
-          />
-        </div>
 
-        {version.description && (
-          <p className="text-foreground text-sm whitespace-pre-wrap">
-            {version.description}
-          </p>
-        )}
-
-        {version.imageAssetId && (
-          // eslint-disable-next-line @next/next/no-img-element -- private, authenticated route, not a static/optimizable asset
-          <img
-            src={`/api/images/${version.imageAssetId}`}
-            alt=""
-            className="border-border max-h-80 w-full rounded-lg border object-cover"
-          />
-        )}
-
-        {version.versionNote && (
-          <p className="text-muted-foreground text-sm italic">
-            {version.versionNote}
-          </p>
-        )}
-
-        {(effectiveYieldQuantity != null ||
-          version.prepTimeMinutes != null ||
-          version.cookTimeMinutes != null ||
-          version.difficulty) && (
-          <div className="flex flex-wrap gap-1.5">
-            {effectiveYieldQuantity != null && (
-              <Badge variant="outline">
-                Makes {effectiveYieldQuantity} {effectiveYieldUnit}
-              </Badge>
-            )}
-            {version.prepTimeMinutes != null && (
-              <Badge variant="outline">
-                Prep {version.prepTimeMinutes} min
-              </Badge>
-            )}
-            {version.cookTimeMinutes != null && (
-              <Badge variant="outline">
-                Cook {version.cookTimeMinutes} min
-              </Badge>
-            )}
-            {version.difficulty && (
-              <Badge variant="outline">{version.difficulty}</Badge>
-            )}
-          </div>
-        )}
-
-        {kind === "PART" && (
-          <PartUsagePanel
-            usages={usages ?? []}
-            currentVersionId={dish.currentVersionId}
-            partDishId={dish.id}
-          />
-        )}
+      {/* Slice 6A fix: every hero piece renders exactly once, in a single
+          grid — repositioned between narrow (stacked, spec order:
+          title, chips, actions, description, metadata, image) and wide
+          (title+actions share row 1, image as a right column) purely via
+          `.dish-hero-grid`'s responsive `grid-template-areas`
+          (globals.css). The previous lg:hidden/hidden-lg:grid pair
+          duplicated every element — including the stateful
+          `DishDetailActions` overflow menu/dialogs — in the DOM at once,
+          which is both a real bug (two live copies of interactive state)
+          and the cause of repeated Playwright strict-mode failures on
+          this page (e.g. two "Idea" stage badges). */}
+      <div className="dish-hero-grid">
+        {titleEl}
+        {chipsEl}
+        {actionsEl}
+        {descriptionEl}
+        {metadataChipsEl}
+        {imageEl}
       </div>
+
+      {kind === "PART" && (
+        <PartUsagePanel
+          usages={usages ?? []}
+          currentVersionId={dish.currentVersionId}
+          partDishId={dish.id}
+        />
+      )}
 
       <ScaledVersionView
         kind={kind}
         dishId={dish.id}
         sections={toDisplaySections(version.sections, sectionPartLinkTreeLists)}
         topLevelPartLinks={topLevelPartLinkTrees}
-        yieldQuantity={decimalToNumber(version.yieldQuantity)}
-        defaultBatchQuantity={decimalToNumber(dish.defaultBatchQuantity)}
+        defaultScale={defaultScale}
         preferredUnitOverrides={dish.preferredUnitOverrides}
       />
     </div>

@@ -3,16 +3,6 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useForm, FormProvider } from "react-hook-form";
 import { ImageField } from "@/components/domain/dish/image-field";
-import { requestImageUpload } from "@/lib/images/actions";
-
-vi.mock("@/lib/images/actions", () => ({
-  requestImageUpload: vi.fn(),
-}));
-vi.mock("@vercel/blob/client", () => ({
-  put: vi.fn().mockResolvedValue(undefined),
-}));
-
-const mockedRequestImageUpload = vi.mocked(requestImageUpload);
 
 function Harness({ initialImageAssetId = null as string | null }) {
   const form = useForm({
@@ -26,6 +16,11 @@ function Harness({ initialImageAssetId = null as string | null }) {
 }
 
 /**
+ * Slice 6A: uploads now post to `/api/images/upload` (mocked here via
+ * `global.fetch`) instead of a Server Action + client-direct-to-Blob
+ * `put()` — the earlier signed-token flow never gave the server a chance
+ * to see the bytes, which normalization (Slice 6A) requires.
+ *
  * Design remediation pass: `/api/images/[assetId]` only authorizes a read
  * once some saved DishVersion actually references the asset — true for an
  * already-persisted image, but never true yet for a file the user just
@@ -36,12 +31,9 @@ function Harness({ initialImageAssetId = null as string | null }) {
  */
 describe("ImageField", () => {
   beforeEach(() => {
-    mockedRequestImageUpload.mockReset();
-    mockedRequestImageUpload.mockResolvedValue({
-      status: "success",
-      imageAssetId: "new-asset-1",
-      storageKey: "images/owner/new-asset-1-photo.jpg",
-      clientToken: "token",
+    global.fetch = vi.fn().mockResolvedValue({
+      json: () =>
+        Promise.resolve({ status: "success", imageAssetId: "new-asset-1" }),
     });
     URL.createObjectURL = vi.fn(() => "blob:mock-preview-url");
     URL.revokeObjectURL = vi.fn();
@@ -70,7 +62,12 @@ describe("ImageField", () => {
 
     // The upload still completes and persists the real asset id — only the
     // *preview source* changed, not the persistence flow.
-    await vi.waitFor(() => expect(mockedRequestImageUpload).toHaveBeenCalled());
+    await vi.waitFor(() =>
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/images/upload",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
   });
 
   it("revokes the object URL when the image is removed", async () => {

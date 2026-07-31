@@ -64,13 +64,14 @@ import {
   createDish,
   editDish,
   updateVersionNote,
-  setDefaultBatchScale,
+  setDefaultScale,
 } from "@/lib/dishes/actions";
 import {
   removeEmptySections,
   hasMinimumContent,
   diffVersionContent,
   isBlankSubstitute,
+  normalizeQuantity,
   stageValues,
   difficultyValues,
   type DishKindValue,
@@ -88,13 +89,12 @@ const STAGE_LABEL: Record<(typeof stageValues)[number], string> = {
 // Design remediation pass: edited alongside every other field in this one
 // form, but not part of `dishContentSchema`/`DishFormValues` — each keeps
 // its own existing non-material persistence path (`updateVersionNote`/
-// `setDefaultBatchScale`), called directly after a successful Save rather
-// than folded into createDish/editDish's cooking-change classification.
-// Only shown (and only meaningful) once a Dish/Version already exists.
+// `setDefaultScale`), called directly after a successful Save rather than
+// folded into createDish/editDish's cooking-change classification. Only
+// shown (and only meaningful) once a Dish/Version already exists.
 type EditorExtras = {
   note: string;
-  defaultBatchQuantity: number | null;
-  defaultBatchUnit: string | null;
+  defaultScale: number | null;
 };
 type EditorFormValues = DishFormValues & EditorExtras;
 
@@ -134,12 +134,11 @@ export function DishEditor({
     // each had its own standalone detail-page control
     // (VersionNoteEditor/ScaledVersionView's "Save as default"). Both keep
     // their existing non-material persistence (`updateVersionNote`/
-    // `setDefaultBatchScale`, called directly, never through
+    // `setDefaultScale`, called directly, never through
     // createDish/editDish's own cooking-change classification) — only
     // *where* they're edited changed, not how they're saved.
     note: string | null;
-    defaultBatchQuantity: number | null;
-    defaultBatchUnit: string | null;
+    defaultScale: number | null;
   };
   cuisineOptions?: string[];
   // Slice 6, PRODUCT_SPEC.md §68: candidate Parts this owner may attach —
@@ -160,14 +159,12 @@ export function DishEditor({
       ? {
           ...dish.values,
           note: dish.note ?? "",
-          defaultBatchQuantity: dish.defaultBatchQuantity,
-          defaultBatchUnit: dish.defaultBatchUnit,
+          defaultScale: dish.defaultScale,
         }
       : {
           ...blankDishFormValues(),
           note: "",
-          defaultBatchQuantity: null,
-          defaultBatchUnit: null,
+          defaultScale: null,
         },
   });
   const { control, register, handleSubmit, formState, setError, getValues } =
@@ -185,6 +182,21 @@ export function DishEditor({
   // interleave).
   const watchedSections = useWatch({ control, name: "sections" });
   const watchedTopLevelPartLinks = useWatch({ control, name: "partLinks" });
+
+  // Slice 6A: "Default scale" is a live-computed preview, not a second
+  // authored quantity/unit — the result text always derives from the
+  // authored yield × the (draft) scale, never a separately stored value.
+  const watchedYieldQuantity = useWatch({ control, name: "yieldQuantity" });
+  const watchedYieldUnit = useWatch({ control, name: "yieldUnit" });
+  const watchedDefaultScale = useWatch({ control, name: "defaultScale" });
+  const effectiveDefaultScale =
+    watchedDefaultScale != null && watchedDefaultScale > 0
+      ? watchedDefaultScale
+      : 1;
+  const defaultScaleResultText =
+    watchedYieldQuantity != null
+      ? `adjusted to ${normalizeQuantity(watchedYieldQuantity * effectiveDefaultScale)}${watchedYieldUnit ? ` ${watchedYieldUnit}` : ""}`
+      : null;
 
   type TopLevelEntry =
     | { kind: "section"; fieldId: string; index: number; position: number }
@@ -300,15 +312,11 @@ export function DishEditor({
       );
     }
 
-    if (
-      extras.defaultBatchQuantity !== dish.defaultBatchQuantity ||
-      extras.defaultBatchUnit !== dish.defaultBatchUnit
-    ) {
+    if (extras.defaultScale !== dish.defaultScale) {
       tasks.push(
-        setDefaultBatchScale(kind, {
+        setDefaultScale(kind, {
           dishId: dish.id,
-          defaultBatchQuantity: extras.defaultBatchQuantity,
-          defaultBatchUnit: extras.defaultBatchUnit,
+          defaultScale: extras.defaultScale,
         }),
       );
     }
@@ -345,13 +353,8 @@ export function DishEditor({
 
   async function onSubmit(values: EditorFormValues) {
     setServerError(null);
-    const { note, defaultBatchQuantity, defaultBatchUnit, ...contentValues } =
-      values;
-    const extras: EditorExtras = {
-      note,
-      defaultBatchQuantity,
-      defaultBatchUnit,
-    };
+    const { note, defaultScale, ...contentValues } = values;
+    const extras: EditorExtras = { note, defaultScale };
 
     const cleaned: DishFormValues = {
       ...contentValues,
@@ -550,7 +553,11 @@ export function DishEditor({
             )}
 
             <div className="flex flex-wrap gap-4">
-              <Field>
+              {/* Slice 6A: Yield (authored) and Default scale (the saved
+                  proportional multiplier, a preference only — never a
+                  second authored quantity/unit) live together under one
+                  concept. */}
+              <Field className="w-full">
                 <FieldLabel htmlFor="dish-yield-quantity">Yield</FieldLabel>
                 <div className="flex gap-2">
                   <NumberField
@@ -568,70 +575,73 @@ export function DishEditor({
                     {...register("yieldUnit")}
                   />
                 </div>
-              </Field>
-              {dish && (
-                <Field>
-                  <FieldLabel htmlFor="dish-default-serving-quantity">
-                    Default serving size
-                  </FieldLabel>
-                  <div className="flex items-center gap-2">
-                    <NumberField
-                      name="defaultBatchQuantity"
-                      id="dish-default-serving-quantity"
-                      placeholder="Amount"
-                      step="any"
-                      aria-label="Default serving amount"
-                      className="w-24"
-                    />
-                    <Input
-                      placeholder="Unit"
-                      aria-label="Default serving unit"
-                      className="w-32"
-                      {...register("defaultBatchUnit")}
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        form.setValue("defaultBatchQuantity", null, {
-                          shouldDirty: true,
-                        });
-                        form.setValue("defaultBatchUnit", null, {
-                          shouldDirty: true,
-                        });
-                      }}
-                    >
-                      Reset
-                    </Button>
+                {dish && (
+                  <div className="border-border mt-2 flex flex-col gap-1.5 border-t pt-3">
+                    <FieldLabel htmlFor="dish-default-scale">
+                      Default scale
+                    </FieldLabel>
+                    <FieldDescription>
+                      Automatically adjust all {kindLabel} quantities when this{" "}
+                      {kindLabel.toLowerCase()} is opened.
+                    </FieldDescription>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <NumberField
+                        name="defaultScale"
+                        id="dish-default-scale"
+                        placeholder="1"
+                        step="any"
+                        aria-label="Default scale multiplier"
+                        className="w-16"
+                      />
+                      <span aria-hidden="true">×</span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() =>
+                          form.setValue("defaultScale", null, {
+                            shouldDirty: true,
+                          })
+                        }
+                      >
+                        Reset
+                      </Button>
+                      {defaultScaleResultText && (
+                        <span className="text-muted-foreground text-sm">
+                          {kindLabel} {defaultScaleResultText}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <FieldDescription>
-                    Shown on the recipe page as the default yield. Leave blank
-                    to use the authored yield above.
-                  </FieldDescription>
-                </Field>
-              )}
+                )}
+              </Field>
+              {/* Slice 6A: "minutes" moves out of the label, next to each
+                  input, in a compact row sized for realistic values. */}
               <Field>
-                <FieldLabel htmlFor="dish-prep-time">
-                  Prep time (minutes)
-                </FieldLabel>
-                <NumberField
-                  name="prepTimeMinutes"
-                  id="dish-prep-time"
-                  placeholder="Optional"
-                  className="w-24"
-                />
+                <FieldLabel htmlFor="dish-prep-time">Prep time</FieldLabel>
+                <div className="flex items-center gap-2">
+                  <NumberField
+                    name="prepTimeMinutes"
+                    id="dish-prep-time"
+                    placeholder="Optional"
+                    aria-label="Prep time in minutes"
+                    className="w-16"
+                  />
+                  <span className="text-muted-foreground text-sm">minutes</span>
+                </div>
               </Field>
               <Field>
-                <FieldLabel htmlFor="dish-cook-time">
-                  Cook time (minutes)
-                </FieldLabel>
-                <NumberField
-                  name="cookTimeMinutes"
-                  id="dish-cook-time"
-                  placeholder="Optional"
-                  className="w-24"
-                />
+                <FieldLabel htmlFor="dish-cook-time">Cook time</FieldLabel>
+                <div className="flex items-center gap-2">
+                  <NumberField
+                    name="cookTimeMinutes"
+                    id="dish-cook-time"
+                    placeholder="Optional"
+                    aria-label="Cook time in minutes"
+                    className="w-16"
+                  />
+                  <span className="text-muted-foreground text-sm">minutes</span>
+                </div>
               </Field>
               <Field>
                 <FieldLabel htmlFor="dish-difficulty">Difficulty</FieldLabel>
@@ -702,6 +712,7 @@ export function DishEditor({
                       key={entry.fieldId}
                       id={entry.fieldId}
                       prefix={`partLinks.${entry.index}`}
+                      containerKind={kind}
                       onRemove={() => topLevelPartLinks.remove(entry.index)}
                       onDetach={(content) =>
                         handleTopLevelDetach(entry.index, content)

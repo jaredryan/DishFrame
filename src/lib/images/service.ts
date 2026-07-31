@@ -1,15 +1,12 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
-import { del } from "@vercel/blob";
-import { generateClientTokenFromReadWriteToken } from "@vercel/blob/client";
+import { del, put } from "@vercel/blob";
 import { prisma } from "@/lib/db/prisma";
 import { Prisma } from "@/generated/prisma/client";
-import { AuthorizationError } from "@/lib/errors";
+import { AuthorizationError, ValidationError } from "@/lib/errors";
 import { getOwnedDishOrThrow } from "@/lib/dishes/queries";
-import {
-  MAX_IMAGE_BYTES,
-  type AllowedImageContentType,
-} from "@/lib/images/schema";
+import { normalizeImageBuffer } from "@/lib/images/processing";
+import { MAX_IMAGE_BYTES } from "@/lib/images/schema";
 
 /**
  * Framework-agnostic domain functions (ARCHITECTURE_PROPOSAL.md §K.4),
@@ -17,85 +14,89 @@ import {
  */
 
 /** Strips any path segments and non-portable characters, keeping the
- * original name (and extension) legible in the Blob dashboard/storageKey
- * without trusting it as a literal filesystem path. */
+ * original name legible in the Blob dashboard/storageKey without trusting
+ * it as a literal filesystem path. */
 function sanitizeFileNameSegment(fileName: string): string {
   const base = fileName.split(/[/\\]/).pop() ?? fileName;
   return base.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-100);
 }
 
-// Short-lived — the client is expected to start the actual Blob `put()`
-// immediately after receiving this token (ARCHITECTURE_PROPOSAL.md §M:
-// signed-URL upload flow, ownership-validated, short-lived).
-const CLIENT_TOKEN_TTL_MS = 5 * 60 * 1000;
+/** Every stored image is normalized to WebP (`processing.ts`) regardless
+ * of the source format — the storage key's extension reflects that. */
+function withWebpExtension(fileName: string): string {
+  const sanitized = sanitizeFileNameSegment(fileName);
+  const withoutExtension = sanitized.replace(/\.[^./]+$/, "");
+  return `${withoutExtension || "photo"}.webp`;
+}
 
-export type RequestedImageUpload = {
-  imageAssetId: string;
-  storageKey: string;
-  clientToken: string;
-};
+export type UploadedImage = { imageAssetId: string };
 
 /**
- * ARCHITECTURE_PROPOSAL.md §L "Image storage": issues a short-lived,
- * ownership-validated client token for a direct browser→Blob upload (the
- * signed-URL client-upload pattern — bytes never pass through this
- * Server Action's own request body), and creates the `ImageAsset` row up
- * front, before the bytes are actually uploaded, so the editor form has a
- * real `imageAssetId` to carry in its own state as soon as the client-side
- * upload call resolves. `DishVersion.imageAssetId` itself is only ever set
- * later, as part of the ordinary `createDish`/`editDish`/
- * `promoteHistoricalVersion` save transaction (`src/lib/dishes/service.ts`)
- * — this function's only job is issuing the token and reserving the
- * `ImageAsset` row.
+ * Slice 6A, ARCHITECTURE_PROPOSAL.md §L/§M (superseding the earlier
+ * client-direct-to-Blob signed-URL pattern for image bytes specifically):
+ * the image's bytes are received here, server-side, so they can be
+ * validated and normalized (`processing.ts` — real-format sniffing,
+ * orientation correction, max-dimension resize, WebP conversion, quality
+ * compression) before ever reaching storage — a client-controlled upload
+ * can no longer put arbitrary, unprocessed bytes into private Blob
+ * storage. The route handler that calls this
+ * (`src/app/api/images/upload/route.ts`) receives the raw multipart
+ * request; this function does everything after that: ownership check,
+ * size/format validation via processing, the actual Blob `put()`, and
+ * reserving the `ImageAsset` row — mirroring `requestImageUploadUrl`'s old
+ * ownership/scoping rules exactly, just with the upload itself now
+ * happening on this side of the wire instead of issuing a client token for
+ * the browser to upload with.
  *
- * Ownership is checked via `getOwnedDishOrThrow` whenever `dishId` is
- * given — an upload token can never be issued for a Dish the caller
- * doesn't own. `dishId` is `null` only for the "New recipe/part" flow,
- * before any Dish row exists yet to check ownership against (the editor
- * reuses this same upload widget for both create and edit); in that case
- * any authenticated user may request a token for themselves, scoped by
- * their own id in the storage path instead of a Dish id.
+ * `dishId` is `null` for a brand-new, not-yet-saved Recipe/Part — see the
+ * prior `requestImageUploadUrl` implementation's own note for why that's a
+ * supported case, not an oversight: any authenticated user may upload for
+ * themselves before any Dish row exists, scoped by their own id in the
+ * storage path instead of a Dish id.
  *
- * Accepted gap (documented in the Slice 5 report, not silently ignored):
- * an `ImageAsset` created here that never ends up attached to any saved
- * `DishVersion` — the user uploads, then never saves, or replaces it with
- * a different image before saving — has no cleanup path today. Tier 1 has
- * no scheduled-job infrastructure to sweep it, and the reference-counted
- * cleanup this slice does implement (`deleteImageAssetIfOrphaned`, below)
- * only runs where a `DishVersion` row is actually deleted.
+ * Accepted gap (unchanged from the prior implementation, documented in the
+ * Slice 5 report): an `ImageAsset` created here that never ends up
+ * attached to any saved `DishVersion` (uploaded, then never saved, or
+ * replaced before saving) has no cleanup path today — Tier 1 has no
+ * scheduled-job infrastructure to sweep it. The reference-counted cleanup
+ * this app does implement (`deleteImageAssetIfOrphaned`, below) only runs
+ * where a `DishVersion` row actually stops referencing an asset.
  */
-export async function requestImageUploadUrl(
+export async function uploadAndNormalizeImage(
   ownerId: string,
   dishId: string | null,
-  fileName: string,
-  contentType: AllowedImageContentType,
-  sizeBytes: number,
-): Promise<RequestedImageUpload> {
+  file: { name: string; buffer: Buffer },
+): Promise<UploadedImage> {
+  if (file.buffer.byteLength === 0) {
+    throw new ValidationError("Please choose an image.");
+  }
+  if (file.buffer.byteLength > MAX_IMAGE_BYTES) {
+    throw new ValidationError("That image is too large (8 MB maximum).");
+  }
+
   const pathScope = dishId
     ? (await getOwnedDishOrThrow(ownerId, dishId)).id
     : ownerId;
 
-  const storageKey = `images/${pathScope}/${randomUUID()}-${sanitizeFileNameSegment(fileName)}`;
+  const normalized = await normalizeImageBuffer(file.buffer);
 
-  const imageAsset = await prisma.imageAsset.create({
+  const storageKey = `images/${pathScope}/${randomUUID()}-${withWebpExtension(file.name)}`;
+
+  // The store itself (`dishframe-images`) is provisioned private, so every
+  // object in it is private by construction — no separate `access`
+  // override needed beyond passing `"private"` explicitly for clarity.
+  await put(storageKey, normalized.buffer, {
+    access: "private",
+    contentType: normalized.contentType,
+    addRandomSuffix: false,
+    allowOverwrite: false,
+  });
+
+  const asset = await prisma.imageAsset.create({
     data: { storageKey, uploadedByUserId: ownerId },
   });
 
-  // No `access` field here: the store itself (`dishframe-images`) is
-  // provisioned private, so every object in it is private by construction
-  // — `BlobClientTokenConstraintOptions` has no per-token access override
-  // to set, confirmed directly against the installed `@vercel/blob` types
-  // rather than assumed from memory.
-  const clientToken = await generateClientTokenFromReadWriteToken({
-    pathname: storageKey,
-    allowedContentTypes: [contentType],
-    maximumSizeInBytes: Math.min(sizeBytes, MAX_IMAGE_BYTES),
-    addRandomSuffix: false,
-    allowOverwrite: false,
-    validUntil: Date.now() + CLIENT_TOKEN_TTL_MS,
-  });
-
-  return { imageAssetId: imageAsset.id, storageKey, clientToken };
+  return { imageAssetId: asset.id };
 }
 
 /**
@@ -104,7 +105,7 @@ export async function requestImageUploadUrl(
  * to use that asset — a client-supplied id must never be trusted merely
  * because the row exists. An asset is attachable by `ownerId` when either:
  *
- * - `ownerId` is who requested the upload (`requestImageUploadUrl` always
+ * - `ownerId` is who requested the upload (`uploadAndNormalizeImage` always
  *   stamps `uploadedByUserId` with the requester, whether the upload was
  *   for a brand-new not-yet-saved item or an existing owned Dish); or
  * - the asset is already referenced by some `DishVersion` belonging to a

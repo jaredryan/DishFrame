@@ -6,7 +6,7 @@ import {
   createDish,
   editDish,
   updateVersionNote,
-  setDefaultBatchScale,
+  setDefaultScale,
 } from "@/lib/dishes/actions";
 import { listAttachablePartVersions } from "@/lib/sections/actions";
 import type { DishFormValues } from "@/components/domain/dish/dish-form-values";
@@ -22,7 +22,7 @@ vi.mock("@/lib/dishes/actions", () => ({
   createDish: vi.fn(async () => ({ status: "idle" })),
   editDish: vi.fn(async () => ({ status: "idle" })),
   updateVersionNote: vi.fn(async () => ({ status: "success" })),
-  setDefaultBatchScale: vi.fn(async () => ({ status: "success" })),
+  setDefaultScale: vi.fn(async () => ({ status: "success" })),
 }));
 
 vi.mock("@/lib/sections/actions", () => ({
@@ -44,7 +44,7 @@ vi.mock("@/lib/sections/actions", () => ({
 const mockedCreateDish = vi.mocked(createDish);
 const mockedEditDish = vi.mocked(editDish);
 const mockedUpdateVersionNote = vi.mocked(updateVersionNote);
-const mockedSetDefaultBatchScale = vi.mocked(setDefaultBatchScale);
+const mockedSetDefaultScale = vi.mocked(setDefaultScale);
 const mockedListAttachablePartVersions = vi.mocked(listAttachablePartVersions);
 
 const existingDish: {
@@ -56,8 +56,7 @@ const existingDish: {
   nextMinorVersion: number;
   isCurrent: boolean;
   note: string | null;
-  defaultBatchQuantity: number | null;
-  defaultBatchUnit: string | null;
+  defaultScale: number | null;
   values: DishFormValues;
 } = {
   id: "dish-1",
@@ -68,8 +67,7 @@ const existingDish: {
   nextMinorVersion: 1,
   isCurrent: true,
   note: null,
-  defaultBatchQuantity: null,
-  defaultBatchUnit: null,
+  defaultScale: null,
   values: {
     title: "Ginger Bowl",
     stage: "IDEA",
@@ -233,7 +231,7 @@ describe("DishEditor Sections", () => {
     expect(screen.queryByLabelText("Section name")).not.toBeInTheDocument();
     expect(screen.getByText(/Sauce/)).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Edit Sauce" }));
+    await user.click(screen.getByRole("button", { name: "Expand Sauce" }));
     expect(screen.getByLabelText("Section name")).toBeInTheDocument();
   });
 });
@@ -387,6 +385,20 @@ describe("DishEditor minimum-content validation", () => {
     ).toBeInTheDocument();
     expect(mockedCreateDish).not.toHaveBeenCalled();
   });
+
+  // Slice 6A: a brand-new create form starts with one blank Section (no
+  // ingredients/instructions yet) — this must never greet the user with
+  // the minimum-content error before they've attempted to save.
+  it("does not show the minimum-content error on an untouched create form", () => {
+    render(<DishEditor kind="RECIPE" />);
+
+    expect(
+      screen.queryByText(
+        "Add at least one ingredient, instruction, or linked Part before saving.",
+      ),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
 });
 
 describe("DishEditor substitute handling", () => {
@@ -480,9 +492,9 @@ describe("DishEditor minor/major version choice", () => {
     const user = userEvent.setup();
     render(<DishEditor kind="RECIPE" dish={existingDish} />);
 
-    // A saved Section (has a lineageId) starts view-first — Edit reveals
+    // A saved Section (has a lineageId) starts view-first — Expand reveals
     // its editable fields.
-    await user.click(screen.getByRole("button", { name: "Edit section 1" }));
+    await user.click(screen.getByRole("button", { name: "Expand section 1" }));
     const nameInput = screen.getByLabelText("Ingredient name");
     await user.clear(nameInput);
     await user.type(nameInput, "Kosher salt");
@@ -507,7 +519,7 @@ describe("DishEditor minor/major version choice", () => {
     const user = userEvent.setup();
     render(<DishEditor kind="RECIPE" dish={existingDish} />);
 
-    await user.click(screen.getByRole("button", { name: "Edit section 1" }));
+    await user.click(screen.getByRole("button", { name: "Expand section 1" }));
     const nameInput = screen.getByLabelText("Ingredient name");
     await user.clear(nameInput);
     await user.type(nameInput, "Kosher salt");
@@ -525,19 +537,19 @@ describe("DishEditor minor/major version choice", () => {
   });
 });
 
-describe("DishEditor consolidated note and default serving", () => {
+describe("DishEditor consolidated note and default scale", () => {
   beforeEach(() => {
     mockedEditDish.mockClear();
     mockedUpdateVersionNote.mockClear();
-    mockedSetDefaultBatchScale.mockClear();
+    mockedSetDefaultScale.mockClear();
     mockedEditDish.mockResolvedValue({ status: "success", dishId: "dish-1" });
   });
 
-  // Design remediation pass: note/default-serving are edited in this one
+  // Design remediation pass: note/default scale are edited in this one
   // consolidated form now, but keep their own existing non-material
-  // persistence (`updateVersionNote`/`setDefaultBatchScale`) — a
-  // Note-only change must never trip the cooking-change minor/major
-  // dialog (`diffVersionContent` never looks at either field).
+  // persistence (`updateVersionNote`/`setDefaultScale`) — a Note-only
+  // change must never trip the cooking-change minor/major dialog
+  // (`diffVersionContent` never looks at either field).
   it("saves a Note-only change via updateVersionNote, without the minor/major dialog", async () => {
     const user = userEvent.setup();
     render(<DishEditor kind="RECIPE" dish={existingDish} />);
@@ -555,7 +567,7 @@ describe("DishEditor consolidated note and default serving", () => {
       versionId: "version-1",
       note: "Tried less salt.",
     });
-    expect(mockedSetDefaultBatchScale).not.toHaveBeenCalled();
+    expect(mockedSetDefaultScale).not.toHaveBeenCalled();
   });
 
   it("does not call updateVersionNote when the note is unchanged", async () => {
@@ -566,7 +578,57 @@ describe("DishEditor consolidated note and default serving", () => {
 
     expect(mockedEditDish).toHaveBeenCalledTimes(1);
     expect(mockedUpdateVersionNote).not.toHaveBeenCalled();
-    expect(mockedSetDefaultBatchScale).not.toHaveBeenCalled();
+    expect(mockedSetDefaultScale).not.toHaveBeenCalled();
+  });
+
+  // Slice 6A: the result text is always `authored yield quantity ×
+  // default scale`, live-computed as the multiplier is edited — never a
+  // second stored quantity/unit. Reset returns the draft to 1×.
+  it("computes the default-scale result text from yield × scale, and Reset returns it to 1×", async () => {
+    const user = userEvent.setup();
+    const dishWithYield = {
+      ...existingDish,
+      values: {
+        ...existingDish.values,
+        yieldQuantity: 2,
+        yieldUnit: "servings",
+      },
+    };
+    render(<DishEditor kind="RECIPE" dish={dishWithYield} />);
+
+    expect(
+      screen.getByText("Recipe adjusted to 2 servings"),
+    ).toBeInTheDocument();
+
+    const scaleInput = screen.getByLabelText("Default scale multiplier");
+    await user.clear(scaleInput);
+    await user.type(scaleInput, "1.5");
+
+    expect(
+      screen.getByText("Recipe adjusted to 3 servings"),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Reset" }));
+
+    expect(scaleInput).toHaveValue("");
+    expect(
+      screen.getByText("Recipe adjusted to 2 servings"),
+    ).toBeInTheDocument();
+  });
+
+  it("persists the default scale via setDefaultScale only when it changed", async () => {
+    const user = userEvent.setup();
+    render(<DishEditor kind="RECIPE" dish={existingDish} />);
+
+    const scaleInput = screen.getByLabelText("Default scale multiplier");
+    await user.type(scaleInput, "2");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await vi.waitFor(() => expect(mockedSetDefaultScale).toHaveBeenCalled());
+    expect(mockedSetDefaultScale).toHaveBeenCalledWith("RECIPE", {
+      dishId: "dish-1",
+      defaultScale: 2,
+    });
   });
 });
 
@@ -609,6 +671,13 @@ describe("DishEditor Convert Section to Part", () => {
     expect(screen.queryByText("Salt")).not.toBeInTheDocument();
     expect(await screen.findByText("Nuoc Cham")).toBeInTheDocument();
 
+    // Slice 6A: a newly-created linked Part (no lineageId yet) starts
+    // expanded so the user can confirm what was just added, unlike an
+    // already-saved occurrence loaded from an existing Dish.
+    expect(
+      await screen.findByText("This Part has no saved content yet."),
+    ).toBeInTheDocument();
+
     // The parent draft is untouched until its own normal Save, and the user
     // stays in the editor — no automatic save, no navigation.
     expect(mockedEditDish).not.toHaveBeenCalled();
@@ -638,25 +707,24 @@ describe("DishEditor linked-Part inline rendering", () => {
     mockedListAttachablePartVersions.mockClear();
   });
 
-  it("shows the linked Part's pinned content inline without an expand action", async () => {
+  it("starts collapsed for an already-saved linked Part, expands to reveal pinned content", async () => {
+    const user = userEvent.setup();
     render(<DishEditor kind="RECIPE" dish={dishWithLinkedPart} />);
 
-    // Slice 6 correction pass §4: the header (name/version/multiplier) and
-    // the resolved content both render immediately — nothing here requires
-    // clicking an expand toggle first.
+    // Slice 6A: the header (name/version/multiplier) is enough to
+    // navigate without expanding — an already-saved occurrence (has a
+    // lineageId) starts collapsed, same rule as a saved Section.
     expect(await screen.findByText("Nuoc Cham")).toBeInTheDocument();
     expect(screen.getByText(/× 2/)).toBeInTheDocument();
     expect(
+      screen.queryByText("This Part has no saved content yet."),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Expand Nuoc Cham" }));
+
+    expect(
       await screen.findByText("This Part has no saved content yet."),
     ).toBeInTheDocument();
-
-    // No collapse/expand control exists any more for a linked Part.
-    expect(
-      screen.queryByRole("button", { name: "Expand" }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "Collapse" }),
-    ).not.toBeInTheDocument();
 
     // The reusable Part's own content is never exposed as parent-owned
     // inline inputs — only the compact "Scaling" row edits anything here,

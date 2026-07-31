@@ -651,10 +651,9 @@ export const updateVersionNoteSchema = z.object({
 // PRODUCT_SPEC.md §51.4: "Save as default" persists a temporary scale as
 // the stable Dish's default batch presentation — a `null` quantity clears
 // it back to the authored Version yield (§51.4's "remains resettable").
-export const setDefaultBatchScaleSchema = z.object({
+export const setDefaultScaleSchema = z.object({
   dishId: z.string().min(1),
-  defaultBatchQuantity: z.number().gt(0).nullable(),
-  defaultBatchUnit: z.string().trim().max(40).nullable(),
+  defaultScale: z.number().gt(0, "Scale must be greater than zero.").nullable(),
 });
 
 // PRODUCT_SPEC.md §53.6, Build Plan Correction 6: targets one specific

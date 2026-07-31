@@ -391,6 +391,7 @@ export function SectionFields({
               key={field.id}
               id={field.id}
               prefix={`${prefix}.partLinks.${partLinkIndex}`}
+              containerKind={containerKind}
               onRemove={() => partLinks.remove(partLinkIndex)}
               onDetach={(content) => handleDetach(partLinkIndex, content)}
             />

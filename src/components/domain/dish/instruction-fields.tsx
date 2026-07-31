@@ -1,15 +1,21 @@
 "use client";
 
-import * as React from "react";
+import { Trash2 } from "lucide-react";
 import { useFormContext } from "react-hook-form";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Textarea } from "@/components/ui/textarea";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { DragHandle } from "@/components/ui/drag-handle";
-import { ItemToolbar } from "@/components/domain/dish/reorder-buttons";
+import { TooltipIconButton } from "@/components/domain/dish/reorder-buttons";
 
 // Untyped useFormContext — see ingredient-fields.tsx's doc comment.
+//
+// Slice 6A: no Collapse action here (an Instruction row has nothing
+// meaningful to hide — unlike a Section/Ingredient, it's already just one
+// field) — only Remove. The textarea starts at roughly an ordinary input's
+// height (`rows={1}`) and grows with content via the shared Textarea's
+// `field-sizing-content`, rather than opening unnecessarily tall.
 export function InstructionFields({
   id,
   prefix,
@@ -21,11 +27,9 @@ export function InstructionFields({
   index: number;
   onRemove: () => void;
 }) {
-  const { register, watch } = useFormContext();
+  const { register } = useFormContext();
   const idPrefix = prefix.replace(/\./g, "-");
   const label = `instruction ${index + 1}`;
-  const [collapsed, setCollapsed] = React.useState(false);
-  const text: string = watch(`${prefix}.text`);
 
   const {
     attributes,
@@ -37,69 +41,35 @@ export function InstructionFields({
   } = useSortable({ id });
   const style = { transform: CSS.Transform.toString(transform), transition };
 
-  if (collapsed) {
-    return (
-      <div
-        ref={setNodeRef}
-        style={style}
-        className="border-border bg-card flex items-start justify-between gap-2 rounded-lg border p-3"
-      >
-        <div className="flex items-start gap-2">
-          <DragHandle
-            label={`Drag to reorder ${label}`}
-            attributes={attributes}
-            listeners={listeners}
-            isDragging={isDragging}
-          />
-          <p className="flex gap-2 text-sm">
-            <span className="text-muted-foreground tabular-nums">
-              {index + 1}.
-            </span>
-            <span className="line-clamp-2">{text || "(empty)"}</span>
-          </p>
-        </div>
-        <ItemToolbar
-          label={label}
-          collapsed={collapsed}
-          onToggleCollapsed={() => setCollapsed(false)}
-          onRemove={onRemove}
-        />
-      </div>
-    );
-  }
-
   return (
-    <div ref={setNodeRef} style={style} className="flex items-start gap-2">
+    <div ref={setNodeRef} style={style} className="flex items-center gap-2">
       <DragHandle
         label={`Drag to reorder ${label}`}
         attributes={attributes}
         listeners={listeners}
         isDragging={isDragging}
-        className="mt-6"
       />
-      <span className="text-muted-foreground mt-7 text-sm tabular-nums">
+      <span className="text-muted-foreground text-sm tabular-nums">
         {index + 1}.
       </span>
       <Field className="flex-1">
-        <FieldLabel htmlFor={`${idPrefix}-text`}>
+        <FieldLabel htmlFor={`${idPrefix}-text`} className="sr-only">
           Instruction {index + 1}
         </FieldLabel>
         <Textarea
           id={`${idPrefix}-text`}
           placeholder="What do you do in this step?"
-          className="min-h-10"
-          aria-label={`Instruction ${index + 1}`}
+          className="min-h-8"
+          rows={1}
           {...register(`${prefix}.text`)}
         />
       </Field>
-      <div className="mt-6">
-        <ItemToolbar
-          label={label}
-          collapsed={collapsed}
-          onToggleCollapsed={() => setCollapsed(true)}
-          onRemove={onRemove}
-        />
-      </div>
+      <TooltipIconButton
+        label={`Remove ${label}`}
+        icon={Trash2}
+        onClick={onRemove}
+        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+      />
     </div>
   );
 }
