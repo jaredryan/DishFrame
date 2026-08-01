@@ -288,7 +288,7 @@ describe("dishes service", () => {
       expect(after.currentVersion?.title).toBe("Ginger Soy Bowl");
     });
 
-    it("creates exactly one minor Version for a non-cooking Version-owned change (prep time)", async () => {
+    it("Slice 13 correction: a Version-scoped metadata-only change (prep time) updates the selected Version in place, creating no new Version", async () => {
       const user = await createTestUser();
       userId = user.id;
 
@@ -308,15 +308,131 @@ describe("dishes service", () => {
 
       const after = await loadDishWithVersion(dishId);
       expect(after.currentVersion?.majorVersion).toBe(1);
-      expect(after.currentVersion?.minorVersion).toBe(1);
+      expect(after.currentVersion?.minorVersion).toBe(0);
       expect(after.currentVersion?.prepTimeMinutes).toBe(15);
-      expect(after.currentVersionId).not.toBe(before.currentVersionId);
+      expect(after.currentVersionId).toBe(before.currentVersionId);
+      expect(await versionCount(dishId)).toBe(1);
+    });
+
+    it("Slice 13 correction: yield/cook-time/difficulty-only changes each update in place with no new Version", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+
+      const dishId = await dishService.createDish(userId, "RECIPE", content());
+      const before = await loadDishWithVersion(dishId);
+
+      await dishService.editDish(
+        userId,
+        dishId,
+        before.currentVersionId!,
+        content({
+          yieldQuantity: 4,
+          yieldUnit: "servings",
+          cookTimeMinutes: 25,
+          difficulty: "Moderate",
+          sections: unchangedSections(before),
+        }),
+        undefined,
+      );
+
+      const after = await loadDishWithVersion(dishId);
+      expect(after.currentVersionId).toBe(before.currentVersionId);
+      expect(await versionCount(dishId)).toBe(1);
+      expect(decimalToNumber(after.currentVersion!.yieldQuantity)).toBe(4);
+      expect(after.currentVersion?.yieldUnit).toBe("servings");
+      expect(after.currentVersion?.cookTimeMinutes).toBe(25);
+      expect(after.currentVersion?.difficulty).toBe("Moderate");
+    });
+
+    it("Slice 13 correction: a combined metadata-only save (yield + prep + cook + difficulty together) still updates in place, once", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+
+      const dishId = await dishService.createDish(userId, "RECIPE", content());
+      const before = await loadDishWithVersion(dishId);
+
+      await dishService.editDish(
+        userId,
+        dishId,
+        before.currentVersionId!,
+        content({
+          yieldQuantity: 2,
+          yieldUnit: "servings",
+          prepTimeMinutes: 10,
+          cookTimeMinutes: 20,
+          difficulty: "Easy",
+          sections: unchangedSections(before),
+        }),
+        undefined,
+      );
+
+      expect(await versionCount(dishId)).toBe(1);
+      const after = await loadDishWithVersion(dishId);
+      expect(after.currentVersionId).toBe(before.currentVersionId);
+      expect(after.currentVersion?.prepTimeMinutes).toBe(10);
+      expect(after.currentVersion?.cookTimeMinutes).toBe(20);
+      expect(after.currentVersion?.difficulty).toBe("Easy");
+    });
+
+    it("Slice 13 correction: editing metadata on a deliberately selected historical Version updates only that Version, never the current one", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+
+      const dishId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({ prepTimeMinutes: 5 }),
+      );
+      const v1 = await loadDishWithVersion(dishId);
+      const v1Id = v1.currentVersionId!;
+
+      // A material change creates V1.1, which becomes current.
+      await dishService.editDish(
+        userId,
+        dishId,
+        v1Id,
+        {
+          ...content({ prepTimeMinutes: 5 }),
+          sections: [
+            {
+              ...unchangedSections(v1)[0],
+              ingredients: [
+                ...unchangedSections(v1)[0].ingredients,
+                blankIngredient("Pepper"),
+              ],
+            },
+          ],
+        },
+        "MINOR",
+      );
+      const afterMaterial = await loadDishWithVersion(dishId);
+      const v1_1Id = afterMaterial.currentVersionId!;
+      expect(v1_1Id).not.toBe(v1Id);
+
+      // Now edit V1.0's own prep time — historical, not current.
+      const historicalContent = await loadContent(dishId, v1Id);
+      await dishService.editDish(
+        userId,
+        dishId,
+        v1Id,
+        content({
+          prepTimeMinutes: 99,
+          sections: historicalContent.sections,
+        }),
+        undefined,
+      );
+
       expect(await versionCount(dishId)).toBe(2);
-      // Slice 4 correction pass §2: an ordinary sequential minor refinement
-      // (from the line's own current latest minor) leaves sourceVersionId
-      // unset — the relationship is already implied by consecutive
-      // numbering, unlike a non-sequential branch (see below).
-      expect(after.currentVersion?.sourceVersionId).toBeNull();
+      const v1After = await prisma.dishVersion.findUniqueOrThrow({
+        where: { id: v1Id },
+      });
+      expect(v1After.prepTimeMinutes).toBe(99);
+      const v1_1After = await prisma.dishVersion.findUniqueOrThrow({
+        where: { id: v1_1Id },
+      });
+      expect(v1_1After.prepTimeMinutes).toBe(5); // untouched
+      const dishAfter = await loadDishWithVersion(dishId);
+      expect(dishAfter.currentVersionId).toBe(v1_1Id); // current pointer unmoved
     });
 
     it("carries an existing row's lineageId forward and mints a fresh one for a newly-added row, saved as minor", async () => {
@@ -506,7 +622,7 @@ describe("dishes service", () => {
       expect(await versionCount(dishId)).toBe(1);
     });
 
-    it("updates stable metadata and Version-owned content together in one save", async () => {
+    it("Slice 13 correction: stable Dish metadata and Version-scoped metadata apply together with no new Version", async () => {
       const user = await createTestUser();
       userId = user.id;
 
@@ -528,16 +644,16 @@ describe("dishes service", () => {
       const after = await loadDishWithVersion(dishId);
       expect(after.cuisine).toBe("Thai");
       expect(after.currentVersion?.prepTimeMinutes).toBe(20);
-      expect(after.currentVersion?.minorVersion).toBe(1);
-      expect(await versionCount(dishId)).toBe(2);
+      expect(after.currentVersionId).toBe(before.currentVersionId);
+      expect(await versionCount(dishId)).toBe(1);
     });
 
     // Version-trigger correction pass: a title change riding along with a
-    // Version-creating (non-cooking) change lands on the stable Dish, not
-    // on the newly created Version's own inert `title` mirror column — the
-    // Version is created only because of the non-cooking field, never
+    // Version-creating material change lands on the stable Dish, not on
+    // the newly created Version's own inert `title` mirror column — the
+    // Version is created only because of the material change, never
     // because of the title change itself.
-    it("a title change combined with a non-cooking change updates the Dish title without a second cause for the Version", async () => {
+    it("a title change combined with a material content change updates the Dish title without a second cause for the Version", async () => {
       const user = await createTestUser();
       userId = user.id;
 
@@ -548,12 +664,19 @@ describe("dishes service", () => {
         userId,
         dishId,
         before.currentVersionId!,
-        content({
-          title: "Ginger Soy Bowl (v2)",
-          prepTimeMinutes: 20,
-          sections: unchangedSections(before),
-        }),
-        undefined,
+        {
+          ...content({ title: "Ginger Soy Bowl (v2)" }),
+          sections: [
+            {
+              ...unchangedSections(before)[0],
+              ingredients: [
+                ...unchangedSections(before)[0].ingredients,
+                blankIngredient("Pepper"),
+              ],
+            },
+          ],
+        },
+        "MINOR",
       );
 
       const after = await loadDishWithVersion(dishId);
@@ -561,11 +684,15 @@ describe("dishes service", () => {
       expect(await versionCount(dishId)).toBe(2);
     });
 
-    it("leaves the previous Version's content unchanged after a new Version is created", async () => {
+    it("leaves the previous Version's content unchanged after a material change creates a new Version", async () => {
       const user = await createTestUser();
       userId = user.id;
 
-      const dishId = await dishService.createDish(userId, "RECIPE", content());
+      const dishId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({ prepTimeMinutes: 15 }),
+      );
       const before = await loadDishWithVersion(dishId);
       const originalVersionId = before.currentVersionId!;
 
@@ -573,17 +700,30 @@ describe("dishes service", () => {
         userId,
         dishId,
         originalVersionId,
-        content({
-          prepTimeMinutes: 25,
-          sections: unchangedSections(before),
-        }),
-        undefined,
+        {
+          ...content({ prepTimeMinutes: 15 }),
+          sections: [
+            {
+              ...unchangedSections(before)[0],
+              ingredients: [
+                ...unchangedSections(before)[0].ingredients,
+                blankIngredient("Cumin"),
+              ],
+            },
+          ],
+        },
+        "MINOR",
       );
 
       const originalVersion = await prisma.dishVersion.findUniqueOrThrow({
         where: { id: originalVersionId },
       });
-      expect(originalVersion.prepTimeMinutes).toBeNull();
+      // The original row's own prep time survives untouched — proves the
+      // new Version was a genuine copy-then-diverge, not a mutation of the
+      // row a later read just happens to no longer be "current" for.
+      expect(originalVersion.prepTimeMinutes).toBe(15);
+      const originalContent = await loadContent(dishId, originalVersionId);
+      expect(originalContent.sections[0].ingredients).toHaveLength(1);
     });
 
     // Slice 4 correction pass §1: a superseded (non-latest) Version is not
@@ -598,16 +738,25 @@ describe("dishes service", () => {
       const dish = await loadDishWithVersion(dishId);
       const v1Id = dish.currentVersionId!;
 
-      // Advances to V1.1 — v1Id (V1.0) is now superseded within its line.
+      // Advances to V1.1 (a material change) — v1Id (V1.0) is now
+      // superseded within its line.
       await dishService.editDish(
         userId,
         dishId,
         v1Id,
-        content({
-          prepTimeMinutes: 5,
-          sections: unchangedSections(dish),
-        }),
-        undefined,
+        {
+          ...content(),
+          sections: [
+            {
+              ...unchangedSections(dish)[0],
+              ingredients: [
+                ...unchangedSections(dish)[0].ingredients,
+                blankIngredient("Pepper"),
+              ],
+            },
+          ],
+        },
+        "MINOR",
       );
 
       // Branching from the superseded V1.0 still succeeds, and allocates
@@ -617,18 +766,25 @@ describe("dishes service", () => {
         userId,
         dishId,
         v1Id,
-        content({
-          prepTimeMinutes: 10,
-          sections: unchangedSections(dish),
-        }),
-        undefined,
+        {
+          ...content(),
+          sections: [
+            {
+              ...unchangedSections(dish)[0],
+              ingredients: [
+                ...unchangedSections(dish)[0].ingredients,
+                blankIngredient("Cumin"),
+              ],
+            },
+          ],
+        },
+        "MINOR",
       );
       expect(newDishId).toBe(dishId);
 
       const after = await loadDishWithVersion(dishId);
       expect(after.currentVersion?.majorVersion).toBe(1);
       expect(after.currentVersion?.minorVersion).toBe(2);
-      expect(after.currentVersion?.prepTimeMinutes).toBe(10);
       // Non-sequential minor branch (the base wasn't the latest minor in
       // its line at save time) — its true source is recorded structurally.
       expect(after.currentVersion?.sourceVersionId).toBe(v1Id);
@@ -746,7 +902,7 @@ describe("dishes service", () => {
       expect(historicalLineVersions[1].sourceVersionId).toBeNull();
     });
 
-    it("an automatic (non-cooking) minor bump from a historical major line also stays historical", async () => {
+    it("an automatic (Section-organization-only) minor bump from a historical major line also stays historical", async () => {
       const user = await createTestUser();
       userId = user.id;
       const { dishId, v1Id, v2Id } = await createTwoMajorLines(userId);
@@ -756,22 +912,22 @@ describe("dishes service", () => {
         include: { sections: { include: { ingredients: true } } },
       });
 
-      // Prep-time-only change (no versionChoice needed — this is the
-      // non-cooking "automatic minor" bucket, PRODUCT_SPEC.md §13.2a)
-      // against the unchanged, real-lineageId content of the historical
-      // line. (Title is no longer part of this bucket — Version-trigger
-      // correction pass, §7.1 — so a genuine non-cooking field is used
-      // here instead.)
+      // A Section rename (no versionChoice needed — Section organization
+      // alone is still the "automatic minor" material-content bucket,
+      // PRODUCT_SPEC.md §13.2a) against the unchanged, real-lineageId
+      // content of the historical line. (Slice 13 correction pass: yield/
+      // prep/cook/difficulty/nutrition are Version-scoped metadata now,
+      // never a reason to create a Version — so a genuine material-content
+      // trigger is used here instead.)
       await dishService.editDish(
         userId,
         dishId,
         v1Id,
         content({
-          prepTimeMinutes: 12,
           sections: [
             {
               lineageId: historicalBase.sections[0].lineageId,
-              name: null,
+              name: "Renamed section",
               guidanceNote: null,
               position: 0,
               ingredients: [
@@ -797,7 +953,10 @@ describe("dishes service", () => {
         orderBy: { minorVersion: "asc" },
       });
       expect(historicalLineVersions.map((v) => v.minorVersion)).toEqual([0, 1]);
-      expect(historicalLineVersions[1].prepTimeMinutes).toBe(12);
+      const newSection = await prisma.section.findFirst({
+        where: { dishVersionId: historicalLineVersions[1].id },
+      });
+      expect(newSection?.name).toBe("Renamed section");
     });
 
     it("a MAJOR save from a historical major line creates the next-overall major, sets sourceVersionId, and moves current", async () => {

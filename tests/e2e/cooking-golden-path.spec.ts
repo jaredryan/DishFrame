@@ -85,7 +85,14 @@ test.describe("Cooking: setup, start, edit active plan, end early", () => {
 
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect(page).toHaveURL(/\/recipes\/[^/]+$/);
-    await expect(page.getByRole("heading", { name: title })).toBeVisible();
+    // Generous timeout, not the default: this is the first navigation to
+    // /recipes/[dishId] in the whole suite, so it pays Turbopack's one-time
+    // dev-mode compile cost for that route — heavier since Slice 13 added
+    // nutrition rendering to the detail page too — on top of the network
+    // round trip (same pattern as the two waits above/below it in this file).
+    await expect(page.getByRole("heading", { name: title })).toBeVisible({
+      timeout: 15_000,
+    });
 
     // --- Cooking Setup: both Sections appear, prefilled and included ---
     // Scoped to <main> — the sidebar's own "Cook" nav link (to the sessions

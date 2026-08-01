@@ -18,6 +18,10 @@ import {
   type ScaledSectionRow,
 } from "@/components/domain/dish/scaled-version-view";
 import { PartUsagePanel } from "@/components/domain/dish/part-usage-panel";
+import {
+  NutritionSummary,
+  toNutritionSummaryData,
+} from "@/components/domain/dish/nutrition-summary";
 import { CookingHistoryDialog } from "@/components/domain/dish/cooking-history-dialog";
 import { FavoriteToggle } from "@/components/domain/dish/favorite-toggle";
 import { DishTagFlavorEditor } from "@/components/domain/dish/dish-tag-flavor-editor";
@@ -344,6 +348,13 @@ export async function DishDetailView({
     </div>
   );
 
+  // Slice 13 correction pass, PRODUCT_SPEC.md §54: the current Version's
+  // own saved nutrition — never re-derived, never aggregated from
+  // Ingredients/Parts.
+  const nutritionEl = (
+    <NutritionSummary nutrition={toNutritionSummaryData(version)} />
+  );
+
   const imagePlaceholder = (
     <div className="text-muted-foreground/40 flex size-full items-center justify-center">
       <UtensilsCrossed className="size-10" aria-hidden="true" />
@@ -414,6 +425,7 @@ export async function DishDetailView({
           {chipsEl}
           {descriptionEl}
           {metadataChipsEl}
+          {nutritionEl}
         </div>
         {wideImageEl}
         {narrowImageEl}

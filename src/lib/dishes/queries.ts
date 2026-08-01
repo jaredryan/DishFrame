@@ -384,12 +384,14 @@ export async function getDishScopedVersionContentOrThrow(
 }
 
 /**
- * Version-trigger correction pass: a lighter-weight sibling of
+ * Version-trigger correction pass, extended by the Slice 13 metadata-
+ * classification correction pass: a lighter-weight sibling of
  * `getDishScopedVersionContentOrThrow` for callers that only need to read
- * or update a Version's own mutable metadata (description/imageAssetId) —
- * `updateVersionMetadata` (service.ts) doesn't need that Version's full
- * Section/Ingredient/Instruction content just to validate it belongs to
- * this Dish and read its current description/image.
+ * or update a Version's own mutable metadata (description/image/yield/prep
+ * time/cook time/difficulty/nutrition) — `updateVersionMetadata`
+ * (service.ts) doesn't need that Version's full Section/Ingredient/
+ * Instruction/linked-Part content just to validate it belongs to this Dish
+ * and read its current metadata values.
  */
 export async function getDishScopedVersionMetaOrThrow(
   dishId: string,
@@ -397,7 +399,27 @@ export async function getDishScopedVersionMetaOrThrow(
 ) {
   const version = await prisma.dishVersion.findFirst({
     where: { id: versionId, dishId },
-    select: { id: true, description: true, imageAssetId: true },
+    select: {
+      id: true,
+      description: true,
+      imageAssetId: true,
+      yieldQuantity: true,
+      yieldUnit: true,
+      prepTimeMinutes: true,
+      cookTimeMinutes: true,
+      difficulty: true,
+      calories: true,
+      protein: true,
+      carbs: true,
+      fat: true,
+      nutritionBasis: true,
+      nutritionBasisQuantity: true,
+      nutritionBasisUnit: true,
+      moreNutrients: true,
+      nutritionSourceProvider: true,
+      nutritionSourceId: true,
+      nutritionSourceName: true,
+    },
   });
   if (!version) {
     throw new NotFoundError("Version not found.");

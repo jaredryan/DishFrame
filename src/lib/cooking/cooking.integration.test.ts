@@ -9,6 +9,8 @@ import {
   computeChecklistItemConflict,
 } from "@/lib/cooking/queries";
 import { decimalToNumber } from "@/lib/dishes/format";
+import { getDishScopedVersionContentOrThrow } from "@/lib/dishes/queries";
+import { versionContentToInput } from "@/lib/dishes/mappers";
 import {
   NotFoundError,
   ValidationError,
@@ -295,6 +297,82 @@ describe("cooking session service", () => {
     );
     expect(riceItem?.displayQuantity).toBe("2"); // still the original, not 99
     expect(persisted[1].sourceDishTitle).toBe("Sauce"); // still the original title
+  });
+
+  // Slice 13 metadata-classification correction pass: yield (and every
+  // other Version-scoped metadata field) is now editable in place on an
+  // already-saved DishVersion — including the exact Version a live/
+  // completed Cooking Session references. Before this pass, the only way
+  // to change a Recipe's yield was to create a brand-new Version, so an
+  // existing session (always pinned to one specific, then-immutable
+  // Version id) could never be affected. This proves that guarantee still
+  // holds now that the referenced row itself can change: a session's own
+  // persisted checklist/unit rows never depend on the live Version's
+  // yield, so an in-place yield correction leaves every already-created
+  // session's recorded meaning exactly as it was.
+  it("Slice 13 correction: an in-place yield edit on the session's own referenced Version does not alter the session's persisted checklist/unit rows", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+    const { recipeId, recipeVersionId, sectionUnit, partUnit } =
+      await setUpRecipeWithPart(userId);
+
+    const created = await cookingService.startCookingSession(userId, {
+      dishId: recipeId,
+      dishVersionId: recipeVersionId,
+      units: [{ unitKey: sectionUnit.unitKey }, { unitKey: partUnit.unitKey }],
+    });
+    const before = await prisma.cookingSessionUnit.findMany({
+      where: { sessionId: created.id },
+      orderBy: { position: "asc" },
+      include: { checklistItems: true },
+    });
+
+    // A yield-only change is Version-scoped metadata (PRODUCT_SPEC.md §54)
+    // — updates the exact Version the session already references in
+    // place, never creating a new Version and never touching the session.
+    // Real lineageIds are carried forward (mirroring `dishToFormValues`)
+    // so this genuinely registers as metadata-only, not a material change.
+    const versionBefore = await prisma.dishVersion.findUniqueOrThrow({
+      where: { id: recipeVersionId },
+    });
+    const currentContent = await getDishScopedVersionContentOrThrow(
+      recipeId,
+      recipeVersionId,
+    );
+    const { sections, partLinks } = versionContentToInput(
+      currentContent.sections,
+      currentContent.partLinks,
+    );
+    await dishService.editDish(
+      userId,
+      recipeId,
+      recipeVersionId,
+      recipeContent({
+        yieldQuantity: 12,
+        yieldUnit: "servings",
+        sections,
+        partLinks,
+      }),
+      undefined,
+      "RECIPE",
+    );
+    const versionAfter = await prisma.dishVersion.findUniqueOrThrow({
+      where: { id: recipeVersionId },
+    });
+    expect(versionAfter.id).toBe(versionBefore.id); // same row, in place
+    expect(decimalToNumber(versionAfter.yieldQuantity)).toBe(12);
+
+    const after = await prisma.cookingSessionUnit.findMany({
+      where: { sessionId: created.id },
+      orderBy: { position: "asc" },
+      include: { checklistItems: true },
+    });
+    expect(after).toEqual(before);
+
+    const session = await prisma.cookingSession.findUniqueOrThrow({
+      where: { id: created.id },
+    });
+    expect(session.dishVersionId).toBe(recipeVersionId);
   });
 
   it("rejects a genuine concurrent race for the same stable Recipe with a friendly conflict, not a raw error", async () => {

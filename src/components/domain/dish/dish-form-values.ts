@@ -7,6 +7,7 @@ import { normalizeDifficultyValue } from "@/lib/dishes/schema";
 import type {
   DishContentInput,
   MoreNutrientEntry,
+  NutritionSourceProviderValue,
   StageValue,
 } from "@/lib/dishes/schema";
 import { decimalToNumber } from "@/lib/dishes/format";
@@ -95,7 +96,8 @@ export function dishToFormValues(input: {
     nutritionBasisQuantity: decimalToNumber(version.nutritionBasisQuantity),
     nutritionBasisUnit: version.nutritionBasisUnit,
     moreNutrients: moreNutrientsFromJson(version.moreNutrients),
-    nutritionSourceProvider: version.nutritionSourceProvider,
+    nutritionSourceProvider:
+      version.nutritionSourceProvider as NutritionSourceProviderValue | null,
     nutritionSourceId: version.nutritionSourceId,
     nutritionSourceName: version.nutritionSourceName,
     sections,

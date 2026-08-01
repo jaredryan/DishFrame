@@ -147,7 +147,7 @@ export function NutritionFields() {
       shouldDirty: true,
     });
     setValue("moreNutrients", nutrition.moreNutrients, { shouldDirty: true });
-    setValue("nutritionSourceProvider", "fdc", { shouldDirty: true });
+    setValue("nutritionSourceProvider", "USDA_FDC", { shouldDirty: true });
     setValue("nutritionSourceId", String(nutrition.fdcId), {
       shouldDirty: true,
     });

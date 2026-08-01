@@ -16,6 +16,10 @@ import { VersionSectionsView } from "@/components/domain/dish/version-sections-v
 import { VersionSelector } from "@/components/domain/dish/version-selector";
 import { PromoteVersionButton } from "@/components/domain/dish/promote-version-button";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
+import {
+  NutritionSummary,
+  toNutritionSummaryData,
+} from "@/components/domain/dish/nutrition-summary";
 import { versionContentToInput } from "@/lib/dishes/mappers";
 import { decimalToNumber } from "@/lib/dishes/format";
 import {
@@ -188,6 +192,11 @@ export default async function PartVersionPage({
             )}
           </div>
         )}
+
+        {/* Slice 13 correction pass, PRODUCT_SPEC.md §54: this exact
+            historical Version's own saved nutrition — never the Dish's
+            current Version. */}
+        <NutritionSummary nutrition={toNutritionSummaryData(version)} />
 
         {sourceVersion && (
           <p className="text-muted-foreground text-sm">

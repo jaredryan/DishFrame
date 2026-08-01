@@ -64,7 +64,7 @@ describe("export DTO field whitelisting", () => {
       nutritionBasisQuantity: null,
       nutritionBasisUnit: null,
       moreNutrients: null,
-      nutritionSourceProvider: "fdc",
+      nutritionSourceProvider: "USDA_FDC",
       nutritionSourceId: "12345",
       nutritionSourceName: "Rice, white, cooked",
       versionNote: null,

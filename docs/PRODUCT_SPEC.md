@@ -394,27 +394,46 @@ Editing the title updates the Recipe directly. It never creates a Version, and i
 
 The Recipe Version owns:
 
-- authored yield, including quantity and unit/label;
-- preparation time;
-- cooking time;
-- difficulty;
-- nutrition;
 - Sections;
-- ingredients;
+- ingredients, including their authored quantities;
 - instructions;
-- linked Part-version references;
+- linked Part-version references and multipliers;
 - source Version when restored or branched;
 - creation timestamp.
 
-**Description and image are Version-associated but mutable** (Version-trigger and Slice 5 image correction pass): each Version has its own description and image, but editing either — on the current Version or on any historical Version — updates that Version’s stored value directly and never creates a new Version. Version association does not imply immutability for these two fields; every other field in this list remains part of the ordinary immutable cooking-content snapshot, changed only by creating a new Version.
+These are the immutable cooking-content snapshot: a Version's identity as
+"what this Version actually prepares." Changing any of them always creates a
+new Version.
 
-When a material change creates a new Version, the new Version initially copies the selected base Version’s description and image, unless the same save intentionally supplies a different value for one or both.
+**Version-scoped but mutable metadata** (Version-trigger and Slice 5 image
+correction pass; extended by the Slice 13 metadata-classification correction
+pass): each Version also carries description, image, authored yield
+(quantity and unit/label), preparation time, cooking time, difficulty, and
+nutrition (calories, macros, nutrition basis, More nutrients, and source
+attribution, §54). Every one of these fields belongs to one specific
+Version, but editing any of them — alone, on the current Version or on any
+historical Version — updates that Version's stored value directly and never
+creates a new Version. Version ownership and Version creation are separate
+concerns: none of these fields describe what is actually prepared, so none
+of them, alone, ever justifies a new Version. (Originally only description
+and image were classified this way, with yield/prep/cook/difficulty/
+nutrition treated as part of the immutable snapshot above, auto-creating a
+minor Version on change; the Slice 13 correction pass settled that this
+was the wrong classification for fields that are themselves purely
+descriptive/operational-estimate/nutritional metadata, not preparation
+content.)
 
-A Version may also have one mutable explanatory Version-note annotation. The annotation is not part of the immutable cooking-content snapshot and is never the sole structural record of a relationship.
+When a material content change creates a new Version, the new Version
+initially copies the selected base Version's full set of Version-scoped
+metadata, unless the same save intentionally supplies different values.
+
+A Version may also have one mutable explanatory Version-note annotation. The
+annotation is not part of the immutable cooking-content snapshot and is
+never the sole structural record of a relationship.
 
 ## 7.3 Historical descriptions
 
-Historical Recipe Versions preserve their own description and image — as mutable metadata, not frozen content. A historical Version’s description or image may be edited in place at any time (§7.2); nothing about being historical makes them read-only.
+Historical Recipe Versions preserve their own description, image, yield, prep/cook time, difficulty, and nutrition — as mutable metadata, not frozen content. Any of a historical Version's own Version-scoped metadata fields may be edited in place at any time (§7.2), affecting only that exact Version — never the current Version, never any other Version, and never creating a new one; nothing about being historical makes them read-only.
 
 Title is not part of this section at all (Version-trigger and Slice 5 image correction pass): it is stable Recipe identity (§7.1), not Version-owned, so there is no “historical title” to preserve — every Version, current or historical, is understood against the Recipe’s one current title.
 
@@ -943,15 +962,17 @@ Examples:
 
 DishFrame may visually emphasize **Save new version**, but it never forces the classification.
 
-## 13.2a Settled automatic classification (Slice 3 Gate 2 correction, revised by the Version-trigger and Slice 5 image correction pass)
+## 13.2a Settled automatic classification (Slice 3 Gate 2 correction, revised by the Version-trigger and Slice 5 image correction pass, and by the Slice 13 metadata-classification correction pass)
 
 §13.1's "every successful content save creates a Version" and §13.2's "the
 user chooses" are refined by a settled implementation decision: the
 explicit **Save small update / Save new version** choice (in the editor,
 worded as **Save as a refinement / Start a new version**) is presented
-**only** when an Ingredient or Instruction actually changed. Every save is
-classified into exactly one of four buckets, determined server-side —
-never trusting a client-supplied claim:
+**only** when an Ingredient, Instruction, or linked Part actually changed.
+Every save is classified into exactly one of four buckets, determined
+server-side — never trusting a client-supplied claim. Version ownership and
+Version creation are separate concerns: a field can belong to one specific
+Version without every edit to it creating a new Version.
 
 ### No new Version — stable Recipe/Part metadata
 
@@ -964,25 +985,37 @@ never trusting a client-supplied claim:
 
 Applies directly to the stable Recipe/Part record.
 
-### No new Version — mutable Version metadata
+### No new Version — Version-scoped mutable metadata
 
-Description and/or image changed, alone (no other bucket's field also
-changed): updates the selected Version's own stored description/image
-directly, in place — on the current Version or on any historical Version.
-Added by the Version-trigger and Slice 5 image correction pass; both
-fields were previously misclassified into "automatic small update" below,
-which incorrectly created a Version for a metadata-only change.
+Any of the following changed, alone (no material-content bucket below also
+changed): updates the selected Version's own stored value directly, in
+place — on the current Version or on any deliberately selected historical
+Version, and only that exact Version:
 
-### Automatic small update — no prompt
-
-Version-owned cooking-adjacent content that changes the Recipe/Part
-record but does not itself change cooking content:
-
-- Makes / serving-size information;
+- description;
+- image;
+- Makes / serving-size information (authored yield);
 - preparation time;
 - cooking time;
 - difficulty;
-- nutrition information (once implemented);
+- nutrition (calories, macros, nutrition basis, More nutrients, and source
+  attribution, §54).
+
+Description and image were added to this bucket by the Version-trigger and
+Slice 5 image correction pass. Yield, prep/cook time, difficulty, and
+nutrition were moved into this same bucket by the Slice 13
+metadata-classification correction pass — all had previously been
+misclassified into "automatic small update" below, which incorrectly
+created a Version for a change to fields that are themselves purely
+descriptive/operational-estimate/nutritional metadata, never preparation
+content.
+
+### Automatic small update — no prompt
+
+Version-owned material content that changes the Recipe/Part record but
+does not itself add, remove, or edit any Ingredient, Instruction, or linked
+Part:
+
 - Section naming or organization changes that leave every Ingredient's and
   Instruction's own content, owning Section, and position untouched.
 
@@ -997,21 +1030,18 @@ Any Ingredient or Instruction:
 - movement between Sections.
 
 Only this bucket shows the choice described in §13.2. A save combining a
-metadata-only field (title, description, image) or an automatic-small-
-update field (Makes, prep/cook time, difficulty, Section naming) with an
-Ingredient/Instruction change still only prompts once, for the
-Ingredient/Instruction change. Title lands on the stable Recipe/Part
-record regardless; description and image land on the newly created
-Version (inheriting the selected base Version's values unless this same
-save intentionally supplies different ones, §7.2); every other changed
-field lands in the one Version that choice creates. The Version is
-created only because of the Ingredient/Instruction (or automatic-small-
-update) change — never because a metadata field happened to change in the
-same save.
-
-Nutrition, scaling, and the Version-history comparison UI (§94) remain
-future-slice scope; this section only settles which bucket a change falls
-into, not those later features.
+stable metadata field (title, Stage, cuisine), a Version-scoped metadata
+field (description, image, yield, prep/cook time, difficulty, nutrition),
+or the automatic-small-update field (Section naming) with an Ingredient/
+Instruction/linked-Part change still only prompts once, for the
+Ingredient/Instruction/linked-Part change. Title lands on the stable
+Recipe/Part record regardless; every Version-scoped metadata field lands
+on the newly created Version (inheriting the selected base Version's
+values unless this same save intentionally supplies different ones, §7.2);
+every other changed field lands in the one Version that choice creates.
+The Version is created only because of the Ingredient/Instruction/linked-
+Part (or Section-organization) change — never because a metadata field
+happened to change in the same save.
 
 ## 13.3 Version numbering
 

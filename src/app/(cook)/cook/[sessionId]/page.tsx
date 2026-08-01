@@ -70,6 +70,17 @@ export default async function CookingModePage({
   let sourceOutputQuantity: number | null = null;
   let sourceOutputUnit: string | null = null;
 
+  // Slice 13 metadata-classification correction pass: yield is now
+  // editable in place on an already-saved DishVersion (PRODUCT_SPEC.md
+  // §54), including the exact Version this session references — so this
+  // `isActive` gate is now the boundary that keeps a completed/ended
+  // session's display from ever reading a (possibly since-corrected) live
+  // yield as if it were the session's own recorded output. Only an
+  // IN_PROGRESS session's forward-looking rescale tooling ("Cook for X",
+  // "add more units") legitimately reads the Version's current yield —
+  // adjusting what's still ahead, never redisplaying what already
+  // happened. `cooking.integration.test.ts` proves an in-place yield edit
+  // never touches an existing session's own persisted rows.
   if (isActive) {
     const { dish, version } = await getOwnedDishVersionOrThrow(
       session.user.id,

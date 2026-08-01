@@ -44,6 +44,8 @@ import {
   normalizeQuantity,
   normalizeDifficultyValue,
   isBlankSubstitute,
+  nutritionSourceProviderValues,
+  type NutritionSourceProviderValue,
   type DishContentInput,
   type SectionInput,
   type IngredientInput,
@@ -64,28 +66,41 @@ import {
  * "DishVersion rows are never updated directly" — see its own doc comment.
  *
  * `editDish`'s settled classification (docs/SLICE_3.md's Gate 2 pass,
- * corrected by the Version-trigger and Slice 5 image correction pass —
- * PRODUCT_SPEC.md §7.1/§7.2/§13.1/§13.2a) — determined independently here,
- * never trusting a client claim:
+ * corrected by the Version-trigger and Slice 5 image correction pass, and
+ * by the Slice 13 metadata-classification correction pass —
+ * PRODUCT_SPEC.md §7.1/§7.2/§13.1/§13.2a/§54) — determined independently
+ * here, never trusting a client claim. Version ownership and Version
+ * creation are separate concerns: a field can belong to one specific
+ * `DishVersion` row without every edit to it creating a new row.
  *   - Stable Dish metadata (Stage, cuisine, title) or a true no-op: no
  *     Version created, `Dish` updated in place (or not at all, for a
- *     genuine no-op). Title moved into this bucket in the correction pass
- *     — it is stable Dish identity, not Version-owned content.
- *   - Version-associated but mutable metadata (description, image) with no
- *     material change alongside it: no Version created — the selected
- *     Version is updated in place instead (`applyVersionMetadataUpdate`).
- *   - Version-owned non-cooking content (yield, prep/cook time, difficulty,
- *     Section naming/reordering that leaves every Ingredient/Instruction's
- *     own content, Section, and position untouched): exactly one minor
- *     Version, created automatically.
- *   - Any Ingredient/Instruction add, remove, edit, or reorder: requires
- *     the caller to have already resolved the minor/major choice
+ *     genuine no-op). Title is stable Dish identity, not Version-owned
+ *     content.
+ *   - Version-scoped metadata — description, image, yield, prep time, cook
+ *     time, difficulty, and (Slice 13 correction pass) calories/protein/
+ *     carbs/fat, nutrition basis, More nutrients, and nutrition source
+ *     attribution — with no material content change alongside it: no
+ *     Version created. The selected Version (current *or* a deliberately
+ *     chosen historical one) is updated in place instead
+ *     (`applyVersionMetadataUpdate`), and only that exact row — never
+ *     `Dish.currentVersionId`, never any other Version. None of these
+ *     fields describe what is actually prepared, so none of them, alone,
+ *     ever justify a new Version.
+ *   - Material preparation content — any Ingredient/Instruction add,
+ *     remove, edit, or reorder; any linked-Part attach/detach/retarget/
+ *     multiplier change; or Section add/remove/rename/reorder — creates a
+ *     Version. An Ingredient/Instruction/linked-Part change requires the
+ *     caller to have already resolved the minor/major choice
  *     (`versionChoice`); throws `ValidationError` if it's missing.
- *   - A save that combines a metadata-only bucket with a Version-creating
- *     bucket lands its title change on the stable Dish and its
- *     description/image values on the newly created Version — the Version
- *     is created only because of the material/non-cooking change, never
- *     because of the metadata fields riding along with it.
+ *     Section-organization-only content (renaming/reordering with every
+ *     Ingredient/Instruction/linked Part otherwise untouched) still gets
+ *     exactly one automatic minor Version, no choice required.
+ *   - A save that combines Version-scoped metadata with material content:
+ *     the appropriate new Version is created through the material-content
+ *     flow above, carrying the submitted metadata values — the prior
+ *     Version is never mutated. The Version is created because of the
+ *     material change, never because of the metadata riding along with it.
+ *     Title still lands on the stable Dish either way.
  */
 
 function nextArchivedAt(
@@ -523,23 +538,33 @@ export type NormalizedNutrition = {
   // means the former (no More-nutrients data), never the latter.
   moreNutrients:
     NonNullable<DishContentInput["moreNutrients"]> | typeof Prisma.DbNull;
-  nutritionSourceProvider: string | null;
+  nutritionSourceProvider: NutritionSourceProviderValue | null;
   nutritionSourceId: string | null;
   nutritionSourceName: string | null;
 };
 
 /**
- * PRODUCT_SPEC.md §54.1/§54.2, ARCHITECTURE_PROPOSAL.md Correction 5: shapes
- * and validates a proposed Version's nutrition fields — the server-side
- * sanitization boundary both `createDish` and `editDish` always pass
- * through, mirroring `sanitizedSectionsOrThrow`'s role for content. Enforces
- * the database's raw-SQL `nutrition_basis_consistency` CHECK constraint
- * (basis unset or `WHOLE` => basisQuantity/basisUnit both null;
- * `PER_OUTPUT_UNIT` => both set, quantity > 0 —
- * `constraints.integration.test.ts`) up front with a friendly
- * `ValidationError`, so a direct service call bypassing the editor's own UI
- * (or `dishContentSchema.parse`) can't reach the database with a combination
- * the constraint would reject.
+ * PRODUCT_SPEC.md §54.1/§54.2/§54.4: shapes and validates a proposed
+ * Version's nutrition fields — the server-side sanitization boundary both
+ * `createDish` and `editDish` always pass through, mirroring
+ * `sanitizedSectionsOrThrow`'s role for content. Enforces:
+ *
+ * - the database's raw-SQL `nutrition_basis_consistency` CHECK constraint
+ *   (basis unset or `WHOLE` => basisQuantity/basisUnit both null;
+ *   `PER_OUTPUT_UNIT` => both set, quantity > 0 —
+ *   `constraints.integration.test.ts`);
+ * - Slice 13 correction pass attribution integrity: a source provider and
+ *   its id/name can never be saved in a partial or fabricated combination
+ *   (§54.4 — "labeled as sourced information," which requires the label
+ *   itself to be trustworthy). No provider means no id/name either;
+ *   `USDA_FDC` requires both a non-empty id and name; any other provider
+ *   value is rejected outright (`dishContentSchema`'s `z.enum` already
+ *   rejects it at the Server Action boundary — this is the authoritative,
+ *   never-trust-the-client backstop for a direct service call).
+ *
+ * Both up front with a friendly `ValidationError`, so a direct service call
+ * bypassing the editor's own UI (or `dishContentSchema.parse`) can never
+ * reach the database with a combination either constraint would reject.
  */
 function normalizeNutritionOrThrow(
   input: DishContentInput,
@@ -567,6 +592,26 @@ function normalizeNutritionOrThrow(
     nutritionBasisUnit = unit;
   }
 
+  const provider = input.nutritionSourceProvider ?? null;
+  if (provider !== null && !nutritionSourceProviderValues.includes(provider)) {
+    throw new ValidationError("That nutrition source isn't supported.");
+  }
+  const sourceId = input.nutritionSourceId?.trim() || null;
+  const sourceName = input.nutritionSourceName?.trim() || null;
+  if (provider === null) {
+    if (sourceId || sourceName) {
+      throw new ValidationError(
+        "A nutrition source id/name can't be set without a source provider — detach, or select a source.",
+      );
+    }
+  } else if (provider === "USDA_FDC") {
+    if (!sourceId || !sourceName) {
+      throw new ValidationError(
+        "USDA FoodData Central attribution needs both a source id and a source name.",
+      );
+    }
+  }
+
   return {
     calories: normalizeNutritionValue(input.calories),
     protein: normalizeNutritionValue(input.protein),
@@ -578,9 +623,9 @@ function normalizeNutritionOrThrow(
     moreNutrients: input.moreNutrients?.length
       ? input.moreNutrients
       : Prisma.DbNull,
-    nutritionSourceProvider: input.nutritionSourceProvider?.trim() || null,
-    nutritionSourceId: input.nutritionSourceId?.trim() || null,
-    nutritionSourceName: input.nutritionSourceName?.trim() || null,
+    nutritionSourceProvider: provider,
+    nutritionSourceId: sourceId,
+    nutritionSourceName: sourceName,
   };
 }
 
@@ -829,20 +874,24 @@ export async function editDish(
     (input.cuisine || null) !== (dish.cuisine ?? null) ||
     input.title !== (dish.currentTitle ?? "");
 
-  // Version-trigger correction pass, PRODUCT_SPEC.md §7.2: description and
-  // image are Version-associated but mutable — a change to either, alone,
-  // updates the selected Version in place rather than creating a new one.
+  // Slice 13 metadata-classification correction pass, PRODUCT_SPEC.md §7.2/
+  // §54: description, image, yield, prep/cook time, difficulty, and the
+  // full nutrition shape (primary values, basis, More nutrients, source
+  // attribution) are all Version-*scoped* but mutable metadata — none of
+  // them describe what is actually prepared, so a change to any of them,
+  // alone, updates the selected Version in place rather than creating a
+  // new one. This was previously split across two buckets (description/
+  // image in place; yield/prep/cook/difficulty/nutrition auto-minor) — the
+  // settled product rule collapses that distinction: only material
+  // preparation content (below) ever creates a Version.
   const versionMetadataChanged =
     (base.description ?? null) !== (input.description || null) ||
-    (base.imageAssetId ?? null) !== (input.imageAssetId ?? null);
-
-  // Slice 13, ARCHITECTURE_PROPOSAL.md Correction 5/§F.10: nutrition is an
-  // ordinary Version-owned content field, governed by the same
-  // non-cooking-scalar bucket as yield/prep/cook/difficulty — a change
-  // (typed manually, applied from an FDC result, an edit to an imported
-  // value, or a detach) creates an automatic minor Version, never an
-  // in-place update to the already-saved row.
-  const nutritionChanged =
+    (base.imageAssetId ?? null) !== (input.imageAssetId ?? null) ||
+    decimalToNumber(base.yieldQuantity) !== (input.yieldQuantity ?? null) ||
+    (base.yieldUnit ?? null) !== (input.yieldUnit || null) ||
+    (base.prepTimeMinutes ?? null) !== (input.prepTimeMinutes ?? null) ||
+    (base.cookTimeMinutes ?? null) !== (input.cookTimeMinutes ?? null) ||
+    (base.difficulty ?? null) !== (input.difficulty || null) ||
     decimalToNumber(base.calories) !== nutrition.calories ||
     decimalToNumber(base.protein) !== nutrition.protein ||
     decimalToNumber(base.carbs) !== nutrition.carbs ||
@@ -857,20 +906,15 @@ export async function editDish(
     (base.nutritionSourceId ?? null) !== nutrition.nutritionSourceId ||
     (base.nutritionSourceName ?? null) !== nutrition.nutritionSourceName;
 
-  const nonCookingScalarChanged =
-    decimalToNumber(base.yieldQuantity) !== (input.yieldQuantity ?? null) ||
-    (base.yieldUnit ?? null) !== (input.yieldUnit || null) ||
-    (base.prepTimeMinutes ?? null) !== (input.prepTimeMinutes ?? null) ||
-    (base.cookTimeMinutes ?? null) !== (input.cookTimeMinutes ?? null) ||
-    (base.difficulty ?? null) !== (input.difficulty || null) ||
-    nutritionChanged;
-
   const { cookingChanged, sectionOrganizationChanged } = diffVersionContent(
     versionContentToInput(base.sections, base.partLinks),
     { sections, partLinks: input.partLinks },
   );
-  const nonCookingVersionChanged =
-    nonCookingScalarChanged || sectionOrganizationChanged;
+  // Material preparation content — Ingredients/Instructions/linked Parts
+  // (`cookingChanged`) or Section add/remove/rename/reorder
+  // (`sectionOrganizationChanged`) — is the only thing that ever creates a
+  // Version (see the module doc comment above).
+  const materialContentChanged = cookingChanged || sectionOrganizationChanged;
 
   if (cookingChanged && !versionChoice) {
     throw new ValidationError(
@@ -890,11 +934,14 @@ export async function editDish(
     await assertImageAssetAttachable(prisma, ownerId, input.imageAssetId);
   }
 
-  if (!cookingChanged && !nonCookingVersionChanged) {
-    // No material or non-cooking Version-owned change — never allocates a
-    // Version number. Stable Dish metadata (Stage/cuisine/title) and
-    // mutable Version metadata (description/image) are applied directly,
-    // independently of each other; a save with neither is a true no-op.
+  if (!materialContentChanged) {
+    // No material preparation-content change — never allocates a Version
+    // number, whether `base` is the Dish's current Version or a
+    // deliberately selected historical one; either way only that exact row
+    // is ever touched. Stable Dish metadata (Stage/cuisine/title) and
+    // Version-scoped metadata (description/image/yield/prep/cook/
+    // difficulty/nutrition) are applied directly, independently of each
+    // other; a save with neither is a true no-op.
     if (stableChanged) {
       const titleChanged = input.title !== (dish.currentTitle ?? "");
       await prisma.$transaction(async (tx) => {
@@ -924,6 +971,12 @@ export async function editDish(
       await applyVersionMetadataUpdate(base, {
         description: input.description || null,
         imageAssetId: input.imageAssetId ?? null,
+        yieldQuantity: input.yieldQuantity ?? null,
+        yieldUnit: input.yieldUnit || null,
+        prepTimeMinutes: input.prepTimeMinutes ?? null,
+        cookTimeMinutes: input.cookTimeMinutes ?? null,
+        difficulty: normalizeDifficultyValue(input.difficulty),
+        ...nutrition,
       });
     }
     return dish.id;
@@ -1080,15 +1133,18 @@ export async function editDish(
 }
 
 /**
- * Version-trigger correction pass, PRODUCT_SPEC.md §7.2: description and
- * image are Version-associated but mutable — this updates the selected
+ * Version-trigger correction pass, extended by the Slice 13 metadata-
+ * classification correction pass, PRODUCT_SPEC.md §7.2/§54: description,
+ * image, yield, prep time, cook time, difficulty, and the full nutrition
+ * shape are all Version-*scoped* but mutable — this updates the selected
  * `DishVersion` row directly, the one sanctioned exception (alongside
  * `versionNote`) to "DishVersion content is never mutated in place." Never
  * creates a Version, never touches `Dish.currentVersionId`, `sourceVersionId`,
- * version numbering, or any Section/Ingredient/Instruction content — and
- * works identically whether `version` is the Dish's current Version or an
- * arbitrary historical one, since neither field's mutability depends on
- * that distinction.
+ * version numbering, or any Section/Ingredient/Instruction/linked-Part
+ * content — and works identically whether `version` is the Dish's current
+ * Version or an arbitrary historical one, since none of these fields'
+ * mutability depends on that distinction (editing a historical Version's
+ * metadata here touches only that exact row).
  *
  * Runs the row update and the old image's orphan check in one transaction
  * (PRODUCT_SPEC.md §90.2's cleanup requirement) so a failure partway
@@ -1098,7 +1154,15 @@ export async function editDish(
  */
 async function applyVersionMetadataUpdate(
   version: { id: string; imageAssetId: string | null },
-  data: { description: string | null; imageAssetId: string | null },
+  data: {
+    description: string | null;
+    imageAssetId: string | null;
+    yieldQuantity: number | null;
+    yieldUnit: string | null;
+    prepTimeMinutes: number | null;
+    cookTimeMinutes: number | null;
+    difficulty: string | null;
+  } & NormalizedNutrition,
 ): Promise<void> {
   const priorImageAssetId = version.imageAssetId;
   const imageChanged = priorImageAssetId !== data.imageAssetId;
@@ -1109,6 +1173,22 @@ async function applyVersionMetadataUpdate(
       data: {
         description: data.description,
         imageAssetId: data.imageAssetId,
+        yieldQuantity: data.yieldQuantity,
+        yieldUnit: data.yieldUnit,
+        prepTimeMinutes: data.prepTimeMinutes,
+        cookTimeMinutes: data.cookTimeMinutes,
+        difficulty: data.difficulty,
+        calories: data.calories,
+        protein: data.protein,
+        carbs: data.carbs,
+        fat: data.fat,
+        nutritionBasis: data.nutritionBasis,
+        nutritionBasisQuantity: data.nutritionBasisQuantity,
+        nutritionBasisUnit: data.nutritionBasisUnit,
+        moreNutrients: data.moreNutrients,
+        nutritionSourceProvider: data.nutritionSourceProvider,
+        nutritionSourceId: data.nutritionSourceId,
+        nutritionSourceName: data.nutritionSourceName,
       },
     });
 
@@ -1152,6 +1232,31 @@ export async function updateVersionMetadata(
   await applyVersionMetadataUpdate(version, {
     description: input.description,
     imageAssetId: input.imageAssetId,
+    // `updateVersionMetadata` only ever accepts description/image as input
+    // (see its own doc comment) — every other Version-scoped metadata
+    // field is carried through unchanged from the version's own current
+    // value, so this call never touches yield/prep/cook/difficulty/
+    // nutrition even though `applyVersionMetadataUpdate` now writes them.
+    yieldQuantity: decimalToNumber(version.yieldQuantity),
+    yieldUnit: version.yieldUnit,
+    prepTimeMinutes: version.prepTimeMinutes,
+    cookTimeMinutes: version.cookTimeMinutes,
+    difficulty: version.difficulty,
+    calories: decimalToNumber(version.calories),
+    protein: decimalToNumber(version.protein),
+    carbs: decimalToNumber(version.carbs),
+    fat: decimalToNumber(version.fat),
+    nutritionBasis: version.nutritionBasis,
+    nutritionBasisQuantity: decimalToNumber(version.nutritionBasisQuantity),
+    nutritionBasisUnit: version.nutritionBasisUnit,
+    moreNutrients:
+      version.moreNutrients === null
+        ? Prisma.DbNull
+        : (version.moreNutrients as unknown as NormalizedNutrition["moreNutrients"]),
+    nutritionSourceProvider:
+      version.nutritionSourceProvider as NutritionSourceProviderValue | null,
+    nutritionSourceId: version.nutritionSourceId,
+    nutritionSourceName: version.nutritionSourceName,
   });
 }
 

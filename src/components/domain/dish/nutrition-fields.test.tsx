@@ -58,7 +58,7 @@ const savedNutritionValues: DishFormValues = {
   nutritionBasisQuantity: 1,
   nutritionBasisUnit: "serving",
   moreNutrients: [{ key: "fiber", label: "Fiber", value: 3, unit: "g" }],
-  nutritionSourceProvider: "fdc",
+  nutritionSourceProvider: "USDA_FDC",
   nutritionSourceId: "12345",
   nutritionSourceName: "Rice, white, cooked",
   sections: [

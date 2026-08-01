@@ -230,6 +230,14 @@ export const moreNutrientEntrySchema = z.object({
 });
 export type MoreNutrientEntry = z.infer<typeof moreNutrientEntrySchema>;
 
+// Slice 13 correction pass: the one supported sourced-nutrition provider.
+// Kept as an explicit enum (not a free-form string) so an unsupported value
+// is rejected up front rather than silently persisted — §54.4's attribution
+// integrity rule requires this to be a closed set.
+export const nutritionSourceProviderValues = ["USDA_FDC"] as const;
+export type NutritionSourceProviderValue =
+  (typeof nutritionSourceProviderValues)[number];
+
 export const dishContentSchema = z.object({
   title: z.string().trim().min(1, "Enter a title.").max(200),
   stage: z.enum(stageValues),
@@ -241,10 +249,10 @@ export const dishContentSchema = z.object({
   cookTimeMinutes: z.number().int().min(0).nullable().optional(),
   difficulty: z.string().trim().max(40).nullable().optional(),
   // Slice 13, PRODUCT_SPEC.md §54.1/§54.2/§54.4: manual nutrition, editable
-  // whether typed directly or populated from an FDC result. Version-owned
-  // content, governed by the same immutability rule as every other field on
-  // this row (ARCHITECTURE_PROPOSAL.md Correction 5/§F.10) — never mutated
-  // in place once saved.
+  // whether typed directly or populated from an FDC result. Slice 13
+  // correction pass: Version-scoped metadata, editable in place on the
+  // selected Version — like description/image/yield/prep/cook/difficulty —
+  // never itself a reason to create a new Version.
   calories: z.number().min(0).nullable().optional(),
   protein: z.number().min(0).nullable().optional(),
   carbs: z.number().min(0).nullable().optional(),
@@ -253,7 +261,10 @@ export const dishContentSchema = z.object({
   nutritionBasisQuantity: z.number().gt(0).nullable().optional(),
   nutritionBasisUnit: z.string().trim().max(40).nullable().optional(),
   moreNutrients: z.array(moreNutrientEntrySchema).nullable().optional(),
-  nutritionSourceProvider: z.string().trim().max(40).nullable().optional(),
+  nutritionSourceProvider: z
+    .enum(nutritionSourceProviderValues)
+    .nullable()
+    .optional(),
   nutritionSourceId: z.string().trim().max(100).nullable().optional(),
   nutritionSourceName: z.string().trim().max(300).nullable().optional(),
   // Slice 5, PRODUCT_SPEC.md §12: always explicit, never `undefined` — the
