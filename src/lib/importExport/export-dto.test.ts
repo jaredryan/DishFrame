@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ingredientDto,
   versionContentDto,
+  sanitizeExportFilename,
 } from "@/lib/importExport/export-dto";
 
 /**
@@ -80,5 +81,38 @@ describe("export DTO field whitelisting", () => {
     expect(dto).not.toHaveProperty("storageKey");
     expect(JSON.stringify(dto)).not.toContain("private/blob/object-key");
     expect(dto.imageAssetId).toBe("asset1");
+  });
+});
+
+/**
+ * Slice 11 correction pass: `Content-Disposition: attachment; filename="…"`
+ * must never let a user-controlled title inject response-header content
+ * (CRLF, quotes) — only a small safe character set survives.
+ */
+describe("sanitizeExportFilename", () => {
+  it("keeps an already-safe title unchanged", () => {
+    expect(sanitizeExportFilename("Ginger Soy Bowl")).toBe(
+      "Ginger Soy Bowl.json",
+    );
+  });
+
+  it("strips header-injection and path characters", () => {
+    const filename = sanitizeExportFilename(
+      'evil"\r\nSet-Cookie: pwned=1\\..\/..\/etc',
+    );
+    expect(filename).not.toMatch(/[\r\n"\\/]/);
+    expect(filename.endsWith(".json")).toBe(true);
+  });
+
+  it("falls back to a deterministic name for a blank or null title", () => {
+    expect(sanitizeExportFilename("   ")).toBe("export.json");
+    expect(sanitizeExportFilename(null)).toBe("export.json");
+    expect(sanitizeExportFilename(undefined)).toBe("export.json");
+  });
+
+  it("is deterministic for the same title", () => {
+    expect(sanitizeExportFilename("Weeknight Tacos")).toBe(
+      sanitizeExportFilename("Weeknight Tacos"),
+    );
   });
 });

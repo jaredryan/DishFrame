@@ -26,9 +26,11 @@ export function ProfileActions() {
         <div>
           <p className="text-foreground text-sm font-medium">Export my data</p>
           <p className="text-muted-foreground text-sm">
-            Downloads a full private backup of everything in your account —
-            Recipes, Parts, Cooking Sessions, Cooking notes, Session Reviews,
-            and Taster data included. Keep the file private.
+            Downloads a structured export of your account data — Recipes, Parts,
+            Cooking Sessions, Cooking notes, Session Reviews, and Taster data
+            included, as JSON. This is a data export, not a restorable backup:
+            image files aren&apos;t included, and there&apos;s no import path
+            back into DishFrame yet. Keep the file private.
           </p>
         </div>
         <Button variant="outline" asChild>

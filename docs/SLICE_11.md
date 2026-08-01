@@ -52,10 +52,13 @@ requirement — flagging prominently, not burying it.
 
 `src/lib/importExport/export-dto.ts` — explicit field-whitelisting DTO
 builders (named properties only, never `{ ...row }`), served by
-`GET /api/export/dish/[dishId]?kind=&tier=` (owner-scoped lookup, 404 for
-another owner's Dish). Always includes full Version history (§55.2 offers
-"one Version or full history" as alternatives; full history was chosen —
-simpler, and the spec doesn't mandate a picker).
+`GET /api/export/dish/[dishId]?kind=&tier=&versionMode=&versionId=`
+(owner-scoped lookup, 404 for another owner's Dish). Defaults to the
+current Version only; the dialog also offers picking one historical Version
+or an explicit "Include all Versions" mode — see the correction section
+below (§55.2 offers "one Version or full history" as alternatives; the
+original pass chose full history unconditionally, corrected here to a real
+picker).
 
 - **STANDARD**: content + aggregate rating + count only.
 - **DETAILED**: adds per-rating evidence (value, session outcome,
@@ -70,10 +73,13 @@ Per-Dish "Export" action (tier picker with the required privacy warning on
 the full-private-history option) lives in `dish-detail-actions.tsx`'s
 overflow menu.
 
-## Full account backup (§55.1)
+## Full account data export (§55.1)
 
-`buildAccountBackupDto` (same file), served by `GET /api/export/account`,
-linked from `/profile` ("Export my data", with its own privacy note).
+`buildAccountBackupDto` (same file — kept to avoid needless churn, see the
+correction section below), served by `GET /api/export/account`, linked from
+`/profile` ("Export my data", with its own privacy note). This is a
+structured data export, not a restorable backup — see the correction
+section below.
 Covers Dishes/Versions/Sections/Ingredients/Instructions/PartLinks, Tags,
 Flavor Profiles, preferred-unit overrides, Tasters, Cooking Sessions
 (notes, reviews, ratings), Grocery Categories, Grocery Lists/items, Meal
@@ -91,9 +97,11 @@ rather than discovering it's missing.
 
 Both export/backup Route Handlers require a session and never accept a
 `dishId` without an owner-scoped lookup (mirrors `getOwnedDishOrThrow`'s
-pattern). `imageAssetId` is included as a portable reference (§55.1); the
-Blob `storageKey` is never included anywhere in export output — verified by
-a dedicated poison-field unit test.
+pattern). `imageAssetId` is included as an internal DishFrame reference only
+— not independently portable, and the image binary itself is never included
+in export output (corrected below); the Blob `storageKey` is never included
+anywhere in export output either — verified by a dedicated poison-field
+unit test.
 
 ## Schema/migration
 
@@ -138,11 +146,10 @@ protected-object/migration scans clean.
 - Paste-import wizard layout (textarea sizing, needs-review banner
   placement, "Show original pasted text" toggle) — no frontend design pass
   applied yet.
-- Export-tier dialog copy/layout on `dish-detail-actions.tsx` and the
-  `/profile` "Export my data" card.
-- Whether "full Version history always included" (vs. a single-Version
-  picker) is the right default for item export — a deliberate scope
-  decision, not a spec requirement either way.
+- Export-tier and Version-picker dialog copy/layout on
+  `dish-detail-actions.tsx` and the `/profile` "Export my data" card
+  (resolved by the correction pass below: current-Version default, explicit
+  historical-Version or all-Versions choice — no longer an open question).
 
 ## Limitations / deferred
 
@@ -155,3 +162,91 @@ protected-object/migration scans clean.
 - No AI-assisted parsing (§59.3, correctly out of scope — Tier 3).
 - `/parts/import` does not exist — Build Plan's route list only names
   `/recipes/import`.
+
+## Correction pass — export correctness and terminology (2026-07-31)
+
+Owner-directed correction to the export tiers/backup work above. Full
+Version history was previously implicit on every individual export, and the
+account export's own copy overclaimed "backup"/portable-image-reference
+language it can't back up. Both are now settled product decisions, applied
+here.
+
+**Terminology.** The account export is a structured **data export**, not a
+restorable backup — it never included image binaries and still has no
+restore/import path. User-facing copy (`/profile`'s "Export my data" card)
+and route/module doc comments now say so plainly; `imageAssetId` is
+documented as an internal DishFrame reference only, never as "portable."
+Internal names (`buildAccountBackupDto`, `/api/export/account`) were kept to
+avoid needless churn — only public/canonical language changed.
+
+**Envelope.** Both `buildDishExportDto` and `buildAccountBackupDto` now
+return a stable `{ format, formatVersion: 1, exportedAt, scope, ... }`
+envelope (`export-dto.ts`). `scope` carries `exportType`/`tier` plus
+`versionMode` (`SINGLE`/`ALL`) and, for a single-Version export, the
+selected Version's id and label. Still an explicit allowlist — no
+schema-version, credential, Blob-key, or other internal-only field is
+exposed.
+
+**Headers.** Both export Route Handlers now send `Cache-Control: private,
+no-store` alongside the existing JSON content type and
+`Content-Disposition: attachment`. `sanitizeExportFilename` (new,
+`export-dto.ts`) centralizes title-to-filename sanitization: only
+alphanumerics/space/`.`/`-` survive, so a hostile title can never inject
+CRLF/quote header content; falls back to `export.json` for a blank title.
+The account export's filename dropped "backup" wording
+(`dishframe-account-export-YYYY-MM-DD.json`).
+
+**Version selection.** `buildDishExportDto` takes an optional
+`DishVersionSelection` (`{ mode: "SINGLE", versionId? }` or
+`{ mode: "ALL" }`; defaults to `SINGLE` with no `versionId`, which resolves
+to the Dish's current Version). The export dialog
+(`dish-detail-actions.tsx`) gained one `Select` covering every existing
+Version plus "Include all Versions" — one coherent control, never an
+ambiguous specific+all state — defaulting to the current Version each time
+the dialog opens and applying to all three privacy-tier download links.
+Stable Dish metadata (title, stage, cuisine, tags, Flavor profiles) was
+already sourced from the Dish row rather than the Version, so it needed no
+change.
+
+**Evidence scoping.** `ratingRowsForDish`/`buildDetailedEvidence`/
+`buildFullPrivateHistory` all take an optional `versionId` filter.
+Aggregate rating/count, per-rating evidence, and private Cooking Session
+evidence are now scoped to the exported Version(s) only — a `SINGLE` export
+never surfaces another Version's evidence; an `ALL` export retains each
+rating's/session's `versionLabel` provenance (already present on those
+rows, now verified by test). The account export is unaffected — it still
+carries every owned Dish's complete Version history regardless of any
+individual-export Version selection.
+
+**Tests.** `export-dto.test.ts` gained `sanitizeExportFilename` unit
+coverage (safe passthrough, header-injection stripping, blank-title
+fallback, determinism). `import-export.integration.test.ts` gained: current-
+Version-default scoping, explicit historical-Version scoping (content,
+aggregate rating, and session evidence all excluding the other Version),
+ALL-Version provenance retention, an unknown-`versionId` rejection, and
+envelope/format-version assertions on both dish and account exports; the
+account-backup test now also asserts complete Version history survives a
+Version bump. New `route.integration.test.ts` files (dish and account
+routes) cover session/owner authorization, header values, filename
+sanitization against a header-injection attempt, and `versionMode` query
+validation. New `dish-detail-actions.test.tsx` covers the export dialog's
+Version `Select`: current-Version default, switching to a historical
+Version, switching to "Include all Versions" with no `versionId` ever
+present alongside it, the default resetting on dialog reopen, and the
+selection applying to all three tier download links.
+
+Narrowly targeted commands actually run this pass: the new/updated
+`export-dto.test.ts`, `dish-detail-actions.test.tsx`,
+`import-export.integration.test.ts`, and both new
+`route.integration.test.ts` files (30 tests total, all green), plus a
+project-wide `tsc --noEmit` to confirm the signature changes didn't break
+any caller. No broader command (`verify:feature`, `verify:all`, full
+suites, Playwright) was run — final verification is intentionally left to
+the owner, per standing policy.
+
+**Genuine remaining limitations.** Image binaries are still never included
+in either export, and there is still no import/restore path for the
+account export (unchanged from the original slice, now accurately
+documented rather than overclaimed). The Version `Select` lists every
+Version with no pagination — fine at current Version-count scales, but
+untested at a large Version history.

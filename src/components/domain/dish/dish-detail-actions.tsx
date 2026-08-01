@@ -57,6 +57,15 @@ import {
   type StageValue,
 } from "@/lib/dishes/schema";
 import { PartUsageResolutionDialog } from "@/components/domain/dish/part-usage-resolution-dialog";
+import { versionLabel } from "@/lib/dishes/version-note";
+
+const ALL_VERSIONS_VALUE = "__ALL__";
+
+type ExportableVersion = {
+  id: string;
+  majorVersion: number;
+  minorVersion: number;
+};
 
 const STAGE_LABEL: Record<RestorableStageValue, string> = {
   IDEA: "Idea",
@@ -73,6 +82,7 @@ export function DishDetailActions({
   kind,
   stage,
   currentVersionId,
+  versions,
 }: {
   dishId: string;
   kind: DishKindValue;
@@ -81,6 +91,8 @@ export function DishDetailActions({
   // menu (moved off the detail page's own separate links row) — needs the
   // current Version's id to build that route.
   currentVersionId: string;
+  // Slice 11 correction pass: the export dialog's Version-selection control.
+  versions: ExportableVersion[];
 }) {
   const router = useRouter();
   const [openDialog, setOpenDialog] = React.useState<DialogKind>(null);
@@ -89,6 +101,14 @@ export function DishDetailActions({
   const [isPending, startTransition] = React.useTransition();
   const [error, setError] = React.useState<string | null>(null);
   const [resolutionOpen, setResolutionOpen] = React.useState(false);
+  // Defaults to the current Version each time the dialog opens (PRODUCT_SPEC.md
+  // §55.2, Slice 11 correction pass) — reset in `close()` below.
+  const [exportVersionValue, setExportVersionValue] =
+    React.useState<string>(currentVersionId);
+  const exportVersionQuery =
+    exportVersionValue === ALL_VERSIONS_VALUE
+      ? "versionMode=ALL"
+      : `versionMode=SINGLE&versionId=${encodeURIComponent(exportVersionValue)}`;
 
   const basePath = kind === "PART" ? "/parts" : "/recipes";
   const label = kind === "PART" ? "part" : "recipe";
@@ -97,6 +117,7 @@ export function DishDetailActions({
   function close() {
     setOpenDialog(null);
     setError(null);
+    setExportVersionValue(currentVersionId);
   }
 
   function handleArchive() {
@@ -328,10 +349,36 @@ export function DishDetailActions({
           <DialogHeader>
             <DialogTitle>Export this {label}</DialogTitle>
             <DialogDescription>
-              Choose how much evidence to include. Every tier includes the full
-              Version history.
+              Choose a Version and how much evidence to include.
             </DialogDescription>
           </DialogHeader>
+          <div className="flex flex-col gap-1.5">
+            <label
+              htmlFor="export-version-select"
+              className="text-foreground text-sm font-medium"
+            >
+              Version
+            </label>
+            <Select
+              value={exportVersionValue}
+              onValueChange={setExportVersionValue}
+            >
+              <SelectTrigger id="export-version-select" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {versions.map((v) => (
+                  <SelectItem key={v.id} value={v.id}>
+                    {versionLabel(v.majorVersion, v.minorVersion)}
+                    {v.id === currentVersionId ? " (current)" : ""}
+                  </SelectItem>
+                ))}
+                <SelectItem value={ALL_VERSIONS_VALUE}>
+                  Include all Versions
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <div className="flex flex-col gap-3">
             <div className="border-border flex items-center justify-between gap-3 rounded-lg border p-3">
               <div>
@@ -343,7 +390,7 @@ export function DishDetailActions({
               </div>
               <Button asChild variant="outline" size="sm">
                 <a
-                  href={`/api/export/dish/${dishId}?kind=${kind}&tier=STANDARD`}
+                  href={`/api/export/dish/${dishId}?kind=${kind}&tier=STANDARD&${exportVersionQuery}`}
                   download
                 >
                   Download
@@ -362,7 +409,7 @@ export function DishDetailActions({
               </div>
               <Button asChild variant="outline" size="sm">
                 <a
-                  href={`/api/export/dish/${dishId}?kind=${kind}&tier=DETAILED`}
+                  href={`/api/export/dish/${dishId}?kind=${kind}&tier=DETAILED&${exportVersionQuery}`}
                   download
                 >
                   Download
@@ -382,7 +429,7 @@ export function DishDetailActions({
               </div>
               <Button asChild variant="outline" size="sm">
                 <a
-                  href={`/api/export/dish/${dishId}?kind=${kind}&tier=FULL_PRIVATE_HISTORY`}
+                  href={`/api/export/dish/${dishId}?kind=${kind}&tier=FULL_PRIVATE_HISTORY&${exportVersionQuery}`}
                   download
                 >
                   Download

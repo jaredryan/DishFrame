@@ -50,6 +50,49 @@ function content(overrides: Partial<DishContentInput> = {}): DishContentInput {
   };
 }
 
+/** Bumps a MAJOR Version via the real `editDish` path (a cooking-content
+ * change forces a new Version rather than an in-place edit), returning the
+ * new Version's id. Used by the Slice 11 correction pass's Version-scoping
+ * tests below. */
+async function bumpMajorVersion(
+  ownerId: string,
+  dishId: string,
+  baseVersionId: string,
+) {
+  await dishService.editDish(
+    ownerId,
+    dishId,
+    baseVersionId,
+    content({
+      sections: [
+        {
+          name: null,
+          guidanceNote: null,
+          position: 0,
+          ingredients: [
+            {
+              name: "Pepper",
+              quantity: null,
+              quantityEnd: null,
+              isApproximate: false,
+              unit: null,
+              displayText: null,
+              preparationNote: null,
+              isOptional: false,
+              substitute: null,
+            },
+          ],
+          instructions: [],
+          partLinks: [],
+        },
+      ],
+    }),
+    "MAJOR",
+  );
+  const dish = await prisma.dish.findUniqueOrThrow({ where: { id: dishId } });
+  return dish.currentVersionId!;
+}
+
 describe("importExport service", () => {
   let userId: string | undefined;
   let otherUserId: string | undefined;
@@ -337,10 +380,19 @@ describe("importExport service", () => {
       },
     });
 
+    // Individual-export Version selection (added below) must not narrow the
+    // account-wide export — it still carries complete Version history.
+    await bumpMajorVersion(owner.id, dishId, versionId);
+
     const backup = await buildAccountBackupDto(owner.id);
 
+    expect(backup.format).toBe("dishframe.account-export");
+    expect(backup.formatVersion).toBe(1);
+    expect(backup.exportedAt).toBeInstanceOf(Date);
+    expect(backup.scope).toEqual({ exportType: "ACCOUNT" });
     expect(backup.dishes).toHaveLength(1);
     expect(backup.dishes[0].title).toBe("Ginger Soy Bowl");
+    expect(backup.dishes[0].versions).toHaveLength(2);
     expect(backup.tasters.map((t) => t.name)).toContain("Dad");
     expect(backup.cookingSessions).toHaveLength(1);
     expect(backup.cookingSessions[0].cookingNotes).toBe(
@@ -359,5 +411,263 @@ describe("importExport service", () => {
     expect(serialized).not.toMatch(
       /"password"|"accessToken"|"refreshToken"|"idToken"|"token"/,
     );
+  });
+
+  it("individual export defaults to the current Version, scoping content, aggregate rating, and evidence to it", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+    const dishId = await dishService.createDish(userId, "RECIPE", content());
+    const dishV1 = await prisma.dish.findUniqueOrThrow({
+      where: { id: dishId },
+    });
+    const v1Id = dishV1.currentVersionId!;
+    const taster = await prisma.taster.create({
+      data: { ownerId: userId, name: "Mom", position: 1 },
+    });
+    const v1Session = await prisma.cookingSession.create({
+      data: {
+        ownerId: userId,
+        dishId,
+        dishVersionId: v1Id,
+        state: "COMPLETED",
+        startedAt: new Date("2024-01-01T10:00:00Z"),
+        endedAt: new Date("2024-01-01T10:30:00Z"),
+        cookingNotes: "V1 notes.",
+      },
+    });
+    await prisma.rating.create({
+      data: {
+        sessionId: v1Session.id,
+        dishId,
+        dishVersionId: v1Id,
+        dishTitleSnapshot: "Ginger Soy Bowl",
+        dishVersionLabelSnapshot: "V1.0",
+        tasterId: taster.id,
+        value: 2,
+      },
+    });
+
+    const v2Id = await bumpMajorVersion(userId, dishId, v1Id);
+    const v2Session = await prisma.cookingSession.create({
+      data: {
+        ownerId: userId,
+        dishId,
+        dishVersionId: v2Id,
+        state: "COMPLETED",
+        startedAt: new Date("2024-02-01T10:00:00Z"),
+        endedAt: new Date("2024-02-01T10:30:00Z"),
+        cookingNotes: "V2 notes.",
+      },
+    });
+    await prisma.rating.create({
+      data: {
+        sessionId: v2Session.id,
+        dishId,
+        dishVersionId: v2Id,
+        dishTitleSnapshot: "Ginger Soy Bowl",
+        dishVersionLabelSnapshot: "V2.0",
+        tasterId: taster.id,
+        value: 4,
+      },
+    });
+
+    const exported = await buildDishExportDto(
+      userId,
+      dishId,
+      "RECIPE",
+      "FULL_PRIVATE_HISTORY",
+    );
+
+    expect(exported.format).toBe("dishframe.dish-export");
+    expect(exported.formatVersion).toBe(1);
+    expect(exported.exportedAt).toBeInstanceOf(Date);
+    expect(exported.scope).toEqual({
+      exportType: "RECIPE",
+      tier: "FULL_PRIVATE_HISTORY",
+      versionMode: "SINGLE",
+      versionId: v2Id,
+      versionLabel: "V2.0",
+    });
+    expect(exported.versions).toHaveLength(1);
+    expect(exported.versions[0].versionLabel).toBe("V2.0");
+    expect(exported.aggregateRating).toBe(4);
+    expect(exported.ratingCount).toBe(1);
+    expect(exported.cookingSessions).toHaveLength(1);
+    expect(exported.cookingSessions![0].cookingNotes).toBe("V2 notes.");
+  });
+
+  it("exporting one explicit historical Version excludes the current Version's content and evidence", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+    const dishId = await dishService.createDish(userId, "RECIPE", content());
+    const dishV1 = await prisma.dish.findUniqueOrThrow({
+      where: { id: dishId },
+    });
+    const v1Id = dishV1.currentVersionId!;
+    const taster = await prisma.taster.create({
+      data: { ownerId: userId, name: "Mom", position: 1 },
+    });
+    const v1Session = await prisma.cookingSession.create({
+      data: {
+        ownerId: userId,
+        dishId,
+        dishVersionId: v1Id,
+        state: "COMPLETED",
+        startedAt: new Date("2024-01-01T10:00:00Z"),
+        endedAt: new Date("2024-01-01T10:30:00Z"),
+        cookingNotes: "V1 notes.",
+      },
+    });
+    await prisma.rating.create({
+      data: {
+        sessionId: v1Session.id,
+        dishId,
+        dishVersionId: v1Id,
+        dishTitleSnapshot: "Ginger Soy Bowl",
+        dishVersionLabelSnapshot: "V1.0",
+        tasterId: taster.id,
+        value: 2,
+      },
+    });
+
+    const v2Id = await bumpMajorVersion(userId, dishId, v1Id);
+    const v2Session = await prisma.cookingSession.create({
+      data: {
+        ownerId: userId,
+        dishId,
+        dishVersionId: v2Id,
+        state: "COMPLETED",
+        startedAt: new Date("2024-02-01T10:00:00Z"),
+        endedAt: new Date("2024-02-01T10:30:00Z"),
+        cookingNotes: "V2 notes.",
+      },
+    });
+    await prisma.rating.create({
+      data: {
+        sessionId: v2Session.id,
+        dishId,
+        dishVersionId: v2Id,
+        dishTitleSnapshot: "Ginger Soy Bowl",
+        dishVersionLabelSnapshot: "V2.0",
+        tasterId: taster.id,
+        value: 4,
+      },
+    });
+
+    const exported = await buildDishExportDto(
+      userId,
+      dishId,
+      "RECIPE",
+      "FULL_PRIVATE_HISTORY",
+      { mode: "SINGLE", versionId: v1Id },
+    );
+
+    expect(exported.scope.versionId).toBe(v1Id);
+    expect(exported.scope.versionLabel).toBe("V1.0");
+    expect(exported.versions).toHaveLength(1);
+    expect(exported.versions[0].sections[0].ingredients[0].name).toBe("Salt");
+    expect(exported.aggregateRating).toBe(2);
+    expect(exported.ratingCount).toBe(1);
+    expect(exported.cookingSessions).toHaveLength(1);
+    expect(exported.cookingSessions![0].cookingNotes).toBe("V1 notes.");
+    const serialized = JSON.stringify(exported);
+    expect(serialized).not.toContain("V2 notes.");
+    expect(serialized).not.toContain("Pepper");
+  });
+
+  it("ALL-Version export includes full Version history and evidence with Version provenance retained", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+    const dishId = await dishService.createDish(userId, "RECIPE", content());
+    const dishV1 = await prisma.dish.findUniqueOrThrow({
+      where: { id: dishId },
+    });
+    const v1Id = dishV1.currentVersionId!;
+    const taster = await prisma.taster.create({
+      data: { ownerId: userId, name: "Mom", position: 1 },
+    });
+    const v1Session = await prisma.cookingSession.create({
+      data: {
+        ownerId: userId,
+        dishId,
+        dishVersionId: v1Id,
+        state: "COMPLETED",
+        startedAt: new Date("2024-01-01T10:00:00Z"),
+        endedAt: new Date("2024-01-01T10:30:00Z"),
+        cookingNotes: "V1 notes.",
+      },
+    });
+    await prisma.rating.create({
+      data: {
+        sessionId: v1Session.id,
+        dishId,
+        dishVersionId: v1Id,
+        dishTitleSnapshot: "Ginger Soy Bowl",
+        dishVersionLabelSnapshot: "V1.0",
+        tasterId: taster.id,
+        value: 2,
+      },
+    });
+
+    const v2Id = await bumpMajorVersion(userId, dishId, v1Id);
+    const v2Session = await prisma.cookingSession.create({
+      data: {
+        ownerId: userId,
+        dishId,
+        dishVersionId: v2Id,
+        state: "COMPLETED",
+        startedAt: new Date("2024-02-01T10:00:00Z"),
+        endedAt: new Date("2024-02-01T10:30:00Z"),
+        cookingNotes: "V2 notes.",
+      },
+    });
+    await prisma.rating.create({
+      data: {
+        sessionId: v2Session.id,
+        dishId,
+        dishVersionId: v2Id,
+        dishTitleSnapshot: "Ginger Soy Bowl",
+        dishVersionLabelSnapshot: "V2.0",
+        tasterId: taster.id,
+        value: 4,
+      },
+    });
+
+    const exported = await buildDishExportDto(
+      userId,
+      dishId,
+      "RECIPE",
+      "FULL_PRIVATE_HISTORY",
+      { mode: "ALL" },
+    );
+
+    expect(exported.scope.versionMode).toBe("ALL");
+    expect(exported.scope).not.toHaveProperty("versionId");
+    expect(exported.versions).toHaveLength(2);
+    expect(exported.versions.map((v) => v.versionLabel)).toEqual([
+      "V1.0",
+      "V2.0",
+    ]);
+    expect(exported.aggregateRating).toBe(3);
+    expect(exported.ratingCount).toBe(2);
+    expect(exported.cookingSessions).toHaveLength(2);
+    const notesByVersion = new Map(
+      exported.cookingSessions!.map((s) => [s.versionLabel, s.cookingNotes]),
+    );
+    expect(notesByVersion.get("V1.0")).toBe("V1 notes.");
+    expect(notesByVersion.get("V2.0")).toBe("V2 notes.");
+  });
+
+  it("rejects an unknown versionId with NotFoundError", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+    const dishId = await dishService.createDish(userId, "RECIPE", content());
+
+    await expect(
+      buildDishExportDto(userId, dishId, "RECIPE", "STANDARD", {
+        mode: "SINGLE",
+        versionId: "does-not-exist",
+      }),
+    ).rejects.toThrow(NotFoundError);
   });
 });

@@ -31,6 +31,33 @@ export const exportTierValues = [
 ] as const;
 export type ExportTierValue = (typeof exportTierValues)[number];
 
+// Slice 11 correction pass: stable top-level envelope (`format`,
+// `formatVersion`, `exportedAt`) on every export payload — see
+// docs/SLICE_11.md's correction section. `formatVersion` starts at 1;
+// bump it if the payload shape changes in a way a future importer would
+// need to distinguish.
+const DISH_EXPORT_FORMAT = "dishframe.dish-export";
+const ACCOUNT_EXPORT_FORMAT = "dishframe.account-export";
+const CURRENT_EXPORT_FORMAT_VERSION = 1;
+
+export const versionModeValues = ["SINGLE", "ALL"] as const;
+export type VersionModeValue = (typeof versionModeValues)[number];
+
+/** SINGLE with no `versionId` resolves to the Dish's current Version. */
+export type DishVersionSelection =
+  { mode: "SINGLE"; versionId?: string } | { mode: "ALL" };
+
+/**
+ * Title-derived filenames must never let a user-controlled title inject
+ * response-header content (CRLF, quotes) into `Content-Disposition`. Only
+ * alphanumerics, spaces, `.`, and `-` survive; anything else becomes `_`.
+ */
+export function sanitizeExportFilename(title: string | null | undefined) {
+  const base = (title ?? "").replace(/[^a-z0-9.\- ]/gi, "_").trim();
+  const safe = base.length > 0 ? base.slice(0, 150) : "export";
+  return `${safe}.json`;
+}
+
 // ---------------------------------------------------------------------------
 // Shared Recipe/Part content shaping (Section/Ingredient/Instruction/PartLink)
 // ---------------------------------------------------------------------------
@@ -151,10 +178,12 @@ type ExportVersionRow = {
 
 /**
  * §57.1: structured formats use "yield", not the friendlier UI wording.
- * §55.1: "images or portable image references" — `imageAssetId` is an
- * internal reference the owner's own account can already resolve via the
- * authenticated `/api/images/[assetId]` route; the Blob `storageKey` itself
- * is never included (that's the one thing standing between "private" and a
+ * `imageAssetId` is an internal DishFrame reference only — not
+ * independently portable, and the image binary itself is never included in
+ * this export (docs/SLICE_11.md correction section). The owner's own
+ * signed-in account can still resolve it via the authenticated
+ * `/api/images/[assetId]` route; the Blob `storageKey` itself is never
+ * included (that's the one thing standing between "private" and a
  * directly-fetchable file, per `images/service.ts`'s own model comment).
  */
 export function versionContentDto(version: ExportVersionRow) {
@@ -217,9 +246,9 @@ export function versionContentDto(version: ExportVersionRow) {
 // Item export (§55.2-§55.6) — one Recipe or Part, tiered privacy
 // ---------------------------------------------------------------------------
 
-async function ratingRowsForDish(dishId: string) {
+async function ratingRowsForDish(dishId: string, versionId?: string) {
   return prisma.rating.findMany({
-    where: { dishId },
+    where: { dishId, ...(versionId ? { dishVersionId: versionId } : {}) },
     orderBy: { createdAt: "asc" },
     select: {
       value: true,
@@ -250,8 +279,8 @@ function anonymizedTasterLabels(
   return labels;
 }
 
-async function buildDetailedEvidence(dishId: string) {
-  const ratings = await ratingRowsForDish(dishId);
+async function buildDetailedEvidence(dishId: string, versionId?: string) {
+  const ratings = await ratingRowsForDish(dishId, versionId);
   const tasterLabels = anonymizedTasterLabels(ratings);
   return {
     individualRatings: ratings.map((r) => ({
@@ -267,10 +296,18 @@ async function buildDetailedEvidence(dishId: string) {
   };
 }
 
-async function buildFullPrivateHistory(ownerId: string, dishId: string) {
+async function buildFullPrivateHistory(
+  ownerId: string,
+  dishId: string,
+  versionId?: string,
+) {
   const ratings = await ratingRowsForDish(dishId);
   const sessions = await prisma.cookingSession.findMany({
-    where: { ownerId, dishId },
+    where: {
+      ownerId,
+      dishId,
+      ...(versionId ? { dishVersionId: versionId } : {}),
+    },
     orderBy: { startedAt: "asc" },
     select: {
       id: true,
@@ -341,11 +378,20 @@ async function buildFullPrivateHistory(ownerId: string, dishId: string) {
   };
 }
 
+/**
+ * Slice 11 correction pass (docs/SLICE_11.md): individual export defaults
+ * to the current Version only — full history is no longer implicit. Callers
+ * choose `{ mode: "SINGLE" }` (current Version, the dialog's default),
+ * `{ mode: "SINGLE", versionId }` (one explicit historical Version), or
+ * `{ mode: "ALL" }`. Ratings/evidence are scoped to the exported Version(s)
+ * only — a SINGLE export never surfaces another Version's evidence.
+ */
 export async function buildDishExportDto(
   ownerId: string,
   dishId: string,
   kind: DishKindValue,
   tier: ExportTierValue,
+  versionSelection: DishVersionSelection = { mode: "SINGLE" },
 ) {
   const dish = await prisma.dish.findFirst({
     where: { id: dishId, ownerId, kind },
@@ -373,13 +419,40 @@ export async function buildDishExportDto(
       kind === "PART" ? "Part not found." : "Recipe not found.",
     );
 
-  const ratings = await ratingRowsForDish(dish.id);
+  let selectedVersion: (typeof dish.versions)[number] | null = null;
+  if (versionSelection.mode === "SINGLE") {
+    const targetVersionId = versionSelection.versionId ?? dish.currentVersionId;
+    selectedVersion =
+      dish.versions.find((v) => v.id === targetVersionId) ?? null;
+    if (!selectedVersion) throw new NotFoundError("Version not found.");
+  }
+  const versionFilterId = selectedVersion?.id;
+  const exportedVersions = selectedVersion ? [selectedVersion] : dish.versions;
+
+  const ratings = await ratingRowsForDish(dish.id, versionFilterId);
   const aggregateRating =
     ratings.length > 0
       ? ratings.reduce((sum, r) => sum + r.value, 0) / ratings.length
       : null;
 
   return {
+    format: DISH_EXPORT_FORMAT,
+    formatVersion: CURRENT_EXPORT_FORMAT_VERSION,
+    exportedAt: new Date(),
+    scope: {
+      exportType: kind,
+      tier,
+      versionMode: versionSelection.mode,
+      ...(selectedVersion
+        ? {
+            versionId: selectedVersion.id,
+            versionLabel: versionLabel(
+              selectedVersion.majorVersion,
+              selectedVersion.minorVersion,
+            ),
+          }
+        : {}),
+    },
     kind: dish.kind,
     title: dish.currentTitle,
     stage: dish.stage,
@@ -391,14 +464,14 @@ export async function buildDishExportDto(
     createdAt: dish.createdAt,
     updatedAt: dish.updatedAt,
     currentVersionId: dish.currentVersionId,
-    versions: dish.versions.map(versionContentDto),
+    versions: exportedVersions.map(versionContentDto),
     aggregateRating,
     ratingCount: ratings.length,
     ...(tier === "DETAILED" || tier === "FULL_PRIVATE_HISTORY"
-      ? await buildDetailedEvidence(dish.id)
+      ? await buildDetailedEvidence(dish.id, versionFilterId)
       : {}),
     ...(tier === "FULL_PRIVATE_HISTORY"
-      ? await buildFullPrivateHistory(ownerId, dish.id)
+      ? await buildFullPrivateHistory(ownerId, dish.id, versionFilterId)
       : {}),
   };
 }
@@ -561,8 +634,10 @@ export async function buildAccountBackupDto(ownerId: string) {
   const tasterNameById = new Map(tasters.map((t) => [t.id, t.name] as const));
 
   return {
-    formatVersion: 1,
+    format: ACCOUNT_EXPORT_FORMAT,
+    formatVersion: CURRENT_EXPORT_FORMAT_VERSION,
     exportedAt: new Date(),
+    scope: { exportType: "ACCOUNT" as const },
     preferences: preference
       ? {
           measurementSystem: preference.measurementSystem,
