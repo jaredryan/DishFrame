@@ -66,6 +66,10 @@ export const refreshSourceSchema = listIdSchema.extend({
   targetVersionId: z.string().min(1).optional(),
 });
 
+export const selectGroceryItemVariantSchema = itemIdSchema.extend({
+  variant: z.enum(["PRIMARY", "SUBSTITUTE"]),
+});
+
 export type ActionState = {
   status: "idle" | "success" | "error";
   message?: string;
@@ -84,11 +88,12 @@ export type GroceryContributionDto = {
   originalName: string;
   quantityText: string | null;
   unit: string | null;
-  /** Slice 12 correction: whether this contribution has a persisted
-   * substitute snapshot to switch to — read from stored list data, never a
-   * live source lookup, so the UI can hide an impossible action instead of
-   * showing a control that's guaranteed to fail. */
+  isOptional: boolean;
+  /** Has a persisted substitute snapshot to select (Slice 12 correction). */
   hasSubstitute: boolean;
+  /** Which frozen snapshot is currently effective — reversible in either
+   * direction (Slice 12 correction 2). */
+  selectedVariant: "PRIMARY" | "SUBSTITUTE";
 };
 
 export type GroceryListItemDto = {

@@ -1,6 +1,7 @@
 import "server-only";
 import { prisma } from "@/lib/db/prisma";
 import type { Prisma } from "@/generated/prisma/client";
+import type { GroceryContributionVariant } from "@/generated/prisma/enums";
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import { decimalToNumber } from "@/lib/dishes/format";
 import { formatCalculatedQuantity } from "@/lib/units/scaling";
@@ -65,10 +66,8 @@ function formatGroceryQuantityText(
   return `${approxPrefix}${formatCalculatedQuantity(quantity)}${range}`;
 }
 
-/** Slice 12 correction: the persisted substitute-snapshot columns for one
- * `GroceryItemContribution`, from a `ResolvedSubstituteSnapshot` (or cleared
- * to null when the ingredient has no substitute, or no longer does after a
- * refresh). */
+/** Substitute-snapshot columns for a contribution write, null-clearing every
+ * field when `substitute` is null (Slice 12 correction). */
 function substituteSnapshotFields(
   substitute: ResolvedSubstituteSnapshot | null,
 ) {
@@ -292,19 +291,54 @@ type ContributionRow = {
   quantityText: string | null;
   unit: string | null;
   isOptional: boolean;
+  selectedVariant: GroceryContributionVariant;
+  substituteName: string | null;
+  substituteQuantityDecimal: Prisma.Decimal | null;
+  substituteQuantityText: string | null;
+  substituteUnit: string | null;
 };
 
+/**
+ * The contribution's currently-effective name/quantity/unit — the frozen
+ * primary snapshot, or the frozen substitute snapshot when `selectedVariant`
+ * is `SUBSTITUTE`. Both snapshots always stay populated regardless of which
+ * is selected (Slice 12 correction 2) — this is the one place that decides
+ * which is "live" for aggregation/display purposes.
+ */
+function effectiveContributionFields(row: ContributionRow): {
+  name: string;
+  quantityDecimal: Prisma.Decimal | null;
+  quantityText: string | null;
+  unit: string | null;
+} {
+  if (row.selectedVariant === "SUBSTITUTE") {
+    return {
+      name: row.substituteName!,
+      quantityDecimal: row.substituteQuantityDecimal,
+      quantityText: row.substituteQuantityText,
+      unit: row.substituteUnit,
+    };
+  }
+  return {
+    name: row.originalName,
+    quantityDecimal: row.quantityDecimal,
+    quantityText: row.quantityText,
+    unit: row.unit,
+  };
+}
+
 function contributionToCombinable(row: ContributionRow): CombinableOccurrence {
-  const quantity = decimalToNumber(row.quantityDecimal);
+  const effective = effectiveContributionFields(row);
+  const quantity = decimalToNumber(effective.quantityDecimal);
   return {
     key: row.id,
-    name: row.originalName,
+    name: effective.name,
     quantity,
-    unit: row.unit,
+    unit: effective.unit,
     // A contribution has no separate free-text column — a quantity-less row
     // carrying its own quantityText (e.g. "to taste") is exactly §10.7's
     // free-text case.
-    displayText: quantity == null ? row.quantityText : null,
+    displayText: quantity == null ? effective.quantityText : null,
     isOptional: row.isOptional,
   };
 }
@@ -313,13 +347,9 @@ function contributionToCombinable(row: ContributionRow): CombinableOccurrence {
  * Recomputes one `GroceryListItem`'s own displayed name/quantity/unit from
  * its current set of contributions (after a refresh, manual merge, or
  * uncombine leaves it with a different contribution set than it was
- * generated with). Leaves the item's `isOptional` flag alone when it still
- * has more than one contribution — a manually-merged group's mixed
- * optionality (Slice 12 correction: manual merge across differing
- * optionality is allowed) has no single honest boolean to recompute, so the
- * merge/refresh call site's own explicit choice stands. When exactly one
- * contribution remains (e.g. after uncombine), that contribution's own
- * persisted `isOptional` is unambiguous and is restored here.
+ * generated with). Restores `isOptional` from the sole contribution when
+ * exactly one remains; leaves it alone for a >1 mixed-optionality manual
+ * merge, where no single boolean is honest (Slice 12 correction).
  */
 async function recomputeItemAggregate(
   tx: Prisma.TransactionClient,
@@ -364,14 +394,20 @@ async function recomputeItemAggregate(
   // would have rejected) — no single quantity/unit can honestly represent
   // the group; fall back to a concatenated summary, source breakdown stays
   // the source of truth (§61.3).
+  const firstEffective = effectiveContributionFields(first);
   await tx.groceryListItem.update({
     where: { id: itemId },
     data: {
-      name: first.originalName,
+      name: firstEffective.name,
       unit: null,
       quantityDecimal: null,
       quantityText: contributions
-        .map((c) => [c.quantityText, c.unit].filter(Boolean).join(" "))
+        .map((c) => {
+          const effective = effectiveContributionFields(c);
+          return [effective.quantityText, effective.unit]
+            .filter(Boolean)
+            .join(" ");
+        })
         .filter(Boolean)
         .join(" + "),
     },
@@ -607,11 +643,8 @@ export async function combineGroceryItems(
  * destructive rebuild (Arch §D.11) — a correction/inspection tool, not a
  * general splitter, so it throws on an item with fewer than two
  * contributions (nothing to split) or a manual item (no contributions at
- * all). Slice 12 correction: each split-off item's `isOptional` is restored
- * from that contribution's own persisted flag, not the (possibly
- * manually-merged, mixed-optionality) combined item's aggregate value — this
- * is what keeps a manual merge across differing optionality truthfully
- * reversible.
+ * all). Each split-off item's `isOptional` is restored from its own
+ * contribution, not the combined item's aggregate (Slice 12 correction).
  */
 export async function uncombineGroceryItem(
   ownerId: string,
@@ -661,54 +694,46 @@ export async function uncombineGroceryItem(
 }
 
 // ---------------------------------------------------------------------------
-// Substitute switching (§62.2 — "while editing the generated list")
+// Substitute selection (§62.2 — "while editing the generated list")
 // ---------------------------------------------------------------------------
 
 /**
- * Switches a single-contribution item from its generated primary ingredient
- * to that same contribution's saved substitute (§11.5/§62.2 — DishFrame
- * never shows both). Slice 12 correction: uses the contribution's own
- * durable substitute snapshot (persisted at generation/refresh time,
- * `substituteSnapshotFields`) rather than re-walking the source Version —
- * this keeps switching available even after the source Dish is edited, a
- * newer Version is created, or the source is permanently deleted (§60.6),
- * since none of those touch an already-generated list's stored snapshot.
- * Requires the item to have no other contributions, since a combined item's
- * contributions could stop being mutually combinable once one of them
- * changes identity/name — the user uncombines first in that case (§61.4
- * already exists for exactly this). Switching consumes the snapshot (clears
- * the substitute* columns): there is no saved "substitute of the substitute"
- * to switch to next.
+ * Selects which of a single-contribution item's two frozen snapshots —
+ * `PRIMARY` (the original) or `SUBSTITUTE` (the saved substitute) — is
+ * currently effective (§62.2), reversibly in either direction (Slice 12
+ * correction 2). Neither snapshot is ever overwritten or cleared by this
+ * operation, so selecting back and forth always reproduces the same frozen
+ * values; it works identically after the source is edited, superseded by a
+ * newer Version, or permanently deleted (§60.6), since it never re-reads
+ * source content. Combined items uncombine first (§61.4); manual items have
+ * no substitute to select.
  */
-export async function switchGroceryItemToSubstitute(
+export async function selectGroceryItemVariant(
   ownerId: string,
   listId: string,
   itemId: string,
+  variant: GroceryContributionVariant,
 ) {
   const list = await getOwnedGroceryListOrThrow(ownerId, listId);
   assertListActive(list);
   const item = findOwnedItem(list, itemId);
+  if (item.isManual) {
+    throw new ValidationError("A manual item has no substitute to select.");
+  }
   if (item.contributions.length !== 1) {
     throw new ValidationError(
-      "Uncombine this item first to switch just one contribution to its substitute.",
+      "Uncombine this item first to select a variant for just one contribution.",
     );
   }
   const contribution = item.contributions[0];
-  if (!contribution.substituteIngredientLineageId) {
+  if (variant === "SUBSTITUTE" && !contribution.substituteIngredientLineageId) {
     throw new ValidationError("This item has no saved substitute.");
   }
 
   await prisma.$transaction(async (tx) => {
     await tx.groceryItemContribution.update({
       where: { id: contribution.id },
-      data: {
-        ingredientLineageId: contribution.substituteIngredientLineageId,
-        originalName: contribution.substituteName!,
-        quantityDecimal: contribution.substituteQuantityDecimal,
-        quantityText: contribution.substituteQuantityText,
-        unit: contribution.substituteUnit,
-        ...substituteSnapshotFields(null),
-      },
+      data: { selectedVariant: variant },
     });
     await recomputeItemAggregate(tx, itemId);
   });
@@ -949,6 +974,14 @@ export async function applyGroceryListSourceRefresh(
     for (const [lineageId, occurrence] of freshByLineage) {
       const existing = existingByLineage.get(lineageId);
       if (!existing) continue;
+      // A currently-SUBSTITUTE selection reverts to PRIMARY only when the
+      // refreshed Version no longer has a substitute at all; it is otherwise
+      // preserved (and a PRIMARY selection is never disturbed by a newly
+      // appearing substitute) — Slice 12 correction 2.
+      const nextVariant: GroceryContributionVariant =
+        existing.selectedVariant === "SUBSTITUTE" && !occurrence.substitute
+          ? "PRIMARY"
+          : existing.selectedVariant;
       await tx.groceryItemContribution.update({
         where: { id: existing.id },
         data: {
@@ -963,10 +996,9 @@ export async function applyGroceryListSourceRefresh(
             ),
           unit: occurrence.unit,
           isOptional: occurrence.isOptional,
-          // §60.4/§60.5 refresh must update the substitute snapshot too: add
-          // a newly-available substitute, replace a changed one, or clear it
-          // when the selected target Version no longer has one.
+          // Refresh also maintains the substitute snapshot (§60.5).
           ...substituteSnapshotFields(occurrence.substitute),
+          selectedVariant: nextVariant,
         },
       });
       await recomputeItemAggregate(tx, existing.groceryListItemId);
@@ -1164,6 +1196,7 @@ export async function duplicateGroceryList(ownerId: string, listId: string) {
             substituteQuantityDecimal: contribution.substituteQuantityDecimal,
             substituteQuantityText: contribution.substituteQuantityText,
             substituteUnit: contribution.substituteUnit,
+            selectedVariant: contribution.selectedVariant,
           },
         });
       }

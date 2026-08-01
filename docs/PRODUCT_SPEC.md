@@ -4258,9 +4258,16 @@ A generated grocery list stores:
 - exact source Recipe and Part Versions;
 - selected scale;
 - generated ingredient lines;
-- source relationships.
+- source relationships;
+- each line's saved substitute, if any, at the same selected scale (§62.2).
 
-Later Recipe or Part changes do not silently rewrite the list.
+Later Recipe or Part changes do not silently rewrite the list. Both the
+original line and its saved substitute, when one exists, remain stored side
+by side for as long as the line exists — selecting one never discards the
+other (§62.2). Substitute selection remains available, in both directions,
+even after the source Recipe or Part is edited, superseded by a newer
+Version, or permanently deleted (§60.6) — it never requires re-reading the
+live Recipe or Part.
 
 ## 60.4 Same-major update prompt
 
@@ -4299,7 +4306,11 @@ DishFrame attempts to combine equivalent items when:
 
 - names are sufficiently equivalent;
 - units are compatible;
-- safe unit conversion exists.
+- safe unit conversion exists;
+- optionality matches (§62.1) — a required and an optional occurrence never
+  auto-combine, even when name/quantity/unit otherwise match exactly. An
+  optional item must stay independently removable rather than being absorbed
+  into a required combined item.
 
 Example:
 
@@ -4308,7 +4319,8 @@ Example:
 1/4 cup soy sauce
 ```
 
-may combine into one total.
+may combine into one total (when both occurrences share the same
+optionality).
 
 ## 61.2 Ambiguous lines
 
@@ -4352,6 +4364,14 @@ Uncombine is a correction and inspection tool rather than a prominent general-pu
 
 The user may deliberately merge lines DishFrame did not combine when they know the items are equivalent.
 
+A manual merge may deliberately combine a required and an optional
+contribution (§61.1's auto-combine restriction does not apply to a
+deliberate user action). The resulting line must represent that truthfully:
+it is not displayed simply as "Optional" — its optionality is derived from
+its actual contributions and displayed as a distinct "total including an
+optional item" state. The source breakdown (§61.3) still identifies each
+individual contribution's own optionality.
+
 ---
 
 # 62. Optional Ingredients and Substitutes in Grocery Lists
@@ -4373,7 +4393,17 @@ The user may switch to the saved substitute:
 - before generation;
 - while editing the generated list.
 
-DishFrame does not automatically add both.
+DishFrame does not automatically add both, but generation itself keeps both
+the primary ingredient and its saved substitute (at the same selected scale)
+stored on the line, so a later switch never needs to re-read the source.
+
+Switching after generation is **reversible**: the user may move back to the
+original ingredient at any time, and back again, as many times as they like
+— neither direction discards the other's stored values. This is offered only
+when it can actually succeed — a single, not-yet-combined, not-manually-added
+line with a saved substitute. DishFrame does not show a switch control that
+is guaranteed to fail; a combined line's contributions must be uncombined
+first.
 
 ---
 

@@ -47,7 +47,7 @@ import {
   reorderGroceryListItems,
   combineGroceryItems,
   uncombineGroceryItem,
-  switchGroceryItemToSubstitute,
+  selectGroceryItemVariant,
   renameGroceryList,
   completeGroceryList,
   reopenGroceryList,
@@ -84,6 +84,27 @@ function groupByCategory(
     groups.get(key)!.items.push(item);
   }
   return [...groups.values()];
+}
+
+/**
+ * Truthful aggregate optionality for display (Slice 12 correction 2). A
+ * multi-contribution item's own `isOptional` boolean can't honestly
+ * represent a manually-merged required+optional mix (§61.1 guarantees
+ * auto-combined groups are always uniform, but manual merge — §61.5 — may
+ * deliberately combine differing optionality) — so this derives the
+ * displayed state straight from each contribution's own `isOptional`
+ * instead of trusting the item-level flag whenever there's more than one.
+ */
+function aggregateOptionalityDisplay(
+  item: GroceryListItemDto,
+): "required" | "optional" | "mixed" {
+  if (item.contributions.length <= 1) {
+    return item.isOptional ? "optional" : "required";
+  }
+  const flags = item.contributions.map((c) => c.isOptional);
+  if (flags.every(Boolean)) return "optional";
+  if (flags.every((f) => !f)) return "required";
+  return "mixed";
 }
 
 export function GroceryListDetailView({
@@ -418,11 +439,12 @@ export function GroceryListDetailView({
                       }),
                     )
                   }
-                  onSwitchSubstitute={() =>
+                  onSelectVariant={(variant) =>
                     runAction(() =>
-                      switchGroceryItemToSubstitute({
+                      selectGroceryItemVariant({
                         listId: list.id,
                         itemId: item.id,
+                        variant,
                       }),
                     )
                   }
@@ -506,7 +528,7 @@ function GroceryItemRow({
   onEdit,
   onRemove,
   onUncombine,
-  onSwitchSubstitute,
+  onSelectVariant,
 }: {
   item: GroceryListItemDto;
   checked: boolean;
@@ -526,17 +548,18 @@ function GroceryItemRow({
   }) => void;
   onRemove: () => void;
   onUncombine: () => void;
-  onSwitchSubstitute: () => void;
+  onSelectVariant: (variant: "PRIMARY" | "SUBSTITUTE") => void;
 }) {
   const [expanded, setExpanded] = React.useState(false);
   const [editing, setEditing] = React.useState(false);
   const isCombined = item.contributions.length > 1;
-  // Slice 12 correction: only offer "Switch to substitute" when it can
-  // actually succeed — a single, non-manual contribution with a persisted
-  // substitute snapshot — rather than showing a control that's guaranteed to
-  // fail (§62.2's post-generation entry point).
-  const canSwitchSubstitute =
-    !isCombined && !item.isManual && item.contributions[0]?.hasSubstitute;
+  const soleContribution = !isCombined ? item.contributions[0] : undefined;
+  // Only show a variant-selection action that can actually succeed (Slice 12
+  // correction 2) — a single, not-yet-combined, not-manually-added line with
+  // a saved substitute (§62.2).
+  const canSelectVariant =
+    !item.isManual && soleContribution?.hasSubstitute === true;
+  const optionalityDisplay = aggregateOptionalityDisplay(item);
 
   return (
     <li className="border-border bg-card flex flex-col gap-2 rounded-lg border p-3">
@@ -611,9 +634,14 @@ function GroceryItemRow({
                   .filter(Boolean)
                   .join(" ")}
               </span>
-              {item.isOptional && (
+              {optionalityDisplay === "optional" && (
                 <Badge variant="outline" className="ml-2 align-middle">
                   Optional
+                </Badge>
+              )}
+              {optionalityDisplay === "mixed" && (
+                <Badge variant="outline" className="ml-2 align-middle">
+                  Total (with optional)
                 </Badge>
               )}
               {item.isManual && (
@@ -688,11 +716,26 @@ function GroceryItemRow({
               Uncombine
             </Button>
           )}
-          {canSwitchSubstitute && (
-            <Button variant="ghost" size="sm" onClick={onSwitchSubstitute}>
-              Switch to substitute
-            </Button>
-          )}
+          {canSelectVariant &&
+            soleContribution!.selectedVariant === "PRIMARY" && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => onSelectVariant("SUBSTITUTE")}
+              >
+                Use substitute
+              </Button>
+            )}
+          {canSelectVariant &&
+            soleContribution!.selectedVariant === "SUBSTITUTE" && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => onSelectVariant("PRIMARY")}
+              >
+                Use original
+              </Button>
+            )}
         </div>
       )}
 
@@ -703,6 +746,7 @@ function GroceryItemRow({
               {[c.quantityText, c.unit, c.originalName]
                 .filter(Boolean)
                 .join(" ")}
+              {c.isOptional && " · optional"}
             </li>
           ))}
         </ul>

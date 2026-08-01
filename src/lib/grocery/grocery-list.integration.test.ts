@@ -991,10 +991,100 @@ describe("grocery list service", () => {
       // concatenated display rather than fabricating one quantity.
       expect(merged[0].quantityDecimal).toBeNull();
     });
+
+    it("preserves each contribution's own optionality across a merge and a later uncombine (Slice 12 correction)", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      await initializeNewUser(userId);
+
+      const recipeA = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({ name: "Cilantro", quantity: 1, unit: "can" }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      const recipeB = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({
+                  name: "Cilantro",
+                  quantity: 400,
+                  unit: "g",
+                  isOptional: true,
+                }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      const listId = await listService.generateGroceryList(userId, {
+        title: "This week",
+        sources: [
+          { dishId: recipeA, scaleFactor: 1 },
+          { dishId: recipeB, scaleFactor: 1 },
+        ],
+      });
+      const items = await prisma.groceryListItem.findMany({
+        where: { groceryListId: listId },
+        include: { contributions: true },
+      });
+      expect(items).toHaveLength(2); // "can" vs "g" never auto-combines
+
+      const requiredContribution = items
+        .flatMap((i) => i.contributions)
+        .find((c) => c.unit === "can")!;
+      const optionalContribution = items
+        .flatMap((i) => i.contributions)
+        .find((c) => c.unit === "g")!;
+      expect(requiredContribution.isOptional).toBe(false);
+      expect(optionalContribution.isOptional).toBe(true);
+
+      await listService.combineGroceryItems(userId, listId, [
+        items[0].id,
+        items[1].id,
+      ]);
+
+      await listService.uncombineGroceryItem(userId, listId, items[0].id);
+
+      const afterUncombine = await prisma.groceryListItem.findMany({
+        where: { groceryListId: listId },
+        include: { contributions: true },
+      });
+      expect(afterUncombine).toHaveLength(2);
+      const restoredRequired = afterUncombine.find(
+        (i) => i.contributions[0]?.unit === "can",
+      )!;
+      const restoredOptional = afterUncombine.find(
+        (i) => i.contributions[0]?.unit === "g",
+      )!;
+      expect(restoredRequired.isOptional).toBe(false);
+      expect(restoredOptional.isOptional).toBe(true);
+    });
   });
 
-  describe("switchGroceryItemToSubstitute", () => {
-    it("switches a single-contribution item's values to its saved substitute", async () => {
+  describe("selectGroceryItemVariant (reversible substitute selection, Slice 12 correction 2)", () => {
+    it("persists a scaled substitute snapshot at generation, independent of a later source edit", async () => {
       const user = await createTestUser();
       userId = user.id;
       await initializeNewUser(userId);
@@ -1032,23 +1122,343 @@ describe("grocery list service", () => {
       );
       const listId = await listService.generateGroceryList(userId, {
         title: "This week",
+        sources: [{ dishId: recipeId, scaleFactor: 3 }],
+      });
+      const contribution =
+        await prisma.groceryItemContribution.findFirstOrThrow({
+          where: { groceryListItem: { groceryListId: listId } },
+        });
+      expect(contribution.substituteName).toBe("Margarine");
+      expect(contribution.substituteQuantityDecimal?.toNumber()).toBe(6); // 2 * scaleFactor 3
+      expect(contribution.substituteUnit).toBe("cup");
+
+      const dish = await prisma.dish.findUniqueOrThrow({
+        where: { id: recipeId },
+      });
+      await dishService.editDish(
+        userId,
+        recipeId,
+        dish.currentVersionId!,
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({
+                  name: "Butter",
+                  quantity: 1,
+                  unit: "cup",
+                  substitute: {
+                    name: "Ghee",
+                    quantity: 5,
+                    quantityEnd: null,
+                    isApproximate: false,
+                    unit: "cup",
+                    displayText: null,
+                    preparationNote: null,
+                  },
+                }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+        "MINOR",
+      );
+
+      const afterEdit = await prisma.groceryItemContribution.findUniqueOrThrow({
+        where: { id: contribution.id },
+      });
+      expect(afterEdit.substituteName).toBe("Margarine");
+      expect(afterEdit.substituteQuantityDecimal?.toNumber()).toBe(6);
+    });
+
+    async function createButterMargarineList(
+      ownerId: string,
+    ): Promise<{ recipeId: string; listId: string; itemId: string }> {
+      const recipeId = await dishService.createDish(
+        ownerId,
+        "RECIPE",
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({
+                  name: "Butter",
+                  quantity: 1,
+                  unit: "cup",
+                  substitute: {
+                    name: "Margarine",
+                    quantity: 2,
+                    quantityEnd: null,
+                    isApproximate: false,
+                    unit: "cup",
+                    displayText: null,
+                    preparationNote: null,
+                  },
+                }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      const listId = await listService.generateGroceryList(ownerId, {
+        title: "This week",
         sources: [{ dishId: recipeId, scaleFactor: 1 }],
       });
       const item = await prisma.groceryListItem.findFirstOrThrow({
         where: { groceryListId: listId },
       });
-      expect(item.name).toBe("Butter");
+      return { recipeId, listId, itemId: item.id };
+    }
 
-      await listService.switchGroceryItemToSubstitute(userId, listId, item.id);
+    it("selects PRIMARY -> SUBSTITUTE -> PRIMARY, recomputing the item's display each time (reversible in both directions)", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      await initializeNewUser(userId);
+      const { listId, itemId } = await createButterMargarineList(userId);
+
+      const original = await prisma.groceryListItem.findUniqueOrThrow({
+        where: { id: itemId },
+      });
+      expect(original.name).toBe("Butter");
+      expect(original.quantityDecimal?.toNumber()).toBe(1);
+
+      await listService.selectGroceryItemVariant(
+        userId,
+        listId,
+        itemId,
+        "SUBSTITUTE",
+      );
+      const substituted = await prisma.groceryListItem.findUniqueOrThrow({
+        where: { id: itemId },
+      });
+      expect(substituted.name).toBe("Margarine");
+      expect(substituted.quantityDecimal?.toNumber()).toBe(2);
+
+      // Reversible — switching back restores the frozen primary snapshot
+      // exactly, since it was never overwritten (Slice 12 correction 2).
+      await listService.selectGroceryItemVariant(
+        userId,
+        listId,
+        itemId,
+        "PRIMARY",
+      );
+      const restored = await prisma.groceryListItem.findUniqueOrThrow({
+        where: { id: itemId },
+      });
+      expect(restored.name).toBe("Butter");
+      expect(restored.quantityDecimal?.toNumber()).toBe(1);
+
+      // Repeated switching remains valid indefinitely.
+      await listService.selectGroceryItemVariant(
+        userId,
+        listId,
+        itemId,
+        "SUBSTITUTE",
+      );
+      const substitutedAgain = await prisma.groceryListItem.findUniqueOrThrow({
+        where: { id: itemId },
+      });
+      expect(substitutedAgain.name).toBe("Margarine");
+    });
+
+    it("selects using the stored snapshot, not current source content", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      await initializeNewUser(userId);
+      const { recipeId, listId, itemId } =
+        await createButterMargarineList(userId);
+
+      // Change the live substitute — selection must still use the frozen
+      // generation-time snapshot, not this new value.
+      const dish = await prisma.dish.findUniqueOrThrow({
+        where: { id: recipeId },
+      });
+      await dishService.editDish(
+        userId,
+        recipeId,
+        dish.currentVersionId!,
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({
+                  name: "Butter",
+                  quantity: 1,
+                  unit: "cup",
+                  substitute: {
+                    name: "Ghee",
+                    quantity: 9,
+                    quantityEnd: null,
+                    isApproximate: false,
+                    unit: "cup",
+                    displayText: null,
+                    preparationNote: null,
+                  },
+                }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+        "MINOR",
+      );
+
+      await listService.selectGroceryItemVariant(
+        userId,
+        listId,
+        itemId,
+        "SUBSTITUTE",
+      );
 
       const updated = await prisma.groceryListItem.findUniqueOrThrow({
-        where: { id: item.id },
+        where: { id: itemId },
       });
       expect(updated.name).toBe("Margarine");
       expect(updated.quantityDecimal?.toNumber()).toBe(2);
     });
 
-    it("rejects switching a combined (multi-contribution) item", async () => {
+    it("keeps working in both directions after the source Recipe is permanently deleted (§60.6)", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      await initializeNewUser(userId);
+      const { recipeId, listId, itemId } =
+        await createButterMargarineList(userId);
+
+      await dishService.deleteDish(userId, recipeId, "RECIPE");
+
+      await listService.selectGroceryItemVariant(
+        userId,
+        listId,
+        itemId,
+        "SUBSTITUTE",
+      );
+      const substituted = await prisma.groceryListItem.findUniqueOrThrow({
+        where: { id: itemId },
+      });
+      expect(substituted.name).toBe("Margarine");
+
+      await listService.selectGroceryItemVariant(
+        userId,
+        listId,
+        itemId,
+        "PRIMARY",
+      );
+      const restored = await prisma.groceryListItem.findUniqueOrThrow({
+        where: { id: itemId },
+      });
+      expect(restored.name).toBe("Butter");
+      expect(restored.quantityDecimal?.toNumber()).toBe(1);
+    });
+
+    it("persists the selected variant through duplication", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      await initializeNewUser(userId);
+      const { listId, itemId } = await createButterMargarineList(userId);
+
+      await listService.selectGroceryItemVariant(
+        userId,
+        listId,
+        itemId,
+        "SUBSTITUTE",
+      );
+
+      const copyId = await listService.duplicateGroceryList(userId, listId);
+      const copiedItem = await prisma.groceryListItem.findFirstOrThrow({
+        where: { groceryListId: copyId },
+      });
+      expect(copiedItem.name).toBe("Margarine");
+
+      const copiedContribution =
+        await prisma.groceryItemContribution.findFirstOrThrow({
+          where: { groceryListItemId: copiedItem.id },
+        });
+      expect(copiedContribution.selectedVariant).toBe("SUBSTITUTE");
+    });
+
+    it("rejects selecting SUBSTITUTE on a contribution with no saved substitute", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      await initializeNewUser(userId);
+
+      const recipeId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({ name: "Salt", quantity: 1, unit: "tsp" }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      const listId = await listService.generateGroceryList(userId, {
+        title: "This week",
+        sources: [{ dishId: recipeId, scaleFactor: 1 }],
+      });
+      const item = await prisma.groceryListItem.findFirstOrThrow({
+        where: { groceryListId: listId },
+      });
+
+      await expect(
+        listService.selectGroceryItemVariant(
+          userId,
+          listId,
+          item.id,
+          "SUBSTITUTE",
+        ),
+      ).rejects.toThrow(ValidationError);
+    });
+
+    it("rejects selecting a variant on a manual item", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      await initializeNewUser(userId);
+      const recipeId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content(),
+      );
+      const listId = await listService.generateGroceryList(userId, {
+        title: "This week",
+        sources: [{ dishId: recipeId, scaleFactor: 1 }],
+      });
+      const manual = await listService.addManualGroceryItem(userId, listId, {
+        name: "Paper towels",
+      });
+
+      await expect(
+        listService.selectGroceryItemVariant(
+          userId,
+          listId,
+          manual.id,
+          "SUBSTITUTE",
+        ),
+      ).rejects.toThrow(ValidationError);
+    });
+
+    it("rejects selecting a variant on a combined (multi-contribution) item", async () => {
       const user = await createTestUser();
       userId = user.id;
       await initializeNewUser(userId);
@@ -1101,8 +1511,49 @@ describe("grocery list service", () => {
       });
 
       await expect(
-        listService.switchGroceryItemToSubstitute(userId, listId, item.id),
+        listService.selectGroceryItemVariant(
+          userId,
+          listId,
+          item.id,
+          "SUBSTITUTE",
+        ),
       ).rejects.toThrow(ValidationError);
+    });
+
+    it("rejects selecting a variant on a completed list", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      await initializeNewUser(userId);
+      const { listId, itemId } = await createButterMargarineList(userId);
+      await listService.completeGroceryList(userId, listId);
+
+      await expect(
+        listService.selectGroceryItemVariant(
+          userId,
+          listId,
+          itemId,
+          "SUBSTITUTE",
+        ),
+      ).rejects.toThrow(ValidationError);
+    });
+
+    it("rejects a non-owner attempting to select a variant", async () => {
+      const owner = await createTestUser();
+      const intruder = await createTestUser();
+      userId = owner.id;
+      await initializeNewUser(owner.id);
+      const { listId, itemId } = await createButterMargarineList(owner.id);
+
+      await expect(
+        listService.selectGroceryItemVariant(
+          intruder.id,
+          listId,
+          itemId,
+          "SUBSTITUTE",
+        ),
+      ).rejects.toThrow(NotFoundError);
+
+      await deleteTestUser(intruder.id);
     });
   });
 
@@ -1206,6 +1657,784 @@ describe("grocery list service", () => {
         where: { id: manual.id },
       });
       expect(manualAfter.checkedAt).not.toBeNull();
+    });
+
+    it("adds a newly-available substitute snapshot on refresh", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      await initializeNewUser(userId);
+
+      const recipeId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({ name: "Butter", quantity: 1, unit: "cup" }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      const listId = await listService.generateGroceryList(userId, {
+        title: "This week",
+        sources: [{ dishId: recipeId, scaleFactor: 1 }],
+      });
+      const beforeContribution =
+        await prisma.groceryItemContribution.findFirstOrThrow({
+          where: { groceryListItem: { groceryListId: listId } },
+        });
+      expect(beforeContribution.substituteName).toBeNull();
+
+      const dish = await prisma.dish.findUniqueOrThrow({
+        where: { id: recipeId },
+        include: {
+          currentVersion: {
+            include: { sections: { include: { ingredients: true } } },
+          },
+        },
+      });
+      const butterLineageId =
+        dish.currentVersion!.sections[0].ingredients[0].lineageId;
+      const sectionLineageId = dish.currentVersion!.sections[0].lineageId;
+      await dishService.editDish(
+        userId,
+        recipeId,
+        dish.currentVersionId!,
+        content({
+          sections: [
+            {
+              lineageId: sectionLineageId,
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({
+                  lineageId: butterLineageId,
+                  name: "Butter",
+                  quantity: 1,
+                  unit: "cup",
+                  substitute: {
+                    name: "Margarine",
+                    quantity: 2,
+                    quantityEnd: null,
+                    isApproximate: false,
+                    unit: "cup",
+                    displayText: null,
+                    preparationNote: null,
+                  },
+                }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+        "MINOR",
+      );
+
+      const source = await prisma.groceryListSource.findFirstOrThrow({
+        where: { groceryListId: listId },
+      });
+      await listService.applyGroceryListSourceRefresh(
+        userId,
+        listId,
+        source.id,
+      );
+
+      const afterContribution =
+        await prisma.groceryItemContribution.findUniqueOrThrow({
+          where: { id: beforeContribution.id },
+        });
+      expect(afterContribution.substituteName).toBe("Margarine");
+      expect(afterContribution.substituteQuantityDecimal?.toNumber()).toBe(2);
+    });
+
+    it("replaces a changed substitute snapshot on refresh", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      await initializeNewUser(userId);
+
+      const recipeId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({
+                  name: "Butter",
+                  quantity: 1,
+                  unit: "cup",
+                  substitute: {
+                    name: "Margarine",
+                    quantity: 2,
+                    quantityEnd: null,
+                    isApproximate: false,
+                    unit: "cup",
+                    displayText: null,
+                    preparationNote: null,
+                  },
+                }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      const listId = await listService.generateGroceryList(userId, {
+        title: "This week",
+        sources: [{ dishId: recipeId, scaleFactor: 1 }],
+      });
+      const beforeContribution =
+        await prisma.groceryItemContribution.findFirstOrThrow({
+          where: { groceryListItem: { groceryListId: listId } },
+        });
+      expect(beforeContribution.substituteName).toBe("Margarine");
+
+      const dish = await prisma.dish.findUniqueOrThrow({
+        where: { id: recipeId },
+        include: {
+          currentVersion: {
+            include: { sections: { include: { ingredients: true } } },
+          },
+        },
+      });
+      const butterLineageId =
+        dish.currentVersion!.sections[0].ingredients[0].lineageId;
+      const sectionLineageId = dish.currentVersion!.sections[0].lineageId;
+      await dishService.editDish(
+        userId,
+        recipeId,
+        dish.currentVersionId!,
+        content({
+          sections: [
+            {
+              lineageId: sectionLineageId,
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({
+                  lineageId: butterLineageId,
+                  name: "Butter",
+                  quantity: 1,
+                  unit: "cup",
+                  substitute: {
+                    name: "Ghee",
+                    quantity: 5,
+                    quantityEnd: null,
+                    isApproximate: false,
+                    unit: "cup",
+                    displayText: null,
+                    preparationNote: null,
+                  },
+                }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+        "MINOR",
+      );
+
+      const source = await prisma.groceryListSource.findFirstOrThrow({
+        where: { groceryListId: listId },
+      });
+      await listService.applyGroceryListSourceRefresh(
+        userId,
+        listId,
+        source.id,
+      );
+
+      const afterContribution =
+        await prisma.groceryItemContribution.findUniqueOrThrow({
+          where: { id: beforeContribution.id },
+        });
+      expect(afterContribution.substituteName).toBe("Ghee");
+      expect(afterContribution.substituteQuantityDecimal?.toNumber()).toBe(5);
+    });
+
+    it("removes a substitute snapshot no longer present in the refreshed Version", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      await initializeNewUser(userId);
+
+      const recipeId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({
+                  name: "Butter",
+                  quantity: 1,
+                  unit: "cup",
+                  substitute: {
+                    name: "Margarine",
+                    quantity: 2,
+                    quantityEnd: null,
+                    isApproximate: false,
+                    unit: "cup",
+                    displayText: null,
+                    preparationNote: null,
+                  },
+                }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      const listId = await listService.generateGroceryList(userId, {
+        title: "This week",
+        sources: [{ dishId: recipeId, scaleFactor: 1 }],
+      });
+      const beforeContribution =
+        await prisma.groceryItemContribution.findFirstOrThrow({
+          where: { groceryListItem: { groceryListId: listId } },
+        });
+      expect(beforeContribution.substituteName).toBe("Margarine");
+
+      const dish = await prisma.dish.findUniqueOrThrow({
+        where: { id: recipeId },
+        include: {
+          currentVersion: {
+            include: { sections: { include: { ingredients: true } } },
+          },
+        },
+      });
+      const butterLineageId =
+        dish.currentVersion!.sections[0].ingredients[0].lineageId;
+      const sectionLineageId = dish.currentVersion!.sections[0].lineageId;
+      await dishService.editDish(
+        userId,
+        recipeId,
+        dish.currentVersionId!,
+        content({
+          sections: [
+            {
+              lineageId: sectionLineageId,
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({
+                  lineageId: butterLineageId,
+                  name: "Butter",
+                  quantity: 1,
+                  unit: "cup",
+                }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+        "MINOR",
+      );
+
+      const source = await prisma.groceryListSource.findFirstOrThrow({
+        where: { groceryListId: listId },
+      });
+      await listService.applyGroceryListSourceRefresh(
+        userId,
+        listId,
+        source.id,
+      );
+
+      const afterContribution =
+        await prisma.groceryItemContribution.findUniqueOrThrow({
+          where: { id: beforeContribution.id },
+        });
+      expect(afterContribution.substituteName).toBeNull();
+      expect(afterContribution.substituteQuantityDecimal).toBeNull();
+    });
+
+    it("preserves a currently-SUBSTITUTE selection across refresh, showing the refreshed substitute values (Slice 12 correction 2)", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      await initializeNewUser(userId);
+
+      const recipeId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({
+                  name: "Butter",
+                  quantity: 1,
+                  unit: "cup",
+                  substitute: {
+                    name: "Margarine",
+                    quantity: 2,
+                    quantityEnd: null,
+                    isApproximate: false,
+                    unit: "cup",
+                    displayText: null,
+                    preparationNote: null,
+                  },
+                }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      const listId = await listService.generateGroceryList(userId, {
+        title: "This week",
+        sources: [{ dishId: recipeId, scaleFactor: 1 }],
+      });
+      const item = await prisma.groceryListItem.findFirstOrThrow({
+        where: { groceryListId: listId },
+      });
+      await listService.selectGroceryItemVariant(
+        userId,
+        listId,
+        item.id,
+        "SUBSTITUTE",
+      );
+
+      const dish = await prisma.dish.findUniqueOrThrow({
+        where: { id: recipeId },
+        include: {
+          currentVersion: {
+            include: { sections: { include: { ingredients: true } } },
+          },
+        },
+      });
+      const butterLineageId =
+        dish.currentVersion!.sections[0].ingredients[0].lineageId;
+      const sectionLineageId = dish.currentVersion!.sections[0].lineageId;
+      await dishService.editDish(
+        userId,
+        recipeId,
+        dish.currentVersionId!,
+        content({
+          sections: [
+            {
+              lineageId: sectionLineageId,
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({
+                  lineageId: butterLineageId,
+                  name: "Butter",
+                  quantity: 1,
+                  unit: "cup",
+                  substitute: {
+                    name: "Ghee",
+                    quantity: 5,
+                    quantityEnd: null,
+                    isApproximate: false,
+                    unit: "cup",
+                    displayText: null,
+                    preparationNote: null,
+                  },
+                }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+        "MINOR",
+      );
+
+      const source = await prisma.groceryListSource.findFirstOrThrow({
+        where: { groceryListId: listId },
+      });
+      await listService.applyGroceryListSourceRefresh(
+        userId,
+        listId,
+        source.id,
+      );
+
+      const contribution =
+        await prisma.groceryItemContribution.findFirstOrThrow({
+          where: { groceryListItemId: item.id },
+        });
+      expect(contribution.selectedVariant).toBe("SUBSTITUTE");
+      expect(contribution.substituteName).toBe("Ghee");
+
+      const refreshedItem = await prisma.groceryListItem.findUniqueOrThrow({
+        where: { id: item.id },
+      });
+      expect(refreshedItem.name).toBe("Ghee");
+      expect(refreshedItem.quantityDecimal?.toNumber()).toBe(5);
+    });
+
+    it("reverts a SUBSTITUTE selection to PRIMARY when the refreshed Version no longer has a substitute", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      await initializeNewUser(userId);
+
+      const recipeId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({
+                  name: "Butter",
+                  quantity: 1,
+                  unit: "cup",
+                  substitute: {
+                    name: "Margarine",
+                    quantity: 2,
+                    quantityEnd: null,
+                    isApproximate: false,
+                    unit: "cup",
+                    displayText: null,
+                    preparationNote: null,
+                  },
+                }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      const listId = await listService.generateGroceryList(userId, {
+        title: "This week",
+        sources: [{ dishId: recipeId, scaleFactor: 1 }],
+      });
+      const item = await prisma.groceryListItem.findFirstOrThrow({
+        where: { groceryListId: listId },
+      });
+      await listService.selectGroceryItemVariant(
+        userId,
+        listId,
+        item.id,
+        "SUBSTITUTE",
+      );
+
+      const dish = await prisma.dish.findUniqueOrThrow({
+        where: { id: recipeId },
+        include: {
+          currentVersion: {
+            include: { sections: { include: { ingredients: true } } },
+          },
+        },
+      });
+      const butterLineageId =
+        dish.currentVersion!.sections[0].ingredients[0].lineageId;
+      const sectionLineageId = dish.currentVersion!.sections[0].lineageId;
+      await dishService.editDish(
+        userId,
+        recipeId,
+        dish.currentVersionId!,
+        content({
+          sections: [
+            {
+              lineageId: sectionLineageId,
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({
+                  lineageId: butterLineageId,
+                  name: "Butter",
+                  quantity: 1,
+                  unit: "cup",
+                }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+        "MINOR",
+      );
+
+      const source = await prisma.groceryListSource.findFirstOrThrow({
+        where: { groceryListId: listId },
+      });
+      await listService.applyGroceryListSourceRefresh(
+        userId,
+        listId,
+        source.id,
+      );
+
+      const contribution =
+        await prisma.groceryItemContribution.findFirstOrThrow({
+          where: { groceryListItemId: item.id },
+        });
+      expect(contribution.selectedVariant).toBe("PRIMARY");
+
+      const refreshedItem = await prisma.groceryListItem.findUniqueOrThrow({
+        where: { id: item.id },
+      });
+      expect(refreshedItem.name).toBe("Butter");
+      expect(refreshedItem.quantityDecimal?.toNumber()).toBe(1);
+    });
+
+    it("adds a newly-available substitute on refresh while preserving an unchanged PRIMARY selection", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      await initializeNewUser(userId);
+
+      const recipeId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({ name: "Butter", quantity: 1, unit: "cup" }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      const listId = await listService.generateGroceryList(userId, {
+        title: "This week",
+        sources: [{ dishId: recipeId, scaleFactor: 1 }],
+      });
+      const item = await prisma.groceryListItem.findFirstOrThrow({
+        where: { groceryListId: listId },
+      });
+
+      const dish = await prisma.dish.findUniqueOrThrow({
+        where: { id: recipeId },
+        include: {
+          currentVersion: {
+            include: { sections: { include: { ingredients: true } } },
+          },
+        },
+      });
+      const butterLineageId =
+        dish.currentVersion!.sections[0].ingredients[0].lineageId;
+      const sectionLineageId = dish.currentVersion!.sections[0].lineageId;
+      await dishService.editDish(
+        userId,
+        recipeId,
+        dish.currentVersionId!,
+        content({
+          sections: [
+            {
+              lineageId: sectionLineageId,
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({
+                  lineageId: butterLineageId,
+                  name: "Butter",
+                  quantity: 1,
+                  unit: "cup",
+                  substitute: {
+                    name: "Margarine",
+                    quantity: 2,
+                    quantityEnd: null,
+                    isApproximate: false,
+                    unit: "cup",
+                    displayText: null,
+                    preparationNote: null,
+                  },
+                }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+        "MINOR",
+      );
+
+      const source = await prisma.groceryListSource.findFirstOrThrow({
+        where: { groceryListId: listId },
+      });
+      await listService.applyGroceryListSourceRefresh(
+        userId,
+        listId,
+        source.id,
+      );
+
+      const contribution =
+        await prisma.groceryItemContribution.findFirstOrThrow({
+          where: { groceryListItemId: item.id },
+        });
+      expect(contribution.selectedVariant).toBe("PRIMARY");
+      expect(contribution.substituteName).toBe("Margarine");
+
+      const refreshedItem = await prisma.groceryListItem.findUniqueOrThrow({
+        where: { id: item.id },
+      });
+      expect(refreshedItem.name).toBe("Butter");
+    });
+
+    it("leaves unrelated sources, manual items, checkoffs, and categories unchanged by a refresh", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      await initializeNewUser(userId);
+
+      const untouchedRecipe = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({
+          title: "Untouched",
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({ name: "Rice", quantity: 1, unit: "cup" }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      const refreshedRecipe = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({
+          title: "Refreshed",
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({ name: "Flour", quantity: 2, unit: "cup" }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      const listId = await listService.generateGroceryList(userId, {
+        title: "This week",
+        sources: [
+          { dishId: untouchedRecipe, scaleFactor: 1 },
+          { dishId: refreshedRecipe, scaleFactor: 1 },
+        ],
+      });
+
+      const riceCategory = await prisma.groceryCategory.create({
+        data: {
+          ownerId: userId,
+          normalizedName: "grains",
+          displayName: "Grains",
+          position: 50,
+        },
+      });
+      const riceItem = await prisma.groceryListItem.findFirstOrThrow({
+        where: { groceryListId: listId, name: "Rice" },
+      });
+      await listService.recategorizeGroceryItem(
+        userId,
+        listId,
+        riceItem.id,
+        riceCategory.id,
+      );
+      await listService.toggleGroceryItem(userId, listId, riceItem.id);
+
+      const manual = await listService.addManualGroceryItem(userId, listId, {
+        name: "Paper towels",
+      });
+      await listService.toggleGroceryItem(userId, listId, manual.id);
+
+      const dish = await prisma.dish.findUniqueOrThrow({
+        where: { id: refreshedRecipe },
+        include: {
+          currentVersion: {
+            include: { sections: { include: { ingredients: true } } },
+          },
+        },
+      });
+      const flourLineageId =
+        dish.currentVersion!.sections[0].ingredients[0].lineageId;
+      const sectionLineageId = dish.currentVersion!.sections[0].lineageId;
+      await dishService.editDish(
+        userId,
+        refreshedRecipe,
+        dish.currentVersionId!,
+        content({
+          sections: [
+            {
+              lineageId: sectionLineageId,
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({
+                  lineageId: flourLineageId,
+                  name: "Flour",
+                  quantity: 4,
+                  unit: "cup",
+                }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+        "MINOR",
+      );
+
+      const refreshedSource = await prisma.groceryListSource.findFirstOrThrow({
+        where: { groceryListId: listId, dishId: refreshedRecipe },
+      });
+      await listService.applyGroceryListSourceRefresh(
+        userId,
+        listId,
+        refreshedSource.id,
+      );
+
+      const riceAfter = await prisma.groceryListItem.findUniqueOrThrow({
+        where: { id: riceItem.id },
+      });
+      expect(riceAfter.categoryId).toBe(riceCategory.id);
+      expect(riceAfter.checkedAt).not.toBeNull();
+      expect(riceAfter.quantityDecimal?.toNumber()).toBe(1);
+
+      const manualAfter = await prisma.groceryListItem.findUniqueOrThrow({
+        where: { id: manual.id },
+      });
+      expect(manualAfter.checkedAt).not.toBeNull();
+
+      const flourAfter = await prisma.groceryListItem.findFirstOrThrow({
+        where: { groceryListId: listId, name: "Flour" },
+      });
+      expect(flourAfter.quantityDecimal?.toNumber()).toBe(4);
     });
 
     it("rejects refreshing a source whose Recipe was permanently deleted", async () => {

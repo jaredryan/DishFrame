@@ -191,7 +191,7 @@ export async function gatherIngredientSlots(
 }
 
 /** A generation-time-scaled snapshot of a slot's saved substitute — the
- * durable data `switchGroceryItemToSubstitute` needs to switch later without
+ * durable data `selectGroceryItemVariant` needs to select later without
  * re-walking the source Version (Slice 12 correction). */
 export type ResolvedSubstituteSnapshot = {
   ingredientLineageId: string;
@@ -219,13 +219,10 @@ export type ResolvedIngredientOccurrence = {
 
 /**
  * Resolves gathered slots into the final occurrences a generated Grocery
- * List's contributions are built from: always the primary ingredient
- * (PRODUCT_SPEC.md §62.2 — DishFrame never adds both), scaled by the
- * source's chosen overall scale factor. Each occurrence also carries its own
- * saved substitute, independently scaled by the same factor, so the caller
- * can persist a durable substitute snapshot alongside the primary
- * contribution (Slice 12 correction) — this is descriptive data, not a
- * selection; nothing here ever substitutes the returned occurrence itself.
+ * List's contributions are built from — always the primary ingredient
+ * (§62.2), scaled by the source's scale factor. Each occurrence also carries
+ * its own similarly-scaled substitute snapshot, if any (Slice 12
+ * correction), for the caller to persist alongside the primary contribution.
  */
 export function resolveIngredientOccurrences(
   slots: IngredientSlot[],

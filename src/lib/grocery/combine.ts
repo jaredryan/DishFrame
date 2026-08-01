@@ -12,10 +12,8 @@ import {
  * convertible units. Deliberately conservative per §61.2 — exact normalized-
  * name matching only (no stemming/pluralization), and any free-text or
  * quantity-less occurrence never combines with anything, since there is
- * nothing numeric to sum. Slice 12 correction: required and optional
- * contributions never combine with each other either, regardless of
- * name/quantity/unit match — an optional contribution must stay
- * independently removable.
+ * nothing numeric to sum. Required and optional contributions never combine
+ * with each other either (Slice 12 correction).
  */
 
 export type CombinableOccurrence = {
@@ -31,10 +29,8 @@ export type CombinableOccurrence = {
   unit: string | null;
   /** A free-text quantity (e.g. "to taste") — never combined (§10.7). */
   displayText: string | null;
-  /** Slice 12 correction: required and optional contributions must never
-   * auto-combine, even when name/quantity/unit otherwise match exactly — an
-   * optional contribution must stay independently removable rather than
-   * being absorbed into a required combined item. */
+  /** Required and optional never auto-combine, even on an otherwise exact
+   * match (Slice 12 correction — an optional item must stay removable). */
   isOptional: boolean;
 };
 

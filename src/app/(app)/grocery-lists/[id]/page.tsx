@@ -69,18 +69,40 @@ export default async function GroceryListDetailPage({
             isFallback: item.category.isFallback,
           }
         : null,
-      contributions: item.contributions.map((c) => ({
-        id: c.id,
-        groceryListSourceId: c.groceryListSourceId,
-        originalName: c.originalName,
-        quantityText:
-          c.quantityText ??
-          (decimalToNumber(c.quantityDecimal) != null
-            ? String(decimalToNumber(c.quantityDecimal))
-            : null),
-        unit: c.unit,
-        hasSubstitute: c.substituteIngredientLineageId != null,
-      })),
+      contributions: item.contributions.map((c) => {
+        // The currently-effective snapshot (Slice 12 correction 2) — the
+        // frozen primary fields, or the frozen substitute fields when this
+        // contribution's selectedVariant is SUBSTITUTE. Both snapshots
+        // always stay populated regardless of which is selected.
+        const effective =
+          c.selectedVariant === "SUBSTITUTE"
+            ? {
+                name: c.substituteName!,
+                quantityDecimal: c.substituteQuantityDecimal,
+                quantityText: c.substituteQuantityText,
+                unit: c.substituteUnit,
+              }
+            : {
+                name: c.originalName,
+                quantityDecimal: c.quantityDecimal,
+                quantityText: c.quantityText,
+                unit: c.unit,
+              };
+        return {
+          id: c.id,
+          groceryListSourceId: c.groceryListSourceId,
+          originalName: effective.name,
+          quantityText:
+            effective.quantityText ??
+            (decimalToNumber(effective.quantityDecimal) != null
+              ? String(decimalToNumber(effective.quantityDecimal))
+              : null),
+          unit: effective.unit,
+          isOptional: c.isOptional,
+          hasSubstitute: c.substituteIngredientLineageId != null,
+          selectedVariant: c.selectedVariant,
+        };
+      }),
     })),
   };
 

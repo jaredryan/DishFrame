@@ -13,6 +13,7 @@ import {
   reorderGroceryListItemsSchema,
   combineGroceryItemsSchema,
   refreshSourceSchema,
+  selectGroceryItemVariantSchema,
   listIdSchema,
   itemIdSchema,
   type ActionState,
@@ -252,14 +253,16 @@ export async function uncombineGroceryItem(values: {
   }
 }
 
-export async function switchGroceryItemToSubstitute(values: {
+export async function selectGroceryItemVariant(values: {
   listId: string;
   itemId: string;
+  variant: "PRIMARY" | "SUBSTITUTE";
 }): Promise<ActionState> {
   try {
     const userId = await requireUserId();
-    const { listId, itemId } = itemIdSchema.parse(values);
-    await listService.switchGroceryItemToSubstitute(userId, listId, itemId);
+    const { listId, itemId, variant } =
+      selectGroceryItemVariantSchema.parse(values);
+    await listService.selectGroceryItemVariant(userId, listId, itemId, variant);
     revalidateList(listId);
     return { status: "success" };
   } catch (error) {
