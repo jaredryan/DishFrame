@@ -51,6 +51,7 @@ import {
 } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
 import { NumberField } from "@/components/domain/dish/number-field";
+import { NutritionFields } from "@/components/domain/dish/nutrition-fields";
 import { SectionFields } from "@/components/domain/dish/section-fields";
 import { CuisineField } from "@/components/domain/dish/cuisine-field";
 import { ImageField } from "@/components/domain/dish/image-field";
@@ -751,6 +752,8 @@ export function DishEditor({
               </Field>
             </div>
           </div>
+
+          <NutritionFields />
 
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between">

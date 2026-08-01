@@ -156,6 +156,7 @@ type ExportVersionRow = {
   moreNutrients: unknown;
   nutritionSourceProvider: string | null;
   nutritionSourceId: string | null;
+  nutritionSourceName: string | null;
   versionNote: string | null;
   createdAt: Date;
   imageAssetId: string | null;
@@ -207,6 +208,7 @@ export function versionContentDto(version: ExportVersionRow) {
       moreNutrients: version.moreNutrients,
       sourceProvider: version.nutritionSourceProvider,
       sourceId: version.nutritionSourceId,
+      sourceName: version.nutritionSourceName,
     },
     imageAssetId: version.imageAssetId,
     versionNote: version.versionNote,

@@ -64,8 +64,9 @@ describe("export DTO field whitelisting", () => {
       nutritionBasisQuantity: null,
       nutritionBasisUnit: null,
       moreNutrients: null,
-      nutritionSourceProvider: null,
-      nutritionSourceId: null,
+      nutritionSourceProvider: "fdc",
+      nutritionSourceId: "12345",
+      nutritionSourceName: "Rice, white, cooked",
       versionNote: null,
       createdAt: new Date("2024-01-01"),
       imageAssetId: "asset1",
@@ -81,6 +82,7 @@ describe("export DTO field whitelisting", () => {
     expect(dto).not.toHaveProperty("storageKey");
     expect(JSON.stringify(dto)).not.toContain("private/blob/object-key");
     expect(dto.imageAssetId).toBe("asset1");
+    expect(dto.nutrition.sourceName).toBe("Rice, white, cooked");
   });
 });
 

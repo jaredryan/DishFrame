@@ -60,6 +60,14 @@ const schema = z.object({
     .string()
     .optional()
     .transform((value) => (value ? value : undefined)),
+
+  // Optional: Slice 13's nutrition search checks `isFdcConfigured` and fails
+  // clearly (manual nutrition entry always keeps working, PRODUCT_SPEC.md
+  // §54.4) rather than at startup. Server-only — never read on the client.
+  FDC_API_KEY: z
+    .string()
+    .optional()
+    .transform((value) => (value ? value : undefined)),
 });
 
 function loadEnv() {
@@ -86,3 +94,4 @@ export const isGoogleAuthConfigured = Boolean(
 export const isContactFormConfigured = Boolean(
   env.RESEND_API_KEY && env.CONTACT_TO_EMAIL,
 );
+export const isFdcConfigured = Boolean(env.FDC_API_KEY);

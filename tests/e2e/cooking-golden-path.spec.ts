@@ -67,7 +67,12 @@ test.describe("Cooking: setup, start, edit active plan, end early", () => {
 
     // --- Create a Recipe with two Sections, each with one ingredient ---
     await page.goto("/recipes/new");
-    await page.getByLabel("Recipe title").fill(title);
+    // Generous timeout, not the default: this is the first navigation of the
+    // whole suite, so it pays Turbopack's one-time dev-mode compile cost for
+    // this route — heavier since Slice 13 added the FDC search dialog and
+    // nutrition fields — on top of the network round trip (see the same
+    // pattern below for /cook/[sessionId]).
+    await page.getByLabel("Recipe title").fill(title, { timeout: 15_000 });
 
     await page.getByLabel("Section name").fill("Prep");
     await page.getByRole("button", { name: "Add ingredient" }).click();

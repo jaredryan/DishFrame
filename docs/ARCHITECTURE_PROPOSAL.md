@@ -290,6 +290,7 @@ model DishVersion {
   moreNutrients   Json?           // Tier 2 FDC-sourced extras, labeled key/value/unit
   nutritionSourceProvider String?  // e.g. "fdc" — null once detached (§54.4)
   nutritionSourceId       String?
+  nutritionSourceName     String?  // Slice 13: the source food's own description, for truthful attribution
 
   versionNote     String?   // the ONE mutable field on this row — see F.7
 

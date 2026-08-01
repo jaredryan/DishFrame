@@ -1,7 +1,7 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/db/prisma";
-import { Prisma } from "@/generated/prisma/client";
+import { Prisma, $Enums } from "@/generated/prisma/client";
 import {
   ConflictError,
   NotFoundError,
@@ -496,6 +496,150 @@ function normalizeIngredientQuantities(
   };
 }
 
+// Decimal(10, 2) columns (calories/protein/carbs/fat, schema.prisma) —
+// rounded here for the same reason `normalizeQuantity` rounds ingredient
+// quantities to Decimal(12,3): one deliberate rounding point before
+// persistence, not left for Postgres to round silently.
+const NUTRITION_VALUE_DECIMAL_PLACES = 2;
+
+function normalizeNutritionValue(
+  value: number | null | undefined,
+): number | null {
+  return value == null
+    ? null
+    : Number(value.toFixed(NUTRITION_VALUE_DECIMAL_PLACES));
+}
+
+export type NormalizedNutrition = {
+  calories: number | null;
+  protein: number | null;
+  carbs: number | null;
+  fat: number | null;
+  nutritionBasis: "WHOLE" | "PER_OUTPUT_UNIT" | null;
+  nutritionBasisQuantity: number | null;
+  nutritionBasisUnit: string | null;
+  // Prisma's nullable-Json write input distinguishes "column is SQL NULL"
+  // (`Prisma.DbNull`) from "column holds a JSON null" — DishFrame always
+  // means the former (no More-nutrients data), never the latter.
+  moreNutrients:
+    NonNullable<DishContentInput["moreNutrients"]> | typeof Prisma.DbNull;
+  nutritionSourceProvider: string | null;
+  nutritionSourceId: string | null;
+  nutritionSourceName: string | null;
+};
+
+/**
+ * PRODUCT_SPEC.md §54.1/§54.2, ARCHITECTURE_PROPOSAL.md Correction 5: shapes
+ * and validates a proposed Version's nutrition fields — the server-side
+ * sanitization boundary both `createDish` and `editDish` always pass
+ * through, mirroring `sanitizedSectionsOrThrow`'s role for content. Enforces
+ * the database's raw-SQL `nutrition_basis_consistency` CHECK constraint
+ * (basis unset or `WHOLE` => basisQuantity/basisUnit both null;
+ * `PER_OUTPUT_UNIT` => both set, quantity > 0 —
+ * `constraints.integration.test.ts`) up front with a friendly
+ * `ValidationError`, so a direct service call bypassing the editor's own UI
+ * (or `dishContentSchema.parse`) can't reach the database with a combination
+ * the constraint would reject.
+ */
+function normalizeNutritionOrThrow(
+  input: DishContentInput,
+): NormalizedNutrition {
+  const nutritionBasis =
+    input.nutritionBasis === "PER_OUTPUT_UNIT" ||
+    input.nutritionBasis === "WHOLE"
+      ? input.nutritionBasis
+      : null;
+
+  let nutritionBasisQuantity: number | null = null;
+  let nutritionBasisUnit: string | null = null;
+  if (nutritionBasis === "PER_OUTPUT_UNIT") {
+    const unit = input.nutritionBasisUnit?.trim();
+    if (
+      !input.nutritionBasisQuantity ||
+      input.nutritionBasisQuantity <= 0 ||
+      !unit
+    ) {
+      throw new ValidationError(
+        "Enter a basis amount and unit for per-output-unit nutrition, or choose whole recipe/part instead.",
+      );
+    }
+    nutritionBasisQuantity = normalizeQuantity(input.nutritionBasisQuantity);
+    nutritionBasisUnit = unit;
+  }
+
+  return {
+    calories: normalizeNutritionValue(input.calories),
+    protein: normalizeNutritionValue(input.protein),
+    carbs: normalizeNutritionValue(input.carbs),
+    fat: normalizeNutritionValue(input.fat),
+    nutritionBasis,
+    nutritionBasisQuantity,
+    nutritionBasisUnit,
+    moreNutrients: input.moreNutrients?.length
+      ? input.moreNutrients
+      : Prisma.DbNull,
+    nutritionSourceProvider: input.nutritionSourceProvider?.trim() || null,
+    nutritionSourceId: input.nutritionSourceId?.trim() || null,
+    nutritionSourceName: input.nutritionSourceName?.trim() || null,
+  };
+}
+
+/**
+ * `moreNutrients` equality for `editDish`'s content-diffing — an empty
+ * array and `null`/`undefined` are the same "no More-nutrients data" state
+ * (matching `normalizeNutritionOrThrow`'s own write-time normalization), so
+ * neither should register as a change against the other.
+ */
+function moreNutrientsEqual(
+  base: Prisma.JsonValue | null,
+  next: DishContentInput["moreNutrients"],
+): boolean {
+  const baseNormalized = base ?? null;
+  const nextNormalized = next?.length ? next : null;
+  return JSON.stringify(baseNormalized) === JSON.stringify(nextNormalized);
+}
+
+/** A verbatim `moreNutrients` copy (promotion/propagation/duplication) needs
+ * the same `null` → `Prisma.DbNull` translation `normalizeNutritionOrThrow`
+ * applies for a fresh write. */
+function copyMoreNutrients(
+  value: Prisma.JsonValue | null,
+): Prisma.InputJsonValue | typeof Prisma.DbNull {
+  return value === null ? Prisma.DbNull : (value as Prisma.InputJsonValue);
+}
+
+/** The full nutrition column set, copied verbatim from an existing
+ * `DishVersion` row — shared by `promoteHistoricalVersion`,
+ * `propagateToOneContainer`, and `duplicateDish`, which each create a new
+ * Version from a source Version's content without any nutrition edits. */
+function copyNutritionColumns(source: {
+  calories: Prisma.Decimal | null;
+  protein: Prisma.Decimal | null;
+  carbs: Prisma.Decimal | null;
+  fat: Prisma.Decimal | null;
+  nutritionBasis: $Enums.NutritionBasis | null;
+  nutritionBasisQuantity: Prisma.Decimal | null;
+  nutritionBasisUnit: string | null;
+  moreNutrients: Prisma.JsonValue | null;
+  nutritionSourceProvider: string | null;
+  nutritionSourceId: string | null;
+  nutritionSourceName: string | null;
+}) {
+  return {
+    calories: source.calories,
+    protein: source.protein,
+    carbs: source.carbs,
+    fat: source.fat,
+    nutritionBasis: source.nutritionBasis,
+    nutritionBasisQuantity: source.nutritionBasisQuantity,
+    nutritionBasisUnit: source.nutritionBasisUnit,
+    moreNutrients: copyMoreNutrients(source.moreNutrients),
+    nutritionSourceProvider: source.nutritionSourceProvider,
+    nutritionSourceId: source.nutritionSourceId,
+    nutritionSourceName: source.nutritionSourceName,
+  };
+}
+
 function sanitizedSectionsOrThrow(input: DishContentInput): SectionInput[] {
   const sections = removeEmptySections(input.sections).map((section) => ({
     ...section,
@@ -548,6 +692,7 @@ export async function createDish(
   source?: { title: string | null },
 ): Promise<string> {
   const sections = sanitizedSectionsOrThrow(input);
+  const nutrition = normalizeNutritionOrThrow(input);
 
   // Version-trigger and Slice 5 image correction pass §4: a client-supplied
   // imageAssetId must never be trusted merely because the row exists.
@@ -599,6 +744,7 @@ export async function createDish(
         // uploaded (and its ImageAsset row created via
         // `uploadAndNormalizeImage`) before the very first save.
         imageAssetId: input.imageAssetId ?? null,
+        ...nutrition,
       },
     });
 
@@ -671,6 +817,7 @@ export async function editDish(
   const base = await getDishScopedVersionContentOrThrow(dish.id, baseVersionId);
 
   const sections = sanitizedSectionsOrThrow(input);
+  const nutrition = normalizeNutritionOrThrow(input);
 
   // Version-trigger correction pass, PRODUCT_SPEC.md §7.1: title is stable
   // Dish identity, not Version-owned — grouped with Stage/cuisine, compared
@@ -689,12 +836,34 @@ export async function editDish(
     (base.description ?? null) !== (input.description || null) ||
     (base.imageAssetId ?? null) !== (input.imageAssetId ?? null);
 
+  // Slice 13, ARCHITECTURE_PROPOSAL.md Correction 5/§F.10: nutrition is an
+  // ordinary Version-owned content field, governed by the same
+  // non-cooking-scalar bucket as yield/prep/cook/difficulty — a change
+  // (typed manually, applied from an FDC result, an edit to an imported
+  // value, or a detach) creates an automatic minor Version, never an
+  // in-place update to the already-saved row.
+  const nutritionChanged =
+    decimalToNumber(base.calories) !== nutrition.calories ||
+    decimalToNumber(base.protein) !== nutrition.protein ||
+    decimalToNumber(base.carbs) !== nutrition.carbs ||
+    decimalToNumber(base.fat) !== nutrition.fat ||
+    (base.nutritionBasis ?? null) !== nutrition.nutritionBasis ||
+    decimalToNumber(base.nutritionBasisQuantity) !==
+      nutrition.nutritionBasisQuantity ||
+    (base.nutritionBasisUnit ?? null) !== nutrition.nutritionBasisUnit ||
+    !moreNutrientsEqual(base.moreNutrients, input.moreNutrients) ||
+    (base.nutritionSourceProvider ?? null) !==
+      nutrition.nutritionSourceProvider ||
+    (base.nutritionSourceId ?? null) !== nutrition.nutritionSourceId ||
+    (base.nutritionSourceName ?? null) !== nutrition.nutritionSourceName;
+
   const nonCookingScalarChanged =
     decimalToNumber(base.yieldQuantity) !== (input.yieldQuantity ?? null) ||
     (base.yieldUnit ?? null) !== (input.yieldUnit || null) ||
     (base.prepTimeMinutes ?? null) !== (input.prepTimeMinutes ?? null) ||
     (base.cookTimeMinutes ?? null) !== (input.cookTimeMinutes ?? null) ||
-    (base.difficulty ?? null) !== (input.difficulty || null);
+    (base.difficulty ?? null) !== (input.difficulty || null) ||
+    nutritionChanged;
 
   const { cookingChanged, sectionOrganizationChanged } = diffVersionContent(
     versionContentToInput(base.sections, base.partLinks),
@@ -847,6 +1016,7 @@ export async function editDish(
         // `input.imageAssetId` already reflects the intended final value,
         // the same as every other Version-owned scalar field here.
         imageAssetId: input.imageAssetId ?? null,
+        ...nutrition,
         // ARCHITECTURE_PROPOSAL.md §F.4 / §13.6: a new major Version's
         // source relationship is stored structurally, not just as note
         // text. An ordinary sequential minor refinement leaves it unset
@@ -1044,6 +1214,7 @@ export async function promoteHistoricalVersion(
         // promotion is defined as an exact copy of the historical
         // Version's content (§13.2/§13.7), image included.
         imageAssetId: base.imageAssetId,
+        ...copyNutritionColumns(base),
         sourceVersionId: base.id,
         versionNote: seedMajorVersionNote(
           base.majorVersion,
@@ -1226,6 +1397,7 @@ async function propagateToOneContainer(
           prepTimeMinutes: base.prepTimeMinutes,
           cookTimeMinutes: base.cookTimeMinutes,
           difficulty: base.difficulty,
+          ...copyNutritionColumns(base),
           sourceVersionId: base.id,
           // PRODUCT_SPEC.md §73.2: a propagation-only change defaults to
           // "Save small update" regardless of whether the incoming Part
@@ -1530,6 +1702,7 @@ export async function duplicateDish(
         // account boundary too (a different owner's accepted copy may
         // legitimately reference the same asset).
         imageAssetId: sourceVersion.imageAssetId,
+        ...copyNutritionColumns(sourceVersion),
       },
     });
 
@@ -1943,6 +2116,7 @@ export async function resolvePartUsageOccurrence(
         prepTimeMinutes: base.prepTimeMinutes,
         cookTimeMinutes: base.cookTimeMinutes,
         difficulty: base.difficulty,
+        ...copyNutritionColumns(base),
         sourceVersionId: base.id,
         versionNote: `${versionLabel(base.majorVersion, base.minorVersion)} → ${versionLabel(majorVersion, minorVersion)}:\n${actionNote}`,
       },

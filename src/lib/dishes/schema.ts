@@ -205,6 +205,31 @@ export const sectionInputSchema = z.object({
 });
 export type SectionInput = z.infer<typeof sectionInputSchema>;
 
+// Mirrors DishVersion.nutritionBasis (prisma/schema.prisma) — PRODUCT_SPEC.md
+// §54.2's "whole Recipe or Part" vs. "per serving or compatible output unit."
+export const nutritionBasisValues = ["WHOLE", "PER_OUTPUT_UNIT"] as const;
+export type NutritionBasisValue = (typeof nutritionBasisValues)[number];
+
+// Slice 13, PRODUCT_SPEC.md §54.6: a conservative, explicitly recognized set
+// of "More nutrients" — DishFrame never surfaces an unlabeled source field.
+export const recognizedMoreNutrientKeys = [
+  "fiber",
+  "sugar",
+  "sodium",
+  "saturatedFat",
+  "cholesterol",
+] as const;
+export type RecognizedMoreNutrientKey =
+  (typeof recognizedMoreNutrientKeys)[number];
+
+export const moreNutrientEntrySchema = z.object({
+  key: z.enum(recognizedMoreNutrientKeys),
+  label: z.string().trim().min(1).max(60),
+  value: z.number(),
+  unit: z.string().trim().min(1).max(20),
+});
+export type MoreNutrientEntry = z.infer<typeof moreNutrientEntrySchema>;
+
 export const dishContentSchema = z.object({
   title: z.string().trim().min(1, "Enter a title.").max(200),
   stage: z.enum(stageValues),
@@ -215,6 +240,22 @@ export const dishContentSchema = z.object({
   prepTimeMinutes: z.number().int().min(0).nullable().optional(),
   cookTimeMinutes: z.number().int().min(0).nullable().optional(),
   difficulty: z.string().trim().max(40).nullable().optional(),
+  // Slice 13, PRODUCT_SPEC.md §54.1/§54.2/§54.4: manual nutrition, editable
+  // whether typed directly or populated from an FDC result. Version-owned
+  // content, governed by the same immutability rule as every other field on
+  // this row (ARCHITECTURE_PROPOSAL.md Correction 5/§F.10) — never mutated
+  // in place once saved.
+  calories: z.number().min(0).nullable().optional(),
+  protein: z.number().min(0).nullable().optional(),
+  carbs: z.number().min(0).nullable().optional(),
+  fat: z.number().min(0).nullable().optional(),
+  nutritionBasis: z.enum(nutritionBasisValues).nullable().optional(),
+  nutritionBasisQuantity: z.number().gt(0).nullable().optional(),
+  nutritionBasisUnit: z.string().trim().max(40).nullable().optional(),
+  moreNutrients: z.array(moreNutrientEntrySchema).nullable().optional(),
+  nutritionSourceProvider: z.string().trim().max(40).nullable().optional(),
+  nutritionSourceId: z.string().trim().max(100).nullable().optional(),
+  nutritionSourceName: z.string().trim().max(300).nullable().optional(),
   // Slice 5, PRODUCT_SPEC.md §12: always explicit, never `undefined` — the
   // editor's form state always carries the current value forward (loaded
   // from the base Version by `dishToFormValues`), so "the user didn't

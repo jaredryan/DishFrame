@@ -201,6 +201,10 @@ model DishVersion {
   moreNutrients           Json?
   nutritionSourceProvider String?
   nutritionSourceId       String?
+  // Slice 13: the source food's own description/name as reported by the
+  // provider (e.g. FDC's `description`) — truthful attribution alongside
+  // provider/id, never inferred from the Recipe/Part's own title.
+  nutritionSourceName     String?
 
   versionNote String?
 
