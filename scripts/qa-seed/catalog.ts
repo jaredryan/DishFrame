@@ -1,7 +1,17 @@
 export function printCatalog(input: {
   ownerEmail: string;
-  imageAttached: boolean;
+  image: {
+    requested: boolean;
+    attachedCount: number;
+    skippedReason: string | null;
+  };
+  imageCleanupDeletedCount: number;
 }): void {
+  const imageLine = !input.image.requested
+    ? 'Image fixtures: skipped — SEED_UPLOAD_BLOB_IMAGES is not "true" (ordinary pnpm db:seed never contacts Vercel Blob). Run "pnpm db:seed-images" for the image-enabled review seed.'
+    : input.image.attachedCount > 0
+      ? `Image fixtures: attached to ${input.image.attachedCount} Recipes/Parts (see docs/SEED_REVIEW_GUIDE.md). [QA] Toasted Sesame Oil Drizzle and [QA] Weeknight Stir-Fry stay image-less for the image-empty UI states.${input.imageCleanupDeletedCount > 0 ? ` Cleaned up ${input.imageCleanupDeletedCount} orphaned image asset(s) from a prior run.` : ""}`
+      : `Image fixtures: skipped — ${input.image.skippedReason}`;
   const lines = [
     "",
     "===== DishFrame QA seed catalog =====",
@@ -37,9 +47,34 @@ export function printCatalog(input: {
     "",
     "Materialized/deleted-Part snapshot: open [QA] Sunday Ramen Project's Version history and view V2.0.",
     "",
-    input.imageAttached
-      ? "Image fixture: attached to [QA] Sunday Ramen Project. [QA] Weeknight Stir-Fry stays image-less for comparison."
-      : "Image fixture: skipped (BLOB_READ_WRITE_TOKEN not set) — see docs/MANUAL_QA_SEED.md for the manual step.",
+    imageLine,
+    "",
+    "Nutrition:",
+    "  Manual/WHOLE/primary-only: [QA] All-Purpose Seasoning Blend",
+    "  Manual/PER_OUTPUT_UNIT/primary+more: [QA] Peanut Dipping Sauce",
+    "  USDA FDC (non-branded): [QA] Cauliflower Rice",
+    "  USDA FDC (branded-style): [QA] Garlic Confit",
+    "  Manual/WHOLE/detached-no-source: [QA] Weeknight Stir-Fry",
+    "  No nutrition: [QA] Steamed White Rice, [QA] Simple Garden Salad",
+    "",
+    "Tasters: You (owner), [QA] Partner, [QA] Kid, [QA] Former Roommate (archived)",
+    "",
+    "Cooking Sessions:",
+    "  In progress (standalone): [QA] Weeknight Stir-Fry",
+    "  In progress (Meal-Plan-linked, entry E7): [QA] Rice Bowl Base",
+    "  Ended early: [QA] Rice Side Dish",
+    "  Completed + full Review: [QA] Peanut Noodle Salad (#1, nested Part included), [QA] Sunday Ramen Project",
+    "  Completed, rating only: [QA] Peanut Noodle Salad (#2, nested Part omitted)",
+    "",
+    "Grocery lists:",
+    "  Active standalone: [QA] Weeknight Shopping",
+    "  Completed/frozen standalone: [QA] Pantry Restock",
+    "  Active Meal-Plan-linked: [QA] This Week's Groceries",
+    "  Completed/frozen Meal-Plan-linked: [QA] This Week's Groceries (Frozen)",
+    "",
+    "Meal Plans: [QA] This Week (6 live entries — Planned/In progress/Cooked/Skipped all covered), [QA] Duplicated Next Month",
+    "",
+    "See docs/SEED_REVIEW_GUIDE.md for the full coverage matrix.",
     "",
     "======================================",
     "",

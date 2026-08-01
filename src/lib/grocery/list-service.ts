@@ -1554,6 +1554,25 @@ export async function resyncGroceryListFromMealPlan(
   // Unchanged/changed — update the live snapshot in place. Preserves
   // `checkedAt` by construction (that field lives on the owning
   // `GroceryListItem`, never touched here).
+  //
+  // Correction (post-Slice-15 seed review): `CHANGED` must stay sticky
+  // through later *unrelated* resyncs until the user acknowledges it —
+  // every mutating Meal Plan action resyncs every active linked list
+  // (§81.2), so an entry that has nothing to do with this contribution can
+  // otherwise trigger a resync that finds "no further difference from the
+  // already-updated live value" and silently downgrades an unacknowledged
+  // warning back to ACTIVE, wiping the previous-value snapshot the user
+  // never saw. A contribution currently `CHANGED` with `acknowledgedAt`
+  // still null is therefore left in that state (only its live display
+  // fields refresh to the newest value; `previousQuantity*`/`acknowledgedAt`
+  // are left untouched) regardless of whether *this* resync's fresh value
+  // matches what's already stored. Once acknowledged (`acknowledgedAt` set
+  // by `acknowledgeGroceryItemSync`), or for a contribution that was never
+  // flagged in the first place, the original compare-against-current-live
+  // behavior resumes unchanged — a later ordinary resync correctly settles
+  // back to ACTIVE when nothing further changed, or raises a fresh,
+  // newly-unacknowledged CHANGED (with the baseline reset to the
+  // just-acknowledged value) when something does.
   for (const [key, freshEntry] of freshByKey) {
     const existing = existingByKey.get(key);
     if (!existing) continue;
@@ -1565,12 +1584,14 @@ export async function resyncGroceryListFromMealPlan(
         occurrence.quantityEnd,
         occurrence.isApproximate,
       );
-    const materiallyChanged =
+    const differsFromStoredLive =
       existing.state === "REMOVED" ||
       existing.originalName !== occurrence.originalName ||
       existing.quantityText !== toQuantityText ||
       existing.unit !== occurrence.unit ||
       existing.isOptional !== occurrence.isOptional;
+    const stickyUnacknowledgedChange =
+      existing.state === "CHANGED" && existing.acknowledgedAt === null;
     // A currently-SUBSTITUTE selection reverts to PRIMARY only when the
     // refreshed content no longer has a substitute at all — same rule as
     // `applyGroceryListSourceRefresh` (Slice 12 correction 2).
@@ -1589,13 +1610,23 @@ export async function resyncGroceryListFromMealPlan(
         isOptional: occurrence.isOptional,
         ...substituteSnapshotFields(occurrence.substitute),
         selectedVariant: nextVariant,
-        state: materiallyChanged ? "CHANGED" : "ACTIVE",
-        previousQuantityDecimal: materiallyChanged
-          ? existing.quantityDecimal
-          : null,
-        previousQuantityText: materiallyChanged ? existing.quantityText : null,
-        previousUnit: materiallyChanged ? existing.unit : null,
-        acknowledgedAt: materiallyChanged ? null : existing.acknowledgedAt,
+        ...(stickyUnacknowledgedChange
+          ? // Stay CHANGED; keep the original unseen previous-value
+            // snapshot and `acknowledgedAt` exactly as they are.
+            { state: "CHANGED" as const }
+          : {
+              state: differsFromStoredLive ? "CHANGED" : "ACTIVE",
+              previousQuantityDecimal: differsFromStoredLive
+                ? existing.quantityDecimal
+                : null,
+              previousQuantityText: differsFromStoredLive
+                ? existing.quantityText
+                : null,
+              previousUnit: differsFromStoredLive ? existing.unit : null,
+              acknowledgedAt: differsFromStoredLive
+                ? null
+                : existing.acknowledgedAt,
+            }),
       },
     });
     touchedItemIds.add(existing.groceryListItemId);

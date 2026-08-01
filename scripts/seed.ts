@@ -34,6 +34,7 @@ async function main() {
   const { prisma } = await import("@/lib/db/prisma");
   const dishService = await import("@/lib/dishes/service");
   const dishQueries = await import("@/lib/dishes/queries");
+  const tasterService = await import("@/lib/tasters/service");
   const { initializeNewUser } = await import("@/lib/account/init");
   const { resolveSeedOwner, wipeExistingFixtures, ensureSeedTag } =
     await import("./qa-seed/owner");
@@ -44,7 +45,16 @@ async function main() {
     await import("./qa-seed/materialized-fixture");
   const { buildToastPlateFixture } =
     await import("./qa-seed/deletion-fixtures");
-  const { attachSeedImage } = await import("./qa-seed/image-fixture");
+  const { attachSeedImages, cleanupOrphanedSeedImageAssets } =
+    await import("./qa-seed/image-fixture");
+  const { applyDishMetadata, applyRamenMetadata } =
+    await import("./qa-seed/tags-flavor");
+  const { applyNutritionFixtures } = await import("./qa-seed/nutrition");
+  const { buildTasterFixtures } = await import("./qa-seed/tasters");
+  const { buildCookingFixtures } = await import("./qa-seed/cooking");
+  const { applyReviewFixtures } = await import("./qa-seed/reviews");
+  const { buildGroceryFixtures } = await import("./qa-seed/grocery");
+  const { buildMealPlanFixtures } = await import("./qa-seed/mealplans");
   const { printCatalog } = await import("./qa-seed/catalog");
 
   const partServices = {
@@ -65,7 +75,7 @@ async function main() {
   const tagId = await ensureSeedTag(owner.id);
 
   const parts = await buildPartFixtures(partServices, owner.id, tagId);
-  await buildRecipeFixtures(
+  const recipes = await buildRecipeFixtures(
     {
       createDish: dishService.createDish,
       archiveDish: dishService.archiveDish,
@@ -74,6 +84,14 @@ async function main() {
     tagId,
     parts,
   );
+
+  const libraryMetadata = await applyDishMetadata(
+    partServices,
+    owner.id,
+    parts,
+    recipes,
+  );
+  await applyNutritionFixtures(partServices, owner.id, parts, recipes);
 
   const garnish = await createThrowawayGarnishPart(
     { createDish: dishService.createDish },
@@ -92,15 +110,9 @@ async function main() {
     ramen.garnishOccurrenceLineageId,
     ramen.v2_0Id,
   );
-  const image = await attachSeedImage(
-    dishService.updateVersionMetadata,
-    owner.id,
-    ramen.dishId,
-    ramen.currentVersionId,
-    ramen.description,
-  );
+  await applyRamenMetadata(owner.id, libraryMetadata, ramen.dishId);
 
-  await buildToastPlateFixture(
+  const toastplate = await buildToastPlateFixture(
     {
       createDish: dishService.createDish,
       propagatePartUpdate: dishService.propagatePartUpdate,
@@ -111,7 +123,101 @@ async function main() {
     parts,
   );
 
-  printCatalog({ ownerEmail: owner.email, imageAttached: image.attached });
+  const tasters = await buildTasterFixtures(
+    { createTaster: tasterService.createTaster },
+    owner.id,
+  );
+  const cooking = await buildCookingFixtures(owner.id, recipes);
+  await applyReviewFixtures(owner.id, cooking, tasters, ramen);
+  await buildGroceryFixtures(owner.id, recipes, ramen);
+  await buildMealPlanFixtures(owner.id, parts, recipes, ramen);
+
+  // Opt-in image fixtures (SEED_UPLOAD_BLOB_IMAGES=true, "pnpm
+  // db:seed-images") — a no-op under ordinary "pnpm db:seed", see
+  // image-fixture.ts's own doc comments. "[QA] Toasted Sesame Oil
+  // Drizzle" (Part) and "[QA] Weeknight Stir-Fry" (Recipe) deliberately
+  // stay image-less for the image-empty UI states.
+  const image = await attachSeedImages(
+    dishService.updateVersionMetadata,
+    owner.id,
+    [
+      {
+        slug: "steamed-white-rice",
+        dishId: parts.rice.dishId,
+        kind: "PART",
+        fileName: "steamed-white-rice.jpg",
+      },
+      {
+        slug: "seasoning-blend",
+        dishId: parts.seasoning.dishId,
+        kind: "PART",
+        fileName: "all-purpose-seasoning-blend.jpg",
+      },
+      {
+        slug: "peanut-dipping-sauce",
+        dishId: parts.sauce.dishId,
+        kind: "PART",
+        fileName: "peanut-dipping-sauce.jpeg",
+      },
+      {
+        slug: "cauliflower-rice",
+        dishId: parts.replacement.dishId,
+        kind: "PART",
+        fileName: "cauliflower-rice.jpeg",
+      },
+      {
+        slug: "garlic-confit",
+        dishId: parts.deleteme.dishId,
+        kind: "PART",
+        fileName: "garlic-confit.webp",
+      },
+      {
+        slug: "simple-garden-salad",
+        dishId: recipes.salad.dishId,
+        kind: "RECIPE",
+        fileName: "simple-garden-salad.jpg",
+      },
+      {
+        slug: "rice-bowl-base",
+        dishId: recipes.ricebowl.dishId,
+        kind: "RECIPE",
+        fileName: "rice-bowl-base.jpg",
+      },
+      {
+        slug: "peanut-noodle-salad",
+        dishId: recipes.noodlesalad.dishId,
+        kind: "RECIPE",
+        fileName: "peanut-noodle-salad.jpg",
+      },
+      {
+        slug: "rice-side-dish",
+        dishId: recipes.ricesidedish.dishId,
+        kind: "RECIPE",
+        fileName: "rice-side-dish.jpeg",
+      },
+      {
+        slug: "sunday-ramen-project",
+        dishId: ramen.dishId,
+        kind: "RECIPE",
+        fileName: "sunday-ramen-project.jpeg",
+      },
+      {
+        slug: "confit-toast-plate",
+        dishId: toastplate.dishId,
+        kind: "RECIPE",
+        fileName: "garlic-confit-toast.webp",
+      },
+    ],
+  );
+  const imageCleanup = await cleanupOrphanedSeedImageAssets(
+    wiped.priorImageAssetIds,
+  );
+
+  printCatalog({
+    ownerEmail: owner.email,
+    image,
+    imageCleanupDeletedCount: imageCleanup.deletedCount,
+  });
 
   await prisma.$disconnect();
 }

@@ -90,11 +90,54 @@ export async function attachSeedTag(
  * remain. Bounded loop — this fixture set's Part graph is small, shallow,
  * and acyclic (the domain layer's own cycle check guarantees no cycles
  * are ever seeded), so this always converges in a handful of passes.
+ *
+ * Slices 7-15 fixtures added GroceryList/MealPlan/Taster rows, none of
+ * which cascade away when the Recipe/Part Dishes above are deleted
+ * (`GroceryListSource.dishVersion`/`MealPlanEntry.dishVersion` are both
+ * `onDelete: SetNull`, and Tasters are owner-scoped, independent of any
+ * Dish) — each needs its own explicit wipe by the same "[QA] "-title/name
+ * convention. CookingSession and everything under it (units, checklist,
+ * timers, SessionReview, Rating, CookingSessionPartUsage) DOES cascade
+ * away automatically once its own DishVersion is deleted below
+ * (`CookingSession.dishVersion` is `onDelete: Cascade`), so no separate
+ * wipe step is needed for those. `GroceryList` is wiped before `MealPlan`
+ * — `GroceryList.linkedMealPlan` is `onDelete: Restrict`, so a linked list
+ * still pointing at a MealPlan row would block that MealPlan's deletion;
+ * deleting the list first (cascading its own sources/items/contributions)
+ * removes the referencing row entirely, so the MealPlan delete never hits
+ * the Restrict.
  */
 export async function wipeExistingFixtures(
   ownerId: string,
-): Promise<{ deletedDishCount: number }> {
+): Promise<{ deletedDishCount: number; priorImageAssetIds: string[] }> {
   const titleFilter = { startsWith: SEED_TITLE_PREFIX };
+
+  // Collected BEFORE the Dish wipe below, since `DishVersion.imageAssetId`
+  // is `onDelete: Restrict` on the FK *to* ImageAsset — deleting the
+  // DishVersion (the referencing side) is unaffected by that Restrict, but
+  // leaves the ImageAsset row orphaned with no cascade to clean it up.
+  // `image-fixture.ts#cleanupOrphanedSeedImageAssets` reference-counts
+  // these after the new fixture set is rebuilt (image-enabled mode only —
+  // see that module's own doc comment for why this never runs otherwise).
+  const priorImageAssetIds = (
+    await prisma.dishVersion.findMany({
+      where: { dish: { ownerId, currentTitle: titleFilter } },
+      select: { imageAssetId: true },
+    })
+  )
+    .map((v) => v.imageAssetId)
+    .filter((id): id is string => id != null);
+
+  await prisma.groceryList.deleteMany({
+    where: { ownerId, title: titleFilter },
+  });
+  await prisma.mealPlan.deleteMany({
+    where: { ownerId, title: titleFilter },
+  });
+  await prisma.taster.deleteMany({
+    where: { ownerId, name: titleFilter, isOwner: false },
+  });
+
   const recipes = await prisma.dish.deleteMany({
     where: { ownerId, currentTitle: titleFilter, kind: "RECIPE" },
   });
@@ -130,5 +173,8 @@ export async function wipeExistingFixtures(
     deletedPartCount += result.count;
   }
 
-  return { deletedDishCount: recipes.count + deletedPartCount };
+  return {
+    deletedDishCount: recipes.count + deletedPartCount,
+    priorImageAssetIds,
+  };
 }

@@ -15,18 +15,26 @@ Set in `.env.local` (see `.env.example`):
   every `[QA]`-prefixed row under it completely and wipe/recreate them on
   every run.
 - `SEED_USER_NAME` (optional) — defaults to `"QA Seed Owner"`.
-- `BLOB_READ_WRITE_TOKEN` (optional) — when set, the seed attaches a real
-  deterministic image fixture (see "Image fixture" below). Without it, the
-  seed skips the image step and stays fully functional otherwise.
+- `BLOB_READ_WRITE_TOKEN` (optional, image-enabled mode only) — used only
+  when `SEED_UPLOAD_BLOB_IMAGES=true` is also set (i.e., only by `pnpm
+  db:seed-images`). Its mere presence in `.env.local` has no effect on
+  `pnpm db:seed` — see "Image fixtures" below.
 
 ## Commands
 
-- `pnpm db:seed` — idempotent. Deletes and recreates only `[QA]`-titled
-  Dish rows owned by `SEED_USER_EMAIL`; safe to rerun any time to restore
-  the fixture set, including after destructive manual testing (see
-  below). Prints a catalog of what it created.
+- `pnpm db:seed` — idempotent, **fully offline** (never contacts Vercel
+  Blob, USDA, or any other external service, regardless of what's
+  configured in `.env.local`). Deletes and recreates every `[QA]`-titled/
+  named row (Dishes, GroceryLists, MealPlans, and the seed's own Tasters)
+  owned by `SEED_USER_EMAIL`; safe to rerun any time to restore the
+  fixture set, including after destructive manual testing (see below).
+  Prints a catalog of what it created.
+- `pnpm db:seed-images` — the same seed, plus the opt-in image fixtures
+  (sets `SEED_UPLOAD_BLOB_IMAGES=true`). Requires `BLOB_READ_WRITE_TOKEN`
+  to actually be configured; see "Image fixtures" below.
 - `pnpm db:reset` — destructive. Resets the entire local database, applies
-  migrations, regenerates the Prisma Client, then runs `pnpm db:seed`.
+  migrations, regenerates the Prisma Client, then runs `pnpm db:seed`
+  (offline — run `pnpm db:seed-images` afterward if you also want images).
 
 ## Safety
 
@@ -86,17 +94,56 @@ set afterward, rerun `pnpm db:seed` — it deletes and rebuilds only
 touch anything else in the local database. Use `pnpm db:reset` only when
 you need a genuinely clean database (e.g. after a migration change).
 
-## Image fixture
+## Image fixtures
 
-When `BLOB_READ_WRITE_TOKEN` is set, the seed uploads a small deterministic
-generated image (a solid-color PNG, not a real photo) to a fixed Blob
-pathname and attaches it to `[QA] Sunday Ramen Project`'s current Version
-— real enough to review the display/replace/remove/logged-out-access
-paths. Re-running `pnpm db:seed` overwrites the same pathname rather than
-creating a new Blob each time. `[QA] Weeknight Stir-Fry` intentionally
-stays image-less for a side-by-side comparison.
+**`pnpm db:seed` never contacts Vercel Blob**, even if `BLOB_READ_WRITE_TOKEN`
+is present in `.env.local` — a correction after an earlier pass
+accidentally uploaded during ordinary seed runs on a machine that happened
+to have the token configured for unrelated app development. Image upload
+is opt-in only: `pnpm db:seed-images` sets `SEED_UPLOAD_BLOB_IMAGES=true`,
+which is the one thing that turns it on.
 
-Without `BLOB_READ_WRITE_TOKEN`, the seed skips this step (logs a message,
-doesn't fail) and stays otherwise fully functional — in that case, sign in
-as the QA owner and manually attach an image to `[QA] Sunday Ramen
-Project` via the editor to review those flows instead.
+When run with `SEED_UPLOAD_BLOB_IMAGES=true` **and** `BLOB_READ_WRITE_TOKEN`
+configured, the seed attaches a real local food photo — not a generated
+placeholder — to each of 11 seeded Recipes/Parts. Source files live in
+`prisma/seed-assets/food/` and are mapped to their Recipe/Part
+deterministically by descriptive filename (e.g.
+`peanut-noodle-salad.jpg` → `[QA] Peanut Noodle Salad`,
+`garlic-confit-toast.webp` → `[QA] Confit Toast Plate`). Source formats are
+deliberately mixed (`.jpg`/`.jpeg`/`.webp`) across files to prove seeding
+isn't brittle to a specific image format. Each file is routed through the
+same real validation/normalization pipeline a user upload goes through
+(`src/lib/images/processing.ts#normalizeImageBuffer` — format sniffing,
+EXIF-orientation correction, resize, WebP conversion), then uploaded to a
+stable, deterministic Blob pathname per item (`images/qa-seed/{slug}.webp`)
+and attached to that Recipe/Part's current Version — real enough to review
+the display/replace/remove/logged-out-access paths. `[QA] Toasted Sesame
+Oil Drizzle` (Part) and `[QA] Weeknight Stir-Fry` (Recipe) deliberately stay
+image-less so the image-empty UI states stay reviewable. Full
+attached/empty list and file mapping: `docs/SEED_REVIEW_GUIDE.md`.
+
+**Licensing/ownership of the files under `prisma/seed-assets/food/` is the
+repository owner's responsibility** — this seed does not verify licenses
+or provenance.
+
+Rerunning `pnpm db:seed-images` reuses each item's same stable Blob
+pathname/`ImageAsset` row (upsert by `storageKey`) rather than uploading a
+duplicate, and reference-counts + deletes (via the same
+`deleteImageAssetIfOrphaned`/`bestEffortDeleteBlob` helpers
+`deleteDish`/`editDish` already use) any `ImageAsset` the *previous* run's
+now-wiped QA Dishes referenced but the current run no longer does — repeated
+image-enabled runs don't accumulate abandoned Blob objects. That cleanup
+step itself only runs in image-enabled mode, so switching back to plain
+`pnpm db:seed` never triggers a Blob delete call either; any orphaned rows
+from a prior image-enabled run just persist harmlessly (unreferenced,
+invisible in the app) until the next `pnpm db:seed-images` run.
+
+If an expected local fixture under `prisma/seed-assets/food/` is missing or
+unreadable, `pnpm db:seed-images` fails clearly with the exact file path it
+tried to read rather than silently skipping that item.
+
+Without `SEED_UPLOAD_BLOB_IMAGES=true` (i.e., under ordinary `pnpm
+db:seed`), every Recipe/Part stays image-less and the seed remains fully
+functional otherwise — sign in as the QA owner and manually attach an
+image via the editor if you need to review those flows without running
+`pnpm db:seed-images`.

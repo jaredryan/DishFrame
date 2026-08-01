@@ -719,6 +719,226 @@ describe("mealplans service", () => {
     });
   });
 
+  describe("sticky unacknowledged CHANGED contributions (post-Slice-15 seed-review correction)", () => {
+    it("stays CHANGED with checkoff and the original previous-value snapshot preserved through an unrelated resync, until acknowledged — then a later ordinary resync settles back to ACTIVE/UNCHANGED unless something changes again", async () => {
+      const { mealPlanId } = await setupMealPlan();
+      const dishA = await dishService.createDish(
+        userId!,
+        "RECIPE",
+        content({
+          title: "Dish A",
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({ name: "Rice", quantity: 2, unit: "cup" }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      const entryAId = await mealPlanService.addMealPlanEntry(
+        userId!,
+        mealPlanId,
+        {
+          dishId: dishA,
+          cookDate: new Date("2026-08-03T00:00:00.000Z"),
+          targetYieldQuantity: 4,
+          targetYieldUnit: "servings",
+        },
+      );
+      const listId = await mealPlanService.generateGroceryListFromMealPlan(
+        userId!,
+        mealPlanId,
+        { title: "Shopping" },
+      );
+
+      const item = await prisma.groceryListItem.findFirstOrThrow({
+        where: { groceryListId: listId },
+      });
+      await listService.toggleGroceryItem(userId!, listId, item.id);
+
+      // 1. Trigger a real CHANGED (target yield 4 -> 8, doubling the
+      // resolved quantity) — becomes unacknowledged CHANGED.
+      await mealPlanService.updateMealPlanEntry(userId!, mealPlanId, entryAId, {
+        targetYieldQuantity: 8,
+        targetYieldUnit: "servings",
+      });
+      const afterChange = await prisma.groceryListItem.findUniqueOrThrow({
+        where: { id: item.id },
+        include: { contributions: true },
+      });
+      expect(afterChange.syncFlag).toBe("CHANGED");
+      expect(afterChange.checkedAt).not.toBeNull();
+      expect(afterChange.flagAcknowledgedAt).toBeNull();
+      const originalPrevious =
+        afterChange.contributions[0].previousQuantityText;
+      expect(originalPrevious).toContain("2");
+
+      // 2. An unrelated plan mutation (a different Recipe, different
+      // entry) resyncs the same list.
+      const dishB = await dishService.createDish(
+        userId!,
+        "RECIPE",
+        content({
+          title: "Dish B",
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({ name: "Basil", quantity: 1, unit: null }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      await mealPlanService.addMealPlanEntry(userId!, mealPlanId, {
+        dishId: dishB,
+        cookDate: new Date("2026-08-04T00:00:00.000Z"),
+      });
+
+      // 3 & 4. Remains CHANGED; previous-value snapshot and checkoff
+      // remain intact — the unrelated resync must not silently erase the
+      // warning (the exact bug this correction fixes).
+      const afterUnrelated = await prisma.groceryListItem.findUniqueOrThrow({
+        where: { id: item.id },
+        include: { contributions: true },
+      });
+      expect(afterUnrelated.syncFlag).toBe("CHANGED");
+      expect(afterUnrelated.checkedAt).not.toBeNull();
+      expect(afterUnrelated.flagAcknowledgedAt).toBeNull();
+      expect(afterUnrelated.contributions[0].previousQuantityText).toBe(
+        originalPrevious,
+      );
+      expect(afterUnrelated.contributions[0].state).toBe("CHANGED");
+
+      // 5. Acknowledging clears the warning.
+      await listService.acknowledgeGroceryItemSync(userId!, listId, item.id);
+      const afterAck = await prisma.groceryListItem.findUniqueOrThrow({
+        where: { id: item.id },
+        include: { contributions: true },
+      });
+      expect(afterAck.flagAcknowledgedAt).not.toBeNull();
+      expect(afterAck.contributions[0].acknowledgedAt).not.toBeNull();
+      // Acknowledging is not itself a mutation of the underlying sync
+      // state — syncFlag/state stay CHANGED until the next resync
+      // actually re-evaluates them (matches acknowledgeGroceryItemSync's
+      // own doc comment).
+      expect(afterAck.syncFlag).toBe("CHANGED");
+
+      // 6. A later *ordinary* resync (another unrelated entry, no further
+      // change to Dish A itself) settles the now-acknowledged contribution
+      // back to ACTIVE/UNCHANGED, exactly as it did before this
+      // correction — acknowledgment, not mere time passing, is what
+      // allows this.
+      const dishC = await dishService.createDish(
+        userId!,
+        "RECIPE",
+        content({
+          title: "Dish C",
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({ name: "Thyme", quantity: 1, unit: null }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      await mealPlanService.addMealPlanEntry(userId!, mealPlanId, {
+        dishId: dishC,
+        cookDate: new Date("2026-08-05T00:00:00.000Z"),
+      });
+
+      const afterSettle = await prisma.groceryListItem.findUniqueOrThrow({
+        where: { id: item.id },
+        include: { contributions: true },
+      });
+      expect(afterSettle.syncFlag).toBe("UNCHANGED");
+      expect(afterSettle.contributions[0].state).toBe("ACTIVE");
+      expect(afterSettle.checkedAt).not.toBeNull();
+    });
+
+    it("keeps the original unseen previous-value snapshot (not an intermediate one) when the same contribution changes again before acknowledgment, while the live value tracks the latest change", async () => {
+      const { mealPlanId } = await setupMealPlan();
+      const dishA = await dishService.createDish(
+        userId!,
+        "RECIPE",
+        content({
+          title: "Dish A",
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({ name: "Rice", quantity: 2, unit: "cup" }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      const entryAId = await mealPlanService.addMealPlanEntry(
+        userId!,
+        mealPlanId,
+        {
+          dishId: dishA,
+          cookDate: new Date("2026-08-03T00:00:00.000Z"),
+          targetYieldQuantity: 4,
+          targetYieldUnit: "servings",
+        },
+      );
+      const listId = await mealPlanService.generateGroceryListFromMealPlan(
+        userId!,
+        mealPlanId,
+        { title: "Shopping" },
+      );
+      const item = await prisma.groceryListItem.findFirstOrThrow({
+        where: { groceryListId: listId },
+      });
+
+      // First change: 4 -> 8 (2 cup -> 4 cup). Unacknowledged CHANGED,
+      // baseline "2 cup".
+      await mealPlanService.updateMealPlanEntry(userId!, mealPlanId, entryAId, {
+        targetYieldQuantity: 8,
+        targetYieldUnit: "servings",
+      });
+
+      // Second change before acknowledgment: 8 -> 12 (4 cup -> 6 cup).
+      await mealPlanService.updateMealPlanEntry(userId!, mealPlanId, entryAId, {
+        targetYieldQuantity: 12,
+        targetYieldUnit: "servings",
+      });
+
+      const afterSecondChange = await prisma.groceryListItem.findUniqueOrThrow({
+        where: { id: item.id },
+        include: { contributions: true },
+      });
+      expect(afterSecondChange.syncFlag).toBe("CHANGED");
+      expect(afterSecondChange.quantityDecimal?.toNumber()).toBeCloseTo(6); // latest live value
+      // The baseline stays the ORIGINAL unseen "2 cup," not the
+      // intermediate "4 cup" the user never saw either.
+      expect(afterSecondChange.contributions[0].previousQuantityText).toContain(
+        "2",
+      );
+    });
+  });
+
   describe("completion freeze (§81.5)", () => {
     it("does not resync a completed list", async () => {
       const { mealPlanId } = await setupMealPlan();
