@@ -12,7 +12,7 @@ The owner-facing portion of Gate 7 is complete.
 
 The settled architecture is:
 
-> One share acceptance creates one complete, independent, recipient-owned content graph. Stable Parts retain their identity within that graph, every exact referenced Part Version remains distinct, private history stays private, copied media becomes recipient-owned, and nothing in the accepted copy depends on the sender afterward.
+> One share acceptance creates one complete, independent, recipient-owned content graph. Stable Parts retain their identity within that graph, every exact referenced Part Version remains distinct, private history stays private, image media reuses DishFrame's existing shared immutable `ImageAsset`/Blob model rather than being duplicated per copy, and nothing in the accepted copy depends on the sender afterward.
 
 Claude's remaining task is a focused technical preflight against the repository as it exists immediately before Slice 16.
 
@@ -85,24 +85,25 @@ After acceptance:
 - sender edits do not update the recipient's copy;
 - recipient edits do not affect the sender;
 - source archive, revocation, deletion, or account deletion does not break an accepted copy;
-- the recipient owns all copied Dishes, Versions, Part links, and image assets;
-- no accepted Recipe or Part retains a private cross-account PartLink or sender-owned media dependency.
+- the recipient owns all copied Dishes, Versions, and Part links;
+- an accepted `DishVersion` may reference the same shared immutable `ImageAsset`/Blob as its source (see §2.5) — this is storage-level deduplication, not a live sender-recipient dependency, and does not violate independence;
+- no accepted Recipe or Part retains a private cross-account PartLink or other live sender-owned data dependency.
 
 Slice 17 must reuse this same independent-copy engine rather than introduce another ownership model.
 
 ### 2.5 Images and media
 
-Images included in an accepted copy must become recipient-owned assets.
+Accepted copies own their copied Dish, DishVersion, Part, and PartLink graph. Image bytes follow DishFrame's existing shared immutable `ImageAsset` model (Arch §D.2a, round-3 Correction 7) instead of being duplicated per copy:
 
-Do not leave accepted content dependent on:
+- an accepted `DishVersion` may reuse the exact same immutable `ImageAsset` row and underlying Blob bytes as the source;
+- do not duplicate, re-upload, or transfer ownership of image bytes merely because content was duplicated or accepted from a share;
+- shared immutable media is storage-level deduplication, not a live sender-recipient content dependency;
+- replacing or removing the image on the sender's Version must not affect an accepted copy or an active fixed snapshot that still references the old asset (a new Version inherits `imageAssetId` by default rather than mutating the prior asset in place, per Arch §D.2a/§F.8);
+- source archive, share revocation, permanent source deletion, and sender account deletion must not break an image still referenced by an accepted copy or an active fixed snapshot;
+- Blob cleanup may occur only after no protected `DishVersion`, fixed snapshot, accepted copy, or other valid reference still needs the asset — preserve the existing reference-aware, count-based cleanup and `DishVersion.imageAsset`'s `onDelete: Restrict` (Arch §D.2a, round-3 Correction 7);
+- authorization for reading an image comes through access to recipient-owned copied content (the accepted `DishVersion` referencing the asset), not through ownership of the `ImageAsset` row — consistent with `PRODUCT_SPEC.md` §90.2's existing reuse-across-accounts authorization model.
 
-- the sender's private Blob;
-- a sender-owned `ImageAsset`;
-- a share snapshot whose media can disappear independently.
-
-The technical design must account for database transactions and external Blob operations. Where a distributed transaction is impossible, use the repository's established compensation/cleanup strategy so failures do not leak orphaned Blobs or leave partial database graphs.
-
-A fixed share must also remain visually fixed after ordinary source-image replacement or removal while the share remains active. Claude must verify how this should work under the current Blob and `ImageAsset` model.
+A fixed share must also remain visually fixed after ordinary source-image replacement or removal while the share remains active. Claude must verify how this holds under the current Blob and `ImageAsset` model.
 
 ### 2.6 Recursive Part-copy identity
 
@@ -233,11 +234,14 @@ Determine:
    - cycle-safe traversal;
    - all-or-nothing database behavior.
 
-3. How fixed-share image stability and recipient-owned image copying fit the current:
-   - `ImageAsset` ownership model;
-   - private Blob behavior;
-   - image replacement/removal services;
-   - cleanup and compensation mechanisms.
+3. Whether the current image/Blob architecture already satisfies the shared immutable-asset model:
+   - immutable `ImageAsset` reuse across accounts (an accepted copy referencing the same row as its source, Arch §D.2a, Correction 7);
+   - fixed-snapshot image stability while the share remains active;
+   - accepted-copy image survival after source archive, revocation, permanent source deletion, and sender account deletion;
+   - reference-aware, count-based Blob cleanup;
+   - `DishVersion.imageAsset`'s `onDelete: Restrict`;
+   - image replacement/removal behavior on the sender's Version leaving prior-referencing copies/snapshots unaffected;
+   - authorization for reading an image via access to recipient-owned copied content, not `ImageAsset` ownership.
 
 4. Whether current source-deletion and account-deletion services already:
    - revoke links;
@@ -254,7 +258,7 @@ Determine:
 Stop and ask the owner only when the code-aware review finds a concrete conflict that requires a product decision, such as:
 
 - the current schema cannot provide durable idempotency without choosing between materially different user behaviors;
-- private Blob constraints make recipient-owned media copying infeasible under the current hosting model;
+- the existing shared-reference `ImageAsset`/Blob model cannot guarantee that an accepted copy's or fixed snapshot's referenced image survives source edits, archive, revocation, deletion, or account deletion, or cannot guarantee safe reference-aware cleanup;
 - the deletion model cannot preserve accepted copies without retaining a prohibited live dependency;
 - fresh local Version numbering creates a genuine domain conflict not covered above.
 

@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import type { FormEvent } from "react";
-import { Search } from "lucide-react";
+import { Search, ScanLine } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { BarcodeScanner } from "@/components/domain/dish/barcode-scanner";
 import { searchFdc, applyFdcResult } from "@/lib/nutrition/actions";
 import type {
   FdcSearchResultItem,
@@ -34,6 +35,7 @@ export function FdcSearchPicker({
   onApply: (nutrition: FdcNutritionDetail) => void;
 }) {
   const [open, setOpen] = React.useState(false);
+  const [mode, setMode] = React.useState<"search" | "scan">("search");
   const [query, setQuery] = React.useState("");
   const [results, setResults] = React.useState<FdcSearchResultItem[] | null>(
     null,
@@ -43,6 +45,7 @@ export function FdcSearchPicker({
   const [error, setError] = React.useState<string | null>(null);
 
   function reset() {
+    setMode("search");
     setQuery("");
     setResults(null);
     setError(null);
@@ -50,10 +53,7 @@ export function FdcSearchPicker({
     setApplyingFdcId(null);
   }
 
-  async function runSearch(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const trimmed = query.trim();
-    if (!trimmed) return;
+  async function performSearch(trimmed: string) {
     setIsSearching(true);
     setError(null);
     const result = await searchFdc({ query: trimmed });
@@ -64,6 +64,27 @@ export function FdcSearchPicker({
       setResults(null);
       setError(result.message);
     }
+  }
+
+  async function runSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmed = query.trim();
+    if (!trimmed) return;
+    await performSearch(trimmed);
+  }
+
+  /**
+   * BUILD_PLAN.md Slice 14: "Reuses `searchFdc` from Slice 13 with a
+   * GTIN/UPC parameter" — the decoded barcode is just handed to the exact
+   * same text-search action as the query string (USDA FDC indexes GTIN/UPC
+   * for Branded foods), so success/empty/error rendering below is entirely
+   * shared with ordinary text search, including the apply flow in
+   * `selectResult`.
+   */
+  async function handleScanDecode(code: string) {
+    setMode("search");
+    setQuery(code);
+    await performSearch(code);
   }
 
   async function selectResult(item: FdcSearchResultItem) {
@@ -82,14 +103,30 @@ export function FdcSearchPicker({
 
   return (
     <>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={() => setOpen(true)}
-      >
-        <Search /> Search USDA FoodData Central
-      </Button>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            setMode("search");
+            setOpen(true);
+          }}
+        >
+          <Search /> Search USDA FoodData Central
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            setMode("scan");
+            setOpen(true);
+          }}
+        >
+          <ScanLine /> Scan barcode
+        </Button>
+      </div>
       <Dialog
         open={open}
         onOpenChange={(next) => {
@@ -106,22 +143,31 @@ export function FdcSearchPicker({
             </DialogDescription>
           </DialogHeader>
 
-          <form onSubmit={runSearch} className="flex gap-2">
-            <Input
-              autoFocus
-              placeholder="e.g. banana, raw"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              aria-label="Search USDA FoodData Central"
+          {mode === "scan" ? (
+            <BarcodeScanner
+              onDecode={handleScanDecode}
+              onCancel={() => setMode("search")}
             />
-            <Button type="submit" disabled={isSearching || !query.trim()}>
-              {isSearching ? "Searching…" : "Search"}
-            </Button>
-          </form>
+          ) : (
+            <form onSubmit={runSearch} className="flex gap-2">
+              <Input
+                autoFocus
+                placeholder="e.g. banana, raw"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                aria-label="Search USDA FoodData Central"
+              />
+              <Button type="submit" disabled={isSearching || !query.trim()}>
+                {isSearching ? "Searching…" : "Search"}
+              </Button>
+            </form>
+          )}
 
-          {error && <p className="text-destructive text-sm">{error}</p>}
+          {mode === "search" && error && (
+            <p className="text-destructive text-sm">{error}</p>
+          )}
 
-          {results && (
+          {mode === "search" && results && (
             <div className="flex max-h-72 flex-col gap-1 overflow-y-auto">
               {results.length === 0 && (
                 <p className="text-muted-foreground py-6 text-center text-sm">
