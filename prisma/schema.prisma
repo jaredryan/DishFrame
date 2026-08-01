@@ -844,6 +844,21 @@ model GroceryItemContribution {
   quantityDecimal     Decimal? @db.Decimal(12, 3)
   quantityText        String?
   unit                String?
+  // Slice 12 correction: persisted from the source Ingredient at generation/
+  // refresh time so combine.ts's optionality-match rule and uncombine's
+  // per-contribution restoration don't depend on re-deriving it later.
+  isOptional          Boolean  @default(false)
+
+  // Slice 12 correction — durable substitute snapshot (PRODUCT_SPEC.md
+  // §62.2): the generation-time-scaled saved substitute for this
+  // contribution's own ingredient, if any, so `switchGroceryItemToSubstitute`
+  // never needs to re-walk the source Dish/Version. Null when the ingredient
+  // has no saved substitute.
+  substituteIngredientLineageId String?
+  substituteName                String?
+  substituteQuantityDecimal     Decimal? @db.Decimal(12, 3)
+  substituteQuantityText        String?
+  substituteUnit                String?
 
   state                   GroceryContributionState @default(ACTIVE)
   previousQuantityDecimal Decimal?                 @db.Decimal(12, 3)
