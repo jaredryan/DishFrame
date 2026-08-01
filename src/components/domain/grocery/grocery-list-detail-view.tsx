@@ -55,7 +55,10 @@ import {
   deleteGroceryList,
   previewGroceryListSourceRefresh,
   applyGroceryListSourceRefresh,
+  acknowledgeGroceryItemSync,
 } from "@/lib/grocery/list-actions";
+import { resyncMealPlanGroceryLists } from "@/lib/mealplans/actions";
+import Link from "next/link";
 import type {
   GroceryListDetailDto,
   GroceryListItemDto,
@@ -264,6 +267,17 @@ export function GroceryListDetailView({
           <p className="text-muted-foreground mt-1 text-sm">
             {isCompleted ? "Completed" : "Active"} ·{" "}
             {new Date(list.createdAt).toLocaleDateString()}
+            {list.mode === "MEAL_PLAN_LINKED" && list.linkedMealPlanId && (
+              <>
+                {" · "}
+                <Link
+                  href={`/meal-plans/${list.linkedMealPlanId}`}
+                  className="underline"
+                >
+                  Linked to Meal Plan
+                </Link>
+              </>
+            )}
           </p>
         </div>
 
@@ -360,6 +374,23 @@ export function GroceryListDetailView({
           >
             {combineMode ? "Cancel combine" : "Combine items"}
           </Button>
+          {list.mode === "MEAL_PLAN_LINKED" && list.linkedMealPlanId && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isPending}
+              onClick={() =>
+                runAction(() =>
+                  resyncMealPlanGroceryLists({
+                    mealPlanId: list.linkedMealPlanId!,
+                  }),
+                )
+              }
+            >
+              Sync now
+            </Button>
+          )}
           {combineMode && (
             <Button
               type="button"
@@ -448,6 +479,14 @@ export function GroceryListDetailView({
                       }),
                     )
                   }
+                  onAcknowledgeSync={() =>
+                    runAction(() =>
+                      acknowledgeGroceryItemSync({
+                        listId: list.id,
+                        itemId: item.id,
+                      }),
+                    )
+                  }
                 />
               ))}
             </ul>
@@ -529,6 +568,7 @@ function GroceryItemRow({
   onRemove,
   onUncombine,
   onSelectVariant,
+  onAcknowledgeSync,
 }: {
   item: GroceryListItemDto;
   checked: boolean;
@@ -549,6 +589,7 @@ function GroceryItemRow({
   onRemove: () => void;
   onUncombine: () => void;
   onSelectVariant: (variant: "PRIMARY" | "SUBSTITUTE") => void;
+  onAcknowledgeSync: () => void;
 }) {
   const [expanded, setExpanded] = React.useState(false);
   const [editing, setEditing] = React.useState(false);
@@ -648,6 +689,25 @@ function GroceryItemRow({
                 <Badge variant="outline" className="ml-2 align-middle">
                   Manual
                 </Badge>
+              )}
+              {item.syncFlag === "REMOVED" && (
+                <Badge variant="destructive" className="ml-2 align-middle">
+                  No longer in the plan
+                </Badge>
+              )}
+              {item.syncFlag === "CHANGED" && (
+                <Badge variant="outline" className="ml-2 align-middle">
+                  Plan changed
+                </Badge>
+              )}
+              {item.syncFlag !== "UNCHANGED" && !item.flagAcknowledgedAt && (
+                <button
+                  type="button"
+                  className="text-muted-foreground ml-2 align-middle text-xs underline"
+                  onClick={onAcknowledgeSync}
+                >
+                  Acknowledge
+                </button>
               )}
             </div>
           )}

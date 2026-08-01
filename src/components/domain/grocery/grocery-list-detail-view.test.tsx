@@ -12,9 +12,12 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
 }));
 
-const { selectGroceryItemVariant } = vi.hoisted(() => ({
-  selectGroceryItemVariant: vi.fn(async () => ({ status: "success" })),
-}));
+const { selectGroceryItemVariant, acknowledgeGroceryItemSync } = vi.hoisted(
+  () => ({
+    selectGroceryItemVariant: vi.fn(async () => ({ status: "success" })),
+    acknowledgeGroceryItemSync: vi.fn(async () => ({ status: "success" })),
+  }),
+);
 
 vi.mock("@/lib/grocery/list-actions", () => ({
   toggleGroceryItem: vi.fn(async () => ({ status: "success" })),
@@ -43,6 +46,11 @@ vi.mock("@/lib/grocery/list-actions", () => ({
     },
   })),
   applyGroceryListSourceRefresh: vi.fn(async () => ({ status: "success" })),
+  acknowledgeGroceryItemSync,
+}));
+
+vi.mock("@/lib/mealplans/actions", () => ({
+  resyncMealPlanGroceryLists: vi.fn(async () => ({ status: "success" })),
 }));
 
 function contribution(
@@ -57,6 +65,8 @@ function contribution(
     isOptional: false,
     hasSubstitute: false,
     selectedVariant: "PRIMARY",
+    syncState: null,
+    previousQuantityText: null,
     ...overrides,
   };
 }
@@ -73,6 +83,8 @@ function item(overrides: Partial<GroceryListItemDto> = {}): GroceryListItemDto {
     position: 0,
     category: null,
     contributions: [contribution()],
+    syncFlag: "UNCHANGED",
+    flagAcknowledgedAt: null,
     ...overrides,
   };
 }
@@ -86,6 +98,8 @@ function renderList(
     title: "This week",
     createdAt: new Date().toISOString(),
     completedAt: null,
+    mode: "STANDALONE",
+    linkedMealPlanId: null,
     sources: [],
     items,
     ...listOverrides,
@@ -269,5 +283,62 @@ describe("GroceryListDetailView — mixed optionality display (Slice 12 correcti
     const basilLine = screen.getByText(/Basil/).textContent ?? "";
     expect(cilantroLine).toContain("optional");
     expect(basilLine).not.toContain("optional");
+  });
+});
+
+describe("GroceryListDetailView — Meal-Plan sync flags (Slice 15, §81.4)", () => {
+  it("flags a materially changed item without hiding it, and acknowledges on click", async () => {
+    const user = userEvent.setup();
+    renderList([item({ syncFlag: "CHANGED", flagAcknowledgedAt: null })], {
+      mode: "MEAL_PLAN_LINKED",
+      linkedMealPlanId: "plan-1",
+    });
+
+    expect(screen.getByText("Plan changed")).toBeInTheDocument();
+    expect(screen.getByText(/Butter/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Acknowledge" }));
+    expect(acknowledgeGroceryItemSync).toHaveBeenCalledWith({
+      listId: "list-1",
+      itemId: "item-1",
+    });
+  });
+
+  it("flags a checked-off item whose contribution disappeared, preserving its checkmark and name (round-2 Correction 5)", async () => {
+    renderList(
+      [
+        item({
+          syncFlag: "REMOVED",
+          checkedAt: new Date().toISOString(),
+          flagAcknowledgedAt: null,
+        }),
+      ],
+      { mode: "MEAL_PLAN_LINKED", linkedMealPlanId: "plan-1" },
+    );
+
+    expect(screen.getByText("No longer in the plan")).toBeInTheDocument();
+    const checkbox = screen.getByRole("checkbox", { name: /Butter/ });
+    expect(checkbox).toBeChecked();
+  });
+
+  it("shows no acknowledge affordance once already acknowledged", () => {
+    renderList(
+      [
+        item({
+          syncFlag: "CHANGED",
+          flagAcknowledgedAt: new Date().toISOString(),
+        }),
+      ],
+      { mode: "MEAL_PLAN_LINKED", linkedMealPlanId: "plan-1" },
+    );
+    expect(
+      screen.queryByRole("button", { name: "Acknowledge" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows no sync badges on an ordinary UNCHANGED item", () => {
+    renderList([item({ syncFlag: "UNCHANGED" })]);
+    expect(screen.queryByText("Plan changed")).not.toBeInTheDocument();
+    expect(screen.queryByText("No longer in the plan")).not.toBeInTheDocument();
   });
 });

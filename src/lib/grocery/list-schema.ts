@@ -70,6 +70,9 @@ export const selectGroceryItemVariantSchema = itemIdSchema.extend({
   variant: z.enum(["PRIMARY", "SUBSTITUTE"]),
 });
 
+// Slice 15 — acknowledging a Meal-Plan-sync `CHANGED`/`REMOVED` flag.
+export const acknowledgeGroceryItemSyncSchema = itemIdSchema;
+
 export type ActionState = {
   status: "idle" | "success" | "error";
   message?: string;
@@ -94,6 +97,10 @@ export type GroceryContributionDto = {
   /** Which frozen snapshot is currently effective — reversible in either
    * direction (Slice 12 correction 2). */
   selectedVariant: "PRIMARY" | "SUBSTITUTE";
+  /** Slice 15 — this occurrence's Meal-Plan sync state, present only on a
+   * `MEAL_PLAN_LINKED` list's contributions. */
+  syncState: "ACTIVE" | "CHANGED" | "REMOVED" | null;
+  previousQuantityText: string | null;
 };
 
 export type GroceryListItemDto = {
@@ -107,6 +114,11 @@ export type GroceryListItemDto = {
   position: number;
   category: GroceryCategoryOptionDto | null;
   contributions: GroceryContributionDto[];
+  /** Slice 15 — set (non-`UNCHANGED`) only on a `MEAL_PLAN_LINKED` list
+   * after a plan mutation materially changed or removed this item's
+   * contributions (§81.4). */
+  syncFlag: "UNCHANGED" | "CHANGED" | "REMOVED";
+  flagAcknowledgedAt: string | null;
 };
 
 export type GroceryListSourceDto = {
@@ -123,6 +135,8 @@ export type GroceryListDetailDto = {
   title: string;
   createdAt: string;
   completedAt: string | null;
+  mode: "STANDALONE" | "MEAL_PLAN_LINKED";
+  linkedMealPlanId: string | null;
   sources: GroceryListSourceDto[];
   items: GroceryListItemDto[];
 };

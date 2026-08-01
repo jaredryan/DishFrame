@@ -58,6 +58,33 @@ export function scaleIngredientQuantity<T extends ScalableQuantity>(
   };
 }
 
+/**
+ * Meal Plan entry target-yield → scale-factor conversion (BUILD_PLAN.md
+ * Slice 15, PRODUCT_SPEC.md §76.2's "target batch yield"). A
+ * `MealPlanEntry` stores an absolute target yield rather than a
+ * multiplier (unlike `ScaleControl`'s client-computed grocery-source
+ * scale factor) — this is the server-side equivalent of that same
+ * "target / authored" division, reused by both `startSessionFromEntry`
+ * (Cooking Session scale) and Meal-Plan grocery generation/resync
+ * (ingredient scaling). No unit conversion is attempted (matching
+ * `ScaleControl`'s own precedent) — both quantities are assumed to share
+ * the source's own "Makes" unit. Falls back to 1 (the authored amount)
+ * whenever either quantity is missing or the authored yield is zero.
+ */
+export function computeTargetYieldScaleFactor(
+  targetYieldQuantity: number | null,
+  authoredYieldQuantity: number | null,
+): number {
+  if (
+    targetYieldQuantity == null ||
+    authoredYieldQuantity == null ||
+    authoredYieldQuantity <= 0
+  ) {
+    return 1;
+  }
+  return targetYieldQuantity / authoredYieldQuantity;
+}
+
 // PRODUCT_SPEC.md §52.6/§52.7: "familiar, practical kitchen fractions
 // through eighths" — the denominators an ordinary home cook's measuring
 // tools actually divide into (half/third/quarter/sixth/eighth cups and

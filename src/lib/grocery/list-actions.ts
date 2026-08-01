@@ -14,6 +14,7 @@ import {
   combineGroceryItemsSchema,
   refreshSourceSchema,
   selectGroceryItemVariantSchema,
+  acknowledgeGroceryItemSyncSchema,
   listIdSchema,
   itemIdSchema,
   type ActionState,
@@ -263,6 +264,21 @@ export async function selectGroceryItemVariant(values: {
     const { listId, itemId, variant } =
       selectGroceryItemVariantSchema.parse(values);
     await listService.selectGroceryItemVariant(userId, listId, itemId, variant);
+    revalidateList(listId);
+    return { status: "success" };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export async function acknowledgeGroceryItemSync(values: {
+  listId: string;
+  itemId: string;
+}): Promise<ActionState> {
+  try {
+    const userId = await requireUserId();
+    const { listId, itemId } = acknowledgeGroceryItemSyncSchema.parse(values);
+    await listService.acknowledgeGroceryItemSync(userId, listId, itemId);
     revalidateList(listId);
     return { status: "success" };
   } catch (error) {

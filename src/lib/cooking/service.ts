@@ -623,6 +623,18 @@ export async function endCookingSession(
       }
     }
 
+    // BUILD_PLAN.md Slice 15, PRODUCT_SPEC.md §78: a Completed session marks
+    // its linked Meal Plan entry Cooked; an Ended-early session does not.
+    // A plain `MealPlanEntry` join-table update, not a `mealplans` import —
+    // this closes the loop the schema's `linkedSessionId` relation already
+    // models (Slice 2), it doesn't introduce a new cross-module dependency.
+    if (outcome === "COMPLETED") {
+      await tx.mealPlanEntry.updateMany({
+        where: { linkedSessionId: sessionId, status: "IN_PROGRESS" },
+        data: { status: "COOKED" },
+      });
+    }
+
     return tx.cookingSession.update({
       where: { id: sessionId },
       data: { state: outcome, endedAt, rawElapsedSeconds },

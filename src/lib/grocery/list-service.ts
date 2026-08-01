@@ -1,10 +1,16 @@
 import "server-only";
 import { prisma } from "@/lib/db/prisma";
 import type { Prisma } from "@/generated/prisma/client";
-import type { GroceryContributionVariant } from "@/generated/prisma/enums";
+import type {
+  GroceryContributionVariant,
+  GroceryItemSyncFlag,
+} from "@/generated/prisma/enums";
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import { decimalToNumber } from "@/lib/dishes/format";
-import { formatCalculatedQuantity } from "@/lib/units/scaling";
+import {
+  formatCalculatedQuantity,
+  computeTargetYieldScaleFactor,
+} from "@/lib/units/scaling";
 import { normalizeName } from "@/lib/account/defaults";
 import { versionLabel } from "@/lib/dishes/version-note";
 import { getOwnedDishOrThrow } from "@/lib/dishes/queries";
@@ -260,7 +266,7 @@ function toCombinable(
 
 function aggregateQuantityText(
   totalQuantity: number | null,
-  members: PendingContribution[],
+  members: { occurrence: ResolvedIngredientOccurrence }[],
 ): string | null {
   if (members.length === 1) {
     const only = members[0].occurrence;
@@ -1204,4 +1210,495 @@ export async function duplicateGroceryList(ownerId: string, listId: string) {
 
     return copy.id;
   });
+}
+
+// ---------------------------------------------------------------------------
+// Meal Plan generation & live synchronization (BUILD_PLAN.md Slice 15,
+// PRODUCT_SPEC.md §81, ARCHITECTURE_PROPOSAL.md §D.11/§H/§I)
+// ---------------------------------------------------------------------------
+
+/**
+ * The subset of a `MealPlanEntry` this module needs — deliberately not the
+ * full Prisma row, so `mealplans/service.ts` (the caller, which already
+ * owns Meal Plan authorization via `getOwnedMealPlanOrThrow`) can pass
+ * entries straight from its own already-fetched, already-owned data without
+ * this module re-deriving Meal Plan ownership itself.
+ */
+export type MealPlanContributionEntry = {
+  id: string;
+  dishId: string | null;
+  dishVersionId: string | null;
+  targetYieldQuantity: Prisma.Decimal | null;
+};
+
+type PendingMealPlanContribution = {
+  mealPlanEntryId: string;
+  occurrence: ResolvedIngredientOccurrence;
+};
+
+/**
+ * Flattens every entry's current ingredient content, scaled by its own
+ * target-yield-vs-authored-yield ratio (`computeTargetYieldScaleFactor`) —
+ * the Meal-Plan equivalent of `generateGroceryList`'s per-source resolution
+ * above. An entry whose source was permanently deleted (`dishId`/
+ * `dishVersionId` null) or whose target Version no longer exists
+ * contributes nothing, silently — the caller decides whether an empty
+ * result overall is an error.
+ */
+async function collectMealPlanOccurrences(
+  ownerId: string,
+  entries: MealPlanContributionEntry[],
+): Promise<PendingMealPlanContribution[]> {
+  const result: PendingMealPlanContribution[] = [];
+  for (const entry of entries) {
+    if (!entry.dishId || !entry.dishVersionId) continue;
+    const version = await prisma.dishVersion.findFirst({
+      where: { id: entry.dishVersionId, dishId: entry.dishId },
+      select: { yieldQuantity: true },
+    });
+    if (!version) continue;
+    const scaleFactor = computeTargetYieldScaleFactor(
+      decimalToNumber(entry.targetYieldQuantity),
+      decimalToNumber(version.yieldQuantity),
+    );
+    const slots = await gatherIngredientSlots(ownerId, entry.dishVersionId);
+    for (const occurrence of resolveIngredientOccurrences(slots, scaleFactor)) {
+      result.push({ mealPlanEntryId: entry.id, occurrence });
+    }
+  }
+  return result;
+}
+
+function mealPlanContributionKey(
+  mealPlanEntryId: string,
+  ingredientLineageId: string,
+): string {
+  return `${mealPlanEntryId}:${ingredientLineageId}`;
+}
+
+/**
+ * Generates a `MEAL_PLAN_LINKED` grocery list from a Meal Plan's entries
+ * (§81.1) — the entire plan, or the caller-selected subset of `entries`
+ * already filtered by id/date-range in `mealplans/service.ts`. One
+ * transaction, same combination logic as `generateGroceryList`, but every
+ * contribution carries `mealPlanEntryId` instead of `groceryListSourceId`
+ * (Correction 4) — this list has no `GroceryListSource` rows at all, since
+ * its live source of truth is the Meal Plan's own entries.
+ */
+export async function generateGroceryListFromMealPlan(
+  ownerId: string,
+  mealPlanId: string,
+  input: { title: string; entries: MealPlanContributionEntry[] },
+): Promise<string> {
+  const title = input.title.trim();
+  if (!title) throw new ValidationError("Enter a title for this grocery list.");
+  if (input.entries.length === 0) {
+    throw new ValidationError("Select at least one Meal Plan entry.");
+  }
+
+  const pending = await collectMealPlanOccurrences(ownerId, input.entries);
+  if (pending.length === 0) {
+    throw new ValidationError(
+      "None of the selected entries have ingredients to generate from — their source Recipe or Part may have been deleted.",
+    );
+  }
+
+  const fallbackCategory = await getOwnedFallbackCategory(ownerId);
+  const memories = await prisma.ingredientCategoryMemory.findMany({
+    where: { ownerId },
+  });
+  const categoryByNormalizedName = new Map(
+    memories.map((m) => [m.normalizedIngredientName, m.groceryCategoryId]),
+  );
+
+  return prisma.$transaction(async (tx) => {
+    const list = await tx.groceryList.create({
+      data: {
+        ownerId,
+        title,
+        mode: "MEAL_PLAN_LINKED",
+        linkedMealPlanId: mealPlanId,
+      },
+    });
+
+    const groups = groupForCombination(
+      pending.map((p, index) => toCombinable(String(index), p.occurrence)),
+    );
+
+    let position = 0;
+    for (const group of groups) {
+      const members = group.members.map((m) => pending[Number(m.key)]);
+      const isOptional = members.every((m) => m.occurrence.isOptional);
+      const categoryId =
+        categoryByNormalizedName.get(normalizedIngredientName(group.name)) ??
+        fallbackCategory.id;
+
+      const item = await tx.groceryListItem.create({
+        data: {
+          groceryListId: list.id,
+          categoryId,
+          name: group.name,
+          quantityText: aggregateQuantityText(group.totalQuantity, members),
+          quantityDecimal: group.totalQuantity,
+          unit: group.unit,
+          isOptional,
+          isManual: false,
+          position: position++,
+        },
+      });
+
+      for (const member of members) {
+        await tx.groceryItemContribution.create({
+          data: {
+            groceryListItemId: item.id,
+            mealPlanEntryId: member.mealPlanEntryId,
+            ingredientLineageId: member.occurrence.ingredientLineageId,
+            originalName: member.occurrence.originalName,
+            quantityDecimal: member.occurrence.quantity,
+            quantityText:
+              member.occurrence.displayText ??
+              formatGroceryQuantityText(
+                member.occurrence.quantity,
+                member.occurrence.quantityEnd,
+                member.occurrence.isApproximate,
+              ),
+            unit: member.occurrence.unit,
+            isOptional: member.occurrence.isOptional,
+            ...substituteSnapshotFields(member.occurrence.substitute),
+          },
+        });
+      }
+    }
+
+    return list.id;
+  });
+}
+
+/**
+ * Recomputes one Meal-Plan-synced `GroceryListItem`'s displayed aggregate
+ * and `syncFlag` from its current contribution set, after
+ * `resyncGroceryListFromMealPlan` has updated/added/flagged its
+ * contributions. Unlike `recomputeItemAggregate` (standalone refresh, which
+ * deletes disappeared contributions outright), a `REMOVED` contribution is
+ * excluded from the aggregate but never deleted — its row remains as the
+ * visible evidence a checked-off item's source disappeared (Arch §D.11
+ * round-2 Correction 5).
+ */
+async function recomputeMealPlanItemSync(
+  tx: Prisma.TransactionClient,
+  itemId: string,
+): Promise<void> {
+  const contributions = await tx.groceryItemContribution.findMany({
+    where: { groceryListItemId: itemId },
+    orderBy: { id: "asc" },
+  });
+  if (contributions.length === 0) return;
+
+  const live = contributions.filter((c) => c.state !== "REMOVED");
+  const anyRemoved = contributions.some((c) => c.state === "REMOVED");
+
+  if (live.length === 0) {
+    // Every contribution behind this item disappeared from the live plan —
+    // flag REMOVED, leave `checkedAt` untouched (a checked item's checkmark
+    // must never silently vanish, the exact failure mode Correction 5
+    // exists to prevent), and keep the last-known display values as-is.
+    await tx.groceryListItem.update({
+      where: { id: itemId },
+      data: { syncFlag: "REMOVED", flagAcknowledgedAt: null },
+    });
+    return;
+  }
+
+  const anyChanged = live.some((c) => c.state === "CHANGED");
+  const syncFlag: GroceryItemSyncFlag =
+    anyChanged || anyRemoved ? "CHANGED" : "UNCHANGED";
+
+  const first = live[0];
+  const allCombinable = live
+    .slice(1)
+    .every((c) =>
+      canCombine(contributionToCombinable(first), contributionToCombinable(c)),
+    );
+
+  if (allCombinable) {
+    const group = groupForCombination(live.map(contributionToCombinable))[0];
+    await tx.groceryListItem.update({
+      where: { id: itemId },
+      data: {
+        name: group.name,
+        unit: group.unit,
+        quantityDecimal: group.totalQuantity,
+        quantityText:
+          group.totalQuantity != null
+            ? formatGroceryQuantityText(group.totalQuantity, null, false)
+            : live[0].quantityText,
+        ...(live.length === 1 ? { isOptional: live[0].isOptional } : {}),
+        syncFlag,
+        flagAcknowledgedAt: null,
+      },
+    });
+    return;
+  }
+
+  const firstEffective = effectiveContributionFields(first);
+  await tx.groceryListItem.update({
+    where: { id: itemId },
+    data: {
+      name: firstEffective.name,
+      unit: null,
+      quantityDecimal: null,
+      quantityText: live
+        .map((c) => {
+          const effective = effectiveContributionFields(c);
+          return [effective.quantityText, effective.unit]
+            .filter(Boolean)
+            .join(" ");
+        })
+        .filter(Boolean)
+        .join(" + "),
+      syncFlag,
+      flagAcknowledgedAt: null,
+    },
+  });
+}
+
+/**
+ * The explicit reconciliation step (Arch §D.11/§H/§I) run inside the same
+ * transaction as every mutating Meal Plan action that can affect a linked
+ * grocery list — add/remove/yield-change/Version-adoption. Diffs the
+ * *current* set of contributions the plan's live `entries` would produce
+ * against the *stored* set, matched by `mealPlanEntryId` +
+ * `ingredientLineageId` (never by item, which can be a user-combined
+ * group): unchanged contributions stay `ACTIVE`, changed ones are flagged
+ * `CHANGED` with their prior value preserved for display, and disappeared
+ * ones are flagged `REMOVED` rather than deleted — `GroceryListItem.
+ * checkedAt` is never touched by this function, so an already-checked
+ * item's checkmark survives every case (§81.4). A no-op for a list that
+ * isn't an active `MEAL_PLAN_LINKED` list (already completed — §81.5's
+ * freeze — or not found/not owned).
+ */
+export async function resyncGroceryListFromMealPlan(
+  tx: Prisma.TransactionClient,
+  ownerId: string,
+  groceryListId: string,
+  entries: MealPlanContributionEntry[],
+): Promise<void> {
+  const list = await tx.groceryList.findFirst({
+    where: { id: groceryListId, ownerId, mode: "MEAL_PLAN_LINKED" },
+  });
+  if (!list || list.completedAt != null) return;
+
+  const fresh = await collectMealPlanOccurrences(ownerId, entries);
+  const freshByKey = new Map(
+    fresh
+      .filter((f) => f.occurrence.ingredientLineageId)
+      .map((f) => [
+        mealPlanContributionKey(
+          f.mealPlanEntryId,
+          f.occurrence.ingredientLineageId!,
+        ),
+        f,
+      ]),
+  );
+
+  const existingContributions = await tx.groceryItemContribution.findMany({
+    where: {
+      groceryListItem: { groceryListId },
+      mealPlanEntryId: { not: null },
+    },
+  });
+  const existingByKey = new Map(
+    existingContributions
+      .filter((c) => c.ingredientLineageId)
+      .map((c) => [
+        mealPlanContributionKey(c.mealPlanEntryId!, c.ingredientLineageId!),
+        c,
+      ]),
+  );
+
+  const touchedItemIds = new Set<string>();
+
+  // Removed — the plan no longer produces this ingredient occurrence.
+  // Flagged, never deleted (Correction 5).
+  for (const contribution of existingContributions) {
+    const key =
+      contribution.ingredientLineageId && contribution.mealPlanEntryId
+        ? mealPlanContributionKey(
+            contribution.mealPlanEntryId,
+            contribution.ingredientLineageId,
+          )
+        : null;
+    if (key && freshByKey.has(key)) continue;
+    touchedItemIds.add(contribution.groceryListItemId);
+    if (contribution.state === "REMOVED") continue;
+    await tx.groceryItemContribution.update({
+      where: { id: contribution.id },
+      data: {
+        state: "REMOVED",
+        previousQuantityDecimal: contribution.quantityDecimal,
+        previousQuantityText: contribution.quantityText,
+        previousUnit: contribution.unit,
+        acknowledgedAt: null,
+      },
+    });
+  }
+
+  // Unchanged/changed — update the live snapshot in place. Preserves
+  // `checkedAt` by construction (that field lives on the owning
+  // `GroceryListItem`, never touched here).
+  for (const [key, freshEntry] of freshByKey) {
+    const existing = existingByKey.get(key);
+    if (!existing) continue;
+    const occurrence = freshEntry.occurrence;
+    const toQuantityText =
+      occurrence.displayText ??
+      formatGroceryQuantityText(
+        occurrence.quantity,
+        occurrence.quantityEnd,
+        occurrence.isApproximate,
+      );
+    const materiallyChanged =
+      existing.state === "REMOVED" ||
+      existing.originalName !== occurrence.originalName ||
+      existing.quantityText !== toQuantityText ||
+      existing.unit !== occurrence.unit ||
+      existing.isOptional !== occurrence.isOptional;
+    // A currently-SUBSTITUTE selection reverts to PRIMARY only when the
+    // refreshed content no longer has a substitute at all — same rule as
+    // `applyGroceryListSourceRefresh` (Slice 12 correction 2).
+    const nextVariant: GroceryContributionVariant =
+      existing.selectedVariant === "SUBSTITUTE" && !occurrence.substitute
+        ? "PRIMARY"
+        : existing.selectedVariant;
+
+    await tx.groceryItemContribution.update({
+      where: { id: existing.id },
+      data: {
+        originalName: occurrence.originalName,
+        quantityDecimal: occurrence.quantity,
+        quantityText: toQuantityText,
+        unit: occurrence.unit,
+        isOptional: occurrence.isOptional,
+        ...substituteSnapshotFields(occurrence.substitute),
+        selectedVariant: nextVariant,
+        state: materiallyChanged ? "CHANGED" : "ACTIVE",
+        previousQuantityDecimal: materiallyChanged
+          ? existing.quantityDecimal
+          : null,
+        previousQuantityText: materiallyChanged ? existing.quantityText : null,
+        previousUnit: materiallyChanged ? existing.unit : null,
+        acknowledgedAt: materiallyChanged ? null : existing.acknowledgedAt,
+      },
+    });
+    touchedItemIds.add(existing.groceryListItemId);
+  }
+
+  // Added — fold into an existing combinable Meal-Plan-sourced item, else
+  // start a new one. Manual items are never a combination target (isManual
+  // filter), mirroring every other combination path in this module.
+  const fallbackCategory = await getOwnedFallbackCategory(ownerId);
+  const memories = await tx.ingredientCategoryMemory.findMany({
+    where: { ownerId },
+  });
+  const categoryByNormalizedName = new Map(
+    memories.map((m) => [m.normalizedIngredientName, m.groceryCategoryId]),
+  );
+
+  for (const [key, freshEntry] of freshByKey) {
+    if (existingByKey.has(key)) continue;
+    const occurrence = freshEntry.occurrence;
+
+    const candidateItems = await tx.groceryListItem.findMany({
+      where: { groceryListId, isManual: false },
+      include: { contributions: { take: 1 } },
+    });
+    const combinable = candidateItems.find(
+      (candidate) =>
+        candidate.contributions[0] &&
+        candidate.contributions[0].state !== "REMOVED" &&
+        canCombine(
+          contributionToCombinable(candidate.contributions[0]),
+          toCombinable("new", occurrence),
+        ),
+    );
+
+    const maxPosition = await tx.groceryListItem.aggregate({
+      where: { groceryListId },
+      _max: { position: true },
+    });
+    const targetItemId =
+      combinable?.id ??
+      (
+        await tx.groceryListItem.create({
+          data: {
+            groceryListId,
+            categoryId:
+              categoryByNormalizedName.get(
+                normalizedIngredientName(occurrence.originalName),
+              ) ?? fallbackCategory.id,
+            name: occurrence.originalName,
+            isOptional: occurrence.isOptional,
+            isManual: false,
+            position: (maxPosition._max.position ?? -1) + 1,
+          },
+        })
+      ).id;
+
+    await tx.groceryItemContribution.create({
+      data: {
+        groceryListItemId: targetItemId,
+        mealPlanEntryId: freshEntry.mealPlanEntryId,
+        ingredientLineageId: occurrence.ingredientLineageId,
+        originalName: occurrence.originalName,
+        quantityDecimal: occurrence.quantity,
+        quantityText:
+          occurrence.displayText ??
+          formatGroceryQuantityText(
+            occurrence.quantity,
+            occurrence.quantityEnd,
+            occurrence.isApproximate,
+          ),
+        unit: occurrence.unit,
+        isOptional: occurrence.isOptional,
+        ...substituteSnapshotFields(occurrence.substitute),
+      },
+    });
+    touchedItemIds.add(targetItemId);
+  }
+
+  for (const itemId of touchedItemIds) {
+    await recomputeMealPlanItemSync(tx, itemId);
+  }
+}
+
+/**
+ * Marks a flagged (`CHANGED`/`REMOVED`) item as seen (§81.4's "the user
+ * acknowledges the flag via `flagAcknowledgedAt`/`acknowledgedAt`") —
+ * purely an acknowledgment, never a mutation of the underlying sync state
+ * itself.
+ */
+export async function acknowledgeGroceryItemSync(
+  ownerId: string,
+  listId: string,
+  itemId: string,
+): Promise<void> {
+  const list = await getOwnedGroceryListOrThrow(ownerId, listId);
+  const item = findOwnedItem(list, itemId);
+  if (item.syncFlag === "UNCHANGED") return;
+
+  const now = new Date();
+  await prisma.$transaction([
+    prisma.groceryListItem.update({
+      where: { id: itemId },
+      data: { flagAcknowledgedAt: now },
+    }),
+    prisma.groceryItemContribution.updateMany({
+      where: {
+        groceryListItemId: itemId,
+        state: { in: ["CHANGED", "REMOVED"] },
+        acknowledgedAt: null,
+      },
+      data: { acknowledgedAt: now },
+    }),
+  ]);
 }

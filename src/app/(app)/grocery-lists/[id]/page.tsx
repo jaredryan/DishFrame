@@ -45,6 +45,8 @@ export default async function GroceryListDetailPage({
     title: list.title,
     createdAt: list.createdAt.toISOString(),
     completedAt: list.completedAt?.toISOString() ?? null,
+    mode: list.mode,
+    linkedMealPlanId: list.linkedMealPlanId,
     sources: list.sources.map((s) => ({
       id: s.id,
       dishId: s.dishId,
@@ -62,6 +64,8 @@ export default async function GroceryListDetailPage({
       isManual: item.isManual,
       checkedAt: item.checkedAt?.toISOString() ?? null,
       position: item.position,
+      syncFlag: item.syncFlag,
+      flagAcknowledgedAt: item.flagAcknowledgedAt?.toISOString() ?? null,
       category: item.category
         ? {
             id: item.category.id,
@@ -101,6 +105,8 @@ export default async function GroceryListDetailPage({
           isOptional: c.isOptional,
           hasSubstitute: c.substituteIngredientLineageId != null,
           selectedVariant: c.selectedVariant,
+          syncState: c.mealPlanEntryId != null ? c.state : null,
+          previousQuantityText: c.previousQuantityText,
         };
       }),
     })),
