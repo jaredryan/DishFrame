@@ -32,10 +32,18 @@ import {
 } from "@/lib/grocery/queries";
 
 /**
- * Standalone grocery-list generation and management (PRODUCT_SPEC.md
- * §60-64, Build Plan Slice 12). `MEAL_PLAN_LINKED` mode/synchronization is
- * Slice 15 — every list this module writes is `STANDALONE` (the schema
- * default).
+ * Grocery-list generation and management (PRODUCT_SPEC.md §60-64, Build
+ * Plan Slices 12 and 15). Every item/source mutation below (toggle, manual
+ * add/edit/remove, recategorize, reorder, combine/uncombine, substitute
+ * selection, completion) is mode-agnostic by construction — it operates
+ * only on `GroceryListItem`/`GroceryItemContribution` rows scoped by
+ * `listId`, with no `GroceryList.mode` branching — so it behaves
+ * identically on a `STANDALONE` list (Slice 12) and an active
+ * `MEAL_PLAN_LINKED` list (Slice 15), satisfying §62.1/§62.2's "before or
+ * while editing the generated list" choice via the same post-generation
+ * controls either way. Meal-Plan-specific generation and reconciliation
+ * (`generateGroceryListFromMealPlan`/`resyncGroceryListFromMealPlan`) live
+ * in their own section near the bottom of this file.
  */
 
 type OwnedGroceryListItem = OwnedGroceryList["items"][number];

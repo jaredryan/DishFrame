@@ -5,6 +5,7 @@ import { initializeNewUser } from "@/lib/account/init";
 import * as dishService from "@/lib/dishes/service";
 import * as cookingService from "@/lib/cooking/service";
 import * as mealPlanService from "@/lib/mealplans/service";
+import * as listService from "@/lib/grocery/list-service";
 import { getOwnedMealPlanOrThrow } from "@/lib/mealplans/queries";
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import type { DishContentInput, IngredientInput } from "@/lib/dishes/schema";
@@ -388,6 +389,333 @@ describe("mealplans service", () => {
       const manual = list.items.find((i) => i.isManual);
       expect(manual?.name).toBe("Paper towels");
       expect(manual?.syncFlag).toBe("UNCHANGED");
+    });
+
+    it("generates from a chosen date range by filtering entryIds — one of §81.1's three source modes", async () => {
+      const { mealPlanId } = await setupMealPlan();
+      const earlyDish = await dishService.createDish(
+        userId!,
+        "RECIPE",
+        content({
+          title: "Early Dish",
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({ name: "Lemon", quantity: 1, unit: null }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      const lateDish = await dishService.createDish(
+        userId!,
+        "RECIPE",
+        content({
+          title: "Late Dish",
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({ name: "Cumin", quantity: 1, unit: "tsp" }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      const earlyEntryId = await mealPlanService.addMealPlanEntry(
+        userId!,
+        mealPlanId,
+        { dishId: earlyDish, cookDate: new Date("2026-08-03T00:00:00.000Z") },
+      );
+      await mealPlanService.addMealPlanEntry(userId!, mealPlanId, {
+        dishId: lateDish,
+        cookDate: new Date("2026-08-08T00:00:00.000Z"),
+      });
+
+      // A "chosen date range" is expressed as a caller-computed entryIds
+      // subset — generateGroceryListFromMealPlan already accepts an
+      // arbitrary subset (§81.1's "selected plan entries"), so filtering
+      // that subset by cookDate satisfies "a chosen date range" without a
+      // separate code path or UI control.
+      const mealPlan = await getOwnedMealPlanOrThrow(userId!, mealPlanId);
+      const rangeStart = new Date("2026-08-01T00:00:00.000Z");
+      const rangeEnd = new Date("2026-08-05T00:00:00.000Z");
+      const entryIdsInRange = mealPlan.entries
+        .filter((e) => e.cookDate >= rangeStart && e.cookDate <= rangeEnd)
+        .map((e) => e.id);
+      expect(entryIdsInRange).toEqual([earlyEntryId]);
+
+      const listId = await mealPlanService.generateGroceryListFromMealPlan(
+        userId!,
+        mealPlanId,
+        { title: "Early week", entryIds: entryIdsInRange },
+      );
+      const items = await prisma.groceryListItem.findMany({
+        where: { groceryListId: listId },
+      });
+      expect(items.map((i) => i.name)).toEqual(["Lemon"]);
+    });
+
+    it("a chosen substitute variant on a Meal-Plan-linked item survives an unrelated resync (§62.2's post-generation entry point)", async () => {
+      const { mealPlanId } = await setupMealPlan();
+      const dishId = await dishService.createDish(
+        userId!,
+        "RECIPE",
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({
+                  name: "Butter",
+                  quantity: 1,
+                  unit: "cup",
+                  substitute: {
+                    name: "Margarine",
+                    quantity: 1,
+                    quantityEnd: null,
+                    isApproximate: false,
+                    unit: "cup",
+                    displayText: null,
+                    preparationNote: null,
+                  },
+                }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      await mealPlanService.addMealPlanEntry(userId!, mealPlanId, {
+        dishId,
+        cookDate: new Date("2026-08-03T00:00:00.000Z"),
+      });
+      const listId = await mealPlanService.generateGroceryListFromMealPlan(
+        userId!,
+        mealPlanId,
+        { title: "Shopping" },
+      );
+      const item = await prisma.groceryListItem.findFirstOrThrow({
+        where: { groceryListId: listId },
+      });
+      await listService.selectGroceryItemVariant(
+        userId!,
+        listId,
+        item.id,
+        "SUBSTITUTE",
+      );
+      await prisma.groceryListItem.update({
+        where: { id: item.id },
+        data: { checkedAt: new Date() },
+      });
+
+      // An unrelated plan mutation triggers a resync of this same list.
+      const otherDish = await dishService.createDish(
+        userId!,
+        "RECIPE",
+        content({
+          title: "Other Dish",
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({ name: "Pepper", quantity: 1, unit: null }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      await mealPlanService.addMealPlanEntry(userId!, mealPlanId, {
+        dishId: otherDish,
+        cookDate: new Date("2026-08-04T00:00:00.000Z"),
+      });
+
+      const afterResync = await prisma.groceryListItem.findUniqueOrThrow({
+        where: { id: item.id },
+        include: { contributions: true },
+      });
+      expect(afterResync.name).toBe("Margarine");
+      expect(afterResync.contributions[0].selectedVariant).toBe("SUBSTITUTE");
+      expect(afterResync.checkedAt).not.toBeNull();
+      expect(afterResync.syncFlag).toBe("UNCHANGED");
+    });
+
+    it("preserves a manual recategorization through an unrelated resync (categories/ordering guarantee)", async () => {
+      const { mealPlanId } = await setupMealPlan();
+      const dishId = await dishService.createDish(
+        userId!,
+        "RECIPE",
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({ name: "Chili flakes", quantity: 1, unit: null }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      await mealPlanService.addMealPlanEntry(userId!, mealPlanId, {
+        dishId,
+        cookDate: new Date("2026-08-03T00:00:00.000Z"),
+      });
+      const listId = await mealPlanService.generateGroceryListFromMealPlan(
+        userId!,
+        mealPlanId,
+        { title: "Shopping" },
+      );
+      const item = await prisma.groceryListItem.findFirstOrThrow({
+        where: { groceryListId: listId },
+      });
+      const otherCategory = await prisma.groceryCategory.create({
+        data: {
+          ownerId: userId!,
+          normalizedName: "spices",
+          displayName: "Spices",
+          position: 99,
+        },
+      });
+      await listService.recategorizeGroceryItem(
+        userId!,
+        listId,
+        item.id,
+        otherCategory.id,
+      );
+
+      const otherDish = await dishService.createDish(
+        userId!,
+        "RECIPE",
+        content({
+          title: "Unrelated Dish",
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({ name: "Parsley", quantity: 1, unit: null }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      await mealPlanService.addMealPlanEntry(userId!, mealPlanId, {
+        dishId: otherDish,
+        cookDate: new Date("2026-08-04T00:00:00.000Z"),
+      });
+
+      const afterResync = await prisma.groceryListItem.findUniqueOrThrow({
+        where: { id: item.id },
+      });
+      expect(afterResync.categoryId).toBe(otherCategory.id);
+      expect(afterResync.position).toBe(0);
+    });
+
+    it("documents that a manually removed optional item may be re-added by a later resync if the plan still produces it (Slice 21A review item, not changed here)", async () => {
+      const { mealPlanId } = await setupMealPlan();
+      const dishId = await dishService.createDish(
+        userId!,
+        "RECIPE",
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({
+                  name: "Cilantro",
+                  quantity: 1,
+                  unit: null,
+                  isOptional: true,
+                }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      await mealPlanService.addMealPlanEntry(userId!, mealPlanId, {
+        dishId,
+        cookDate: new Date("2026-08-03T00:00:00.000Z"),
+      });
+      const listId = await mealPlanService.generateGroceryListFromMealPlan(
+        userId!,
+        mealPlanId,
+        { title: "Shopping" },
+      );
+      const item = await prisma.groceryListItem.findFirstOrThrow({
+        where: { groceryListId: listId },
+      });
+      expect(item.isOptional).toBe(true);
+
+      await listService.removeGroceryItem(userId!, listId, item.id);
+      const removed = await prisma.groceryListItem.findMany({
+        where: { groceryListId: listId },
+      });
+      expect(removed).toHaveLength(0);
+
+      // The entry that produces Cilantro is untouched — a plan mutation
+      // elsewhere still triggers a resync of this same list, and the
+      // "added" fold-in has no record that this occurrence was ever
+      // deliberately removed, so it reappears. This mirrors
+      // `applyGroceryListSourceRefresh`'s existing accepted behavior from
+      // Slice 12 and is an explicit Slice 21A review item, not a defect.
+      const otherDish = await dishService.createDish(
+        userId!,
+        "RECIPE",
+        content({
+          title: "Unrelated Dish 2",
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({ name: "Salt", quantity: 1, unit: null }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      await mealPlanService.addMealPlanEntry(userId!, mealPlanId, {
+        dishId: otherDish,
+        cookDate: new Date("2026-08-04T00:00:00.000Z"),
+      });
+
+      const afterResync = await prisma.groceryListItem.findMany({
+        where: { groceryListId: listId },
+      });
+      expect(afterResync.map((i) => i.name).sort()).toEqual([
+        "Cilantro",
+        "Salt",
+      ]);
     });
   });
 
