@@ -8,6 +8,7 @@ on:
 env:
   BETTER_AUTH_SECRET: ci-placeholder-secret-do-not-use-in-production
   BETTER_AUTH_URL: http://localhost:3000
+  SHARE_LINK_HMAC_SECRET: ci-placeholder-share-secret-do-not-use-in-production
   NEXT_PUBLIC_APP_URL: http://localhost:3000
   # Disposable service-container Postgres — never the real Neon database.
   # See src/lib/db/adapter.ts and docker-compose.yml for the local-dev equivalent.

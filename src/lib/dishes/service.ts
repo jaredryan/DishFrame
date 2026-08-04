@@ -55,6 +55,7 @@ import {
   type DishKindValue,
   type VersionChoiceValue,
 } from "@/lib/dishes/schema";
+import type { ShareGraph, ShareGraphPartLinkRef } from "@/lib/sharing/graph";
 
 /**
  * Framework-agnostic domain functions (ARCHITECTURE_PROPOSAL.md §K.4) — see
@@ -211,6 +212,35 @@ export async function withVersionAllocation<T>(
  * only for genuinely new content (§D.-1).
  */
 /**
+ * Correction pass: a MATERIALIZED occurrence has no live target to point at
+ * (its Part was deleted) — the frozen snapshot the repository already uses
+ * for that case (`materializedTitle`/`materializedVersionLabel`/
+ * `materializedContent`, ARCHITECTURE_PROPOSAL.md §H's materialization
+ * table) is the "smallest additive" representation `insertPartLinks`/
+ * `insertSections` widen to accept, additively — every existing caller
+ * (`createDish`/`editDish`/`duplicateDish`/`promoteHistoricalVersion`/
+ * `propagateToOneContainer`) only ever constructs plain `PartLinkInput`
+ * (the union's LIVE-shaped member), so none of them change behavior.
+ */
+type MaterializedPartLinkInsert = {
+  kind: "MATERIALIZED";
+  lineageId?: string;
+  position: number;
+  multiplier: number;
+  materializedTitle: string | null;
+  materializedVersionLabel: string | null;
+  materializedContent: Prisma.InputJsonValue;
+};
+type InsertablePartLink = PartLinkInput | MaterializedPartLinkInsert;
+type InsertableSection = Omit<SectionInput, "partLinks"> & {
+  partLinks: InsertablePartLink[];
+};
+
+function isLivePartLink(link: InsertablePartLink): link is PartLinkInput {
+  return !("kind" in link && link.kind === "MATERIALIZED");
+}
+
+/**
  * Slice 6: writes one Section's (or the container's own top-level, when
  * `sectionId` is `null`) linked-Part occurrences, in the same
  * lineage-preserving-or-minting style as every other row `insertSections`
@@ -224,47 +254,70 @@ export async function withVersionAllocation<T>(
  * top-level arrays aren't assumed to already arrive interleaved. A
  * Section-nested PartLink keeps the pre-gate convention (its own array
  * index — Section-nested ordering is unaffected by the unified top-level
- * sequence).
+ * sequence). This applies identically regardless of LIVE/MATERIALIZED kind
+ * — both share one `partLinks` array, in one authored order.
  */
 async function insertPartLinks(
   tx: Prisma.TransactionClient,
   containerVersionId: string,
   sectionId: string | null,
-  partLinks: PartLinkInput[],
+  partLinks: InsertablePartLink[],
   lineageFor: (id: string | undefined) => string,
 ): Promise<void> {
   for (let pi = 0; pi < partLinks.length; pi++) {
     const partLink = partLinks[pi];
-    await tx.partLink.create({
-      data: {
-        lineageId: lineageFor(partLink.lineageId),
-        containerVersionId,
-        sectionId,
-        position: sectionId === null ? partLink.position : pi,
-        multiplier: partLink.multiplier,
-        targetDishId: partLink.targetDishId,
-        targetDishVersionId: partLink.targetDishVersionId,
-      },
-    });
+    const position = sectionId === null ? partLink.position : pi;
+    if (isLivePartLink(partLink)) {
+      await tx.partLink.create({
+        data: {
+          lineageId: lineageFor(partLink.lineageId),
+          containerVersionId,
+          sectionId,
+          position,
+          multiplier: partLink.multiplier,
+          targetDishId: partLink.targetDishId,
+          targetDishVersionId: partLink.targetDishVersionId,
+        },
+      });
+    } else {
+      await tx.partLink.create({
+        data: {
+          lineageId: lineageFor(partLink.lineageId),
+          containerVersionId,
+          sectionId,
+          position,
+          multiplier: partLink.multiplier,
+          linkState: "MATERIALIZED",
+          materializedTitle: partLink.materializedTitle,
+          materializedVersionLabel: partLink.materializedVersionLabel,
+          materializedContent: partLink.materializedContent,
+        },
+      });
+    }
   }
 }
 
 export async function insertSections(
   tx: Prisma.TransactionClient,
   dishVersionId: string,
-  sections: SectionInput[],
-  topLevelPartLinks: PartLinkInput[],
+  sections: InsertableSection[],
+  topLevelPartLinks: InsertablePartLink[],
   { mintFreshLineage }: { mintFreshLineage: boolean },
 ): Promise<{ sectionNames: string[]; partLinkTargetDishIds: string[] }> {
   const sectionNames: string[] = [];
   // Slice 10 correction (§44.1/§44.2's "linked Part names" tier): every
-  // direct linked-Part occurrence this Version references, top-level and
-  // Section-nested alike — feeds `structuralSearchTextFor`'s rebuild of
-  // `Dish.currentStructuralSearchText` below, alongside `sectionNames`.
+  // direct LIVE linked-Part occurrence this Version references, top-level
+  // and Section-nested alike — feeds `structuralSearchTextFor`'s rebuild of
+  // `Dish.currentStructuralSearchText` below, alongside `sectionNames`. A
+  // MATERIALIZED occurrence has no live Part/Dish to name here (matches the
+  // pre-existing behavior these never contributed to search text, since
+  // they were previously dropped from copies entirely).
   const partLinkTargetDishIds = [
-    ...topLevelPartLinks.map((link) => link.targetDishId),
+    ...topLevelPartLinks
+      .filter(isLivePartLink)
+      .map((link) => link.targetDishId),
     ...sections.flatMap((section) =>
-      section.partLinks.map((link) => link.targetDishId),
+      section.partLinks.filter(isLivePartLink).map((link) => link.targetDishId),
     ),
   ];
 
@@ -1833,6 +1886,227 @@ export async function duplicateDish(
 
     return newDish.id;
   });
+}
+
+/**
+ * Slice 16, Gate 7 §2.4/§2.6/§2.7: the shared recursive independent-copy
+ * engine — generalizes `duplicateDish` above (same private helpers, same
+ * "one transaction, insertSections + copyNutritionColumns-style verbatim
+ * nutrition + rating-snapshot provenance" shape) rather than introducing a
+ * second duplication architecture. `graph` is a pre-resolved,
+ * cross-account-safe `ShareGraph` (`sharing/graph.ts` — deliberately not
+ * owner-scoped, since reading another account's content is exactly what a
+ * share is); this function only ever creates rows, never reads the source
+ * again, so the copy is atomic against the exact graph the caller resolved.
+ *
+ * One recipient-owned `Dish` is created per distinct source `dishId`
+ * (`graph.order`'s post-order guarantees every child Part is already
+ * created before the parent that links it, so `PartLink` targets can always
+ * be remapped to already-created recipient ids). Multiple distinct source
+ * Versions referenced for the same source Part become sequential local
+ * majors (V1.0, V2.0, …) on one copied Part, in ascending
+ * `(sourceMajor, sourceMinor)` order (Gate 7 §2.7) — new majors, not minors,
+ * since these are independent snapshots rather than a real small-edit
+ * lineage of each other; `DishVersion.sourceVersionId` is therefore left
+ * unset (it encodes real same-Dish edit lineage, Arch §F.4, which does not
+ * apply here). The Dish-level `sourceKind: "ACCEPTED_SHARE"` snapshot
+ * (`sourceDishId`/`sourceDishVersionLabel`/`sourceTitle`/rating snapshot)
+ * reflects whichever source Version became this copy's current Version,
+ * matching `duplicateDish`'s existing single-snapshot convention.
+ *
+ * Reused as-is by Slice 17 (direct account-to-account sharing) — that slice
+ * only needs to resolve its own `ShareGraph` root (a `DirectShare`'s pinned
+ * `dishId`/`dishVersionId` instead of a `ShareLink`'s) and call this same
+ * function; no second copy path.
+ *
+ * Takes an already-open transaction client rather than opening its own —
+ * the caller (`sharing/service.ts`'s `saveSharedCopy`) must commit the
+ * idempotency bookkeeping row (`ShareLinkAcceptance`) in the same
+ * transaction as the copy itself, so a lost double-submit race (caught as a
+ * unique-constraint violation on that row) rolls back the *entire* copied
+ * graph too — never an orphaned, untracked duplicate copy for the race's
+ * loser.
+ */
+export async function createIndependentCopyFromGraph(
+  tx: Prisma.TransactionClient,
+  recipientId: string,
+  graph: ShareGraph,
+): Promise<{ dishId: string; dishKind: DishKindValue }> {
+  const versionIdsByDish = new Map<string, string[]>();
+  const dishCreationOrder: string[] = [];
+  for (const versionId of graph.order) {
+    const dishId = graph.nodes.get(versionId)!.dishId;
+    if (!versionIdsByDish.has(dishId)) {
+      versionIdsByDish.set(dishId, []);
+      dishCreationOrder.push(dishId);
+    }
+    versionIdsByDish.get(dishId)!.push(versionId);
+  }
+  for (const versionIds of versionIdsByDish.values()) {
+    versionIds.sort((a, b) => {
+      const na = graph.nodes.get(a)!;
+      const nb = graph.nodes.get(b)!;
+      return na.majorVersion !== nb.majorVersion
+        ? na.majorVersion - nb.majorVersion
+        : na.minorVersion - nb.minorVersion;
+    });
+  }
+
+  // Rating snapshots (PRODUCT_SPEC.md §19.1) are read fresh, once per
+  // distinct source Dish, before the transaction starts — same timing
+  // `duplicateDish` already uses.
+  const ratingSnapshots = new Map<
+    string,
+    Awaited<ReturnType<typeof getDuplicationRatingSnapshot>>
+  >();
+  for (const sourceDishId of dishCreationOrder) {
+    ratingSnapshots.set(
+      sourceDishId,
+      await getDuplicationRatingSnapshot(sourceDishId),
+    );
+  }
+
+  const recipientDishIdBySourceDishId = new Map<string, string>();
+  const recipientVersionIdBySourceVersionId = new Map<string, string>();
+
+  for (const sourceDishId of dishCreationOrder) {
+    const versionIds = versionIdsByDish.get(sourceDishId)!;
+    const lastNode = graph.nodes.get(versionIds[versionIds.length - 1])!;
+    const ratingSnapshot = ratingSnapshots.get(sourceDishId)!;
+
+    const newDish = await tx.dish.create({
+      data: {
+        ownerId: recipientId,
+        kind: lastNode.dishKind,
+        stage: "IDEA",
+        cuisine: lastNode.dishCuisine,
+        currentTitle: lastNode.dishTitle,
+        sourceKind: "ACCEPTED_SHARE",
+        sourceDishId,
+        sourceDishVersionLabel: versionLabel(
+          lastNode.majorVersion,
+          lastNode.minorVersion,
+        ),
+        sourceTitle: lastNode.dishTitle,
+        sourceAggregateRating: ratingSnapshot.aggregateRating,
+        sourceRatingCount: ratingSnapshot.ratingCount,
+        sourceSessionCount: ratingSnapshot.sessionCount,
+      },
+    });
+    recipientDishIdBySourceDishId.set(sourceDishId, newDish.id);
+
+    let currentVersionId: string | null = null;
+    let currentSectionNames: string[] = [];
+    let currentPartLinkTargetDishIds: string[] = [];
+
+    for (let i = 0; i < versionIds.length; i++) {
+      const node = graph.nodes.get(versionIds[i])!;
+      const remapPartLink = (link: PartLinkInput): PartLinkInput => ({
+        ...link,
+        targetDishId: recipientDishIdBySourceDishId.get(link.targetDishId)!,
+        targetDishVersionId: recipientVersionIdBySourceVersionId.get(
+          link.targetDishVersionId,
+        )!,
+      });
+      // Correction pass: a MATERIALIZED occurrence has no source Dish/Part
+      // of its own to copy (it was deleted — this *is* everything that
+      // survives of it) — the recipient's copy gets the identical frozen
+      // snapshot, never a live dependency on the original. Its OWN nested
+      // PartLinks are always LIVE-shaped (materialization never recurses,
+      // `sharing/graph.ts`'s module doc comment) and point at real Parts
+      // this graph already walked and copied, so they're remapped exactly
+      // like any other LIVE reference — never left pointing back at the
+      // sender's rows.
+      const remapRef = (ref: ShareGraphPartLinkRef): InsertablePartLink => {
+        if (ref.kind === "MATERIALIZED") {
+          return {
+            kind: "MATERIALIZED",
+            position: ref.position,
+            multiplier: ref.multiplier,
+            materializedTitle: ref.materializedTitle,
+            materializedVersionLabel: ref.materializedVersionLabel,
+            materializedContent: {
+              partLinks: ref.materializedContent.partLinks.map(remapPartLink),
+              sections: ref.materializedContent.sections.map(
+                (section: SectionInput) => ({
+                  ...section,
+                  partLinks: section.partLinks.map(remapPartLink),
+                }),
+              ),
+            } as unknown as Prisma.InputJsonValue,
+          };
+        }
+        return remapPartLink({
+          targetDishId: ref.targetDishId,
+          targetDishVersionId: ref.targetDishVersionId,
+          position: ref.position,
+          multiplier: ref.multiplier,
+        });
+      };
+
+      const newVersion = await tx.dishVersion.create({
+        data: {
+          dishId: newDish.id,
+          majorVersion: i + 1,
+          minorVersion: 0,
+          title: node.dishTitle,
+          description: node.description,
+          imageAssetId: node.imageAssetId,
+          yieldQuantity: node.yieldQuantity,
+          yieldUnit: node.yieldUnit,
+          prepTimeMinutes: node.prepTimeMinutes,
+          cookTimeMinutes: node.cookTimeMinutes,
+          difficulty: node.difficulty,
+          calories: node.calories,
+          protein: node.protein,
+          carbs: node.carbs,
+          fat: node.fat,
+          nutritionBasis: node.nutritionBasis,
+          nutritionBasisQuantity: node.nutritionBasisQuantity,
+          nutritionBasisUnit: node.nutritionBasisUnit,
+          moreNutrients: copyMoreNutrients(node.moreNutrients),
+          nutritionSourceProvider: node.nutritionSourceProvider,
+          nutritionSourceId: node.nutritionSourceId,
+          nutritionSourceName: node.nutritionSourceName,
+          versionNote: `Copied from shared ${versionLabel(node.majorVersion, node.minorVersion)}.`,
+        },
+      });
+      recipientVersionIdBySourceVersionId.set(node.versionId, newVersion.id);
+      currentVersionId = newVersion.id;
+
+      const { sectionNames, partLinkTargetDishIds } = await insertSections(
+        tx,
+        newVersion.id,
+        node.sections.map((section) => ({
+          ...section,
+          partLinks: section.partLinks.map(remapRef),
+        })),
+        node.topLevelPartLinks.map(remapRef),
+        { mintFreshLineage: true },
+      );
+      currentSectionNames = sectionNames;
+      currentPartLinkTargetDishIds = partLinkTargetDishIds;
+    }
+
+    await tx.dish.update({
+      where: { id: newDish.id },
+      data: {
+        currentVersionId,
+        currentStructuralSearchText: await structuralSearchTextFor(
+          tx,
+          currentSectionNames,
+          currentPartLinkTargetDishIds,
+        ),
+      },
+    });
+  }
+
+  return {
+    dishId: recipientDishIdBySourceDishId.get(
+      graph.nodes.get(graph.rootVersionId)!.dishId,
+    )!,
+    dishKind: graph.nodes.get(graph.rootVersionId)!.dishKind,
+  };
 }
 
 /**

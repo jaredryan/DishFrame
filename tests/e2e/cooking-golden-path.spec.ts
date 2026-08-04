@@ -63,6 +63,20 @@ test.describe("Cooking: setup, start, edit active plan, end early", () => {
   });
 
   test("golden path", async ({ page }) => {
+    // Slice 16 correction: the default 30s test timeout is no longer
+    // enough headroom. This journey's very first steps hit `/recipes/new`
+    // and `/recipes/[dishId]` for the first time in the whole suite (see
+    // the two per-action overrides below), and the Recipe detail page's
+    // action menu (`DishDetailActions`) now also reaches the whole sharing
+    // feature (Slice 16's `ShareDialog` → `sharing/actions.ts` → the
+    // independent-copy engine's full dependency graph) — a heavier
+    // first-time dev-mode compile than any individual per-action override
+    // can rescue, since an action-level `timeout` can never exceed an
+    // already-expiring overall test deadline (Playwright applies whichever
+    // limit is hit first). Doubling the whole-test budget is the correct
+    // fix here, not another per-action bump.
+    test.setTimeout(60_000);
+
     const title = `Cooking Test Bowl ${Date.now()}`;
 
     // --- Create a Recipe with two Sections, each with one ingredient ---

@@ -1,6 +1,7 @@
 import { get } from "@vercel/blob";
 import { prisma } from "@/lib/db/prisma";
 import { getServerSession } from "@/lib/auth/session";
+import { isImageAssetVisibleViaShareLink } from "@/lib/sharing/service";
 
 /**
  * ARCHITECTURE_PROPOSAL.md §L/§M: the one place private image data is
@@ -9,24 +10,18 @@ import { getServerSession } from "@/lib/auth/session";
  * goes through this authenticated route, which resolves `storageKey` and
  * streams it back rather than redirecting to a fetchable Blob URL.
  *
- * Authorization is derived entirely from the requester's access to SOME
- * `DishVersion` that references this `ImageAsset` (they own that Version's
- * Dish) — never from `ImageAsset.uploadedByUserId`, which is attribution
- * only (§D.2a).
- *
- * Deliberately no `ShareLink`-token branch yet: the architecture doc
- * describes a dual owner-session-OR-share-token authorization path so a
- * logged-out public share viewer can also see an image, but sharing has no
- * creation service or UI in this codebase at all yet (Tier 2, Slices
- * 16-17) — writing a share-token check against a token nothing can ever
- * issue would be a fake implementation, not a real one. Deliberately
- * omitted rather than faked, the same way Slice 4 omitted a linked-Parts
- * comparison group rather than adding a placeholder for it. Flagged in the
- * Slice 5 report so the sharing slice knows to add this branch, not
- * discover it's missing.
+ * Two independent authorization paths, either one sufficient:
+ * - session-based: the requester owns some `DishVersion` that references
+ *   this `ImageAsset` (never `ImageAsset.uploadedByUserId`, which is
+ *   attribution only, §D.2a);
+ * - Slice 16's `ShareLink`-token branch: a `?shareToken=` query param
+ *   naming an active, unrevoked, unexpired `ShareLink` whose (frozen or
+ *   live-current) content actually reaches this asset — the one place a
+ *   logged-out public share viewer can see an image, per §D.2a/§90.2's
+ *   explicitly-deferred "public ShareLink-token read path."
  */
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ assetId: string }> },
 ) {
   const { assetId } = await params;
@@ -39,17 +34,25 @@ export async function GET(
     return Response.json({ message: "Not found." }, { status: 404 });
   }
 
-  const session = await getServerSession();
-  if (!session) {
-    return Response.json({ message: "Sign in required." }, { status: 401 });
-  }
+  const shareToken = new URL(request.url).searchParams.get("shareToken");
+  if (shareToken) {
+    const visible = await isImageAssetVisibleViaShareLink(shareToken, assetId);
+    if (!visible) {
+      return Response.json({ message: "Not found." }, { status: 404 });
+    }
+  } else {
+    const session = await getServerSession();
+    if (!session) {
+      return Response.json({ message: "Sign in required." }, { status: 401 });
+    }
 
-  const ownsReferencingVersion = await prisma.dishVersion.findFirst({
-    where: { imageAssetId: assetId, dish: { ownerId: session.user.id } },
-    select: { id: true },
-  });
-  if (!ownsReferencingVersion) {
-    return Response.json({ message: "Not found." }, { status: 404 });
+    const ownsReferencingVersion = await prisma.dishVersion.findFirst({
+      where: { imageAssetId: assetId, dish: { ownerId: session.user.id } },
+      select: { id: true },
+    });
+    if (!ownsReferencingVersion) {
+      return Response.json({ message: "Not found." }, { status: 404 });
+    }
   }
 
   const blob = await get(asset.storageKey, { access: "private" });

@@ -19,17 +19,31 @@ const ERROR_MESSAGES: Record<string, string> = {
   access_denied: "Sign-in was cancelled.",
 };
 
+/**
+ * Only a same-origin relative path is ever honored — never a scheme-
+ * relative ("//evil.com") or absolute URL, which would otherwise let an
+ * attacker-controlled `redirectTo` param send a signed-in user off-site
+ * (an open-redirect risk this app's own auth flow must not introduce).
+ */
+function safeRedirectTarget(value: string | string[] | undefined): string {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/home";
+  return raw;
+}
+
 export default async function SignInPage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const params = await searchParams;
+  const redirectTo = safeRedirectTarget(params.redirectTo);
+
   const session = await getServerSession();
   if (session) {
-    redirect("/home");
+    redirect(redirectTo);
   }
 
-  const params = await searchParams;
   const rawError = params.error;
   const errorCode = Array.isArray(rawError) ? rawError[0] : rawError;
   const initialError = errorCode
@@ -41,6 +55,7 @@ export default async function SignInPage({
     <SignInCard
       googleConfigured={isGoogleAuthConfigured}
       initialError={initialError}
+      callbackURL={redirectTo}
     />
   );
 }

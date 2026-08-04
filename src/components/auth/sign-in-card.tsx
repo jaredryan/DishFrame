@@ -32,9 +32,14 @@ function GoogleIcon() {
 export function SignInCard({
   googleConfigured,
   initialError,
+  callbackURL = "/home",
 }: {
   googleConfigured: boolean;
   initialError?: string;
+  /** Slice 16, PRODUCT_SPEC.md §84.1: a logged-out share viewer who clicks
+   * "Save to My Recipes/Parts" is sent here with a validated same-origin
+   * `redirectTo` so sign-in lands them back on the share page, not `/home`. */
+  callbackURL?: string;
 }) {
   const [error, setError] = React.useState<string | undefined>(initialError);
   const [pending, setPending] = React.useState(false);
@@ -45,7 +50,7 @@ export function SignInCard({
     try {
       const { error: signInError } = await signIn.social({
         provider: "google",
-        callbackURL: "/home",
+        callbackURL,
       });
       if (signInError) {
         setError(

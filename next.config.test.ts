@@ -32,4 +32,22 @@ describe("next.config security headers", () => {
     const allKeys = rules.flatMap((r) => r.headers.map((h) => h.key));
     expect(allKeys).not.toContain("Content-Security-Policy");
   });
+
+  /**
+   * Slice 16 correction pass: the public share token lives in the URL path
+   * (`/s/[token]`), not a cookie — a same-origin `Referer` header on
+   * outbound navigation from that page would otherwise carry it into
+   * DishFrame's own access logs (the site-wide
+   * `strict-origin-when-cross-origin` default already strips it for
+   * cross-origin destinations, but still sends the full URL same-origin).
+   */
+  it("sends no Referer at all from the public share route", async () => {
+    const rules = await nextConfig.headers!();
+    const shareRule = rules.find((r) => r.source === "/s/:token*");
+    expect(shareRule).toBeDefined();
+    const byKey = Object.fromEntries(
+      (shareRule?.headers ?? []).map((h) => [h.key, h.value]),
+    );
+    expect(byKey["Referrer-Policy"]).toBe("no-referrer");
+  });
 });

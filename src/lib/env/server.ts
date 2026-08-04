@@ -33,6 +33,15 @@ const schema = z.object({
     .min(1, "BETTER_AUTH_SECRET is required — see .env.example."),
   BETTER_AUTH_URL: z.url().default("http://localhost:3000"),
 
+  // Slice 16: signs public share-link tokens (ShareLink.tokenId + "." +
+  // HMAC-SHA256(tokenId, SECRET), Arch §D.13/§M.4) — required like
+  // BETTER_AUTH_SECRET rather than optional-with-fallback, since a weak or
+  // missing secret here would be a real security gap, not a missing
+  // convenience feature.
+  SHARE_LINK_HMAC_SECRET: z
+    .string()
+    .min(1, "SHARE_LINK_HMAC_SECRET is required — see .env.example."),
+
   // Optional: sign-in stays functional but shows a setup notice when unset.
   GOOGLE_CLIENT_ID: z
     .string()

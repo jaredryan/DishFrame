@@ -40,6 +40,7 @@ model User {
   sentDirectShares           DirectShare[]              @relation("DirectShareSender")
   receivedDirectShares       DirectShare[]              @relation("DirectShareRecipient")
   uploadedImages             ImageAsset[]               @relation("ImageUploader")
+  shareLinkAcceptances       ShareLinkAcceptance[]
 
   @@map("users")
 }
@@ -170,6 +171,7 @@ model Dish {
   // reference now targets DishVersion via a composite relation instead (see DishVersion's
   // own back-relation list below).
   shareLinksCurrent ShareLink[] @relation("ShareLinkCurrentDish")
+  shareLinkAcceptance ShareLinkAcceptance?
 
   @@index([ownerId, kind, stage])
   @@index([ownerId, kind, archivedAt])
@@ -990,17 +992,59 @@ model ShareLink {
 
   dishTitleSnapshot String
 
+  // Slice 16, Gate 7 §2.3: creator identity is hidden on a public link by
+  // default; the owner opts in per-link. Direct account-to-account sharing
+  // (Slice 17, DirectShare) always shows the sender's identity and needs no
+  // equivalent field.
+  showCreatorName Boolean @default(false)
+
   expiresAt DateTime?
   revokedAt DateTime?
   createdAt DateTime  @default(now())
 
-  owner            User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  currentDish      Dish?        @relation("ShareLinkCurrentDish", fields: [currentDishId], references: [id], onDelete: SetNull)
-  fixedDishVersion DishVersion? @relation(fields: [fixedDishId, fixedDishVersionId], references: [dishId, id], onDelete: SetNull)
+  owner            User                   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  currentDish      Dish?                  @relation("ShareLinkCurrentDish", fields: [currentDishId], references: [id], onDelete: SetNull)
+  fixedDishVersion DishVersion?           @relation(fields: [fixedDishId, fixedDishVersionId], references: [dishId, id], onDelete: SetNull)
+  acceptances      ShareLinkAcceptance[]
 
   @@index([ownerId])
   @@index([currentDishId])
   @@index([fixedDishId])
+}
+
+// Slice 16, Gate 7 §2.8: durable idempotency — a recipient may accept a
+// given ShareLink only once, and retries/double-submits must return the
+// already-created copy. `@@unique([shareLinkId, recipientId])` is what
+// actually enforces "only once" — it must survive independently of whether
+// the created copy still exists.
+//
+// Correction pass: `createdDishId` is nullable with `onDelete: SetNull`
+// (not the original `Cascade`) — the acceptance ROW is the durable proof
+// "this recipient already used this share," and must outlive the copied
+// Dish it once pointed at. If it cascaded away with the Dish, a recipient
+// who deleted their copy could accept the exact same share again, silently
+// violating the "only once" rule. A row with `createdDishId: null` reads as
+// "this recipient already accepted this share, but their copy is gone" —
+// the public page shows that truthfully and offers no Save action; no
+// second copy is ever created for it (Postgres allows multiple NULLs in a
+// unique column, so this never collides across different deleted copies).
+// The ShareLink FK stays Cascade: only removed via the owner's account
+// deletion (Arch §H.1 point 6, not yet built, Slice 19), at which point the
+// token itself can never be visited again, so nothing depends on this row
+// surviving that specific case.
+model ShareLinkAcceptance {
+  id            String   @id @default(cuid())
+  shareLinkId   String
+  recipientId   String
+  createdDishId String?  @unique
+  createdAt     DateTime @default(now())
+
+  shareLink   ShareLink @relation(fields: [shareLinkId], references: [id], onDelete: Cascade)
+  recipient   User      @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+  createdDish Dish?     @relation(fields: [createdDishId], references: [id], onDelete: SetNull)
+
+  @@unique([shareLinkId, recipientId])
+  @@index([recipientId])
 }
 
 enum DirectShareStatus {

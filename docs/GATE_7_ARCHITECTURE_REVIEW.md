@@ -291,19 +291,17 @@ For the preflight:
 
 ## 4. Technical Preflight Result
 
-**Status:** Pending Claude review immediately before Slice 16.
+**Status:** Complete — technically cleared, no owner decision required.
 
-Claude should replace this section with a concise current-truth result containing:
+- **Schema fit:** `ShareLink`/`DirectShare` already support fixed/current modes, the mode-consistency CHECK constraint, and revocation. Two gaps found, both ordinary additive schema work, not product conflicts: (1) no field for opt-in creator attribution — added `ShareLink.showCreatorName Boolean @default(false)`; (2) no durable per-recipient acceptance record, so idempotency and "link to the created copy" could not be satisfied — added a new `ShareLinkAcceptance` model (`shareLinkId` + `recipientId` unique pair, `createdDishId` unique, cascades away if either the share link or the created copy is later removed, which is safe since the copy's independence never depended on this row).
+- **Copy-engine fit:** `duplicateDish` (`dishes/service.ts`) already establishes the right pattern (one transaction, `insertSections`/`copyNutritionColumns`/`structuralSearchTextFor`, `sourceKind`/`sourceDishId`/`sourceTitle` provenance) but only copies one Dish non-recursively. Generalized rather than replaced: a new ownerless graph resolver (`sharing/graph.ts`) walks the LIVE `PartLink` chain from any root Dish/Version (no owner scoping — reading another account's content is exactly what a share is), deduping by `versionId` so a repeated reference reuses one node and a depth guard catches any latent cycle bug. A new exported `createIndependentCopyFromGraph` in `dishes/service.ts` consumes that graph and reuses the same private helpers `duplicateDish` already uses, inside one transaction. **Correction pass (see `docs/SLICE_16.md`):** the claim below this line originally read that `MATERIALIZED` PartLinks are safely dropped, matching `duplicateDish`'s own pre-existing behavior — that was checked more carefully during the correction pass and found incomplete: a `FIXED_SNAPSHOT` share can pin a historical Version (§83.3), and a historical Version can carry a MATERIALIZED occurrence whose content the app's own historical-Version view already renders, so silently dropping it was a real, reachable content-loss gap for sharing specifically (not for `duplicateDish`, which never offers historical-Version selection). `sharing/graph.ts` now resolves both `LIVE` and `MATERIALIZED` PartLinks and the copy engine preserves the latter as a frozen, no-live-dependency snapshot on the recipient's own copied PartLink row (`docs/SLICE_16.md`'s "Independent-copy engine" section has the full design). `duplicateDish` itself is unchanged and still drops MATERIALIZED content — a separate, narrower, pre-existing limitation outside this gate's scope.
+- **Image/Blob strategy:** Already satisfies the shared-immutable-asset model as designed — `ImageAsset` is not owner-scoped, `deleteImageAssetIfOrphaned` is reference-counted via `COUNT(*)` against `DishVersion.imageAssetId`, and `onDelete: Restrict` is in place. The one real gap was the deliberately-deferred piece: `/api/images/[assetId]/route.ts` had no ShareLink-token branch (its own comment flagged this as waiting for Slice 16). Added: a fixed snapshot embeds its resolved `imageAssetId`s directly in `frozenSnapshot` (denormalized, so it never depends on the source surviving); a current-mode link resolves the live graph's `imageAssetId`s on each image request.
+- **Idempotency strategy:** `ShareLinkAcceptance`'s `@@unique([shareLinkId, recipientId])` is the authoritative guard — a race is caught as a unique-constraint violation, the whole losing transaction rolls back (no partial copy), and the caller re-queries and returns the winner's existing copy.
+- **Deletion/revocation fit:** `revokeSharesAndCancelPendingShares` (already called from `deleteRecipe`/`deletePart`'s final transaction) already revokes every `ShareLink` and cancels every pending `DirectShare` referencing the deleted `dishId`, inside the same transaction as the delete — matches Arch §I/§H.1 exactly, nothing to add. Account deletion (Arch §H.1 point 6) is not yet implemented anywhere in the repository (it is Slice 19's scope) — `ShareLink.owner`/`DirectShare.sender` already carry `onDelete: Cascade` to `User`, so the correct hard-cascade behavior is already in place structurally for whenever Slice 19 builds the deletion flow itself; nothing for Slice 16 to add or verify beyond that.
+- **Version-numbering strategy:** Copied Dishes/Parts get fresh sequential majors (V1.0, V2.0, …) in ascending source-`(majorVersion, minorVersion)` order — treated as new majors (not minors) since these are independent snapshots, not a real small-edit lineage of each other. `DishVersion.sourceVersionId` is deliberately left unset on every copied Version (it encodes real same-Dish edit lineage per Arch §F.4, none of which applies here); provenance instead rides on the existing `Dish.sourceKind/sourceDishId/sourceDishVersionLabel/sourceTitle` fields (set from the Version that becomes the copy's current Version) plus a short auto-generated `versionNote` per copied Version naming its exact source label.
+- **Contradictions corrected:** none found beyond what Arch §H/§H.1 already states correctly; no stale "fixed link survives permanent source deletion" language found in current docs/tests.
+- **Migration expectation:** one small additive migration (`showCreatorName` column + `ShareLinkAcceptance` table/constraints) — no drops, no data migration.
+- **Blocking conflicts:** none.
+- **Recommendation:** proceed directly into Slice 16 implementation.
 
-- schema fit;
-- copy-engine fit;
-- image/Blob strategy;
-- idempotency strategy;
-- deletion/revocation fit;
-- Version-numbering strategy;
-- contradictions corrected;
-- migration expectation;
-- blocking conflicts, if any;
-- recommendation: proceed / owner decision required.
-
-Keep this file as the canonical Gate 7 handoff. Do not append a long chronological narrative.
+Keep this file as the canonical Gate 7 handoff.
