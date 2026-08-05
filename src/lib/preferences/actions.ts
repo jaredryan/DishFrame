@@ -9,6 +9,10 @@ import {
   type PreferencesFormState,
   type PreferencesFormValues,
 } from "@/lib/preferences/schema";
+import type {
+  OnboardingGuideKey,
+  OnboardingGuideStatus,
+} from "@/lib/preferences/onboarding-guides";
 
 export async function updatePreferences(
   values: PreferencesFormValues,
@@ -21,6 +25,40 @@ export async function updatePreferences(
 
     revalidatePath("/settings");
     return { status: "success", message: "Preferences saved." };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export type OnboardingActionState = {
+  status: "success" | "error";
+  message?: string;
+};
+
+export async function markOnboardingGuideState(
+  guideKey: OnboardingGuideKey,
+  guideStatus: OnboardingGuideStatus,
+): Promise<OnboardingActionState> {
+  try {
+    const userId = await requireUserId();
+    await preferencesService.markOnboardingGuideState(
+      userId,
+      guideKey,
+      guideStatus,
+    );
+    return { status: "success" };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export async function resetOnboardingGuideState(
+  guideKey: OnboardingGuideKey,
+): Promise<OnboardingActionState> {
+  try {
+    const userId = await requireUserId();
+    await preferencesService.resetOnboardingGuideState(userId, guideKey);
+    return { status: "success" };
   } catch (error) {
     return { status: "error", message: toActionErrorMessage(error) };
   }

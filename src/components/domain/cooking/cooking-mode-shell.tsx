@@ -31,6 +31,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
+import { CoachMark } from "@/components/onboarding/coach-mark";
 import {
   ScaleControl,
   computeOutputBasis,
@@ -479,6 +480,16 @@ export function CookingModeShell({
           </div>
         )}
       </div>
+
+      {isActive && (
+        <div className="px-4 pt-3">
+          <CoachMark guideKey="cooking-session" title="Cooking Sessions">
+            This is a Cooking Session — check items off as you go, run timers,
+            and adjust scale live. When you finish, you can leave a Session
+            Review so DishFrame remembers what worked.
+          </CoachMark>
+        </div>
+      )}
 
       {allTimers.length > 0 && (
         <div className="border-border flex gap-2 overflow-x-auto border-b px-4 py-2">

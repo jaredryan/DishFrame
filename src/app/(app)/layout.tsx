@@ -6,6 +6,9 @@ import { initializeNewUser } from "@/lib/account/init";
 import { SidebarNav } from "@/components/app/sidebar-nav";
 import { MobileTopbar } from "@/components/app/mobile-topbar";
 import { AccountMenu } from "@/components/app/account-menu";
+import { OnboardingProvider } from "@/components/onboarding/onboarding-provider";
+import { InitialIntro } from "@/components/onboarding/initial-intro";
+import type { OnboardingState } from "@/lib/preferences/onboarding-guides";
 
 export const metadata: Metadata = {
   robots: {
@@ -32,12 +35,14 @@ export default async function AppLayout({
   // protected app shell checks the completion marker and retries
   // initializeNewUser if it's still unset — cheap (one indexed lookup) once
   // initialization has actually completed.
-  const preference = await prisma.userPreference.findUnique({
+  let preference = await prisma.userPreference.findUnique({
     where: { userId: session.user.id },
-    select: { defaultsInitializedAt: true },
   });
   if (!preference?.defaultsInitializedAt) {
     await initializeNewUser(session.user.id);
+    preference = await prisma.userPreference.findUnique({
+      where: { userId: session.user.id },
+    });
   }
 
   const accountUser = {
@@ -46,18 +51,33 @@ export default async function AppLayout({
     image: session.user.image,
   };
 
+  const onboardingState =
+    (preference?.onboardingState as unknown as OnboardingState | null) ?? {};
+
   return (
-    <div className="flex min-h-screen">
-      <SidebarNav />
-      <div className="flex flex-1 flex-col">
-        <MobileTopbar>
-          <AccountMenu user={accountUser} />
-        </MobileTopbar>
-        <header className="border-border hidden items-center justify-end border-b px-6 py-3 md:flex">
-          <AccountMenu user={accountUser} />
-        </header>
-        <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">{children}</main>
+    <OnboardingProvider initialState={onboardingState}>
+      <div className="flex min-h-screen">
+        <SidebarNav />
+        <div className="flex flex-1 flex-col">
+          <MobileTopbar>
+            <AccountMenu user={accountUser} />
+          </MobileTopbar>
+          <header className="border-border hidden items-center justify-end border-b px-6 py-3 md:flex">
+            <AccountMenu user={accountUser} />
+          </header>
+          <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">{children}</main>
+        </div>
       </div>
-    </div>
+      <InitialIntro
+        initialPreferences={{
+          measurementSystem: preference?.measurementSystem ?? "US",
+          fractionOrDecimal: preference?.fractionOrDecimal ?? "FRACTIONS",
+          primaryRatingDisplay:
+            preference?.primaryRatingDisplay ?? "GROUP_AVERAGE",
+          timerSoundEnabled: preference?.timerSoundEnabled ?? true,
+          reviewPromptEnabled: preference?.reviewPromptEnabled ?? true,
+        }}
+      />
+    </OnboardingProvider>
   );
 }

@@ -41,7 +41,7 @@ async function main() {
     process.exit(1);
   }
 
-  async function login() {
+  async function login(withIntro: boolean) {
     const ctx = await testAuth.$context;
     const helpers = ctx.test;
 
@@ -57,6 +57,24 @@ async function main() {
     // invoked explicitly here, exactly as a real Google sign-in would.
     await initializeNewUser(saved.id);
 
+    // BUILD_PLAN.md Slice 20: a genuinely brand-new account sees the
+    // skippable welcome introduction (InitialIntro, PRODUCT_SPEC.md
+    // §92.2) on its first (app) page view. That's correct product
+    // behavior, but every e2e spec besides onboarding.spec.ts seeds a
+    // "fresh" account purely as a login mechanism for an unrelated golden
+    // path — the modal would otherwise block those specs' first
+    // interactions (its overlay intercepts pointer events). Pre-marking
+    // the "intro" guide completed here is what keeps this seed script's
+    // default behavior "an ordinary already-onboarded test user."
+    // onboarding.spec.ts itself passes `login with-intro` to opt out of
+    // this and see the real first-run state.
+    if (!withIntro) {
+      await prisma.userPreference.update({
+        where: { userId: saved.id },
+        data: { onboardingState: { intro: "completed" } },
+      });
+    }
+
     const cookies = await helpers.getCookies({ userId: saved.id });
     process.stdout.write(JSON.stringify({ userId: saved.id, cookies }));
   }
@@ -69,11 +87,13 @@ async function main() {
 
   const run =
     command === "login"
-      ? login()
+      ? login(arg === "with-intro")
       : command === "cleanup" && arg
         ? cleanup(arg)
         : Promise.reject(
-            new Error(`Usage: seed-session.ts login|cleanup <userId>`),
+            new Error(
+              `Usage: seed-session.ts login [with-intro]|cleanup <userId>`,
+            ),
           );
 
   await run;

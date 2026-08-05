@@ -1,8 +1,20 @@
+import type { ReactElement } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render as rtlRender, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SessionReviewForm } from "@/components/domain/cooking/session-review-form";
+import { OnboardingProvider } from "@/components/onboarding/onboarding-provider";
 import { saveSessionReview } from "@/lib/reviews/actions";
+
+// SessionReviewForm renders CoachMark, which requires an ancestor
+// OnboardingProvider now that useOnboarding() throws without one.
+function render(ui: ReactElement) {
+  return rtlRender(ui, {
+    wrapper: ({ children }) => (
+      <OnboardingProvider initialState={{}}>{children}</OnboardingProvider>
+    ),
+  });
+}
 
 const push = vi.fn();
 vi.mock("next/navigation", () => ({

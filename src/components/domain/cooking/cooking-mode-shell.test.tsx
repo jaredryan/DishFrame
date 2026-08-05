@@ -1,11 +1,23 @@
+import type { ReactElement } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render as rtlRender, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
   CookingModeShell,
   type CookingModeUnit,
 } from "@/components/domain/cooking/cooking-mode-shell";
+import { OnboardingProvider } from "@/components/onboarding/onboarding-provider";
 import { toggleChecklistItem, updateSessionScale } from "@/lib/cooking/actions";
+
+// CookingModeShell renders CoachMark, which requires an ancestor
+// OnboardingProvider now that useOnboarding() throws without one.
+function render(ui: ReactElement) {
+  return rtlRender(ui, {
+    wrapper: ({ children }) => (
+      <OnboardingProvider initialState={{}}>{children}</OnboardingProvider>
+    ),
+  });
+}
 
 const push = vi.fn();
 const refresh = vi.fn();

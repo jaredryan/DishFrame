@@ -6,6 +6,7 @@ import { getServerSession } from "@/lib/auth/session";
 import { Button } from "@/components/ui/button";
 import { DishLibraryView } from "@/components/domain/dish/dish-library-view";
 import { parseLibrarySearchParams } from "@/lib/dishes/library-filters";
+import { CoachMark } from "@/components/onboarding/coach-mark";
 
 export const metadata: Metadata = {
   title: "Parts",
@@ -41,6 +42,12 @@ export default async function PartsPage({
           </Link>
         </Button>
       </div>
+
+      <CoachMark guideKey="parts-intro" title="Reusable Parts">
+        A Part is a preparation you save on its own — a sauce, a side, a staple
+        — and link into any Recipe. Edit the Part once, and every Recipe that
+        links it can pull in the update (PRODUCT_SPEC.md §93.2).
+      </CoachMark>
 
       <DishLibraryView
         ownerId={session.user.id}

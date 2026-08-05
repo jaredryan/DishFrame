@@ -10,6 +10,7 @@ import { buildShareToken } from "@/lib/sharing/tokens";
 import { ShareLinkList } from "@/components/domain/sharing/share-link-list";
 import { DirectShareSentList } from "@/components/domain/sharing/direct-share-sent-list";
 import { DirectShareReceivedList } from "@/components/domain/sharing/direct-share-received-list";
+import { CoachMark } from "@/components/onboarding/coach-mark";
 
 export const metadata: Metadata = {
   title: "Sharing",
@@ -38,6 +39,20 @@ export default async function SharePage() {
           new one from the Share or Send to user action on any Recipe or Part.
         </p>
       </div>
+
+      <CoachMark
+        guideKey="sharing-intro"
+        title="Links, direct sends, and copies"
+      >
+        A <strong className="text-foreground">Link</strong> is a read-only URL —
+        no account needed to view — either frozen to the Version you shared, or
+        set to keep following your current Version.{" "}
+        <strong className="text-foreground">Sending directly</strong> instead
+        goes to one specific DishFrame account, who can accept or decline.
+        Either way, saving a copy is a separate, explicit choice — the result is
+        the recipient&apos;s own independent copy, which never syncs back to
+        your original (or your later edits) again.
+      </CoachMark>
 
       <section className="space-y-4">
         <h2 className="text-foreground text-lg font-semibold">Links</h2>

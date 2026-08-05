@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth/session";
 import { listMealPlansForOwner } from "@/lib/mealplans/queries";
 import { NewMealPlanForm } from "@/components/domain/mealplans/new-meal-plan-form";
+import { CoachMark } from "@/components/onboarding/coach-mark";
 
 export const metadata: Metadata = { title: "Meal Plans" };
 
@@ -30,6 +31,14 @@ export default async function MealPlansPage() {
           grocery list that stays in sync while you shop.
         </p>
       </div>
+
+      <CoachMark guideKey="meal-plans-intro" title="Meal Plans">
+        A Meal Plan is a batch of planned meals across a date range, each
+        pointing at an exact Recipe/Part Version. Add entries below, then
+        generate a grocery list from the plan — it keeps synchronizing with
+        later plan changes until you complete it, which freezes it as a
+        historical record.
+      </CoachMark>
 
       <NewMealPlanForm />
 

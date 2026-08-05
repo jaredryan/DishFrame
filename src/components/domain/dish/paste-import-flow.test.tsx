@@ -1,8 +1,20 @@
+import type { ReactElement } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render as rtlRender, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PasteImportFlow } from "@/components/domain/dish/paste-import-flow";
+import { OnboardingProvider } from "@/components/onboarding/onboarding-provider";
 import { proposeImportFromPaste } from "@/lib/importExport/actions";
+
+// PasteImportFlow renders DishEditor, which renders CoachMark — requires an
+// ancestor OnboardingProvider (useOnboarding() throws without one).
+function render(ui: ReactElement) {
+  return rtlRender(ui, {
+    wrapper: ({ children }) => (
+      <OnboardingProvider initialState={{}}>{children}</OnboardingProvider>
+    ),
+  });
+}
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),

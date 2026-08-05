@@ -25,6 +25,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { StarRatingInput } from "@/components/domain/cooking/star-rating-input";
+import { CoachMark } from "@/components/onboarding/coach-mark";
 import { saveSessionReview, deleteSessionReview } from "@/lib/reviews/actions";
 import { updateDishStage } from "@/lib/dishes/actions";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
@@ -331,6 +332,12 @@ export function SessionReviewForm({
           </Badge>
         </div>
       </div>
+
+      <CoachMark guideKey="session-review" title="Session Reviews">
+        Every field here is optional. What you record — what worked, what
+        didn&apos;t, how much you actually used — feeds back into this Recipe or
+        Part&apos;s history, so it&apos;s easier to judge next time.
+      </CoachMark>
 
       {contextUnits.length > 0 && (
         <div className="border-border bg-muted/30 flex flex-col gap-1 rounded-lg border p-3 text-sm">

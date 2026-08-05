@@ -1,7 +1,9 @@
+import type { ReactElement } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render as rtlRender, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DishEditor } from "@/components/domain/dish/dish-editor";
+import { OnboardingProvider } from "@/components/onboarding/onboarding-provider";
 import { searchFdc, applyFdcResult } from "@/lib/nutrition/actions";
 import type { DishFormValues } from "@/components/domain/dish/dish-form-values";
 
@@ -10,6 +12,16 @@ import type { DishFormValues } from "@/components/domain/dish/dish-form-values";
  * select, More nutrients, and detach — all as ordinary (unsaved) form
  * state. No live network call: `searchFdc`/`applyFdcResult` are mocked.
  */
+
+// See dish-editor.test.tsx for why: CoachMark requires an ancestor
+// OnboardingProvider now that useOnboarding() throws without one.
+function render(ui: ReactElement) {
+  return rtlRender(ui, {
+    wrapper: ({ children }) => (
+      <OnboardingProvider initialState={{}}>{children}</OnboardingProvider>
+    ),
+  });
+}
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),

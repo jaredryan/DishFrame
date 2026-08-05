@@ -60,6 +60,7 @@ import { PartAttachPicker } from "@/components/domain/dish/part-attach-picker";
 import { CreatePartLink } from "@/components/domain/dish/create-part-link";
 import type { DetachedContent } from "@/lib/sections/service";
 import { useUnsavedChangesGuard } from "@/components/domain/dish/use-unsaved-changes-guard";
+import { CoachMark } from "@/components/onboarding/coach-mark";
 import { useReorderSensors } from "@/lib/dnd/sensors";
 import { createReorderAnnouncements } from "@/lib/dnd/announcements";
 import {
@@ -541,6 +542,30 @@ export function DishEditor({
         <h1 className="font-heading text-foreground text-2xl font-semibold">
           {editorHeading}
         </h1>
+
+        {!dish && kind === "RECIPE" && (
+          <CoachMark
+            guideKey="recipe-sections-stage"
+            title="Sections and Stage"
+          >
+            Break a Recipe into{" "}
+            <strong className="text-foreground">Sections</strong> (a marinade, a
+            filling, a garnish) — each can be written just for this Recipe, or
+            linked to a saved Part.{" "}
+            <strong className="text-foreground">Stage</strong> tracks how far
+            along a Recipe is (Idea, Testing, Keeper, etc.), separate from its
+            content.
+          </CoachMark>
+        )}
+
+        {dish && (
+          <CoachMark guideKey="editor-versions" title="Versions">
+            Saving here never overwrites what you had — it either refines the
+            current Version or starts a new one, so earlier attempts stay
+            available in the history below.
+          </CoachMark>
+        )}
+
         {editingNonCurrentVersion && dish && (
           <p className="border-border bg-card text-muted-foreground rounded-lg border px-3 py-2 text-sm">
             You&apos;re editing V{dish.baseMajorVersion}.{dish.baseMinorVersion}

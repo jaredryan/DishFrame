@@ -7,6 +7,7 @@ import {
   listGrocerySourceCandidates,
 } from "@/lib/grocery/queries";
 import { GrocerySourcePicker } from "@/components/domain/grocery/grocery-source-picker";
+import { CoachMark } from "@/components/onboarding/coach-mark";
 
 export const metadata: Metadata = { title: "Grocery lists" };
 
@@ -58,6 +59,12 @@ export default async function GroceryListsPage() {
           equivalent items, and check them off as you shop.
         </p>
       </div>
+
+      <CoachMark guideKey="grocery-lists-intro" title="Grocery Lists">
+        Generate a list from one or more Recipes/Parts, or from a Meal Plan.
+        Equivalent items combine automatically, and checking items off here
+        never changes the Recipe or Part itself.
+      </CoachMark>
 
       <GrocerySourcePicker candidates={candidates} />
 

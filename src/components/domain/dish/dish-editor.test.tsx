@@ -1,7 +1,9 @@
+import type { ReactElement } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render as rtlRender, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DishEditor } from "@/components/domain/dish/dish-editor";
+import { OnboardingProvider } from "@/components/onboarding/onboarding-provider";
 import {
   createDish,
   editDish,
@@ -10,6 +12,18 @@ import {
 } from "@/lib/dishes/actions";
 import { listAttachablePartVersions } from "@/lib/sections/actions";
 import type { DishFormValues } from "@/components/domain/dish/dish-form-values";
+
+// DishEditor renders CoachMark, which requires an ancestor
+// OnboardingProvider (useOnboarding() now throws without one) — this local
+// `render` wrapper is the "explicit lightweight test provider" every call
+// site below picks up automatically.
+function render(ui: ReactElement) {
+  return rtlRender(ui, {
+    wrapper: ({ children }) => (
+      <OnboardingProvider initialState={{}}>{children}</OnboardingProvider>
+    ),
+  });
+}
 
 const push = vi.fn();
 const refresh = vi.fn();

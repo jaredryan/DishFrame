@@ -5,6 +5,7 @@ import { ArrowLeft } from "lucide-react";
 import { getServerSession } from "@/lib/auth/session";
 import { listTasters } from "@/lib/tasters/queries";
 import { TasterManager } from "@/components/app/taster-manager";
+import { CoachMark } from "@/components/onboarding/coach-mark";
 
 export const metadata: Metadata = {
   title: "Tasters",
@@ -35,6 +36,12 @@ export default async function TastersPage() {
           Who tried it? Add the people whose ratings you want to remember.
         </p>
       </div>
+
+      <CoachMark guideKey="tasters-intro" title="Tasters">
+        Add anyone whose opinion you want to track — Tasters can rate a Session
+        Review separately from your own rating, so you can tell &ldquo;everyone
+        loved it&rdquo; from &ldquo;I loved it.&rdquo;
+      </CoachMark>
 
       <TasterManager initialTasters={tasters} />
     </div>
