@@ -1,11 +1,25 @@
 export function printCatalog(input: {
   ownerEmail: string;
+  counterpartyEmail: string;
   image: {
     requested: boolean;
     attachedCount: number;
     skippedReason: string | null;
   };
   imageCleanupDeletedCount: number;
+  shareLinks: {
+    label: string;
+    dishTitle: string;
+    status: "active" | "expired" | "revoked";
+    url: string | null;
+  }[];
+  crossAccountShareLinkCopy: { dishId: string; dishKind: string } | null;
+  directShares: {
+    label: string;
+    dishTitle: string;
+    direction: "primary-to-counterparty" | "counterparty-to-primary";
+    status: string;
+  }[];
 }): void {
   const imageLine = !input.image.requested
     ? 'Image fixtures: skipped — SEED_UPLOAD_BLOB_IMAGES is not "true" (ordinary pnpm db:seed never contacts Vercel Blob). Run "pnpm db:seed-images" for the image-enabled review seed.'
@@ -16,6 +30,7 @@ export function printCatalog(input: {
     "",
     "===== DishFrame QA seed catalog =====",
     `QA owner: ${input.ownerEmail}`,
+    `QA counterparty (cross-account sharing only, no need to sign in): ${input.counterpartyEmail}`,
     "",
     "Parts:",
     "  [QA] Steamed White Rice",
@@ -73,6 +88,22 @@ export function printCatalog(input: {
     "  Completed/frozen Meal-Plan-linked: [QA] This Week's Groceries (Frozen)",
     "",
     "Meal Plans: [QA] This Week (6 live entries — Planned/In progress/Cooked/Skipped all covered), [QA] Duplicated Next Month",
+    "",
+    "Share Links (owned by primary QA account — sign in and open /share to copy/inspect):",
+    ...input.shareLinks.map(
+      (link) =>
+        `  ${link.label} — ${link.dishTitle}${link.url ? `\n    ${link.url}` : " (revoked — no URL; UI hides it once revoked)"}`,
+    ),
+    input.crossAccountShareLinkCopy
+      ? `  Accepted ShareLink copy in primary's library: [QA] Counterparty Pasta Night (dish ${input.crossAccountShareLinkCopy.dishId}, ${input.crossAccountShareLinkCopy.dishKind})`
+      : "  Accepted ShareLink copy in primary's library: MISSING — saveSharedCopy did not return a usable copy.",
+    "",
+    "Direct Shares (open /share on the primary QA account for Sent/Received):",
+    ...input.directShares.map(
+      (share) =>
+        `  ${share.label} (${share.direction}) — ${share.dishTitle} [${share.status}]`,
+    ),
+    "  Plus one PENDING direct share auto-CANCELED by deleting its source Dish (source-deletion cancellation, not listed above since the source Dish no longer exists).",
     "",
     "See docs/SEED_REVIEW_GUIDE.md for the full coverage matrix.",
     "",

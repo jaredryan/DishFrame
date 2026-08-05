@@ -4,7 +4,34 @@ A deterministic, idempotent fixture set for manual review — not general
 seed data. It builds a compact set of Recipes and Parts under one
 dedicated QA account, covering the lifecycle, versioning, composition,
 propagation, and deletion states that would otherwise take a long time to
-hand-build for every review gate.
+hand-build for every review gate. As of Slice 16/17 it also maintains a
+second, dedicated counterparty account so cross-account sharing has
+someone real to share with — see "QA accounts" below.
+
+This file covers setup/safety and the Slice 1–6 Recipe/Part/Version/
+propagation/deletion fixture catalog. `docs/SEED_REVIEW_GUIDE.md` covers
+everything Slices 7–20 added on top of it (nutrition, sessions, grocery
+lists, Meal Plans, sharing, print, account/security, onboarding) — read
+both for the full picture.
+
+## QA accounts
+
+- **Primary** — `SEED_USER_EMAIL` (below). Sign in with this account to
+  review nearly everything; the fixture catalog throughout both docs is
+  from this account's point of view.
+- **Counterparty** — `qa-counterparty@dishframe.invalid`, display name
+  `[QA] Counterparty`. A second, fully independent local account that
+  exists only so cross-account sharing (Slice 16/17) has a real
+  counterparty to share with/from. `.invalid` is an IANA-reserved TLD
+  (RFC 2606) that can never resolve to a real registrable domain, so this
+  can never collide with an owner's actual personal account. **You never
+  need to sign in as this account during ordinary review** — the seed
+  script itself performs every send/accept/decline/cancel through the
+  real sharing services, so both accounts' resulting state is already
+  correct before you open the app. It's recreated/repaired deterministically
+  on every `pnpm db:seed` run, same as the primary account. See
+  `docs/SEED_REVIEW_GUIDE.md`'s "Sharing fixtures" section for what it
+  owns and what's been shared with/by it.
 
 ## Setup
 
@@ -26,7 +53,10 @@ Set in `.env.local` (see `.env.example`):
   Blob, USDA, or any other external service, regardless of what's
   configured in `.env.local`). Deletes and recreates every `[QA]`-titled/
   named row (Dishes, GroceryLists, MealPlans, and the seed's own Tasters)
-  owned by `SEED_USER_EMAIL`; safe to rerun any time to restore the
+  owned by `SEED_USER_EMAIL` **and** by the counterparty account, plus
+  every `ShareLink`/`DirectShare` either of them owns/sent/received
+  (Slice 16/17 — these don't cascade away with a wiped Dish, so they get
+  their own explicit cleanup pass); safe to rerun any time to restore the
   fixture set, including after destructive manual testing (see below).
   Prints a catalog of what it created.
 - `pnpm db:seed-images` — the same seed, plus the opt-in image fixtures

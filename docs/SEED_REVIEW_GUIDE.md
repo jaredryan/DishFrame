@@ -1,10 +1,11 @@
-# Seed review guide (Slices 7–15)
+# Seed review guide (Slices 7–20)
 
 Practical map from the seeded database to what to open for the
 comprehensive manual functional/UI/design review. This extends
 `docs/MANUAL_QA_SEED.md` (Recipe/Part/Version/propagation/deletion, Slices
-1–6) — read that first for setup/safety/signing-in; this file only covers
-what Slices 7–15 added on top of it. Not an exhaustive row-by-row listing.
+1–6, and the two QA accounts) — read that first for setup/safety/signing-in;
+this file only covers what Slices 7–20 added on top of it. Not an
+exhaustive row-by-row listing.
 
 ## Reset and load
 
@@ -14,10 +15,15 @@ Same commands as `docs/MANUAL_QA_SEED.md`:
   USDA, or any other external service, regardless of what's in
   `.env.local`). Rebuilds every `[QA]`-titled/named row (Dishes,
   GroceryLists, MealPlans, and the three added Tasters) owned by
-  `SEED_USER_EMAIL`. Safe to rerun after destructive manual testing. Every
-  Recipe/Part is image-less under this command.
+  `SEED_USER_EMAIL`, the counterparty account's own content, and every
+  `ShareLink`/`DirectShare` either account owns/sent/received. Safe to
+  rerun after destructive manual testing. Every Recipe/Part is image-less
+  under this command.
 - `pnpm db:seed-images` — the same seed, plus the opt-in image fixtures
-  (requires `BLOB_READ_WRITE_TOKEN`). See "Image fixtures" below.
+  (requires `BLOB_READ_WRITE_TOKEN`). See "Image fixtures" below. The
+  sharing fixtures are built *after* images are attached, so a
+  `FIXED_SNAPSHOT` share/frozen direct-share of an image-having item
+  correctly carries that image too.
 - `pnpm db:reset` — destructive full local reset, then `db:seed` (offline;
   run `db:seed-images` afterward for images too).
 
@@ -65,6 +71,12 @@ structure (allocation states, statuses, sync fixtures) does not.
 | Meal Plan — duplicated/independent plan | `[QA] Duplicated Next Month` (every entry reset to Planned, including the copy of the in-progress one — duplication never copies a linked session) |
 | Image-present Recipes/Parts (`pnpm db:seed-images` only) | 11 of 13 — see "Image fixtures" below |
 | Image-empty Recipes/Parts (both `db:seed` and `db:seed-images`) | `[QA] Toasted Sesame Oil Drizzle` (Part), `[QA] Weeknight Stir-Fry` (Recipe) |
+| Public ShareLink — active fixed-snapshot, current, expired, revoked | See "Sharing fixtures" below |
+| Direct account-to-account share — pending/accepted/declined/canceled | See "Sharing fixtures" below |
+| Independent copy accepted into the primary account's own library | See "Sharing fixtures" below |
+| Print — current, historical, public, nested, materialized, nutrition-heavy | See "Print review mapping" below |
+| Multi-device sessions, reauthentication, account deletion | Manual-only — see "Account/security manual-review checklist" below |
+| Onboarding default state and replay | See "Onboarding defaults" below |
 
 ## Meal Plan entry allocation table (`[QA] This Week`)
 
@@ -245,6 +257,155 @@ nothing beyond the `images/qa-seed/` prefix was inspected or touched. As
 of this pass, zero `ImageAsset` rows remain under that prefix in the
 configured local dev Blob store.
 
+## Sharing fixtures (Slice 16/17)
+
+Everything below is built through the real sharing services
+(`createShareLink`, `revokeShareLink`, `saveSharedCopy`, `sendDirectShare`,
+`cancelDirectShare`, `declineDirectShare`, `acceptDirectShare`) — no row is
+forced directly, and every send/accept/decline/cancel the counterparty
+side needs is performed by the seed script itself, so you never have to
+sign in as the counterparty to see the resulting state. Sign in as the
+primary QA account and open `/share` for all of it.
+
+**Public ShareLinks** (owned by the primary account, listed under
+"Links" on `/share`):
+
+| Fixture | Recipe/Part | Mode | Creator name |
+|---|---|---|---|
+| Active fixed-snapshot | `[QA] Peanut Noodle Salad` (nests Sauce → Seasoning) | `FIXED_SNAPSHOT` | hidden |
+| Active current | `[QA] Weeknight Stir-Fry` (image-empty) | `CURRENT` | shown |
+| Expired | `[QA] Rice Side Dish` | `FIXED_SNAPSHOT` | hidden |
+| Revoked | `[QA] Simple Garden Salad` (archived) | `CURRENT` | hidden |
+
+The active and expired links' actual URLs are printed by the seed script
+itself (console output) if you want to open one logged out without first
+signing in as the primary account; otherwise `/share`'s "Copy" button
+reproduces the same URL for any non-revoked link. The revoked link has no
+retrievable URL either way (the UI hides it once revoked, matching real
+behavior) — its purpose is just the revoked-state badge.
+
+**Accepted ShareLink copy in the primary account's own library:** the
+counterparty creates one more `FIXED_SNAPSHOT` link (on its own
+`[QA] Counterparty Pasta Night` Recipe, creator name shown), and the seed
+script itself calls `saveSharedCopy` as the primary account — so
+`[QA] Counterparty Pasta Night` already appears as a real independent copy
+in the primary account's `/recipes` library, no manual step needed.
+
+**Direct account-to-account shares** (both directions — open `/share`'s
+Sent/Received sections on the primary account):
+
+| Fixture | Direction | Recipe/Part | Status |
+|---|---|---|---|
+| Pending sent | primary → counterparty | `[QA] Rice Side Dish` | `PENDING` |
+| Declined | primary → counterparty | `[QA] Simple Garden Salad` | `DECLINED` |
+| Canceled (explicit) | primary → counterparty | `[QA] Peanut Dipping Sauce` | `CANCELED` |
+| Accepted (copy lives in the counterparty's own library, not reviewable without signing in as it) | primary → counterparty | `[QA] Rice Bowl Base` | `ACCEPTED` |
+| Accepted (copy visible in the primary account's own library) | counterparty → primary | `[QA] Counterparty Pasta Night` | `ACCEPTED` |
+| Accepted, copy later deleted | counterparty → primary | `[QA] Counterparty Pasta Night` | `ACCEPTED` (`createdDishId` null) |
+| Pending received | counterparty → primary | `[QA] Counterparty Pasta Night` | `PENDING` |
+| Canceled via source deletion | primary → counterparty | a throwaway Recipe created and deleted within the same seed run | `CANCELED`, `dishId` null |
+
+The "accepted (copy visible in the primary account's own library)" row is
+the direct-share counterpart to the ShareLink acceptance above — between
+the two, the primary account's `/recipes` library always has at least one
+accepted copy from each mechanism after a plain `pnpm db:seed`, per the
+task's own requirement. `[QA] Rice Bowl Base` nests both
+`[QA] Steamed White Rice` and `[QA] All-Purpose Seasoning Blend`, so
+accepting it also creates independent copies of both nested Parts in the
+counterparty's library — real proof the copy engine recurses through
+nested Parts for direct shares too, not just ShareLinks. The
+"source-deletion" row demonstrates `revokeSharesAndCancelPendingShares`
+firing from a real `deleteDish` call, distinct from the sender's explicit
+Cancel action above it — there's no lasting Recipe to open for this one,
+just the resulting `CANCELED` row on the primary's Sent list (`dishId`
+shows as gone since the source no longer exists).
+
+In image-enabled mode (`pnpm db:seed-images`), every sharing fixture built
+from an image-having source (`Peanut Noodle Salad`, `Rice Side Dish`,
+`Rice Bowl Base`, …) carries that image through its frozen snapshot/graph
+— confirmed by inspecting `ShareLink.frozenSnapshot`'s `imageAssetIds` and
+`DirectShare.frozenImageAssetIds` after a seed-images run. No image is
+ever duplicated; every copy reuses the source's exact `ImageAsset` row.
+
+## Print review mapping (Slice 18)
+
+No print-only database rows exist — print reuses the exact same
+Recipe/Part/Version/ShareLink fixtures above, resolved through the same
+whitelist DTO the public share page uses. Sign in as the primary account
+and use each item's "More actions → Print" (or the ShareLink's own
+"Print" button on its public page) to reach `/print/...`:
+
+| Print scenario | Open |
+|---|---|
+| Current Recipe printing | `[QA] Rice Bowl Base` or any current Recipe |
+| Current Part printing | `[QA] Steamed White Rice` |
+| Exact historical Version printing | `[QA] Confit Toast Plate` → Version history → V1 → Print (pinned to `[QA] Garlic Confit`'s older target Version) |
+| Fixed-snapshot public-share printing | The active fixed-snapshot ShareLink above (`[QA] Peanut Noodle Salad`) → public page → Print |
+| Current-mode public-share printing | The active current ShareLink above (`[QA] Weeknight Stir-Fry`) → public page → Print |
+| Long / nested content | `[QA] Sunday Ramen Project` (8-Version timeline, nested Parts) |
+| MATERIALIZED content | `[QA] Sunday Ramen Project` → Version history → V2.0 → Print |
+| Image-present layout (`db:seed-images` only) | Any of the 11 image-having items, e.g. `[QA] Rice Bowl Base` |
+| Image-empty layout (both seed modes) | `[QA] Toasted Sesame Oil Drizzle` (Part) or `[QA] Weeknight Stir-Fry` (Recipe) |
+| Nutrition-heavy output | `[QA] Peanut Dipping Sauce` (PER_OUTPUT_UNIT basis + More nutrients) |
+
+## Account/security manual-review checklist (Slice 19)
+
+None of this is seedable — Better Auth sessions can't be fabricated, and
+account deletion is destructive, so it never runs as part of the ordinary
+persistent seed. Use the primary QA account (`SEED_USER_EMAIL`) for all of
+these; the counterparty is only safe to involve where noted, since
+deleting *it* would just get silently recreated by the next `pnpm
+db:seed` (harmless, but pointless as a "deleted account" demo).
+
+- **Multiple-device session listing/revocation.** Sign in as the primary
+  account from a second browser or device, then open `/profile`'s
+  "Signed-in devices" on the first — confirm the second session is
+  listed, revoke it individually, and confirm it's actually signed out.
+- **Sign out all other sessions.** With two or more sessions listed, use
+  the "revoke all others" control and confirm every session but the
+  current one is gone.
+- **Stale-session reauthentication.** After ~24h since the primary
+  account's last real sign-in (Better Auth's `freshAge` default, pinned in
+  `auth.ts`), open `/profile` or attempt account deletion — both should
+  present `ReauthenticatePrompt` instead of acting, since neither session
+  listing nor deletion is a "fresh" operation anymore.
+- **Deletion of a throwaway account.** Do **not** use the primary or
+  counterparty QA accounts for this — sign up a genuinely separate
+  disposable Google account, delete it via `/profile`'s Delete Account
+  dialog, and confirm sign-out + redirect.
+- **Survival of another user's accepted copy and shared image.** Before
+  deleting that throwaway account, have it accept a ShareLink or direct
+  share from the primary QA account (or vice versa), confirm the
+  resulting independent copy renders correctly, delete the throwaway
+  account, then confirm the surviving account's copy (and its image, if
+  the source had one) still renders unchanged.
+- **Sender-facing rendering of a canceled share whose recipient account
+  was deleted.** From the primary QA account, send a direct share to the
+  same throwaway account, delete the throwaway account, then check the
+  primary account's `/share` Sent list — the delivery should render as
+  `CANCELED` with no actionable controls, not as a broken or still-pending
+  row (`deleteAccount`'s "correction pass" behavior, `docs/SLICE_19.md`).
+
+## Onboarding defaults (Slice 20)
+
+Both QA accounts start with every onboarding guide (`intro` plus the nine
+contextual CoachMarks) marked `completed`, so the ordinary review begins
+unobstructed by the welcome dialog or any CoachMark — confirmed by
+inspecting `UserPreference.onboardingState` after a seed run. This is only
+the *default starting state*; nothing about the real onboarding mechanism
+is disabled or shortcut.
+
+To review any individual guide, sign in as the primary account and open
+`/help` → "Replay guides" — each of the ten guides can be reset and
+replayed independently through the real `resetOnboardingGuideState` flow;
+replaying navigates to that guide's registered destination (`/home` for
+the welcome intro, `/recipes/new` for Sections/Stage, `/parts` for the
+Parts intro, `/cook` for both cooking guides, `/meal-plans`,
+`/grocery-lists`, `/share`, and `/tasters` for their respective intros —
+the full list lives in
+`src/lib/preferences/onboarding-guides.ts#ONBOARDING_GUIDE_INFO`, not
+duplicated here since it would drift).
+
 ## Useful routes
 
 - `/recipes`, `/parts` — library, filter by the new `[QA] Quick`/
@@ -254,11 +415,17 @@ configured local dev Blob store.
 - `/grocery-lists` — both standalone lists.
 - `/meal-plans` — both Meal Plans; open `[QA] This Week` for allocation
   badges, entry statuses, and "Get recommendations."
+- `/share` — Links (owned ShareLinks) plus Sent/Received (DirectShares);
+  see "Sharing fixtures" above.
+- `/help` — replayable onboarding guides, FAQ, terminology; see
+  "Onboarding defaults" above.
+- `/profile` — Signed-in devices, Delete account; see "Account/security
+  manual-review checklist" above.
 - Recipe/Part detail pages for the nutrition states above (primary values
   + expandable "More nutrients" + attribution disclaimer where sourced).
 
 ## Reference
 
 `docs/MANUAL_QA_SEED.md` still covers Slices 1–6's own fixture catalog
-(Recipe/Part/Version/propagation/deletion/materialized-snapshot/image) —
-not repeated here.
+(Recipe/Part/Version/propagation/deletion/materialized-snapshot/image) and
+the two QA accounts — not repeated here.

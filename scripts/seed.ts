@@ -35,6 +35,8 @@ async function main() {
   const dishService = await import("@/lib/dishes/service");
   const dishQueries = await import("@/lib/dishes/queries");
   const tasterService = await import("@/lib/tasters/service");
+  const sharingService = await import("@/lib/sharing/service");
+  const { markOnboardingGuideState } = await import("@/lib/preferences/service");
   const { initializeNewUser } = await import("@/lib/account/init");
   const { resolveSeedOwner, wipeExistingFixtures, ensureSeedTag } =
     await import("./qa-seed/owner");
@@ -55,6 +57,19 @@ async function main() {
   const { applyReviewFixtures } = await import("./qa-seed/reviews");
   const { buildGroceryFixtures } = await import("./qa-seed/grocery");
   const { buildMealPlanFixtures } = await import("./qa-seed/mealplans");
+  const {
+    QA_COUNTERPARTY_EMAIL,
+    QA_COUNTERPARTY_NAME,
+    buildCounterpartyContentFixtures,
+  } = await import("./qa-seed/counterparty");
+  const {
+    wipeSharingFixtures,
+    buildShareLinkFixtures,
+    buildCrossAccountShareLinkCopy,
+    buildDirectShareFixtures,
+    buildSourceDeletionCancellationFixture,
+  } = await import("./qa-seed/sharing");
+  const { markAllOnboardingGuidesCompleted } = await import("./qa-seed/onboarding");
   const { printCatalog } = await import("./qa-seed/catalog");
 
   const partServices = {
@@ -68,7 +83,18 @@ async function main() {
     seedUserEmail,
     seedUserName,
   );
+  const counterparty = await resolveSeedOwner(
+    initializeNewUser,
+    QA_COUNTERPARTY_EMAIL,
+    QA_COUNTERPARTY_NAME,
+  );
+  // Sharing rows (ShareLink/DirectShare) reference Dishes via onDelete:
+  // SetNull, not Cascade — they never cascade away when the Dishes below
+  // are wiped/recreated, so they need their own explicit pass. See
+  // sharing.ts#wipeSharingFixtures.
+  await wipeSharingFixtures(owner.id, counterparty.id);
   const wiped = await wipeExistingFixtures(owner.id);
+  const counterpartyWiped = await wipeExistingFixtures(counterparty.id);
   console.log(
     `[qa-seed] Wiped ${wiped.deletedDishCount} prior QA Dish row(s) for ${owner.email}.`,
   );
@@ -209,14 +235,77 @@ async function main() {
       },
     ],
   );
-  const imageCleanup = await cleanupOrphanedSeedImageAssets(
-    wiped.priorImageAssetIds,
+  // Slice 16/17: cross-account sharing fixtures. Built AFTER attachSeedImages
+  // (above) so that, in image-enabled mode, the shared/copied content graphs
+  // correctly carry the just-attached images — sharing/copying resolves the
+  // source's CURRENT content at the moment it runs.
+  const counterpartyContent = await buildCounterpartyContentFixtures(
+    { createDish: dishService.createDish },
+    counterparty.id,
   );
+  const sharingServices = {
+    ...sharingService,
+    createDish: dishService.createDish,
+    deleteDish: dishService.deleteDish,
+  };
+
+  const shareLinks = await buildShareLinkFixtures(
+    sharingService,
+    owner.id,
+    {
+      noodlesaladDishId: recipes.noodlesalad.dishId,
+      stirfryDishId: recipes.stirfry.dishId,
+      ricesidedishDishId: recipes.ricesidedish.dishId,
+      saladDishId: recipes.salad.dishId,
+    },
+  );
+  const crossAccountShareLinkCopy = await buildCrossAccountShareLinkCopy(
+    sharingService,
+    owner.id,
+    counterparty.id,
+    counterpartyContent.pastaDishId,
+  );
+  const directShares = await buildDirectShareFixtures(
+    sharingServices,
+    owner.id,
+    owner.email,
+    counterparty.id,
+    counterparty.email,
+    {
+      ricesidedishDishId: recipes.ricesidedish.dishId,
+      saladDishId: recipes.salad.dishId,
+      sauceDishId: parts.sauce.dishId,
+      ricebowlDishId: recipes.ricebowl.dishId,
+      pastaDishId: counterpartyContent.pastaDishId,
+    },
+  );
+  await buildSourceDeletionCancellationFixture(
+    sharingServices,
+    owner.id,
+    counterparty.email,
+  );
+
+  // Slice 20: the ordinary QA review begins with onboarding already
+  // complete — the real replay flow (/help) stays fully intact.
+  await markAllOnboardingGuidesCompleted(markOnboardingGuideState, owner.id);
+  await markAllOnboardingGuidesCompleted(
+    markOnboardingGuideState,
+    counterparty.id,
+  );
+
+  const imageCleanup = await cleanupOrphanedSeedImageAssets([
+    ...wiped.priorImageAssetIds,
+    ...counterpartyWiped.priorImageAssetIds,
+  ]);
 
   printCatalog({
     ownerEmail: owner.email,
+    counterpartyEmail: counterparty.email,
     image,
     imageCleanupDeletedCount: imageCleanup.deletedCount,
+    shareLinks,
+    crossAccountShareLinkCopy,
+    directShares,
   });
 
   await prisma.$disconnect();
