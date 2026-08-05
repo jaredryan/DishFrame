@@ -770,6 +770,10 @@ function RecommendationsPanel({
   const [includeIdea, setIncludeIdea] = React.useState(false);
   const [favoritesOnly, setFavoritesOnly] = React.useState(false);
   const [results, setResults] = React.useState<Recommendation[] | null>(null);
+  const [recipeEligibility, setRecipeEligibility] = React.useState<{
+    totalRecipeCount: number;
+    eligibleRecipeCount: number;
+  } | null>(null);
   const [isPending, startTransition] = React.useTransition();
   const [error, setError] = React.useState<string | null>(null);
 
@@ -783,6 +787,10 @@ function RecommendationsPanel({
       });
       if (result.status === "success") {
         setResults(result.recommendations);
+        setRecipeEligibility({
+          totalRecipeCount: result.totalRecipeCount,
+          eligibleRecipeCount: result.eligibleRecipeCount,
+        });
       } else {
         setError(result.message);
       }
@@ -826,9 +834,35 @@ function RecommendationsPanel({
       {error && <p className="text-destructive text-sm">{error}</p>}
       {results &&
         (results.length === 0 ? (
-          <p className="text-muted-foreground text-sm">
-            No matches — try adjusting the filters above.
-          </p>
+          recipeEligibility?.totalRecipeCount === 0 ? (
+            <div className="flex flex-col gap-2">
+              <p className="text-muted-foreground text-sm">
+                Recommendations are drawn from your saved Recipes — you
+                don&apos;t have any yet.
+              </p>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" asChild>
+                  <Link href="/recipes/new">Create a Recipe</Link>
+                </Button>
+              </div>
+            </div>
+          ) : recipeEligibility?.eligibleRecipeCount === 0 ? (
+            <div className="flex flex-col gap-2">
+              <p className="text-muted-foreground text-sm">
+                None of your saved Recipes are currently eligible for
+                recommendations — archived Recipes aren&apos;t included.
+              </p>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" asChild>
+                  <Link href="/recipes">View your Recipes</Link>
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <p className="text-muted-foreground text-sm">
+              No matches — try adjusting the filters above.
+            </p>
+          )
         ) : (
           <ul className="flex flex-col gap-2">
             {results.slice(0, 10).map((r) => {

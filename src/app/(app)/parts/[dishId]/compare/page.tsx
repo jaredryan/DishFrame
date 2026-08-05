@@ -25,9 +25,21 @@ import {
 } from "@/lib/sections/service";
 import type { PartLinkLabelMap } from "@/components/domain/dish/version-compare-view";
 
-export const metadata: Metadata = {
-  title: "Compare versions",
-};
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ dishId: string }>;
+}): Promise<Metadata> {
+  const session = await getServerSession();
+  if (!session) return {};
+  const { dishId } = await params;
+  try {
+    const dish = await getOwnedDishOrThrow(session.user.id, dishId, "PART");
+    return { title: `${dish.currentTitle ?? "Part"} — Compare versions` };
+  } catch {
+    return {};
+  }
+}
 
 async function toCompareInput(
   dishId: string,

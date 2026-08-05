@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { Printer } from "lucide-react";
@@ -9,6 +10,28 @@ import { PublicShareView } from "@/components/domain/sharing/public-share-view";
 import { SaveSharedCopyButton } from "@/components/domain/sharing/save-shared-copy-button";
 import { Button } from "@/components/ui/button";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
+
+/**
+ * Resolves through the same privacy-safe `resolvePublicShare` DTO used
+ * below (and by `(print)/print/s/[token]`) — never exposes anything
+ * outside `PublicShareContent`, so no private notes/Tasters/recipient
+ * identity/sender note ever reach the tab title.
+ */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ token: string }>;
+}): Promise<Metadata> {
+  const { token } = await params;
+  try {
+    const resolved = await resolvePublicShare(token);
+    return {
+      title: `${resolved.content.title} — ${resolved.content.versionLabel}`,
+    };
+  } catch {
+    return {};
+  }
+}
 
 /**
  * ARCHITECTURE_PROPOSAL.md §C.9: unauthenticated Server Component — zero

@@ -88,6 +88,43 @@ export type MealPlanEntryCandidate = Awaited<
 >[number];
 
 /**
+ * Recommendation-eligibility counts (§80) — two cheap counts (not a full
+ * candidate load) distinguishing "the account owns no Recipes at all" from
+ * "the account owns Recipes, but every one is currently ineligible for
+ * recommendations." `eligibleRecipeCount`'s `where` is deliberately the
+ * exact same clause `listRecommendationCandidates` below uses (RECIPE,
+ * `archivedAt: null`, has a current Version) — not a hand-rewritten
+ * equivalent — so the two can't silently drift apart. Archiving a Dish
+ * *is* setting its Stage to `ARCHIVED` (`dishes/service.ts#archiveDish`
+ * calls `updateDishStage(..., "ARCHIVED", ...)`, which derives
+ * `archivedAt` from that Stage via `nextArchivedAt`) — one fact, not two —
+ * so `archivedAt: null` alone already excludes Stage-`ARCHIVED` Recipes;
+ * `rankMealPlanRecommendations`'s own unconditional `stage !== "ARCHIVED"`
+ * filter is just defense-in-depth on the same fact, never reachable as a
+ * *further* exclusion once `archivedAt: null` has already applied.
+ * Deliberately Recipe-only, unlike `listMealPlanEntryCandidates` above
+ * (which also includes Parts and every non-archived Dish, since it feeds
+ * the plan-entry picker, not recommendations) — that mixed pool cannot
+ * answer either of this function's questions on its own.
+ */
+export async function countRecipeRecommendationEligibility(
+  ownerId: string,
+): Promise<{ totalRecipeCount: number; eligibleRecipeCount: number }> {
+  const [totalRecipeCount, eligibleRecipeCount] = await Promise.all([
+    prisma.dish.count({ where: { ownerId, kind: "RECIPE" } }),
+    prisma.dish.count({
+      where: {
+        ownerId,
+        kind: "RECIPE",
+        archivedAt: null,
+        currentVersionId: { not: null },
+      },
+    }),
+  ]);
+  return { totalRecipeCount, eligibleRecipeCount };
+}
+
+/**
  * Recommendation candidates (§80) — owned, non-archived RECIPE Dishes only
  * (§80's priority list and every one of its examples speak exclusively of
  * Recipes; standalone Part-preparation entries are added directly from the

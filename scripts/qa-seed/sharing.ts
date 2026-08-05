@@ -335,7 +335,10 @@ export async function buildDirectShareFixtures(
  * catalog beyond the resulting `CANCELED` `DirectShare` row.
  */
 export async function buildSourceDeletionCancellationFixture(
-  services: Pick<SharingServices, "createDish" | "sendDirectShare" | "deleteDish">,
+  services: Pick<
+    SharingServices,
+    "createDish" | "sendDirectShare" | "deleteDish"
+  >,
   primaryId: string,
   counterpartyEmail: string,
 ): Promise<void> {

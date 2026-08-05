@@ -17,7 +17,30 @@ import {
   type CookingModeUnit,
 } from "@/components/domain/cooking/cooking-mode-shell";
 
-export const metadata: Metadata = { title: "Cooking mode" };
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ sessionId: string }>;
+}): Promise<Metadata> {
+  const session = await getServerSession();
+  if (!session) return {};
+  const { sessionId } = await params;
+  try {
+    const cookingSession = await getOwnedSessionOrThrow(
+      session.user.id,
+      sessionId,
+    );
+    const sourceSummary = await getSessionSourceSummary(
+      cookingSession.dishId,
+      cookingSession.dishVersionId,
+    );
+    return {
+      title: `${sourceSummary.dishTitle} — Cooking mode`,
+    };
+  } catch {
+    return {};
+  }
+}
 
 export default async function CookingModePage({
   params,

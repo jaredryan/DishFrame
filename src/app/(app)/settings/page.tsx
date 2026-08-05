@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import Link from "next/link";
+import { ArrowRight } from "lucide-react";
 import { redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth/session";
 import { PreferencesForm } from "@/components/app/preferences-form";
@@ -81,7 +83,16 @@ export default async function SettingsPage() {
       </section>
 
       <section className="flex flex-col gap-4">
-        <h2 className="text-foreground text-lg font-semibold">Tasters</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-foreground text-lg font-semibold">Tasters</h2>
+          <Link
+            href="/tasters"
+            className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-sm hover:underline"
+          >
+            Open full view
+            <ArrowRight className="size-3.5" aria-hidden="true" />
+          </Link>
+        </div>
         <p className="text-muted-foreground -mt-2 text-sm">
           Who tried it? Add the people whose ratings you want to remember.
         </p>
@@ -91,7 +102,16 @@ export default async function SettingsPage() {
       </section>
 
       <section className="flex flex-col gap-4">
-        <h2 className="text-foreground text-lg font-semibold">Tags</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-foreground text-lg font-semibold">Tags</h2>
+          <Link
+            href="/tags"
+            className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-sm hover:underline"
+          >
+            Open full view
+            <ArrowRight className="size-3.5" aria-hidden="true" />
+          </Link>
+        </div>
         <p className="text-muted-foreground -mt-2 text-sm">
           Your own organizing labels — used for filtering Recipes and Parts.
         </p>
@@ -101,9 +121,18 @@ export default async function SettingsPage() {
       </section>
 
       <section className="flex flex-col gap-4">
-        <h2 className="text-foreground text-lg font-semibold">
-          Flavor Profiles
-        </h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-foreground text-lg font-semibold">
+            Flavor Profiles
+          </h2>
+          <Link
+            href="/flavor-profiles"
+            className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-sm hover:underline"
+          >
+            Open full view
+            <ArrowRight className="size-3.5" aria-hidden="true" />
+          </Link>
+        </div>
         <p className="text-muted-foreground -mt-2 text-sm">
           A dedicated classification for how something tastes — separate from
           ordinary tags.

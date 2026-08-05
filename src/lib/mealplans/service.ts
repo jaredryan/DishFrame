@@ -19,6 +19,7 @@ import {
 import {
   getOwnedMealPlanOrThrow,
   listRecommendationCandidates,
+  countRecipeRecommendationEligibility,
   type OwnedMealPlan,
   type OwnedMealPlanEntry,
 } from "@/lib/mealplans/queries";
@@ -551,9 +552,19 @@ export async function startSessionFromEntry(
 export async function getRecommendations(
   ownerId: string,
   filters: RecommendationFilters = {},
-): Promise<Recommendation[]> {
-  const candidates = await listRecommendationCandidates(ownerId);
-  return rankMealPlanRecommendations(candidates, filters);
+): Promise<{
+  recommendations: Recommendation[];
+  totalRecipeCount: number;
+  eligibleRecipeCount: number;
+}> {
+  const [candidates, eligibility] = await Promise.all([
+    listRecommendationCandidates(ownerId),
+    countRecipeRecommendationEligibility(ownerId),
+  ]);
+  return {
+    recommendations: rankMealPlanRecommendations(candidates, filters),
+    ...eligibility,
+  };
 }
 
 // ---------------------------------------------------------------------------

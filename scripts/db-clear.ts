@@ -15,24 +15,31 @@ async function main() {
     DATABASE_DRIVER: process.env.DATABASE_DRIVER,
   });
 
+  console.log("[db-clear] Local database confirmed. Clearing...");
+
   function run(command: string, args: string[]) {
     const result = spawnSync(command, args, {
       stdio: "inherit",
       env: process.env,
     });
     if (result.status !== 0) {
-      console.error(`[db-reset] Command failed: ${command} ${args.join(" ")}`);
+      console.error(`[db-clear] Command failed: ${command} ${args.join(" ")}`);
       process.exit(result.status ?? 1);
     }
   }
 
-  run("pnpm", ["run", "db:clear"]);
-  run("pnpm", ["run", "db:seed"]);
+  // No `--skip-seed` flag: this Prisma CLI version (7.9.0) doesn't support
+  // it on `migrate reset` (confirmed via `prisma migrate reset --help`),
+  // and it isn't needed anyway — neither `package.json`'s legacy
+  // `prisma.seed` field nor `prisma.config.ts`'s `migrations.seed` is set,
+  // so `migrate reset` has no seed command to invoke in the first place.
+  run("pnpm", ["exec", "prisma", "migrate", "reset", "--force"]);
+  run("pnpm", ["exec", "prisma", "generate"]);
 
-  console.log("[db-reset] Done.");
+  console.log("[db-clear] Done. Database is empty and fully migrated.");
 }
 
 main().catch((error) => {
-  console.error("[db-reset] Failed:", error);
+  console.error("[db-clear] Failed:", error);
   process.exit(1);
 });

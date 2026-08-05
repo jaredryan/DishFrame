@@ -14,7 +14,21 @@ import {
   type SessionContextUnit,
 } from "@/components/domain/cooking/session-review-form";
 
-export const metadata: Metadata = { title: "Session Review" };
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ sessionId: string }>;
+}): Promise<Metadata> {
+  const session = await getServerSession();
+  if (!session) return {};
+  const { sessionId } = await params;
+  try {
+    const { dish } = await getOwnedSessionForReview(session.user.id, sessionId);
+    return { title: `${dish?.currentTitle ?? "Deleted item"} — Review` };
+  } catch {
+    return {};
+  }
+}
 
 export default async function SessionReviewPage({
   params,

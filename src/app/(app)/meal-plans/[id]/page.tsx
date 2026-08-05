@@ -10,7 +10,21 @@ import { decimalToNumber } from "@/lib/dishes/format";
 import { MealPlanDetailView } from "@/components/domain/mealplans/meal-plan-detail-view";
 import type { MealPlanDetailDto } from "@/lib/mealplans/schema";
 
-export const metadata: Metadata = { title: "Meal Plan" };
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  const session = await getServerSession();
+  if (!session) return {};
+  const { id } = await params;
+  try {
+    const mealPlan = await getOwnedMealPlanOrThrow(session.user.id, id);
+    return { title: mealPlan.title };
+  } catch {
+    return {};
+  }
+}
 
 export default async function MealPlanDetailPage({
   params,

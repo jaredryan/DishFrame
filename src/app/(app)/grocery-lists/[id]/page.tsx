@@ -13,7 +13,21 @@ import type {
   GroceryCategoryOptionDto,
 } from "@/lib/grocery/list-schema";
 
-export const metadata: Metadata = { title: "Grocery list" };
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  const session = await getServerSession();
+  if (!session) return {};
+  const { id } = await params;
+  try {
+    const list = await getOwnedGroceryListOrThrow(session.user.id, id);
+    return { title: list.title };
+  } catch {
+    return {};
+  }
+}
 
 export default async function GroceryListDetailPage({
   params,

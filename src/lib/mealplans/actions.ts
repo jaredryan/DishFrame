@@ -311,7 +311,12 @@ export async function generateGroceryListFromMealPlan(values: {
 }
 
 export type RecommendationsActionState =
-  | { status: "success"; recommendations: Recommendation[] }
+  | {
+      status: "success";
+      recommendations: Recommendation[];
+      totalRecipeCount: number;
+      eligibleRecipeCount: number;
+    }
   | { status: "error"; message: string };
 
 export async function getMealPlanRecommendations(values: {
@@ -322,11 +327,14 @@ export async function getMealPlanRecommendations(values: {
   try {
     const userId = await requireUserId();
     const filters = recommendationFiltersSchema.parse(values);
-    const recommendations = await mealPlanService.getRecommendations(
-      userId,
-      filters,
-    );
-    return { status: "success", recommendations };
+    const { recommendations, totalRecipeCount, eligibleRecipeCount } =
+      await mealPlanService.getRecommendations(userId, filters);
+    return {
+      status: "success",
+      recommendations,
+      totalRecipeCount,
+      eligibleRecipeCount,
+    };
   } catch (error) {
     return { status: "error", message: toActionErrorMessage(error) };
   }

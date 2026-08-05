@@ -15,9 +15,21 @@ import { DishEditor } from "@/components/domain/dish/dish-editor";
 import { dishToFormValues } from "@/components/domain/dish/dish-form-values";
 import { decimalToNumber } from "@/lib/dishes/format";
 
-export const metadata: Metadata = {
-  title: "Edit part",
-};
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ dishId: string }>;
+}): Promise<Metadata> {
+  const session = await getServerSession();
+  if (!session) return {};
+  const { dishId } = await params;
+  try {
+    const dish = await getOwnedDishOrThrow(session.user.id, dishId, "PART");
+    return { title: `${dish.currentTitle ?? "Part"} — Edit` };
+  } catch {
+    return {};
+  }
+}
 
 export default async function EditPartPage({
   params,

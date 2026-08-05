@@ -11,6 +11,7 @@ import {
   CONTENT_CARD_TITLE_CLASS,
 } from "@/components/domain/dish/content-card";
 import { ScaleControl } from "@/components/domain/cooking/scale-control";
+import { DisabledActionHint } from "@/components/app/disabled-action-hint";
 import { generateGroceryList } from "@/lib/grocery/list-actions";
 import type { GrocerySourceCandidate } from "@/lib/grocery/queries";
 
@@ -70,6 +71,13 @@ export function GrocerySourcePicker({
   }
 
   if (!open) {
+    if (candidates.length === 0) {
+      return (
+        <DisabledActionHint explanation="Create a Recipe or Part first — a grocery list is generated from what you've saved.">
+          <Button disabled>New grocery list</Button>
+        </DisabledActionHint>
+      );
+    }
     return <Button onClick={() => setOpen(true)}>New grocery list</Button>;
   }
 

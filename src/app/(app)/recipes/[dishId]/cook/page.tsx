@@ -14,7 +14,21 @@ import {
 import { versionLabel } from "@/lib/dishes/version-note";
 import { decimalToNumber } from "@/lib/dishes/format";
 
-export const metadata: Metadata = { title: "Cooking setup" };
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ dishId: string }>;
+}): Promise<Metadata> {
+  const session = await getServerSession();
+  if (!session) return {};
+  const { dishId } = await params;
+  try {
+    const dish = await getOwnedDishOrThrow(session.user.id, dishId, "RECIPE");
+    return { title: `${dish.currentTitle ?? "Recipe"} — Cooking setup` };
+  } catch {
+    return {};
+  }
+}
 
 export default async function RecipeCookingSetupPage({
   params,

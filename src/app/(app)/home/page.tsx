@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Plus, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { DisabledActionHint } from "@/components/app/disabled-action-hint";
 
 export const metadata: Metadata = {
   title: "Home",
@@ -35,15 +34,12 @@ export default function AppHomePage() {
               Create a recipe
             </Link>
           </Button>
-          <DisabledActionHint explanation="Importing recipes from other sources isn't available yet — for now, create the recipe directly.">
-            <Button variant="outline" disabled>
+          <Button variant="outline" asChild>
+            <Link href="/recipes/import">
               <Upload />
               Import a recipe
-            </Button>
-          </DisabledActionHint>
-          <span className="text-muted-foreground self-center text-xs">
-            Import a recipe: coming soon
-          </span>
+            </Link>
+          </Button>
         </div>
       </div>
 

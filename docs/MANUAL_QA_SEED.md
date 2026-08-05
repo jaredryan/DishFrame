@@ -65,13 +65,24 @@ Set in `.env.local` (see `.env.example`):
 - `pnpm db:reset` — destructive. Resets the entire local database, applies
   migrations, regenerates the Prisma Client, then runs `pnpm db:seed`
   (offline — run `pnpm db:seed-images` afterward if you also want images).
+  Internally, this is `pnpm db:clear` followed by `pnpm db:seed`.
+- `pnpm db:clear` — destructive. Resets the entire local database, applies
+  migrations, and regenerates the Prisma Client, but **does not seed** —
+  it leaves the database empty (no users, no `[QA]` fixtures, no
+  application records of any kind), fully migrated and schema-current.
+  Like `pnpm db:seed`, it never contacts Vercel Blob, USDA, or any other
+  external service. Use it when you specifically need an empty-but-
+  migrated database — e.g. auditing empty/zero-state UI (no-account,
+  no-Recipe, no-GroceryList views) — rather than `pnpm db:reset`, which
+  always leaves the QA fixtures in place. Safe to rerun repeatedly.
 
 ## Safety
 
-Both commands refuse to run unless `DATABASE_DRIVER=pg` and both
-`DATABASE_URL`/`DIRECT_URL` resolve to a local host
-(`localhost`/`127.0.0.1`/`::1`) — never Neon, never production. This is a
-real code guard (`src/lib/db/local-guard.ts`), not just a warning.
+All three commands (`db:seed`, `db:clear`, `db:reset`) refuse to run
+unless `DATABASE_DRIVER=pg` and both `DATABASE_URL`/`DIRECT_URL` resolve
+to a local host (`localhost`/`127.0.0.1`/`::1`) — never Neon, never
+production. This is a real code guard (`src/lib/db/local-guard.ts`), not
+just a warning.
 
 ## Signing in
 
@@ -122,7 +133,10 @@ Propagation and deletion testing mutate real rows. To restore the fixture
 set afterward, rerun `pnpm db:seed` — it deletes and rebuilds only
 `[QA]`-titled Dishes owned by the seed user, so it's fast and doesn't
 touch anything else in the local database. Use `pnpm db:reset` only when
-you need a genuinely clean database (e.g. after a migration change).
+you need a genuinely clean database (e.g. after a migration change). Use
+`pnpm db:clear` instead of `pnpm db:reset` when you want that clean,
+fully migrated database to stay empty (no seed run afterward) — e.g. for
+an empty-account/empty-state audit.
 
 ## Image fixtures
 

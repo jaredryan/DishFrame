@@ -26,6 +26,9 @@ Same commands as `docs/MANUAL_QA_SEED.md`:
   correctly carries that image too.
 - `pnpm db:reset` — destructive full local reset, then `db:seed` (offline;
   run `db:seed-images` afterward for images too).
+- `pnpm db:clear` — destructive full local reset (migrated, schema-current)
+  **without** seeding — leaves the database empty. Use for empty-state
+  audits; see `docs/MANUAL_QA_SEED.md`.
 
 The owner's own built-in "You" Taster is never deleted/recreated (it's a
 protected per-account singleton) — only the three `[QA] `-named Tasters

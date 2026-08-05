@@ -28,9 +28,29 @@ import {
   mergeLiveAndMaterializedTrees,
 } from "@/lib/sections/service";
 
-export const metadata: Metadata = {
-  title: "Version history",
-};
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ dishId: string; versionId: string }>;
+}): Promise<Metadata> {
+  const session = await getServerSession();
+  if (!session) return {};
+  const { dishId, versionId } = await params;
+  try {
+    const { dish, version } = await getOwnedVersionDetailOrThrow(
+      session.user.id,
+      dishId,
+      versionId,
+      "PART",
+    );
+    const title = dish.currentTitle || version.title;
+    return {
+      title: `${title} — V${version.majorVersion}.${version.minorVersion}`,
+    };
+  } catch {
+    return {};
+  }
+}
 
 export default async function PartVersionPage({
   params,

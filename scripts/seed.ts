@@ -36,7 +36,8 @@ async function main() {
   const dishQueries = await import("@/lib/dishes/queries");
   const tasterService = await import("@/lib/tasters/service");
   const sharingService = await import("@/lib/sharing/service");
-  const { markOnboardingGuideState } = await import("@/lib/preferences/service");
+  const { markOnboardingGuideState } =
+    await import("@/lib/preferences/service");
   const { initializeNewUser } = await import("@/lib/account/init");
   const { resolveSeedOwner, wipeExistingFixtures, ensureSeedTag } =
     await import("./qa-seed/owner");
@@ -69,7 +70,8 @@ async function main() {
     buildDirectShareFixtures,
     buildSourceDeletionCancellationFixture,
   } = await import("./qa-seed/sharing");
-  const { markAllOnboardingGuidesCompleted } = await import("./qa-seed/onboarding");
+  const { markAllOnboardingGuidesCompleted } =
+    await import("./qa-seed/onboarding");
   const { printCatalog } = await import("./qa-seed/catalog");
 
   const partServices = {
@@ -249,16 +251,12 @@ async function main() {
     deleteDish: dishService.deleteDish,
   };
 
-  const shareLinks = await buildShareLinkFixtures(
-    sharingService,
-    owner.id,
-    {
-      noodlesaladDishId: recipes.noodlesalad.dishId,
-      stirfryDishId: recipes.stirfry.dishId,
-      ricesidedishDishId: recipes.ricesidedish.dishId,
-      saladDishId: recipes.salad.dishId,
-    },
-  );
+  const shareLinks = await buildShareLinkFixtures(sharingService, owner.id, {
+    noodlesaladDishId: recipes.noodlesalad.dishId,
+    stirfryDishId: recipes.stirfry.dishId,
+    ricesidedishDishId: recipes.ricesidedish.dishId,
+    saladDishId: recipes.salad.dishId,
+  });
   const crossAccountShareLinkCopy = await buildCrossAccountShareLinkCopy(
     sharingService,
     owner.id,
