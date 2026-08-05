@@ -342,3 +342,87 @@ export function collectGraphImageAssetIds(graph: ShareGraph): string[] {
   }
   return [...ids];
 }
+
+/**
+ * Slice 17 correction pass: a JSON-safe form of `ShareGraph` — every
+ * `ShareGraphNode` field is already plain JSON-compatible data (Decimals
+ * pre-converted via `decimalToNumber`, enums as strings), so the only
+ * non-serializable part is `nodes` itself being a `Map`. Lets a
+ * `DirectShare` freeze the complete graph at Send time
+ * (`DirectShare.frozenGraph`) and feed the exact same graph into
+ * `createIndependentCopyFromGraph` at Accept — never a live re-read of
+ * `dishId`/`dishVersionId`, which can drift via DishFrame's in-place
+ * Version-metadata edits (description/image/yield/time/difficulty/
+ * nutrition) between Send and Accept.
+ *
+ * Hardening pass: `formatVersion` discriminates the snapshot's own shape,
+ * so a future change or a corrupted row can be rejected, not misread.
+ */
+const SHARE_GRAPH_FORMAT_VERSION = 1;
+
+export type SerializedShareGraph = {
+  formatVersion: number;
+  nodes: Array<[string, ShareGraphNode]>;
+  order: string[];
+  rootVersionId: string;
+};
+
+export function serializeShareGraph(graph: ShareGraph): SerializedShareGraph {
+  return {
+    formatVersion: SHARE_GRAPH_FORMAT_VERSION,
+    nodes: [...graph.nodes.entries()],
+    order: graph.order,
+    rootVersionId: graph.rootVersionId,
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+/**
+ * `frozenGraph` is persisted business data (Postgres `Json`), not a value
+ * this process just produced — validate its required shape before it ever
+ * reaches `buildPublicShareContent` or `createIndependentCopyFromGraph`,
+ * rather than trusting a bare cast. Deliberately shallow (top-level shape,
+ * node-entry shape, `rootVersionId` presence in `nodes`) rather than a full
+ * per-field schema for every `ShareGraphNode` — this is a corruption/
+ * version guard, not a migration framework.
+ */
+export function deserializeShareGraph(raw: unknown): ShareGraph {
+  const invalid = () =>
+    new ValidationError("This shared item's saved content is invalid.");
+
+  if (!isRecord(raw)) throw invalid();
+  if (raw.formatVersion !== SHARE_GRAPH_FORMAT_VERSION) {
+    throw new ValidationError(
+      "This shared item was saved in an unsupported format.",
+    );
+  }
+  if (
+    !Array.isArray(raw.nodes) ||
+    !Array.isArray(raw.order) ||
+    typeof raw.rootVersionId !== "string"
+  ) {
+    throw invalid();
+  }
+  if (!raw.order.every((id): id is string => typeof id === "string")) {
+    throw invalid();
+  }
+
+  const nodes = new Map<string, ShareGraphNode>();
+  for (const entry of raw.nodes) {
+    if (
+      !Array.isArray(entry) ||
+      entry.length !== 2 ||
+      typeof entry[0] !== "string" ||
+      !isRecord(entry[1])
+    ) {
+      throw invalid();
+    }
+    nodes.set(entry[0], entry[1] as ShareGraphNode);
+  }
+  if (!nodes.has(raw.rootVersionId)) throw invalid();
+
+  return { nodes, order: raw.order, rootVersionId: raw.rootVersionId };
+}

@@ -59,6 +59,7 @@ const PROTECTED_INDEXES = [
   "one_owner_taster_per_user",
   "one_active_session_per_dish",
   "one_fallback_category_per_user",
+  "one_pending_direct_share_per_sender_recipient_dish",
 ] as const;
 
 async function main() {

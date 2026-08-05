@@ -1966,6 +1966,27 @@ export async function createIndependentCopyFromGraph(
     );
   }
 
+  // Slice 17 correction pass: a graph resolved from a caller-held snapshot
+  // (a frozen `DirectShare`) may describe a source Dish permanently deleted
+  // sometime *after* the graph was captured but *before* this transaction
+  // runs — the FK `Dish.sourceDishId` would otherwise reject an insert
+  // referencing a row that no longer exists. `sourceTitle`/
+  // `sourceDishVersionLabel` (already denormalized strings, not FKs) still
+  // faithfully preserve provenance either way, matching the existing "source
+  // deleted, title/label survive" convention `Dish.sourceDishId`'s own
+  // `onDelete: SetNull` already establishes for a *later* deletion of an
+  // already-copied row's source. A graph built live (every non-frozen
+  // caller) always finds every source Dish still present here — this is a
+  // no-op query in that case, not a new cost for the common path.
+  const survivingSourceDishIds = new Set(
+    (
+      await tx.dish.findMany({
+        where: { id: { in: dishCreationOrder } },
+        select: { id: true },
+      })
+    ).map((d) => d.id),
+  );
+
   const recipientDishIdBySourceDishId = new Map<string, string>();
   const recipientVersionIdBySourceVersionId = new Map<string, string>();
 
@@ -1982,7 +2003,9 @@ export async function createIndependentCopyFromGraph(
         cuisine: lastNode.dishCuisine,
         currentTitle: lastNode.dishTitle,
         sourceKind: "ACCEPTED_SHARE",
-        sourceDishId,
+        sourceDishId: survivingSourceDishIds.has(sourceDishId)
+          ? sourceDishId
+          : null,
         sourceDishVersionLabel: versionLabel(
           lastNode.majorVersion,
           lastNode.minorVersion,

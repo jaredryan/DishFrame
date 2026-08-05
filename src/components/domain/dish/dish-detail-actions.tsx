@@ -13,6 +13,7 @@ import {
   MoreHorizontal,
   Pencil,
   RotateCcw,
+  Send,
   Share2,
   Trash2,
 } from "lucide-react";
@@ -59,6 +60,7 @@ import {
 } from "@/lib/dishes/schema";
 import { PartUsageResolutionDialog } from "@/components/domain/dish/part-usage-resolution-dialog";
 import { ShareDialog } from "@/components/domain/sharing/share-dialog";
+import { DirectShareDialog } from "@/components/domain/sharing/direct-share-dialog";
 import { versionLabel } from "@/lib/dishes/version-note";
 
 const ALL_VERSIONS_VALUE = "__ALL__";
@@ -77,7 +79,14 @@ const STAGE_LABEL: Record<RestorableStageValue, string> = {
 };
 
 type DialogKind =
-  "archive" | "restore" | "duplicate" | "delete" | "export" | "share" | null;
+  | "archive"
+  | "restore"
+  | "duplicate"
+  | "delete"
+  | "export"
+  | "share"
+  | "send"
+  | null;
 
 export function DishDetailActions({
   dishId,
@@ -232,6 +241,9 @@ export function DishDetailActions({
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setOpenDialog("share")}>
               <Share2 /> Share
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setOpenDialog("send")}>
+              <Send /> Send to user
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setOpenDialog("export")}>
               <Download /> Export
@@ -493,6 +505,13 @@ export function DishDetailActions({
 
       <ShareDialog
         open={openDialog === "share"}
+        onOpenChange={(open) => !open && close()}
+        dishId={dishId}
+        kind={kind}
+      />
+
+      <DirectShareDialog
+        open={openDialog === "send"}
         onOpenChange={(open) => !open && close()}
         dishId={dishId}
         kind={kind}

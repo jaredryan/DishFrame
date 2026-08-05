@@ -172,6 +172,7 @@ model Dish {
   // own back-relation list below).
   shareLinksCurrent ShareLink[] @relation("ShareLinkCurrentDish")
   shareLinkAcceptance ShareLinkAcceptance?
+  directShareAcceptance DirectShare? @relation("DirectShareCreatedDish")
 
   @@index([ownerId, kind, stage])
   @@index([ownerId, kind, archivedAt])
@@ -1054,21 +1055,52 @@ enum DirectShareStatus {
   CANCELED
 }
 
+// Slice 17: `createdDishId` is the direct-share equivalent of
+// ShareLinkAcceptance's durable idempotency link, embedded directly on the
+// row rather than a parallel acceptance table — a DirectShare is already
+// one row per delivery, so its own status field's conditional
+// PENDING -> ACCEPTED transition (guarded in the accept transaction) is the
+// "only once" invariant; this field only needs to answer "which copy did
+// that acceptance produce." Nullable with `onDelete: SetNull` (matching the
+// ShareLinkAcceptance correction, docs/SLICE_16.md): the recipient later
+// deleting their own copy must not let the same DirectShare be accepted
+// again, so the ACCEPTED status and the row itself outlive the copy.
+//
+// Slice 17 correction pass: `frozenGraph`/`frozenImageAssetIds` freeze the
+// complete shareable content graph at Send time — generalizing ShareLink's
+// own `frozenSnapshot` pattern, but storing the ownerless `ShareGraph`
+// itself (serialized, `sharing/graph.ts`'s `serializeShareGraph`) rather
+// than only the derived public DTO, since Accept needs the full graph to
+// feed `createIndependentCopyFromGraph` directly — never a live re-read of
+// `dishId`/`dishVersionId`, which DishFrame permits editing in place
+// (description/image/yield/time/difficulty/nutrition) without a new
+// Version. `dishId`/`dishVersionId` remain for provenance and the existing
+// deletion-cancellation match (`revokeSharesAndCancelPendingShares`) — they
+// are no longer read to resolve Preview/Accept content.
+//
+// A partial unique index (raw SQL, `one_pending_direct_share_per_sender_recipient_dish`
+// — Prisma cannot express a partial unique index directly) enforces at most
+// one PENDING delivery per (senderId, recipientId, dishId), closing the
+// concurrent-double-send race the prior application-only check could not.
 model DirectShare {
-  id                String            @id @default(cuid())
-  senderId          String
-  recipientId       String?
-  recipientLookup   String
-  dishId            String?
-  dishVersionId     String?
-  dishTitleSnapshot String
-  note              String?
-  status            DirectShareStatus @default(PENDING)
-  createdAt         DateTime          @default(now())
+  id                  String            @id @default(cuid())
+  senderId            String
+  recipientId         String?
+  recipientLookup     String
+  dishId              String?
+  dishVersionId       String?
+  dishTitleSnapshot   String
+  note                String?
+  status              DirectShareStatus @default(PENDING)
+  createdDishId       String?           @unique
+  frozenGraph         Json?
+  frozenImageAssetIds String[]          @default([])
+  createdAt           DateTime          @default(now())
 
   sender      User         @relation("DirectShareSender", fields: [senderId], references: [id], onDelete: Cascade)
   recipient   User?        @relation("DirectShareRecipient", fields: [recipientId], references: [id], onDelete: SetNull)
   dishVersion DishVersion? @relation(fields: [dishId, dishVersionId], references: [dishId, id], onDelete: SetNull)
+  createdDish Dish?        @relation("DirectShareCreatedDish", fields: [createdDishId], references: [id], onDelete: SetNull)
 
   @@index([senderId])
   @@index([recipientId])

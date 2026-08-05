@@ -9,6 +9,9 @@ import {
   shareLinkIdSchema,
   updateShareLinkSchema,
   saveSharedCopySchema,
+  lookupDirectShareRecipientSchema,
+  sendDirectShareSchema,
+  directShareIdSchema,
 } from "@/lib/sharing/schema";
 import type { DishKindValue } from "@/lib/dishes/schema";
 
@@ -132,6 +135,139 @@ export async function saveSharedCopy(
       dishId: result.dishId,
       dishKind: result.dishKind,
     };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+// ============================================================================
+// Slice 17: Direct account-to-account sharing.
+// ============================================================================
+
+export type LookupRecipientActionState =
+  | { status: "success"; recipient: { id: string; name: string } | null }
+  | { status: "error"; message: string };
+
+export async function lookupDirectShareRecipient(
+  values: unknown,
+): Promise<LookupRecipientActionState> {
+  try {
+    const userId = await requireUserId();
+    const { email } = lookupDirectShareRecipientSchema.parse(values);
+    const recipient = await sharingService.lookupDirectShareRecipient(
+      userId,
+      email,
+    );
+    return { status: "success", recipient };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export type SendDirectShareActionState =
+  | { status: "success"; directShareId: string }
+  | { status: "error"; message: string };
+
+export async function sendDirectShare(
+  values: unknown,
+): Promise<SendDirectShareActionState> {
+  try {
+    const userId = await requireUserId();
+    const input = sendDirectShareSchema.parse(values);
+    const result = await sharingService.sendDirectShare(userId, input);
+    revalidatePath(SHARE_MANAGEMENT_PATH);
+    return { status: "success", ...result };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export async function cancelDirectShare(
+  values: unknown,
+): Promise<ShareActionState> {
+  try {
+    const userId = await requireUserId();
+    const { directShareId } = directShareIdSchema.parse(values);
+    await sharingService.cancelDirectShare(userId, directShareId);
+    revalidatePath(SHARE_MANAGEMENT_PATH);
+    return { status: "success" };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export type DeclineDirectShareActionState =
+  | { status: "success"; outcome: "declined" | "not_actionable" }
+  | { status: "error"; message: string };
+
+export async function declineDirectShare(
+  values: unknown,
+): Promise<DeclineDirectShareActionState> {
+  try {
+    const userId = await requireUserId();
+    const { directShareId } = directShareIdSchema.parse(values);
+    const result = await sharingService.declineDirectShare(
+      userId,
+      directShareId,
+    );
+    revalidatePath(SHARE_MANAGEMENT_PATH);
+    return { status: "success", outcome: result.outcome };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export type AcceptDirectShareActionState =
+  | {
+      status: "success";
+      outcome: "accepted";
+      dishId: string;
+      dishKind: DishKindValue;
+    }
+  | { status: "success"; outcome: "accepted_copy_deleted" }
+  | { status: "success"; outcome: "not_actionable" }
+  | { status: "error"; message: string };
+
+export async function acceptDirectShare(
+  values: unknown,
+): Promise<AcceptDirectShareActionState> {
+  try {
+    const userId = await requireUserId();
+    const { directShareId } = directShareIdSchema.parse(values);
+    const result = await sharingService.acceptDirectShare(
+      userId,
+      directShareId,
+    );
+    revalidatePath(SHARE_MANAGEMENT_PATH);
+    if (result.outcome === "accepted") {
+      return {
+        status: "success",
+        outcome: "accepted",
+        dishId: result.dishId,
+        dishKind: result.dishKind,
+      };
+    }
+    return { status: "success", outcome: result.outcome };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export type DirectSharePreviewActionState =
+  | { status: "success"; preview: sharingService.DirectSharePreview }
+  | { status: "error"; message: string };
+
+export async function getDirectSharePreview(
+  values: unknown,
+): Promise<DirectSharePreviewActionState> {
+  try {
+    const userId = await requireUserId();
+    const { directShareId } = directShareIdSchema.parse(values);
+    const preview = await sharingService.getDirectSharePreview(
+      userId,
+      directShareId,
+    );
+    return { status: "success", preview };
   } catch (error) {
     return { status: "error", message: toActionErrorMessage(error) };
   }

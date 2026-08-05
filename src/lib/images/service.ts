@@ -158,6 +158,18 @@ export async function assertImageAssetAttachable(
  * the asset is still referenced by some other `DishVersion` — including,
  * per Correction 7, a different account's surviving copy after duplication
  * or an accepted share.
+ *
+ * Slice 17 correction pass: a still-`PENDING` `DirectShare`'s frozen graph
+ * (`frozenImageAssetIds`) is an equally legitimate reference — the sender
+ * replacing their live source image in place (the same
+ * `applyVersionMetadataUpdate` path above) must not orphan-delete an image
+ * a pending delivery's frozen Preview/Accept still needs. Cancelling,
+ * declining, or the deletion transaction's own cancellation step (both of
+ * which flip `status` away from `PENDING` *before* this runs — see
+ * `revokeSharesAndCancelPendingShares`'s call order in `deleteRecipe`/
+ * `deletePart`) correctly releases that protection once no longer needed;
+ * an already-`ACCEPTED` delivery needs no separate protection here since
+ * its copy's own `DishVersion.imageAssetId` reference already counts above.
  */
 export async function deleteImageAssetIfOrphaned(
   tx: Prisma.TransactionClient,
@@ -165,6 +177,11 @@ export async function deleteImageAssetIfOrphaned(
 ): Promise<string | null> {
   const remaining = await tx.dishVersion.count({ where: { imageAssetId } });
   if (remaining > 0) return null;
+
+  const pendingDirectShares = await tx.directShare.count({
+    where: { status: "PENDING", frozenImageAssetIds: { has: imageAssetId } },
+  });
+  if (pendingDirectShares > 0) return null;
 
   const asset = await tx.imageAsset.delete({ where: { id: imageAssetId } });
   return asset.storageKey;

@@ -72,7 +72,9 @@ export default async function PublicSharePage({
         content={resolved.content}
         mode={resolved.mode}
         creatorName={resolved.creatorName}
-        shareToken={token}
+        imageSrc={(assetId) =>
+          `/api/images/${assetId}?shareToken=${encodeURIComponent(token)}`
+        }
       />
       <div className="mx-auto max-w-3xl px-4 pb-12 sm:px-6 lg:px-8">
         {shareState === "ALREADY_SAVED" ? (

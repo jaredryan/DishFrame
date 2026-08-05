@@ -6,13 +6,6 @@ import type {
   PublicPartLinkNode,
 } from "@/lib/sharing/public-dto";
 
-/** Every image on a public share page — root or nested Part — goes through
- * the same authenticated image route, authorized by the share token rather
- * than a session (`/api/images/[assetId]`'s ShareLink-token branch). */
-function shareImageSrc(imageAssetId: string, shareToken: string): string {
-  return `/api/images/${imageAssetId}?shareToken=${encodeURIComponent(shareToken)}`;
-}
-
 function IngredientLine({
   ingredient,
 }: {
@@ -36,12 +29,14 @@ function IngredientLine({
   );
 }
 
+type ImageSrc = (imageAssetId: string) => string;
+
 function SectionBlock({
   section,
-  shareToken,
+  imageSrc,
 }: {
   section: PublicSection;
-  shareToken: string;
+  imageSrc: ImageSrc;
 }) {
   return (
     <div className="space-y-2">
@@ -66,7 +61,7 @@ function SectionBlock({
         </ol>
       )}
       {section.partLinks.map((link, i) => (
-        <PartLinkBlock key={i} link={link} shareToken={shareToken} />
+        <PartLinkBlock key={i} link={link} imageSrc={imageSrc} />
       ))}
     </div>
   );
@@ -74,10 +69,10 @@ function SectionBlock({
 
 function PartLinkBlock({
   link,
-  shareToken,
+  imageSrc,
 }: {
   link: PublicPartLinkNode;
-  shareToken: string;
+  imageSrc: ImageSrc;
 }) {
   return (
     <div className="border-border rounded-md border p-3">
@@ -91,33 +86,40 @@ function PartLinkBlock({
       {link.imageAssetId && (
         // eslint-disable-next-line @next/next/no-img-element -- private, authenticated route, not a static/optimizable asset
         <img
-          src={shareImageSrc(link.imageAssetId, shareToken)}
+          src={imageSrc(link.imageAssetId)}
           alt=""
           className="mt-2 h-auto max-w-full rounded-md"
         />
       )}
       <div className="mt-2 space-y-3">
         {link.sections.map((section, i) => (
-          <SectionBlock key={i} section={section} shareToken={shareToken} />
+          <SectionBlock key={i} section={section} imageSrc={imageSrc} />
         ))}
         {link.partLinks.map((nested, i) => (
-          <PartLinkBlock key={i} link={nested} shareToken={shareToken} />
+          <PartLinkBlock key={i} link={nested} imageSrc={imageSrc} />
         ))}
       </div>
     </div>
   );
 }
 
+/**
+ * Slice 17 correction: `imageSrc` is a caller-supplied URL builder rather
+ * than a hardcoded `shareToken` query string, so this same renderer serves
+ * both the public `ShareLink` page (token-authorized) and the authenticated
+ * direct-share preview (`?directShareId=`-authorized,
+ * `direct-share-preview.tsx`) without duplicating ~200 lines of markup.
+ */
 export function PublicShareView({
   content,
   mode,
   creatorName,
-  shareToken,
+  imageSrc,
 }: {
   content: PublicShareContent;
   mode: "FIXED_SNAPSHOT" | "CURRENT";
   creatorName: string | null;
-  shareToken: string;
+  imageSrc: ImageSrc;
 }) {
   return (
     <article className="mx-auto max-w-3xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
@@ -135,7 +137,7 @@ export function PublicShareView({
         {content.imageAssetId && (
           // eslint-disable-next-line @next/next/no-img-element -- private, authenticated route, not a static/optimizable asset
           <img
-            src={shareImageSrc(content.imageAssetId, shareToken)}
+            src={imageSrc(content.imageAssetId)}
             alt=""
             className="h-auto max-w-full rounded-lg"
           />
@@ -179,10 +181,10 @@ export function PublicShareView({
 
       <div className="space-y-4">
         {content.sections.map((section, i) => (
-          <SectionBlock key={i} section={section} shareToken={shareToken} />
+          <SectionBlock key={i} section={section} imageSrc={imageSrc} />
         ))}
         {content.topLevelPartLinks.map((link, i) => (
-          <PartLinkBlock key={i} link={link} shareToken={shareToken} />
+          <PartLinkBlock key={i} link={link} imageSrc={imageSrc} />
         ))}
       </div>
 

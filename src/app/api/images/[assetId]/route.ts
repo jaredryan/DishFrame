@@ -1,7 +1,10 @@
 import { get } from "@vercel/blob";
 import { prisma } from "@/lib/db/prisma";
 import { getServerSession } from "@/lib/auth/session";
-import { isImageAssetVisibleViaShareLink } from "@/lib/sharing/service";
+import {
+  isImageAssetVisibleViaShareLink,
+  isImageAssetVisibleViaDirectShare,
+} from "@/lib/sharing/service";
 
 /**
  * ARCHITECTURE_PROPOSAL.md §L/§M: the one place private image data is
@@ -10,7 +13,7 @@ import { isImageAssetVisibleViaShareLink } from "@/lib/sharing/service";
  * goes through this authenticated route, which resolves `storageKey` and
  * streams it back rather than redirecting to a fetchable Blob URL.
  *
- * Two independent authorization paths, either one sufficient:
+ * Three independent authorization paths, any one sufficient:
  * - session-based: the requester owns some `DishVersion` that references
  *   this `ImageAsset` (never `ImageAsset.uploadedByUserId`, which is
  *   attribution only, §D.2a);
@@ -19,6 +22,11 @@ import { isImageAssetVisibleViaShareLink } from "@/lib/sharing/service";
  *   live-current) content actually reaches this asset — the one place a
  *   logged-out public share viewer can see an image, per §D.2a/§90.2's
  *   explicitly-deferred "public ShareLink-token read path."
+ * - Slice 17's `DirectShare` branch: a `?directShareId=` query param naming
+ *   a `DirectShare` the signed-in requester is the sender or intended
+ *   recipient of, letting a recipient preview an image before accepting —
+ *   session-based (not token-based), since a direct share is never a
+ *   public/logged-out surface.
  */
 export async function GET(
   request: Request,
@@ -34,9 +42,25 @@ export async function GET(
     return Response.json({ message: "Not found." }, { status: 404 });
   }
 
-  const shareToken = new URL(request.url).searchParams.get("shareToken");
+  const url = new URL(request.url);
+  const shareToken = url.searchParams.get("shareToken");
+  const directShareId = url.searchParams.get("directShareId");
+
   if (shareToken) {
     const visible = await isImageAssetVisibleViaShareLink(shareToken, assetId);
+    if (!visible) {
+      return Response.json({ message: "Not found." }, { status: 404 });
+    }
+  } else if (directShareId) {
+    const session = await getServerSession();
+    if (!session) {
+      return Response.json({ message: "Sign in required." }, { status: 401 });
+    }
+    const visible = await isImageAssetVisibleViaDirectShare(
+      session.user.id,
+      directShareId,
+      assetId,
+    );
     if (!visible) {
       return Response.json({ message: "Not found." }, { status: 404 });
     }

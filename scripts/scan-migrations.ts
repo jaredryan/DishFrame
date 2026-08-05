@@ -52,6 +52,7 @@ const PROTECTED_OBJECT_NAMES = [
   "dish_current_structural_search_text_trgm_idx",
   "dish_cuisine_trgm_idx",
   "one_fallback_category_per_user",
+  "one_pending_direct_share_per_sender_recipient_dish",
 ] as const;
 
 // Explicit, documented allowlist mechanism for a future intentionally
