@@ -3,6 +3,9 @@ import { redirect } from "next/navigation";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { getServerSession } from "@/lib/auth/session";
 import { ProfileActions } from "@/components/app/profile-actions";
+import { AuthSessionManager } from "@/components/app/auth-session-manager";
+import { DeleteAccountDialog } from "@/components/app/delete-account-dialog";
+import { listAuthSessionsForDisplay } from "@/lib/account/service";
 
 export const metadata: Metadata = {
   title: "Profile",
@@ -27,6 +30,7 @@ export default async function ProfilePage() {
   }
 
   const { user } = session;
+  const sessionListResult = await listAuthSessionsForDisplay(session);
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-8">
@@ -48,7 +52,27 @@ export default async function ProfilePage() {
         </div>
       </div>
 
+      <section className="flex flex-col gap-4">
+        <h2 className="text-foreground text-lg font-semibold">
+          Signed-in devices
+        </h2>
+        <div className="border-border bg-card rounded-xl border p-5">
+          <AuthSessionManager
+            status={
+              sessionListResult.status === "ready" ? "ready" : "needs_reauth"
+            }
+            sessions={
+              sessionListResult.status === "ready"
+                ? sessionListResult.sessions
+                : []
+            }
+          />
+        </div>
+      </section>
+
       <ProfileActions />
+
+      <DeleteAccountDialog email={user.email} />
     </div>
   );
 }

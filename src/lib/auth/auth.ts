@@ -6,6 +6,15 @@ import { initializeNewUser } from "@/lib/account/init";
 
 const ONE_DAY_IN_SECONDS = 60 * 60 * 24;
 
+// PRODUCT_SPEC.md §91 "recent authentication" gate — Better Auth's own
+// `freshSessionMiddleware` uses this against `session.createdAt` (verified
+// against the installed better-auth version's source, not assumed from
+// docs). Exported so account/service.ts's hand-rolled precheck for
+// deleteAccount (which bypasses Better Auth's own routes entirely, so gets
+// no native enforcement) can share this exact value instead of an
+// independently hardcoded duration that could silently drift from it.
+export const SESSION_FRESH_AGE_SECONDS = ONE_DAY_IN_SECONDS;
+
 // Always trust local dev and the configured public app URL. Also trust the
 // current Vercel deployment's own unique URL (VERCEL_URL, injected
 // automatically by Vercel) so Preview deployments work even though
@@ -42,9 +51,14 @@ export const auth = betterAuth({
   // Long-lived, ordinary consumer-app sessions: 30 days, refreshed on use.
   // Better Auth allows multiple concurrent sessions per user by default —
   // no per-device restriction is configured here on purpose.
+  //
+  // `freshAge` set explicitly (matches the library default of 86400s) so
+  // it's this one named constant, not an unstated default a future change
+  // here could silently drift away from account/service.ts's precheck.
   session: {
     expiresIn: 30 * ONE_DAY_IN_SECONDS,
     updateAge: ONE_DAY_IN_SECONDS,
+    freshAge: SESSION_FRESH_AGE_SECONDS,
   },
 
   socialProviders: isGoogleAuthConfigured

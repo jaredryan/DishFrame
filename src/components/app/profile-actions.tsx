@@ -53,16 +53,6 @@ export function ProfileActions() {
           {signingOut ? "Signing out…" : "Sign out"}
         </Button>
       </div>
-
-      <div className="border-destructive/30 bg-destructive/5 flex items-center justify-between rounded-xl border p-4">
-        <div>
-          <p className="text-foreground text-sm font-medium">Delete account</p>
-          <p className="text-muted-foreground text-sm">Not available yet.</p>
-        </div>
-        <Button variant="destructive" disabled>
-          Delete account
-        </Button>
-      </div>
     </div>
   );
 }
