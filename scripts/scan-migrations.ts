@@ -53,6 +53,7 @@ const PROTECTED_OBJECT_NAMES = [
   "dish_cuisine_trgm_idx",
   "one_fallback_category_per_user",
   "one_pending_direct_share_per_sender_recipient_dish",
+  "one_pending_direct_share_per_sender_dish_recipient_email",
 ] as const;
 
 // Explicit, documented allowlist mechanism for a future intentionally

@@ -39,6 +39,8 @@ model User {
   shareLinks                 ShareLink[]
   sentDirectShares           DirectShare[]              @relation("DirectShareSender")
   receivedDirectShares       DirectShare[]              @relation("DirectShareRecipient")
+  sentDirectShareCollections DirectShareCollection[]    @relation("DirectShareCollectionSender")
+  receivedDirectShareCollections DirectShareCollection[] @relation("DirectShareCollectionRecipient")
   uploadedImages             ImageAsset[]               @relation("ImageUploader")
   shareLinkAcceptances       ShareLinkAcceptance[]
 
@@ -1082,6 +1084,26 @@ enum DirectShareStatus {
 // — Prisma cannot express a partial unique index directly) enforces at most
 // one PENDING delivery per (senderId, recipientId, dishId), closing the
 // concurrent-double-send race the prior application-only check could not.
+//
+// Slice 22: `collectionId` (nullable) groups this row under a
+// `DirectShareCollection` — the unified single-/multi-Recipe send flow.
+// Legacy rows (every pre-Slice-22 row, and every Part send, which stays on
+// its own single-item flow) keep `collectionId: null` and are treated as
+// virtual one-item collections rather than being rewritten. `recipientId`
+// stays synced with the parent collection's own `recipientId` (set
+// immediately at send time for an already-registered recipient, or later by
+// the claim step once a pending invitation's recipient signs in) so every
+// existing per-row authorization/preview/image-auth/orphan-retention
+// function below keeps working unchanged for a collection's children — no
+// child-level query needed to learn who the intended recipient is. A second
+// partial unique index, `one_pending_direct_share_per_sender_dish_recipient_email`
+// (`WHERE status = 'PENDING' AND "collectionId" IS NOT NULL`), enforces the
+// same "no duplicate pending send" guarantee as the index above, but keyed
+// by `recipientLookup` (the normalized invitation email) instead of
+// `recipientId` — the original index can't do this, since Postgres treats
+// every NULL `recipientId` as distinct, which would let a sender send
+// unlimited duplicate pending invitations to the same not-yet-registered
+// email.
 model DirectShare {
   id                  String            @id @default(cuid())
   senderId            String
@@ -1095,14 +1117,52 @@ model DirectShare {
   createdDishId       String?           @unique
   frozenGraph         Json?
   frozenImageAssetIds String[]          @default([])
+  collectionId        String?
   createdAt           DateTime          @default(now())
 
-  sender      User         @relation("DirectShareSender", fields: [senderId], references: [id], onDelete: Cascade)
-  recipient   User?        @relation("DirectShareRecipient", fields: [recipientId], references: [id], onDelete: SetNull)
-  dishVersion DishVersion? @relation(fields: [dishId, dishVersionId], references: [dishId, id], onDelete: SetNull)
-  createdDish Dish?        @relation("DirectShareCreatedDish", fields: [createdDishId], references: [id], onDelete: SetNull)
+  sender      User                   @relation("DirectShareSender", fields: [senderId], references: [id], onDelete: Cascade)
+  recipient   User?                  @relation("DirectShareRecipient", fields: [recipientId], references: [id], onDelete: SetNull)
+  dishVersion DishVersion?           @relation(fields: [dishId, dishVersionId], references: [dishId, id], onDelete: SetNull)
+  createdDish Dish?                  @relation("DirectShareCreatedDish", fields: [createdDishId], references: [id], onDelete: SetNull)
+  collection  DirectShareCollection? @relation(fields: [collectionId], references: [id], onDelete: Cascade)
 
   @@index([senderId])
   @@index([recipientId])
   @@index([dishId, status])
+  @@index([collectionId])
+}
+
+/**
+ * Slice 22: the smallest additive grouping needed for unified single-/
+ * multi-Recipe direct sharing — a thin parent row over the existing
+ * `DirectShare` children (PRODUCT_SPEC.md §85 extension). Every newly sent
+ * Recipe collection, including a one-Recipe send, creates one of these; Part
+ * sends and pre-Slice-22 Recipe sends stay ungrouped (`DirectShare.collectionId:
+ * null`), read as virtual one-item collections by the sharing UI rather than
+ * being migrated.
+ *
+ * `recipientId` is null until a match exists: bound immediately at Send time
+ * when the normalized `recipientLookup` email already matches a DishFrame
+ * account, or later — transactionally and idempotently — when that email
+ * signs in for the first time (`account/init.ts`'s `claimPendingDirectShareCollections`,
+ * hooked into the existing new-user initialization lifecycle, never a
+ * placeholder Better Auth user). `recipientLookup` is the durable
+ * invitation-matching key; once bound, authorization uses `recipientId`,
+ * never email matching again.
+ */
+model DirectShareCollection {
+  id              String   @id @default(cuid())
+  senderId        String
+  recipientId     String?
+  recipientLookup String
+  note            String?
+  createdAt       DateTime @default(now())
+
+  sender    User          @relation("DirectShareCollectionSender", fields: [senderId], references: [id], onDelete: Cascade)
+  recipient User?         @relation("DirectShareCollectionRecipient", fields: [recipientId], references: [id], onDelete: SetNull)
+  children  DirectShare[]
+
+  @@index([senderId])
+  @@index([recipientId])
+  @@index([recipientLookup])
 }

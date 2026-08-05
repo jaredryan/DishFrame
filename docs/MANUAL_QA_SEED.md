@@ -126,6 +126,7 @@ for sign-in to work at all, not optional polish.
 | Historical deleted-Part snapshot | `[QA] Sunday Ramen Project` → Version history → V2.0 |
 | Full version-comparison sweep | `[QA] Sunday Ramen Project`'s full Version history |
 | Shallow nested detach | `[QA] Peanut Noodle Salad` (detach Sauce, then separately detach the nested Seasoning) |
+| Unified multi-Recipe direct sharing (Slice 22) | `/share`'s "Sent/Received Recipe collections" sections — pending multi-Recipe, partially accepted/declined, and unclaimed-invitation fixtures on five dedicated `[QA] Collection Recipe …` Recipes; full detail in `docs/SEED_REVIEW_GUIDE.md`'s "Direct Share Collection fixtures" section |
 
 ## Restoring after destructive testing
 

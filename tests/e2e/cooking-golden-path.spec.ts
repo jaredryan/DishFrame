@@ -112,7 +112,10 @@ test.describe("Cooking: setup, start, edit active plan, end early", () => {
     // Scoped to <main> — the sidebar's own "Cook" nav link (to the sessions
     // index) also matches this accessible name.
     await page.locator("main").getByRole("link", { name: "Cook" }).click();
-    await expect(page).toHaveURL(/\/cook$/);
+    // Generous timeout, not the default: like the two waits above, this is
+    // the first navigation to /recipes/[dishId]/cook in the whole suite, so
+    // it pays Turbopack's one-time dev-mode compile cost for that route too.
+    await expect(page).toHaveURL(/\/cook$/, { timeout: 15_000 });
     await expect(
       page.getByRole("heading", { name: "Cooking setup" }),
     ).toBeVisible();

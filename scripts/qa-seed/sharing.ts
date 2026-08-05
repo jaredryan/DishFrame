@@ -9,6 +9,10 @@ import type {
   acceptDirectShare as AcceptDirectShare,
 } from "@/lib/sharing/service";
 import type {
+  sendDirectShareCollection as SendDirectShareCollection,
+  finalizeDirectShareCollectionDecision as FinalizeDirectShareCollectionDecision,
+} from "@/lib/sharing/collections";
+import type {
   createDish as CreateDish,
   deleteDish as DeleteDish,
 } from "@/lib/dishes/service";
@@ -23,6 +27,8 @@ export type SharingServices = {
   cancelDirectShare: typeof CancelDirectShare;
   declineDirectShare: typeof DeclineDirectShare;
   acceptDirectShare: typeof AcceptDirectShare;
+  sendDirectShareCollection: typeof SendDirectShareCollection;
+  finalizeDirectShareCollectionDecision: typeof FinalizeDirectShareCollectionDecision;
   createDish: typeof CreateDish;
   deleteDish: typeof DeleteDish;
 };
@@ -45,6 +51,19 @@ export async function wipeSharingFixtures(
   const accountIds = [primaryId, counterpartyId];
   await prisma.shareLink.deleteMany({
     where: { ownerId: { in: accountIds } },
+  });
+  // Slice 22: DirectShareCollection rows first — cascades their own
+  // DirectShare children (`collectionId` is `onDelete: Cascade`), so the
+  // ungrouped-only deleteMany below never re-touches them. An unclaimed
+  // collection fixture (recipientId still null) is scoped by senderId only,
+  // matching how it's actually addressed at this point in a rerun.
+  await prisma.directShareCollection.deleteMany({
+    where: {
+      OR: [
+        { senderId: { in: accountIds } },
+        { recipientId: { in: accountIds } },
+      ],
+    },
   });
   await prisma.directShare.deleteMany({
     where: {
@@ -377,4 +396,150 @@ export async function buildSourceDeletionCancellationFixture(
     note: null,
   });
   await deleteDish(primaryId, dishId, "RECIPE");
+}
+
+function collectionRecipeContent(title: string): DishContentInput {
+  return {
+    title,
+    stage: "ACTIVE",
+    cuisine: null,
+    description: null,
+    yieldQuantity: 2,
+    yieldUnit: "servings",
+    prepTimeMinutes: 10,
+    cookTimeMinutes: 15,
+    difficulty: "Easy",
+    imageAssetId: null,
+    sections: [
+      section({
+        ingredients: [
+          {
+            name: "Placeholder ingredient",
+            quantity: 1,
+            unit: "unit",
+            isApproximate: false,
+            isOptional: false,
+          },
+        ],
+        instructions: [{ text: "Not meant to be cooked." }],
+      }),
+    ],
+    partLinks: [],
+  };
+}
+
+export type DirectShareCollectionFixtureSummary = {
+  label: string;
+  recipientLookup: string;
+  recipeTitles: string[];
+  status: string;
+};
+
+/**
+ * Slice 22: three representative `DirectShareCollection` states —
+ * MANUAL_QA_SEED.md/SEED_REVIEW_GUIDE.md's compact fixture set for the
+ * unified multi-Recipe sharing flow. Uses dedicated throwaway Recipes
+ * (rather than reusing `buildRecipeFixtures`' set) so this function has no
+ * ordering dependency on which of those Recipes' pending single-item
+ * `DirectShare`s (built above) are still PENDING — a Recipe collection
+ * would collide with the "no duplicate pending send" guarantee otherwise.
+ */
+export async function buildDirectShareCollectionFixtures(
+  services: Pick<
+    SharingServices,
+    | "createDish"
+    | "sendDirectShareCollection"
+    | "finalizeDirectShareCollectionDecision"
+  >,
+  primaryId: string,
+  counterpartyId: string,
+  counterpartyEmail: string,
+): Promise<DirectShareCollectionFixtureSummary[]> {
+  const {
+    createDish,
+    sendDirectShareCollection,
+    finalizeDirectShareCollectionDecision,
+  } = services;
+  const summary: DirectShareCollectionFixtureSummary[] = [];
+
+  // 1. Pending multi-Recipe collection sent to the existing QA counterparty.
+  const pendingTitles = [
+    "[QA] Collection Recipe One",
+    "[QA] Collection Recipe Two",
+    "[QA] Collection Recipe Three",
+  ];
+  const pendingDishIds = await Promise.all(
+    pendingTitles.map((title) =>
+      createDish(primaryId, "RECIPE", collectionRecipeContent(title)),
+    ),
+  );
+  await sendDirectShareCollection(primaryId, {
+    recipientEmail: counterpartyEmail,
+    dishIds: pendingDishIds,
+    note: "A few for the weekend — no rush.",
+  });
+  summary.push({
+    label: "Pending multi-Recipe collection",
+    recipientLookup: counterpartyEmail,
+    recipeTitles: pendingTitles,
+    status: "PENDING x3",
+  });
+
+  // 2. Partially accepted/declined collection — counterparty finalizes a
+  // subset immediately, matching the ordinary recipient-review action.
+  const partialTitles = [
+    "[QA] Collection Recipe Four",
+    "[QA] Collection Recipe Five",
+  ];
+  const [acceptDishId, declineDishId] = await Promise.all(
+    partialTitles.map((title) =>
+      createDish(primaryId, "RECIPE", collectionRecipeContent(title)),
+    ),
+  );
+  const { collectionId: partialCollectionId } = await sendDirectShareCollection(
+    primaryId,
+    {
+      recipientEmail: counterpartyEmail,
+      dishIds: [acceptDishId, declineDishId],
+      note: "One of these is a repeat, one's new.",
+    },
+  );
+  const acceptedChild = await prisma.directShare.findFirstOrThrow({
+    where: { collectionId: partialCollectionId, dishId: acceptDishId },
+    select: { id: true },
+  });
+  await finalizeDirectShareCollectionDecision(
+    counterpartyId,
+    partialCollectionId,
+    [acceptedChild.id],
+  );
+  summary.push({
+    label: "Partially accepted/declined collection",
+    recipientLookup: counterpartyEmail,
+    recipeTitles: partialTitles,
+    status: "1 ACCEPTED, 1 DECLINED",
+  });
+
+  // 3. Unclaimed collection addressed to a deterministic invalid-domain
+  // email with no User row — the not-yet-registered-recipient state.
+  const unclaimedEmail = "not-yet-joined-qa@dishframe.invalid";
+  const unclaimedTitle = "[QA] Collection Recipe Unclaimed";
+  const unclaimedDishId = await createDish(
+    primaryId,
+    "RECIPE",
+    collectionRecipeContent(unclaimedTitle),
+  );
+  await sendDirectShareCollection(primaryId, {
+    recipientEmail: unclaimedEmail,
+    dishIds: [unclaimedDishId],
+    note: "You'll see this once you sign in.",
+  });
+  summary.push({
+    label: "Unclaimed collection (no account yet)",
+    recipientLookup: unclaimedEmail,
+    recipeTitles: [unclaimedTitle],
+    status: "PENDING, unclaimed",
+  });
+
+  return summary;
 }

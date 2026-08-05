@@ -880,15 +880,38 @@ enum DirectShareStatus { PENDING ACCEPTED DECLINED CANCELED }
 model DirectShare {
   id            String @id @default(cuid())
   senderId      String
-  recipientId   String?             // resolved account, once looked up
-  recipientLookup String            // raw email/identifier entered by sender
+  recipientId   String?             // resolved account, once looked up — Slice 22: also bound later, by
+                                     // the invitation-claim step, for a row created while unregistered
+  recipientLookup String            // normalized email entered by sender — Slice 22: the durable
+                                     // invitation-matching key, kept in sync with the row's own
+                                     // recipientId so every existing per-row authorization/preview/
+                                     // image-auth function keeps working unchanged for a grouped row
   dishId        String?             // Round-3 Correction 4 — nullable; paired with dishVersionId
                                      // (both null or both set, enforced by a CHECK constraint)
   dishVersionId String?
   dishTitleSnapshot String          // captured at creation, survives dishId/dishVersionId nulling
   note          String?
   status        DirectShareStatus @default(PENDING)
+  collectionId  String?             // Slice 22 — groups this row under a DirectShareCollection (below);
+                                     // null for Part sends (still single-item) and pre-Slice-22 rows
   createdAt     DateTime @default(now())
+}
+
+// Slice 22: the unified single-/multi-Recipe send flow's grouping parent.
+// Every newly sent Recipe collection, including a one-Recipe send, creates
+// one of these plus one DirectShare child per Recipe. recipientId is null
+// until a match exists — bound immediately at Send time for an
+// already-registered recipient, or later, transactionally and
+// idempotently, by account/init.ts's claim step (hooked into the existing
+// new-user initialization lifecycle) once that email's real account first
+// signs in with a verified email. Never a placeholder Better Auth user.
+model DirectShareCollection {
+  id              String @id @default(cuid())
+  senderId        String
+  recipientId     String?
+  recipientLookup String
+  note            String?
+  createdAt       DateTime @default(now())
 }
 ```
 
@@ -1120,6 +1143,22 @@ This was already settled in `PRODUCT_SPEC.md` and is restated here as the govern
 4. **Permanently deleting the source cancels any pending direct shares** (`DirectShare.status → CANCELED`).
 5. Independent copies already accepted or saved by other users survive and remain their property — entirely unaffected by anything that later happens to the sender's original.
 6. **Account deletion removes all remaining share links and pending shares owned by that account** — a hard cascade delete (not a soft revoke/cancel), since the owner's entire audit trail is being removed together, per §J's account-deletion row.
+
+**Slice 22 addendum — `DirectShareCollection` follows the same rules by
+construction, not new code.** A grouped `DirectShare` child keeps its own
+`dishId`/`status`/`recipientId`/`frozenImageAssetIds` exactly as an
+ungrouped row does, so points 3–6 above (source-deletion cancellation,
+account-deletion cascade/cancel, image-retention) already apply to it
+unchanged — the existing `revokeSharesAndCancelPendingShares` and
+`deleteAccount` queries operate on the `DirectShare` table's own columns,
+never on `collectionId`. `DirectShareCollection.recipientId` itself follows
+`onDelete: SetNull` on the same account-deletion cascade, mirroring
+`DirectShare.recipientId`. The one new rule: a collection with no
+remaining `PENDING` child (every child already `CANCELED`) is never bound
+by the claim step, so a fully sender-canceled invitation can never later
+become claimable by a future account using the same email — Slice 19's
+existing "a canceled invitation must not become claimable" guarantee,
+extended to the grouped case.
 
 ---
 

@@ -5711,6 +5711,90 @@ There is no ongoing synchronization.
 
 The exact recipient lookup mechanism belongs in implementation and privacy review.
 
+## 85.1 Unified single-/multi-Recipe sending (Slice 22)
+
+Direct Recipe sharing is one unified flow supporting one or many Recipes,
+not a separate "bulk share" feature alongside ordinary sharing. Every sent
+Recipe collection — including a one-Recipe send — is grouped as one
+collection with:
+
+- one sender;
+- one recipient (once bound) or pending recipient email;
+- one optional note for the whole collection;
+- one sent timestamp;
+- individually tracked per-Recipe status (pending/accepted/declined/canceled).
+
+Entry points:
+
+- from `/share`, the ordinary primary send action, starting with nothing
+  preselected;
+- from a Recipe detail page's existing direct-share action, opening the
+  same flow with that Recipe preselected.
+
+The sender enters an exact recipient email, selects one or more owned,
+currently shareable Recipes (a searchable selector using title, image,
+lifecycle/Stage, and current-Version existence — never a full Recipe-graph
+load), may Select all or deselect individual Recipes, adds one optional
+note, reviews the exact recipient email and selected count, and sends
+atomically: every selected Recipe's graph is frozen and validated together,
+and one failure leaves no partial collection.
+
+A server-enforced batch maximum (50 Recipes) applies regardless of client
+behavior.
+
+Part sharing keeps its existing single-item flow — this multi-select
+collection behavior is Recipe-specific.
+
+## 85.2 Pending invitations for a not-yet-registered recipient
+
+When the entered email matches no existing DishFrame account, DishFrame
+never creates a placeholder account, password, or session for that email.
+Instead, after the sender explicitly confirms the exact email, DishFrame
+creates a pending collection addressed to that email, with no bound
+recipient yet. The sender sees wording such as:
+
+> They'll receive this after signing in to DishFrame with this Google
+> email.
+
+The sender may cancel this pending invitation at any time before it is
+claimed. A canceled invitation can never later become claimable by a
+future account using the same email.
+
+When that email later signs in to DishFrame through Google with a verified
+email, DishFrame binds every still-pending collection addressed to it to
+the real account — automatically, transactionally, and idempotently, as
+part of DishFrame's ordinary new-account setup. Binding never automatically
+accepts any Recipe; the collection simply becomes an ordinary pending
+Received collection from that point on, using the real account's identity
+for authorization from then on, not email matching.
+
+## 85.3 Recipient review: accept all, accept a subset, or decline all
+
+The recipient's review of a collection may:
+
+- Accept all;
+- select individual Recipes and accept only those — every remaining
+  pending Recipe in the collection is declined as part of that same
+  explicit action, made clear before submission, never left ambiguously
+  pending;
+- Decline all.
+
+Every Recipe defaults to selected, so accepting an entire family-shared
+collection is one click.
+
+## 85.4 Sender and recipient collection summaries
+
+A Sent collection shows the recipient's identity when registered, or the
+exact pending email when not yet registered; the note; Recipe count; a
+pending/accepted/declined/canceled summary; and whether the recipient has
+joined. The sender may cancel an entirely unclaimed collection, or all
+remaining pending Recipes in an already-claimed collection, without
+affecting any already-accepted copy.
+
+A Received collection shows the sender's identity, the note, sent date,
+total Recipe count, and pending/accepted/declined counts, with a clear
+Review action.
+
 ---
 
 # 86. Public Publication — Tier 3
@@ -6345,6 +6429,10 @@ Parts, Meal Planning, sharing, account controls, onboarding, and Version compari
 - Recipients save independent copies.
 - Linked Parts are copied into recipient ownership.
 - Direct account sharing uses the same copy model.
+- Direct Recipe sharing is one unified single-/multi-Recipe flow; a
+  not-yet-registered recipient is a pending email invitation, never a
+  placeholder account, claimed automatically on that email's first
+  verified sign-in.
 - print/PDF views are supported.
 
 ## Public Tier 3

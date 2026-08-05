@@ -330,6 +330,46 @@ from an image-having source (`Peanut Noodle Salad`, `Rice Side Dish`,
 `DirectShare.frozenImageAssetIds` after a seed-images run. No image is
 ever duplicated; every copy reuses the source's exact `ImageAsset` row.
 
+## Direct Share Collection fixtures (Slice 22)
+
+Built through `sendDirectShareCollection`/`finalizeDirectShareCollectionDecision`
+(same "no row forced directly" discipline as the Slice 16/17 fixtures
+above), using five dedicated throwaway `[QA] Collection Recipe …` Recipes
+rather than reusing the Slice 16/17 Recipes above — avoids any ordering
+dependency on which of those still has a `PENDING` single-item share to
+the counterparty at fixture-build time. Open `/share`'s "Sent Recipe
+collections" / "Received Recipe collections" sections on the primary
+account.
+
+| Fixture | Recipient | Recipes | State |
+|---|---|---|---|
+| Pending multi-Recipe collection | counterparty (existing account) | Collection Recipe One/Two/Three | all `PENDING` |
+| Partially accepted/declined | counterparty (existing account) | Collection Recipe Four (accepted), Five (declined) | `ACCEPTED` + `DECLINED` |
+| Unclaimed | `not-yet-joined-qa@dishframe.invalid` (no `User` row) | Collection Recipe Unclaimed | `PENDING`, `recipientId` null |
+
+The unclaimed row is the pending-invitation state: confirm no `users` row
+(and no `accounts` row) exists for that email, and that it's visible only
+from the primary (sender) account's Sent list — signing in as the
+counterparty (or any other account) must never surface it. The
+partially-resolved row demonstrates the recipient-review "accept a
+subset declines the rest" action already having been taken by the seed
+script itself, so it's reviewable without a second sign-in. To see the
+unclaimed row actually get claimed, sign in (or seed a throwaway account)
+with the exact `not-yet-joined-qa@dishframe.invalid` email and open
+`/share` — the page's own reconciliation step (see
+`docs/SLICE_22_MULTI_RECIPE_SHARING.md`'s "Claim lifecycle") binds it on
+that load, so it becomes an ordinary pending Received collection with no
+auto-accepted Recipe, with no separate action needed.
+
+Confirmed after the 2026-08-05 `pnpm db:seed-images` run: `users` — the
+primary QA account and counterparty both exist and are `emailVerified`;
+`not-yet-joined-qa@dishframe.invalid` has zero `users`/`accounts` rows.
+`DirectShareCollection`/`DirectShare` — the pending collection has 3
+`PENDING` children (Recipe One/Two/Three); the partial collection has 1
+`ACCEPTED` (Recipe Four) + 1 `DECLINED` (Recipe Five); the unclaimed
+collection has 1 `PENDING` child with `recipientId` null. 11 Recipes/Parts
+carry an attached image (matches the seed catalog's own printed count).
+
 ## Print review mapping (Slice 18)
 
 No print-only database rows exist — print reuses the exact same

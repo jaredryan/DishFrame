@@ -62,6 +62,7 @@ import {
 import { PartUsageResolutionDialog } from "@/components/domain/dish/part-usage-resolution-dialog";
 import { ShareDialog } from "@/components/domain/sharing/share-dialog";
 import { DirectShareDialog } from "@/components/domain/sharing/direct-share-dialog";
+import { DirectShareCollectionDialog } from "@/components/domain/sharing/direct-share-collection-dialog";
 import { versionLabel } from "@/lib/dishes/version-note";
 
 const ALL_VERSIONS_VALUE = "__ALL__";
@@ -516,12 +517,20 @@ export function DishDetailActions({
         kind={kind}
       />
 
-      <DirectShareDialog
-        open={openDialog === "send"}
-        onOpenChange={(open) => !open && close()}
-        dishId={dishId}
-        kind={kind}
-      />
+      {kind === "PART" ? (
+        <DirectShareDialog
+          open={openDialog === "send"}
+          onOpenChange={(open) => !open && close()}
+          dishId={dishId}
+          kind={kind}
+        />
+      ) : (
+        <DirectShareCollectionDialog
+          open={openDialog === "send"}
+          onOpenChange={(open) => !open && close()}
+          preselectedDishId={dishId}
+        />
+      )}
     </>
   );
 }

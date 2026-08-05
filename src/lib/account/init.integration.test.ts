@@ -7,6 +7,47 @@ import {
   FALLBACK_GROCERY_CATEGORY_NAME,
   STARTER_FLAVOR_PROFILES,
 } from "@/lib/account/defaults";
+import * as dishService from "@/lib/dishes/service";
+import { sendDirectShareCollection } from "@/lib/sharing/collections";
+import type { DishContentInput } from "@/lib/dishes/schema";
+
+function minimalRecipeContent(title: string): DishContentInput {
+  return {
+    title,
+    stage: "IDEA",
+    cuisine: null,
+    description: null,
+    yieldQuantity: null,
+    yieldUnit: null,
+    prepTimeMinutes: null,
+    cookTimeMinutes: null,
+    difficulty: null,
+    imageAssetId: null,
+    sections: [
+      {
+        name: null,
+        guidanceNote: null,
+        position: 0,
+        ingredients: [
+          {
+            name: "Salt",
+            quantity: null,
+            quantityEnd: null,
+            isApproximate: false,
+            unit: null,
+            displayText: null,
+            preparationNote: null,
+            isOptional: false,
+            substitute: null,
+          },
+        ],
+        instructions: [],
+        partLinks: [],
+      },
+    ],
+    partLinks: [],
+  };
+}
 
 describe("initializeNewUser", () => {
   let userId: string | undefined;
@@ -221,6 +262,37 @@ describe("initializeNewUser", () => {
       where: { ownerId: userId, isFallback: true },
     });
     expect(fallbacks).toHaveLength(1);
+  });
+
+  it("Slice 22: claims a pending direct-share collection addressed to this account's verified email as part of ordinary initialization", async () => {
+    const sender = await createTestUser();
+    const claimEmail = `init-claim-${Date.now()}@example.invalid`;
+    const dishId = await dishService.createDish(
+      sender.id,
+      "RECIPE",
+      minimalRecipeContent("Init Claim Target"),
+    );
+    const { collectionId } = await sendDirectShareCollection(sender.id, {
+      recipientEmail: claimEmail,
+      dishIds: [dishId],
+      note: null,
+    });
+
+    const user = await createTestUser({ email: claimEmail });
+    userId = user.id;
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { emailVerified: true },
+    });
+
+    await initializeNewUser(user.id);
+
+    const collection = await prisma.directShareCollection.findUniqueOrThrow({
+      where: { id: collectionId },
+    });
+    expect(collection.recipientId).toBe(user.id);
+
+    await deleteTestUser(sender.id);
   });
 
   it("deleting the account cascades preferences, tags, tasters, and grocery categories", async () => {

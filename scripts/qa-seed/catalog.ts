@@ -20,6 +20,12 @@ export function printCatalog(input: {
     direction: "primary-to-counterparty" | "counterparty-to-primary";
     status: string;
   }[];
+  directShareCollections: {
+    label: string;
+    recipientLookup: string;
+    recipeTitles: string[];
+    status: string;
+  }[];
 }): void {
   const imageLine = !input.image.requested
     ? 'Image fixtures: skipped — SEED_UPLOAD_BLOB_IMAGES is not "true" (ordinary pnpm db:seed never contacts Vercel Blob). Run "pnpm db:seed-images" for the image-enabled review seed.'
@@ -104,6 +110,12 @@ export function printCatalog(input: {
         `  ${share.label} (${share.direction}) — ${share.dishTitle} [${share.status}]`,
     ),
     "  Plus one PENDING direct share auto-CANCELED by deleting its source Dish (source-deletion cancellation, not listed above since the source Dish no longer exists).",
+    "",
+    "Direct Share Collections (Slice 22 — /share's Sent/Received Recipe collections sections):",
+    ...input.directShareCollections.map(
+      (collection) =>
+        `  ${collection.label} — to ${collection.recipientLookup}: ${collection.recipeTitles.join(", ")} [${collection.status}]`,
+    ),
     "",
     "See docs/SEED_REVIEW_GUIDE.md for the full coverage matrix.",
     "",

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireUserId, getServerSession } from "@/lib/auth/session";
 import { toActionErrorMessage } from "@/lib/errors";
 import * as sharingService from "@/lib/sharing/service";
+import * as collectionsService from "@/lib/sharing/collections";
 import {
   createShareLinkSchema,
   shareLinkIdSchema,
@@ -12,6 +13,9 @@ import {
   lookupDirectShareRecipientSchema,
   sendDirectShareSchema,
   directShareIdSchema,
+  sendDirectShareCollectionSchema,
+  directShareCollectionIdSchema,
+  finalizeDirectShareCollectionSchema,
 } from "@/lib/sharing/schema";
 import type { DishKindValue } from "@/lib/dishes/schema";
 
@@ -268,6 +272,109 @@ export async function getDirectSharePreview(
       directShareId,
     );
     return { status: "success", preview };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+// ============================================================================
+// Slice 22: unified single-/multi-Recipe direct sharing.
+// ============================================================================
+
+export type ShareableRecipesActionState =
+  | { status: "success"; recipes: collectionsService.ShareableRecipeSummary[] }
+  | { status: "error"; message: string };
+
+export async function listShareableRecipesForSender(): Promise<ShareableRecipesActionState> {
+  try {
+    const userId = await requireUserId();
+    const recipes =
+      await collectionsService.listShareableRecipesForSender(userId);
+    return { status: "success", recipes };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export type SendDirectShareCollectionActionState =
+  | { status: "success"; collectionId: string }
+  | { status: "error"; message: string };
+
+export async function sendDirectShareCollection(
+  values: unknown,
+): Promise<SendDirectShareCollectionActionState> {
+  try {
+    const userId = await requireUserId();
+    const input = sendDirectShareCollectionSchema.parse(values);
+    const result = await collectionsService.sendDirectShareCollection(
+      userId,
+      input,
+    );
+    revalidatePath(SHARE_MANAGEMENT_PATH);
+    return { status: "success", ...result };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export async function cancelDirectShareCollection(
+  values: unknown,
+): Promise<ShareActionState> {
+  try {
+    const userId = await requireUserId();
+    const { collectionId } = directShareCollectionIdSchema.parse(values);
+    await collectionsService.cancelDirectShareCollection(userId, collectionId);
+    revalidatePath(SHARE_MANAGEMENT_PATH);
+    return { status: "success" };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export type DirectShareCollectionDetailActionState =
+  | {
+      status: "success";
+      detail: collectionsService.DirectShareCollectionDetail;
+    }
+  | { status: "error"; message: string };
+
+export async function getDirectShareCollectionDetail(
+  values: unknown,
+): Promise<DirectShareCollectionDetailActionState> {
+  try {
+    const userId = await requireUserId();
+    const { collectionId } = directShareCollectionIdSchema.parse(values);
+    const detail = await collectionsService.getDirectShareCollectionDetail(
+      userId,
+      collectionId,
+    );
+    return { status: "success", detail };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export type FinalizeDirectShareCollectionActionState =
+  | {
+      status: "success";
+      result: collectionsService.FinalizeDirectShareCollectionResult;
+    }
+  | { status: "error"; message: string };
+
+export async function finalizeDirectShareCollection(
+  values: unknown,
+): Promise<FinalizeDirectShareCollectionActionState> {
+  try {
+    const userId = await requireUserId();
+    const input = finalizeDirectShareCollectionSchema.parse(values);
+    const result =
+      await collectionsService.finalizeDirectShareCollectionDecision(
+        userId,
+        input.collectionId,
+        input.acceptedShareIds,
+      );
+    revalidatePath(SHARE_MANAGEMENT_PATH);
+    return { status: "success", result };
   } catch (error) {
     return { status: "error", message: toActionErrorMessage(error) };
   }

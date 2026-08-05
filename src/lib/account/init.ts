@@ -9,6 +9,7 @@ import {
   STARTER_FLAVOR_PROFILES,
   normalizeName,
 } from "@/lib/account/defaults";
+import { claimPendingDirectShareCollections } from "@/lib/sharing/collections";
 
 const P2002_UNIQUE_CONSTRAINT = "P2002";
 
@@ -165,6 +166,28 @@ export async function initializeNewUser(userId: string): Promise<void> {
 
   await ensureFavoriteTag(userId);
   await ensureOwnerTaster(userId);
+
+  // Slice 22: claims any pending direct-share collection invitations
+  // addressed to this account's verified email — the "existing successful
+  // new-user initialization/auth lifecycle" this feature integrates with,
+  // rather than a parallel auth path. Read fresh from the database (never
+  // trusted from a caller-supplied argument) so this only ever claims for
+  // an email DishFrame itself has verified. Runs on every call (both kinds
+  // of state below), not gated on `defaultsInitializedAt`, because it's
+  // independently idempotent and must also self-correct during the
+  // recovery-retry window if the very first `user.create.after` run raced
+  // a concurrent sender's "does this email have an account yet" check.
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true, emailVerified: true },
+  });
+  if (user) {
+    await claimPendingDirectShareCollections(
+      userId,
+      user.email,
+      user.emailVerified,
+    );
+  }
 
   const isFirstRun = !preference.defaultsInitializedAt;
 

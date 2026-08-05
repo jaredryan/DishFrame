@@ -707,8 +707,13 @@ export type SentDirectShareSummary = {
 export async function listSentDirectShares(
   senderId: string,
 ): Promise<SentDirectShareSummary[]> {
+  // Slice 22: excludes grouped Recipe-collection children (`collectionId`
+  // set) — those are listed separately by
+  // `sharing/collections.ts`'s `listSentDirectShareCollections`. This list
+  // stays scoped to ungrouped rows: ordinary Part sends (unaffected by this
+  // slice) and any pre-Slice-22 Recipe sends.
   const rows = await prisma.directShare.findMany({
-    where: { senderId },
+    where: { senderId, collectionId: null },
     orderBy: { createdAt: "desc" },
     include: {
       recipient: { select: { name: true } },
@@ -743,8 +748,10 @@ export type ReceivedDirectShareSummary = {
 export async function listReceivedDirectShares(
   recipientId: string,
 ): Promise<ReceivedDirectShareSummary[]> {
+  // Slice 22: same `collectionId: null` scoping as listSentDirectShares
+  // above — grouped children are listed separately.
   const rows = await prisma.directShare.findMany({
-    where: { recipientId },
+    where: { recipientId, collectionId: null },
     orderBy: { createdAt: "desc" },
     include: {
       sender: { select: { name: true } },

@@ -69,6 +69,7 @@ async function main() {
     buildCrossAccountShareLinkCopy,
     buildDirectShareFixtures,
     buildSourceDeletionCancellationFixture,
+    buildDirectShareCollectionFixtures,
   } = await import("./qa-seed/sharing");
   const { markAllOnboardingGuidesCompleted } =
     await import("./qa-seed/onboarding");
@@ -245,8 +246,10 @@ async function main() {
     { createDish: dishService.createDish },
     counterparty.id,
   );
+  const sharingCollectionsService = await import("@/lib/sharing/collections");
   const sharingServices = {
     ...sharingService,
+    ...sharingCollectionsService,
     createDish: dishService.createDish,
     deleteDish: dishService.deleteDish,
   };
@@ -282,6 +285,12 @@ async function main() {
     owner.id,
     counterparty.email,
   );
+  const directShareCollections = await buildDirectShareCollectionFixtures(
+    sharingServices,
+    owner.id,
+    counterparty.id,
+    counterparty.email,
+  );
 
   // Slice 20: the ordinary QA review begins with onboarding already
   // complete — the real replay flow (/help) stays fully intact.
@@ -304,6 +313,7 @@ async function main() {
     shareLinks,
     crossAccountShareLinkCopy,
     directShares,
+    directShareCollections,
   });
 
   await prisma.$disconnect();
