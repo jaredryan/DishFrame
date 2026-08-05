@@ -171,3 +171,15 @@
     scroll-behavior: auto !important;
   }
 }
+
+/*
+ * Slice 18, PRODUCT_SPEC.md §87: print/PDF page margins for the print
+ * routes (`src/app/(print)/**`) — Tailwind has no `@page` utility, and
+ * every other print rule lives directly on `PrintDocument`'s own literal
+ * light-palette classes rather than here, so this block stays margin-only.
+ */
+@media print {
+  @page {
+    margin: 0.6in;
+  }
+}

@@ -1422,15 +1422,24 @@ describe("direct account-to-account sharing (Slice 17)", () => {
     }
 
     it.each([
-      ["ACCEPTED", async (_s: { id: string }, r: { id: string }, id: string) => {
-        await acceptDirectShare(r.id, id);
-      }],
-      ["DECLINED", async (_s: { id: string }, r: { id: string }, id: string) => {
-        await declineDirectShare(r.id, id);
-      }],
-      ["CANCELED", async (s: { id: string }, _r: { id: string }, id: string) => {
-        await cancelDirectShare(s.id, id);
-      }],
+      [
+        "ACCEPTED",
+        async (_s: { id: string }, r: { id: string }, id: string) => {
+          await acceptDirectShare(r.id, id);
+        },
+      ],
+      [
+        "DECLINED",
+        async (_s: { id: string }, r: { id: string }, id: string) => {
+          await declineDirectShare(r.id, id);
+        },
+      ],
+      [
+        "CANCELED",
+        async (s: { id: string }, _r: { id: string }, id: string) => {
+          await cancelDirectShare(s.id, id);
+        },
+      ],
     ] as const)(
       "rejects direct-share preview and directShareId image authorization once %s",
       async (_label, transition) => {

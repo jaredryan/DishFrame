@@ -50,4 +50,32 @@ describe("next.config security headers", () => {
     );
     expect(byKey["Referrer-Policy"]).toBe("no-referrer");
   });
+
+  /**
+   * Slice 18 correction pass: the public print route embeds the same
+   * ShareLink token in its path (`/print/s/[token]`) as the ordinary share
+   * route above — it needs the identical `no-referrer` protection.
+   */
+  it("sends no Referer at all from the public print route", async () => {
+    const rules = await nextConfig.headers!();
+    const printShareRule = rules.find((r) => r.source === "/print/s/:token*");
+    expect(printShareRule).toBeDefined();
+    const byKey = Object.fromEntries(
+      (printShareRule?.headers ?? []).map((h) => [h.key, h.value]),
+    );
+    expect(byKey["Referrer-Policy"]).toBe("no-referrer");
+  });
+
+  it("does not apply no-referrer to unrelated ordinary application routes", async () => {
+    const rules = await nextConfig.headers!();
+    const scopedSources = new Set(["/s/:token*", "/print/s/:token*"]);
+    const leaked = rules.filter(
+      (r) =>
+        !scopedSources.has(r.source) &&
+        r.headers.some(
+          (h) => h.key === "Referrer-Policy" && h.value === "no-referrer",
+        ),
+    );
+    expect(leaked).toEqual([]);
+  });
 });

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ChefHat, Clock, Flame, Gauge, Soup } from "lucide-react";
+import { ChefHat, Clock, Flame, Gauge, Printer, Soup } from "lucide-react";
 import { notFound, redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth/session";
 import {
@@ -272,6 +272,15 @@ export default async function PartVersionPage({
               }`}
             >
               Compare versions
+            </Link>
+          </Button>
+          {/* Slice 18, PRODUCT_SPEC.md §87: pinned to this exact Version via
+              `?versionId=`, mirroring the "Prepare to cook this version"
+              link above — never the current Version, even from here. */}
+          <Button variant="outline" asChild>
+            <Link href={`/print/parts/${dish.id}?versionId=${version.id}`}>
+              <Printer aria-hidden="true" />
+              Print
             </Link>
           </Button>
         </div>

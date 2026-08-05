@@ -31,6 +31,13 @@ const nextConfig: NextConfig = {
         source: "/s/:token*",
         headers: [{ key: "Referrer-Policy", value: "no-referrer" }],
       },
+      // Slice 18 correction: the public print route embeds the same
+      // ShareLink token in its path (`/print/s/[token]`) — same bearer
+      // credential, same leak vector, same fix.
+      {
+        source: "/print/s/:token*",
+        headers: [{ key: "Referrer-Policy", value: "no-referrer" }],
+      },
     ];
   },
 };

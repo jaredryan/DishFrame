@@ -1,11 +1,13 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import { Printer } from "lucide-react";
 import { getServerSession } from "@/lib/auth/session";
 import { resolvePublicShare } from "@/lib/sharing/service";
 import { prisma } from "@/lib/db/prisma";
 import { parseShareToken } from "@/lib/sharing/tokens";
 import { PublicShareView } from "@/components/domain/sharing/public-share-view";
 import { SaveSharedCopyButton } from "@/components/domain/sharing/save-shared-copy-button";
+import { Button } from "@/components/ui/button";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
 
 /**
@@ -77,6 +79,15 @@ export default async function PublicSharePage({
         }
       />
       <div className="mx-auto max-w-3xl px-4 pb-12 sm:px-6 lg:px-8">
+        {/* Slice 18, PRODUCT_SPEC.md §87: only shown once `resolvePublicShare`
+            above has already succeeded — an active public ShareLink page
+            whose content is currently resolvable. */}
+        <Button variant="outline" asChild className="mb-4">
+          <Link href={`/print/s/${token}`}>
+            <Printer aria-hidden="true" />
+            Print
+          </Link>
+        </Button>
         {shareState === "ALREADY_SAVED" ? (
           <p className="text-muted-foreground text-sm">
             You already saved this.{" "}

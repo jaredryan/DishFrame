@@ -1,0 +1,247 @@
+import { describe, expect, it } from "vitest";
+import { render, screen } from "@testing-library/react";
+import { PrintDocument } from "@/components/domain/print/print-document";
+import type {
+  PublicShareContent,
+  PublicPartLinkNode,
+} from "@/lib/sharing/public-dto";
+
+function baseContent(
+  overrides: Partial<PublicShareContent> = {},
+): PublicShareContent {
+  return {
+    dishKind: "RECIPE",
+    title: "Ginger Soy Bowl",
+    versionLabel: "V1.0",
+    description: null,
+    imageAssetId: null,
+    cuisine: null,
+    tags: [],
+    flavorProfiles: [],
+    yieldQuantity: null,
+    yieldUnit: null,
+    prepTimeMinutes: null,
+    cookTimeMinutes: null,
+    difficulty: null,
+    nutrition: null,
+    aggregateRating: null,
+    ratingCount: null,
+    sections: [],
+    topLevelPartLinks: [],
+    ...overrides,
+  };
+}
+
+function partLink(
+  overrides: Partial<PublicPartLinkNode> = {},
+): PublicPartLinkNode {
+  return {
+    title: "Nuoc Cham",
+    versionLabel: "V1.0",
+    multiplier: 1,
+    description: null,
+    imageAssetId: null,
+    prepTimeMinutes: null,
+    cookTimeMinutes: null,
+    difficulty: null,
+    sections: [],
+    partLinks: [],
+    ...overrides,
+  };
+}
+
+const imageSrc = (assetId: string) => `/api/images/${assetId}`;
+
+describe("PrintDocument", () => {
+  it("renders the title and a meta line with kind and Version", () => {
+    render(
+      <PrintDocument
+        content={baseContent()}
+        kindLabel="Recipe"
+        imageSrc={imageSrc}
+      />,
+    );
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Ginger Soy Bowl" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Recipe · V1\.0/)).toBeInTheDocument();
+  });
+
+  it("renders Sections and their Ingredients/Instructions in authored order", () => {
+    render(
+      <PrintDocument
+        content={baseContent({
+          sections: [
+            {
+              name: "Broth",
+              guidanceNote: null,
+              ingredients: [
+                {
+                  name: "Ginger",
+                  quantity: 1,
+                  quantityEnd: null,
+                  isApproximate: false,
+                  unit: "tbsp",
+                  displayText: null,
+                  preparationNote: "minced",
+                  isOptional: true,
+                  substitute: {
+                    name: "Ground ginger",
+                    quantity: 0.5,
+                    quantityEnd: null,
+                    isApproximate: false,
+                    unit: "tsp",
+                    displayText: null,
+                    preparationNote: null,
+                  },
+                },
+              ],
+              instructions: [{ text: "Simmer the broth." }],
+              partLinks: [],
+            },
+            {
+              name: "Toppings",
+              guidanceNote: null,
+              ingredients: [],
+              instructions: [{ text: "Add toppings." }],
+              partLinks: [],
+            },
+          ],
+        })}
+        kindLabel="Recipe"
+        imageSrc={imageSrc}
+      />,
+    );
+
+    const headings = screen.getAllByRole("heading", { level: 3 });
+    expect(headings.map((h) => h.textContent)).toEqual(["Broth", "Toppings"]);
+
+    expect(screen.getByText(/1 tbsp Ginger, minced/)).toBeInTheDocument();
+    expect(screen.getByText("(optional)")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Substitute: 0\.5 tsp Ground ginger/),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Simmer the broth.")).toBeInTheDocument();
+    expect(screen.getByText("Add toppings.")).toBeInTheDocument();
+  });
+
+  it("renders nested linked Parts recursively, visually distinct from root Sections", () => {
+    render(
+      <PrintDocument
+        content={baseContent({
+          topLevelPartLinks: [
+            partLink({
+              title: "Wrapper Part",
+              sections: [
+                {
+                  name: null,
+                  guidanceNote: null,
+                  ingredients: [],
+                  instructions: [],
+                  partLinks: [],
+                },
+              ],
+              partLinks: [partLink({ title: "Nested Part" })],
+            }),
+          ],
+        })}
+        kindLabel="Recipe"
+        imageSrc={imageSrc}
+      />,
+    );
+
+    expect(screen.getByText("Wrapper Part")).toBeInTheDocument();
+    expect(screen.getByText("Nested Part")).toBeInTheDocument();
+    expect(screen.getAllByText("Part")).toHaveLength(2);
+  });
+
+  it("shows nutrition only when present", () => {
+    const { rerender } = render(
+      <PrintDocument
+        content={baseContent()}
+        kindLabel="Recipe"
+        imageSrc={imageSrc}
+      />,
+    );
+    expect(screen.queryByText("Nutrition")).not.toBeInTheDocument();
+
+    rerender(
+      <PrintDocument
+        content={baseContent({
+          nutrition: {
+            calories: 320,
+            protein: 12,
+            carbs: 40,
+            fat: 8,
+            basis: null,
+            basisQuantity: null,
+            basisUnit: null,
+            sourceName: "USDA",
+          },
+        })}
+        kindLabel="Recipe"
+        imageSrc={imageSrc}
+      />,
+    );
+    expect(screen.getByText("Nutrition")).toBeInTheDocument();
+    expect(screen.getByText(/320 cal/)).toBeInTheDocument();
+    expect(screen.getByText(/Source: USDA/)).toBeInTheDocument();
+  });
+
+  it("shows an image only when imageAssetId is present, via the caller's imageSrc", () => {
+    const { rerender, container } = render(
+      <PrintDocument
+        content={baseContent()}
+        kindLabel="Recipe"
+        imageSrc={imageSrc}
+      />,
+    );
+    expect(container.querySelector("img")).not.toBeInTheDocument();
+
+    rerender(
+      <PrintDocument
+        content={baseContent({ imageAssetId: "asset-1" })}
+        kindLabel="Recipe"
+        imageSrc={imageSrc}
+      />,
+    );
+    const img = container.querySelector("img");
+    expect(img).toHaveAttribute("src", "/api/images/asset-1");
+  });
+
+  it("shows the historical-Version note only when supplied", () => {
+    const { rerender } = render(
+      <PrintDocument
+        content={baseContent()}
+        kindLabel="Recipe"
+        imageSrc={imageSrc}
+      />,
+    );
+    expect(screen.queryByText(/frozen/)).not.toBeInTheDocument();
+
+    rerender(
+      <PrintDocument
+        content={baseContent()}
+        kindLabel="Recipe"
+        historicalNote="Historical version — this content is frozen and will not change."
+        imageSrc={imageSrc}
+      />,
+    );
+    expect(screen.getByText(/frozen/)).toBeInTheDocument();
+  });
+
+  it("includes badgeLabel and creatorName in the meta line only when supplied (public share only)", () => {
+    render(
+      <PrintDocument
+        content={baseContent()}
+        kindLabel="Recipe"
+        badgeLabel="Fixed snapshot"
+        creatorName="Alex"
+        imageSrc={imageSrc}
+      />,
+    );
+    expect(
+      screen.getByText("Recipe · V1.0 · Fixed snapshot · Shared by Alex"),
+    ).toBeInTheDocument();
+  });
+});

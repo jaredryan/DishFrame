@@ -12,6 +12,7 @@ import {
   History,
   MoreHorizontal,
   Pencil,
+  Printer,
   RotateCcw,
   Send,
   Share2,
@@ -247,6 +248,11 @@ export function DishDetailActions({
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setOpenDialog("export")}>
               <Download /> Export
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href={`/print${basePath}/${dishId}`}>
+                <Printer /> Print
+              </Link>
             </DropdownMenuItem>
             {stage === "ARCHIVED" ? (
               <DropdownMenuItem onSelect={() => setOpenDialog("restore")}>
