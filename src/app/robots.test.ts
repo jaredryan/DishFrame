@@ -20,7 +20,13 @@ describe("robots", () => {
     const { rules } = robots();
     const rule = Array.isArray(rules) ? rules[0] : rules;
 
-    expect(rule.allow).toEqual(["/", "/about", "/contact"]);
+    expect(rule.allow).toEqual([
+      "/",
+      "/about",
+      "/contact",
+      "/privacy",
+      "/terms",
+    ]);
     expect(rule.disallow).toEqual(
       expect.arrayContaining([
         "/sign-in",

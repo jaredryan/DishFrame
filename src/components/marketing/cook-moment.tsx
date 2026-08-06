@@ -41,7 +41,7 @@ export function CookMoment({ className }: { className?: string }) {
               )}
               {step.state === "active" && (
                 <Timer
-                  className="text-brand-orange size-4 shrink-0"
+                  className="text-brand-orange-text size-4 shrink-0"
                   aria-hidden="true"
                 />
               )}

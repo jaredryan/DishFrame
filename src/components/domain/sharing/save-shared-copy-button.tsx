@@ -65,7 +65,7 @@ export function SaveSharedCopyButton({
         {isPending ? "Saving…" : label}
       </Button>
       {error && (
-        <p role="alert" className="text-destructive text-sm">
+        <p role="alert" className="text-destructive-text text-sm">
           {error}
         </p>
       )}

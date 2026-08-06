@@ -126,7 +126,9 @@ export function DirectShareCollectionReviewDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {loadError && <p className="text-destructive text-sm">{loadError}</p>}
+        {loadError && (
+          <p className="text-destructive-text text-sm">{loadError}</p>
+        )}
 
         {done ? (
           <p className="text-sm">Saved your decision for this collection.</p>
@@ -167,7 +169,7 @@ export function DirectShareCollectionReviewDialog({
                 </p>
               )}
               {submitError && (
-                <p className="text-destructive text-sm">{submitError}</p>
+                <p className="text-destructive-text text-sm">{submitError}</p>
               )}
               {detail.children.some((child) => child.status !== "PENDING") && (
                 <div className="border-border space-y-1 rounded-md border p-3 text-sm">

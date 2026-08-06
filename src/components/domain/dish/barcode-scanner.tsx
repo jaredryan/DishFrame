@@ -102,7 +102,9 @@ export function BarcodeScanner({
     <div className="flex flex-col gap-3">
       <p
         className={
-          error ? "text-destructive text-sm" : "text-muted-foreground text-xs"
+          error
+            ? "text-destructive-text text-sm"
+            : "text-muted-foreground text-xs"
         }
         aria-live="polite"
       >

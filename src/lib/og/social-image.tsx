@@ -6,7 +6,7 @@ const TEXT_SECONDARY = "#667080";
 const BORDER = "#dfe4ea";
 const BRAND_BLUE = "#2563eb";
 const BRAND_GREEN = "#16a66a";
-const BRAND_PURPLE = "#7c3aed";
+const BRAND_VIOLET = "#7c3aed";
 const BRAND_ORANGE = "#f97316";
 
 export const socialImageSize = { width: 1200, height: 630 };
@@ -61,7 +61,7 @@ export function renderSocialImage() {
         style={{ width: 180, height: 110, left: 110, bottom: 80 }}
       />
       <Card
-        accent={BRAND_PURPLE}
+        accent={BRAND_VIOLET}
         style={{ width: 190, height: 120, right: 100, top: 110 }}
       />
       <Card

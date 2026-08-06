@@ -58,7 +58,7 @@ export function FieldError({
     <p
       role="alert"
       data-slot="field-error"
-      className={cn("text-destructive text-sm", className)}
+      className={cn("text-destructive-text text-sm", className)}
       {...props}
     >
       {children}

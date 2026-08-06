@@ -323,7 +323,7 @@ export function GroceryListDetailView({
               Duplicate
             </DropdownMenuItem>
             <DropdownMenuItem
-              className="text-destructive"
+              className="text-destructive-text"
               onClick={() => setDeleteOpen(true)}
             >
               Delete
@@ -356,7 +356,7 @@ export function GroceryListDetailView({
       )}
 
       {error && (
-        <p role="alert" className="text-destructive text-sm">
+        <p role="alert" className="text-destructive-text text-sm">
           {error}
         </p>
       )}
@@ -738,7 +738,7 @@ function GroceryItemRow({
               label={`Remove ${item.name}`}
               icon={Trash2}
               onClick={onRemove}
-              className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+              className="text-destructive-text hover:bg-destructive/10 hover:text-destructive-text"
             />
           </div>
         )}
@@ -885,7 +885,7 @@ function ManualAddForm({
         <Plus aria-hidden="true" /> Add
       </Button>
       {error && (
-        <p role="alert" className="text-destructive w-full text-sm">
+        <p role="alert" className="text-destructive-text w-full text-sm">
           {error}
         </p>
       )}
@@ -952,7 +952,7 @@ function RefreshSourceDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {error && <p className="text-destructive text-sm">{error}</p>}
+        {error && <p className="text-destructive-text text-sm">{error}</p>}
 
         {preview && !hasChanges && (
           <p className="text-muted-foreground text-sm">

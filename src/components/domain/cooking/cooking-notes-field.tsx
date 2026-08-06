@@ -69,7 +69,9 @@ export function CookingNotesField({
         {saved && !dirty && (
           <span className="text-muted-foreground text-xs">Saved.</span>
         )}
-        {error && <span className="text-destructive text-xs">{error}</span>}
+        {error && (
+          <span className="text-destructive-text text-xs">{error}</span>
+        )}
       </div>
     </section>
   );

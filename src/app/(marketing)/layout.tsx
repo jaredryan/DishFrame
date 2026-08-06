@@ -12,7 +12,7 @@ export default async function MarketingLayout({
   return (
     <div className="flex min-h-screen flex-col">
       <PublicHeader signedIn={Boolean(session)} />
-      <main className="flex-1">{children}</main>
+      <main className="flex flex-1 flex-col">{children}</main>
       <PublicFooter />
     </div>
   );

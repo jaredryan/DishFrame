@@ -150,7 +150,7 @@ export function DishTagFlavorEditor({
             )}
           </div>
 
-          {error && <p className="text-destructive text-xs">{error}</p>}
+          {error && <p className="text-destructive-text text-xs">{error}</p>}
 
           <div className="flex justify-end gap-2">
             <Button

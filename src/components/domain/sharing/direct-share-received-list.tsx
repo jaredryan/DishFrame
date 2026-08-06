@@ -91,7 +91,7 @@ function ReceivedDirectShareCard({ share }: { share: ReceivedDirectShareRow }) {
         <DirectSharePreview directShareId={share.id} />
       )}
 
-      {error && <p className="text-destructive text-sm">{error}</p>}
+      {error && <p className="text-destructive-text text-sm">{error}</p>}
 
       {share.status === "PENDING" && (
         <div className="flex gap-2">

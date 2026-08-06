@@ -17,7 +17,7 @@ export function ClosingCta({
         <h2 className="font-heading max-w-xl text-3xl font-semibold text-balance">
           {heading}
         </h2>
-        <p className="max-w-lg text-pretty text-primary-foreground/85">
+        <p className="text-primary-foreground/95 max-w-lg text-pretty">
           {description}
         </p>
         <Button

@@ -23,6 +23,9 @@
   --color-border: var(--border);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-destructive-text: var(--destructive-text);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -42,8 +45,18 @@
      --primary for the accessible interactive blue. */
   --color-brand-blue: var(--brand-blue);
   --color-brand-green: var(--brand-green);
-  --color-brand-purple: var(--brand-purple);
+  --color-brand-violet: var(--brand-violet);
   --color-brand-orange: var(--brand-orange);
+
+  /* Text-safe accent variants: same hue as the brand accents above, tuned
+     (darker in light mode, lighter in dark mode) so foreground text reads
+     at ≥4.5:1 against card/surface-subtle/background and their 10–15%
+     tints. Use for readable colored text (badges, status labels); keep
+     the plain --color-brand-* tokens for rails, borders, icons, and fills. */
+  --color-brand-green-text: var(--brand-green-text);
+  --color-brand-violet-text: var(--brand-violet-text);
+  --color-brand-orange-text: var(--brand-orange-text);
+  --color-brand-blue-text: var(--brand-blue-text);
 
   --radius-sm: calc(var(--radius) * 0.5);
   --radius-md: calc(var(--radius) * 0.7);
@@ -74,15 +87,31 @@
   --accent-foreground: #1d3f8f;
   --destructive: #dc2626;
   --destructive-foreground: #ffffff;
+  /* Text-safe destructive foreground — darker than --destructive so plain
+     destructive text/icons (errors, delete affordances) clear 4.5:1 on
+     card/surface-subtle/background; --destructive itself stays dual-purpose
+     (borders, tints, and the destructive-foreground-on-solid-fill pair). */
+  --destructive-text: #c81e1e;
   --border: #dfe4ea;
   --input: #dfe4ea;
   --ring: #2563eb;
   --radius: 0.875rem;
 
+  /* Solid success fill (Cooking Mode's "Mark complete" action) — designed
+     and measured with --success-foreground together; keep --brand-green
+     itself off-limits as a solid fill behind white text. */
+  --success: #0f7a4d;
+  --success-foreground: #ffffff;
+
   --brand-blue: #2563eb;
   --brand-green: #16a66a;
-  --brand-purple: #7c3aed;
+  --brand-violet: #7c3aed;
   --brand-orange: #f97316;
+
+  --brand-green-text: #0e6c45;
+  --brand-violet-text: #6215e5;
+  --brand-orange-text: #9f4404;
+  --brand-blue-text: #124cc9;
 
   --sidebar: #ffffff;
   --sidebar-foreground: #252932;
@@ -114,15 +143,24 @@
   --accent-foreground: #cfe0ff;
   --destructive: #dc2626;
   --destructive-foreground: #ffffff;
+  --destructive-text: #f79292;
   --border: #48515f;
   --input: #48515f;
   --ring: #4f7dff;
   --radius: 0.875rem;
 
+  --success: #0f7a4d;
+  --success-foreground: #ffffff;
+
   --brand-blue: #4f7dff;
   --brand-green: #34d78d;
-  --brand-purple: #a575ff;
+  --brand-violet: #a575ff;
   --brand-orange: #ff9a4d;
+
+  --brand-green-text: #7fe6b7;
+  --brand-violet-text: #d4bdff;
+  --brand-orange-text: #ffc599;
+  --brand-blue-text: #b2c7ff;
 
   --sidebar: #303641;
   --sidebar-foreground: #f5f7fa;

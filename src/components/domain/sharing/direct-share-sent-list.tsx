@@ -56,7 +56,7 @@ function SentDirectShareCard({ share }: { share: SentDirectShareRow }) {
       {share.note && (
         <p className="text-sm italic">&ldquo;{share.note}&rdquo;</p>
       )}
-      {error && <p className="text-destructive text-sm">{error}</p>}
+      {error && <p className="text-destructive-text text-sm">{error}</p>}
       {share.status === "PENDING" && (
         <Button
           variant="destructive"

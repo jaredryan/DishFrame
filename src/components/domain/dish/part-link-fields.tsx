@@ -314,7 +314,7 @@ export function PartLinkFields({
 
       {expanded && (
         <>
-          {error && <p className="text-destructive text-sm">{error}</p>}
+          {error && <p className="text-destructive-text text-sm">{error}</p>}
           {display?.description && (
             <p className="text-muted-foreground text-sm">
               {display.description}
@@ -360,7 +360,7 @@ export function PartLinkFields({
               />
             )}
             {preview?.key === requestKey && !preview.tree && preview.error && (
-              <p className="text-destructive text-sm">{preview.error}</p>
+              <p className="text-destructive-text text-sm">{preview.error}</p>
             )}
             {preview?.key === requestKey && !preview.tree && !preview.error && (
               <p className="text-muted-foreground text-sm">

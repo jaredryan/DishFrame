@@ -88,7 +88,7 @@ export function NewMealPlanForm() {
             />
           </Field>
         </div>
-        {error && <p className="text-destructive text-sm">{error}</p>}
+        {error && <p className="text-destructive-text text-sm">{error}</p>}
         <div>
           <Button type="submit" disabled={isPending}>
             {isPending ? "Creating…" : "Create Meal Plan"}

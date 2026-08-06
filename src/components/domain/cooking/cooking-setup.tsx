@@ -233,7 +233,7 @@ export function CookingSetup({
                       label={`Remove ${unit.label}`}
                       icon={Trash2}
                       onClick={() => removeUnit(unitKey)}
-                      className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      className="text-destructive-text hover:bg-destructive/10 hover:text-destructive-text"
                     />
                   </div>
                 </div>
@@ -298,7 +298,7 @@ export function CookingSetup({
         />
       </ContentCard>
 
-      {error && <p className="text-destructive text-sm">{error}</p>}
+      {error && <p className="text-destructive-text text-sm">{error}</p>}
 
       <div className="flex flex-wrap items-center gap-2">
         <Button

@@ -506,9 +506,9 @@ export function CookingModeShell({
                 onClick={() => owningUnit && jumpToUnit(owningUnit.id)}
                 className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium tabular-nums ${
                   expired
-                    ? "border-brand-orange bg-brand-orange/10 text-brand-orange animate-pulse"
+                    ? "border-brand-orange bg-brand-orange/10 text-brand-orange-text animate-pulse"
                     : timer.state === "RUNNING"
-                      ? "border-brand-orange/50 text-brand-orange"
+                      ? "border-brand-orange/50 text-brand-orange-text"
                       : "border-border text-muted-foreground"
                 }`}
               >
@@ -524,7 +524,9 @@ export function CookingModeShell({
         </div>
       )}
 
-      {error && <p className="text-destructive px-4 pt-2 text-sm">{error}</p>}
+      {error && (
+        <p className="text-destructive-text px-4 pt-2 text-sm">{error}</p>
+      )}
 
       <div className="px-4 pt-3">
         <CookingNotesField sessionId={sessionId} initialNotes={cookingNotes} />
@@ -564,7 +566,7 @@ export function CookingModeShell({
                 </p>
                 <p className="text-muted-foreground text-[11px] tabular-nums">
                   {unit.completedAt ? (
-                    <span className="text-brand-green inline-flex items-center gap-0.5">
+                    <span className="text-brand-green-text inline-flex items-center gap-0.5">
                       <Check className="size-3" aria-hidden="true" /> Done
                     </span>
                   ) : progress.total > 0 ? (
@@ -643,7 +645,7 @@ export function CookingModeShell({
                               variant="outline"
                               className={
                                 item.conflict.type === "needs-more"
-                                  ? "border-brand-orange/50 text-brand-orange shrink-0"
+                                  ? "border-brand-orange/50 text-brand-orange-text shrink-0"
                                   : "text-muted-foreground shrink-0"
                               }
                             >
@@ -762,7 +764,7 @@ export function CookingModeShell({
                 </Button>
               ) : (
                 <Button
-                  className="bg-brand-green hover:bg-brand-green/90 w-full text-white"
+                  className="bg-success hover:bg-success/90 text-success-foreground w-full"
                   onClick={() => handleSetUnitCompletion(focusedUnit.id, true)}
                   disabled={isPending}
                 >
@@ -926,7 +928,7 @@ function TimerRow({
       }`}
     >
       <TimerIcon
-        className={`size-4 shrink-0 ${expired ? "text-brand-orange" : "text-muted-foreground"}`}
+        className={`size-4 shrink-0 ${expired ? "text-brand-orange-text" : "text-muted-foreground"}`}
         aria-hidden="true"
       />
       <div className="min-w-0 flex-1">
@@ -934,7 +936,7 @@ function TimerRow({
           {timer.name}
         </p>
         <p
-          className={`text-lg font-semibold tabular-nums ${expired ? "text-brand-orange" : "text-foreground"}`}
+          className={`text-lg font-semibold tabular-nums ${expired ? "text-brand-orange-text" : "text-foreground"}`}
           role={expired ? "alert" : undefined}
           aria-live={expired ? "assertive" : undefined}
         >
@@ -1017,7 +1019,7 @@ function TimerRow({
               run(() => dismissTimer({ sessionId, timerId: timer.id }))
             }
             aria-label={expired ? "Dismiss timer" : "Complete timer"}
-            className="text-destructive hover:text-destructive"
+            className="text-destructive-text hover:text-destructive-text"
           >
             <X className="size-4" />
           </Button>
@@ -1103,7 +1105,7 @@ function AddTimerForm({
           Cancel
         </Button>
       </div>
-      {error && <p className="text-destructive text-xs">{error}</p>}
+      {error && <p className="text-destructive-text text-xs">{error}</p>}
     </div>
   );
 }

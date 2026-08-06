@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { CalendarDays, ChefHat, History, Layers } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getServerSession } from "@/lib/auth/session";
+import { AboutHeroVisual } from "@/components/marketing/about-hero-visual";
 import { PartsMoment } from "@/components/marketing/parts-moment";
 import { PlanMoment } from "@/components/marketing/plan-moment";
 import { CookMoment } from "@/components/marketing/cook-moment";
@@ -34,7 +35,7 @@ const PROBLEMS = [
   },
   {
     number: "02",
-    accent: "purple" as const,
+    accent: "violet" as const,
     title: "Hard to improve and keep updated",
     body: "Cooking can be experimental. There was no easy way to track how each experiment and piece of feedback panned out. The usual choices were to overwrite the old Recipe, scatter more observations into separate notes, or try to recall what happened last time. Repeated Parts made this worse. If the white rice, sauce, or topping changed, every Recipe using it had to be edited separately.",
     response:
@@ -44,12 +45,15 @@ const PROBLEMS = [
 
 const PROBLEM_STYLES = {
   primary: {
-    numeral: "text-primary/15",
+    // Text-safe accent at 65% opacity: composited against the card, this
+    // clears 3:1 in both themes (--brand-blue itself can't, even opaque,
+    // against the dark-mode card — see the accessibility follow-up pass).
+    numeral: "text-brand-blue-text/65",
     callout: "border-primary bg-primary/5 text-foreground",
   },
-  purple: {
-    numeral: "text-brand-purple/15",
-    callout: "border-brand-purple bg-brand-purple/5 text-foreground",
+  violet: {
+    numeral: "text-brand-violet-text/65",
+    callout: "border-brand-violet bg-brand-violet/5 text-foreground",
   },
 };
 
@@ -80,8 +84,8 @@ const STEPS = [
   },
   {
     title: "Improve it through use",
-    accent: "text-brand-purple",
-    ring: "border-brand-purple bg-brand-purple/10",
+    accent: "text-brand-violet",
+    ring: "border-brand-violet bg-brand-violet/10",
     icon: History,
     body: "Every Cooking Session is a chance to capture what happened — notes, outcomes, a rating, whatever's worth remembering. When a change is worth keeping, save it as a new Version, and the Recipe carries that improvement forward while the path that got you there stays intact. Reusable Parts complete the loop: improve one preparation, and every Recipe that uses it improves too.",
     Visual: ImproveMoment,
@@ -95,26 +99,32 @@ export default async function AboutPage() {
   return (
     <>
       {/* Hero */}
-      <div className="mx-auto max-w-2xl px-4 py-16 text-center sm:px-6 sm:py-20 lg:px-8">
-        <span className="text-primary text-sm font-semibold tracking-wide uppercase">
-          About DishFrame
-        </span>
-        <h1 className="font-heading text-foreground mt-3 text-3xl font-semibold tracking-tight text-balance sm:text-4xl">
-          Dishes aren&rsquo;t finished. They&rsquo;re learned.
-        </h1>
-        <p className="text-muted-foreground mt-6 text-lg text-pretty">
-          Timing changes. Ingredients get adjusted. A preparation becomes
-          easier to follow. A family favorite gets a little better each time
-          it returns to the table.
-        </p>
+      <div className="mx-auto grid max-w-5xl gap-12 px-4 py-16 sm:px-6 sm:py-20 lg:grid-cols-[9fr_11fr] lg:items-center lg:gap-16 lg:px-8">
+        <div className="mx-auto max-w-xl text-left lg:order-last lg:mx-0 lg:max-w-md">
+          <span className="text-primary text-sm font-semibold tracking-wide uppercase">
+            Why DishFrame exists
+          </span>
+          <h1 className="font-heading text-foreground mt-3 text-3xl font-semibold tracking-tight text-balance sm:text-4xl">
+            Dishes aren&rsquo;t finished. They&rsquo;re learned.
+          </h1>
+          <p className="text-muted-foreground mt-6 text-lg text-pretty">
+            Timing changes. Ingredients get adjusted. A preparation becomes
+            easier to follow. A family favorite gets a little better each time
+            it returns to the table.
+          </p>
+        </div>
+
+        <div className="flex justify-center lg:order-first lg:justify-start">
+          <AboutHeroVisual />
+        </div>
       </div>
 
       {/* Two problems */}
       <section className="border-border bg-surface-subtle border-t">
-        <div className="mx-auto max-w-5xl px-4 py-20 sm:px-6 lg:px-8">
-          <p className="text-muted-foreground max-w-xl text-lg text-pretty">
+        <div className="mx-auto flex max-w-2xl flex-col items-center px-4 py-20 sm:px-6 lg:block lg:max-w-5xl lg:px-8">
+          <h2 className="font-heading text-foreground text-2xl font-semibold sm:text-3xl">
             DishFrame started with two problems that kept getting in the way.
-          </p>
+          </h2>
           <div className="mt-10 grid gap-6 lg:grid-cols-2 lg:gap-8">
             {PROBLEMS.map((problem) => {
               const styles = PROBLEM_STYLES[problem.accent];
@@ -125,7 +135,7 @@ export default async function AboutPage() {
                 >
                   <span
                     className={cn(
-                      "font-heading pointer-events-none absolute -top-3 right-4 text-7xl font-bold select-none",
+                      "font-heading pointer-events-none absolute -top-2 right-4 text-5xl font-bold select-none",
                       styles.numeral,
                     )}
                     aria-hidden="true"
@@ -157,51 +167,53 @@ export default async function AboutPage() {
       <section className="border-border border-t">
         <div className="mx-auto max-w-3xl px-4 py-16 text-center sm:px-6 sm:py-20 lg:px-8">
           <p className="font-heading text-foreground text-2xl font-semibold text-balance sm:text-3xl">
-            DishFrame is designed as a framework for planning a dish, cooking
-            it clearly, learning from the result, and carrying what worked
-            into the next cook.
+            DishFrame is designed as a framework for planning a dish, cooking it
+            clearly, learning from the result, and carrying what worked into the
+            next cook.
           </p>
         </div>
       </section>
 
       {/* Detailed four-part framework */}
       <section className="border-border bg-surface-subtle border-t">
-        <div className="mx-auto max-w-5xl px-4 py-20 sm:px-6 lg:px-8">
+        <div className="mx-auto flex max-w-2xl flex-col items-center px-4 py-20 sm:px-6 lg:block lg:max-w-5xl lg:px-8">
           <h2 className="font-heading text-foreground text-2xl font-semibold sm:text-3xl">
             The framework underneath every dish.
           </h2>
 
           <div className="mt-14 flex flex-col gap-20">
-            {STEPS.map(({ title, accent, ring, icon: Icon, body, Visual }, index) => (
-              <div
-                key={title}
-                className={cn(
-                  "flex flex-col gap-8 lg:items-center lg:gap-16",
-                  index % 2 === 1 ? "lg:flex-row-reverse" : "lg:flex-row",
-                )}
-              >
-                <div className="flex-1">
-                  <span
-                    className={`inline-flex size-9 items-center justify-center rounded-full border-2 ${ring}`}
-                    aria-hidden="true"
-                  >
-                    <Icon className={`size-4 ${accent}`} />
-                  </span>
-                  <p className="text-muted-foreground mt-3 text-xs font-semibold tracking-wide uppercase">
-                    Step {index + 1}
-                  </p>
-                  <h3 className="font-heading text-foreground mt-1 text-xl font-semibold sm:text-2xl">
-                    {title}
-                  </h3>
-                  <p className="text-muted-foreground mt-3 max-w-md text-pretty">
-                    {body}
-                  </p>
+            {STEPS.map(
+              ({ title, accent, ring, icon: Icon, body, Visual }, index) => (
+                <div
+                  key={title}
+                  className={cn(
+                    "flex flex-col gap-8 lg:items-center lg:gap-16",
+                    index % 2 === 1 ? "lg:flex-row-reverse" : "lg:flex-row",
+                  )}
+                >
+                  <div className="flex-1">
+                    <span
+                      className={`inline-flex size-9 items-center justify-center rounded-full border-2 ${ring}`}
+                      aria-hidden="true"
+                    >
+                      <Icon className={`size-4 ${accent}`} />
+                    </span>
+                    <p className="text-muted-foreground mt-3 text-xs font-semibold tracking-wide uppercase">
+                      Step {index + 1}
+                    </p>
+                    <h3 className="font-heading text-foreground mt-1 text-xl font-semibold sm:text-2xl">
+                      {title}
+                    </h3>
+                    <p className="text-muted-foreground mt-3 text-pretty lg:max-w-md">
+                      {body}
+                    </p>
+                  </div>
+                  <div className="flex flex-1 justify-center">
+                    <Visual />
+                  </div>
                 </div>
-                <div className="flex-1">
-                  <Visual />
-                </div>
-              </div>
-            ))}
+              ),
+            )}
           </div>
         </div>
       </section>

@@ -164,7 +164,7 @@ export function FdcSearchPicker({
           )}
 
           {mode === "search" && error && (
-            <p className="text-destructive text-sm">{error}</p>
+            <p className="text-destructive-text text-sm">{error}</p>
           )}
 
           {mode === "search" && results && (

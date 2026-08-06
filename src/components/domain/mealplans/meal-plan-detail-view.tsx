@@ -186,7 +186,7 @@ export function MealPlanDetailView({
               Duplicate into next range
             </DropdownMenuItem>
             <DropdownMenuItem
-              className="text-destructive"
+              className="text-destructive-text"
               onClick={() => setDeleteOpen(true)}
             >
               Delete
@@ -196,7 +196,7 @@ export function MealPlanDetailView({
       </div>
 
       {error && (
-        <p role="alert" className="text-destructive text-sm">
+        <p role="alert" className="text-destructive-text text-sm">
           {error}
         </p>
       )}
@@ -365,7 +365,7 @@ function EntryCard({
               ` · Makes ${entry.targetYieldQuantity} ${entry.targetYieldUnit ?? ""}`.trim()}
           </p>
           {entry.dishId == null && (
-            <p className="text-destructive text-xs">
+            <p className="text-destructive-text text-xs">
               Source deleted — kept for history.
             </p>
           )}
@@ -450,7 +450,7 @@ function EntryCard({
         <Button
           size="sm"
           variant="ghost"
-          className="text-destructive"
+          className="text-destructive-text"
           disabled={isPending}
           onClick={() =>
             runAction(() =>
@@ -831,7 +831,7 @@ function RecommendationsPanel({
           {isPending ? "Loading…" : "Get recommendations"}
         </Button>
       </div>
-      {error && <p className="text-destructive text-sm">{error}</p>}
+      {error && <p className="text-destructive-text text-sm">{error}</p>}
       {results &&
         (results.length === 0 ? (
           recipeEligibility?.totalRecipeCount === 0 ? (
@@ -952,7 +952,7 @@ function GenerateGroceryListDialog({
               </li>
             ))}
           </ul>
-          {error && <p className="text-destructive text-sm">{error}</p>}
+          {error && <p className="text-destructive-text text-sm">{error}</p>}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>

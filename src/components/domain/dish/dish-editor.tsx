@@ -865,7 +865,7 @@ export function DishEditor({
           {serverError && (
             <p
               role="alert"
-              className="border-destructive/30 bg-destructive/10 text-destructive flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"
+              className="border-destructive/30 bg-destructive/10 text-destructive-text flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"
             >
               <AlertCircle className="size-4 shrink-0" aria-hidden="true" />
               <span>{serverError}</span>

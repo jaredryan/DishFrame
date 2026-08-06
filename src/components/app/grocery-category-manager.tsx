@@ -338,17 +338,17 @@ export function GroceryCategoryManager({
 
       <div aria-live="polite" className="min-h-0">
         {createError && (
-          <p role="alert" className="text-destructive text-sm">
+          <p role="alert" className="text-destructive-text text-sm">
             {createError}
           </p>
         )}
         {renameError && (
-          <p role="alert" className="text-destructive text-sm">
+          <p role="alert" className="text-destructive-text text-sm">
             {renameError}
           </p>
         )}
         {deleteError && (
-          <p role="alert" className="text-destructive text-sm">
+          <p role="alert" className="text-destructive-text text-sm">
             {deleteError}
           </p>
         )}

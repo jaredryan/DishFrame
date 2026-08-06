@@ -227,10 +227,10 @@ export function SessionReviewForm({
         </div>
 
         {stageSuggestion && !suggestionDismissed && !stageSaved && (
-          <div className="border-brand-purple/30 bg-brand-purple/5 flex flex-col gap-2 rounded-lg border p-3">
+          <div className="border-brand-violet/30 bg-brand-violet/5 flex flex-col gap-2 rounded-lg border p-3">
             <p className="text-foreground flex items-start gap-1.5 text-sm">
               <Sparkles
-                className="text-brand-purple mt-0.5 size-4 shrink-0"
+                className="text-brand-violet mt-0.5 size-4 shrink-0"
                 aria-hidden="true"
               />
               {stageSuggestion.message}
@@ -295,7 +295,7 @@ export function SessionReviewForm({
         )}
 
         {error && (
-          <p className="text-destructive text-center text-sm">{error}</p>
+          <p className="text-destructive-text text-center text-sm">{error}</p>
         )}
 
         <div className="flex flex-col gap-2">
@@ -457,7 +457,7 @@ export function SessionReviewForm({
         </div>
       </details>
 
-      {error && <p className="text-destructive text-sm">{error}</p>}
+      {error && <p className="text-destructive-text text-sm">{error}</p>}
 
       <div className="flex flex-col gap-2">
         <Button onClick={handleSave} disabled={isPending}>
@@ -475,7 +475,7 @@ export function SessionReviewForm({
           {hasExistingReview && (
             <Button
               variant="outline"
-              className="text-destructive hover:text-destructive"
+              className="text-destructive-text hover:text-destructive-text"
               onClick={() => setDeleteOpen(true)}
               disabled={isPending}
             >

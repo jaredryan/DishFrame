@@ -101,7 +101,9 @@ export function DeleteAccountDialog({ email }: { email: string }) {
                   autoComplete="off"
                 />
               </div>
-              {error && <p className="text-destructive text-sm">{error}</p>}
+              {error && (
+                <p className="text-destructive-text text-sm">{error}</p>
+              )}
               <DialogFooter>
                 <Button variant="outline" onClick={close}>
                   Cancel

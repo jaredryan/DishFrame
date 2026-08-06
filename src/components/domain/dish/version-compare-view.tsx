@@ -251,12 +251,10 @@ function FieldChangeList({ changes }: { changes: FieldChange[] }) {
 
 // Design remediation pass, PRODUCT_SPEC.md §94: semantic (not color-only —
 // every row keeps its "Added"/"Removed"/"Changed" text label too) emphasis
-// so a long comparison scans faster. Accessible in both themes: these are
-// the same `--brand-green`/`--destructive` tokens already used elsewhere
-// in this app for plain body text (e.g. form error copy), not a new,
-// unvetted color pairing.
-const ADDED_CLASSNAME = "text-brand-green";
-const REMOVED_CLASSNAME = "text-destructive";
+// so a long comparison scans faster. `--brand-green-text` is the
+// accessible (≥4.5:1) reading of this accent.
+const ADDED_CLASSNAME = "text-brand-green-text";
+const REMOVED_CLASSNAME = "text-destructive-text";
 
 function AddedRemovedList({
   added,

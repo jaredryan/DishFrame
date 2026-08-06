@@ -19,7 +19,7 @@ export function ImproveMoment({ className }: { className?: string }) {
               {Array.from({ length: 4 }).map((_, i) => (
                 <Star
                   key={i}
-                  className="text-brand-purple size-3.5 fill-current"
+                  className="text-brand-violet size-3.5 fill-current"
                 />
               ))}
               <Star className="text-border size-3.5 fill-current" />
@@ -31,11 +31,11 @@ export function ImproveMoment({ className }: { className?: string }) {
         </div>
 
         <div className="flex items-center gap-2 pl-2" aria-hidden="true">
-          <RotateCw className="text-brand-purple size-3.5 shrink-0" />
-          <span className="bg-brand-purple/40 h-px flex-1" />
+          <RotateCw className="text-brand-violet size-3.5 shrink-0" />
+          <span className="bg-brand-violet/40 h-px flex-1" />
         </div>
 
-        <div className="border-brand-purple/30 bg-card text-brand-purple flex w-fit items-center gap-1.5 self-end rounded-full border px-3.5 py-1.5 text-xs font-medium shadow-sm">
+        <div className="border-brand-violet/30 bg-card text-brand-violet-text flex w-fit items-center gap-1.5 self-end rounded-full border px-3.5 py-1.5 text-xs font-medium shadow-sm">
           <GitBranch className="size-3.5" aria-hidden="true" />
           Version 4
         </div>

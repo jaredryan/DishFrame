@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 import type { StageValue } from "@/lib/dishes/schema";
 
 // PRODUCT_SPEC.md §5.3 / BRANDING.md §5.3 — Stage is user-facing "Recipe
-// Status" language, with the evolution-purple/positive-green accents
+// Status" language, with the evolution-violet/positive-green accents
 // BRANDING.md §6 assigns (Proven/Active read as "what works").
 export const STAGE_LABEL: Record<StageValue, string> = {
   IDEA: "Idea",
@@ -21,9 +21,9 @@ export const STAGE_LABEL: Record<StageValue, string> = {
 // works" meaning.
 const STAGE_CLASSNAME: Record<StageValue, string> = {
   IDEA: "bg-muted text-muted-foreground",
-  EXPERIMENTAL: "bg-brand-purple/10 text-brand-purple",
-  PROVEN: "bg-brand-green/10 text-brand-green",
-  ACTIVE: "bg-primary/15 text-primary",
+  EXPERIMENTAL: "bg-brand-violet/10 text-brand-violet-text",
+  PROVEN: "bg-brand-green/10 text-brand-green-text",
+  ACTIVE: "bg-primary/15 text-brand-blue-text",
   ARCHIVED: "bg-muted text-muted-foreground",
 };
 

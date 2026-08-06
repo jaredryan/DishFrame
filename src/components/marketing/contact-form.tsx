@@ -82,7 +82,7 @@ export function ContactForm() {
           disabled={isPending}
         />
         {state.fieldErrors?.name && (
-          <p id="name-error" className="text-destructive text-sm">
+          <p id="name-error" className="text-destructive-text text-sm">
             {state.fieldErrors.name}
           </p>
         )}
@@ -105,7 +105,7 @@ export function ContactForm() {
           disabled={isPending}
         />
         {state.fieldErrors?.email && (
-          <p id="email-error" className="text-destructive text-sm">
+          <p id="email-error" className="text-destructive-text text-sm">
             {state.fieldErrors.email}
           </p>
         )}
@@ -128,7 +128,7 @@ export function ContactForm() {
           disabled={isPending}
         />
         {state.fieldErrors?.message && (
-          <p id="message-error" className="text-destructive text-sm">
+          <p id="message-error" className="text-destructive-text text-sm">
             {state.fieldErrors.message}
           </p>
         )}
@@ -144,9 +144,12 @@ export function ContactForm() {
       </div>
 
       <p className="text-muted-foreground text-xs text-pretty">
-        DishFrame uses the information you provide to respond to your
-        message. Read the{" "}
-        <Link href="/privacy" className="text-foreground underline underline-offset-2">
+        DishFrame uses the information you provide to respond to your message.
+        Read the{" "}
+        <Link
+          href="/privacy"
+          className="text-foreground underline underline-offset-2"
+        >
           Privacy Policy
         </Link>
         .
@@ -156,7 +159,7 @@ export function ContactForm() {
         {state.status === "success" && (
           <p
             role="status"
-            className="border-brand-green/30 bg-brand-green/10 text-brand-green flex items-start gap-2 rounded-lg border px-3 py-2.5 text-sm"
+            className="border-brand-green/30 bg-brand-green/10 text-brand-green-text flex items-start gap-2 rounded-lg border px-3 py-2.5 text-sm"
           >
             <CheckCircle2
               className="mt-0.5 size-4 shrink-0"
@@ -168,7 +171,7 @@ export function ContactForm() {
         {state.status === "error" && (
           <p
             role="alert"
-            className="border-destructive/30 bg-destructive/10 text-destructive flex items-start gap-2 rounded-lg border px-3 py-2.5 text-sm"
+            className="border-destructive/30 bg-destructive/10 text-destructive-text flex items-start gap-2 rounded-lg border px-3 py-2.5 text-sm"
           >
             <AlertCircle
               className="mt-0.5 size-4 shrink-0"

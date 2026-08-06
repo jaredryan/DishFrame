@@ -148,7 +148,7 @@ export function CookingPlanManager({
           </SheetHeader>
 
           <div className="flex flex-col gap-4 overflow-y-auto px-4 pb-4">
-            {error && <p className="text-destructive text-sm">{error}</p>}
+            {error && <p className="text-destructive-text text-sm">{error}</p>}
 
             <ul className="flex flex-col gap-2">
               {activeUnits.map((unit, index) => (
@@ -185,7 +185,7 @@ export function CookingPlanManager({
                       icon={Trash2}
                       onClick={() => handleRemove(unit.id)}
                       disabled={isPending}
-                      className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      className="text-destructive-text hover:bg-destructive/10 hover:text-destructive-text"
                     />
                   </div>
                 </li>

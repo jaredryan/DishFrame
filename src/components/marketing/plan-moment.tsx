@@ -26,7 +26,10 @@ export function PlanMoment({ className }: { className?: string }) {
           <span className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
             This week
           </span>
-          <CalendarDays className="text-brand-green size-4" aria-hidden="true" />
+          <CalendarDays
+            className="text-brand-green size-4"
+            aria-hidden="true"
+          />
         </div>
         <div className="flex items-center gap-1.5" aria-hidden="true">
           {WEEK.map((d, i) => (
@@ -35,7 +38,7 @@ export function PlanMoment({ className }: { className?: string }) {
               className={cn(
                 "flex size-8 items-center justify-center rounded-full text-xs font-semibold",
                 d.planned
-                  ? "bg-brand-green/15 text-brand-green"
+                  ? "bg-brand-green/15 text-brand-green-text"
                   : "bg-surface-subtle text-muted-foreground",
               )}
             >
@@ -51,7 +54,7 @@ export function PlanMoment({ className }: { className?: string }) {
             {GROCERIES.map((item) => (
               <li key={item} className="flex items-center gap-2.5 text-sm">
                 <span
-                  className="bg-brand-green/15 text-brand-green flex size-4 shrink-0 items-center justify-center rounded-full"
+                  className="bg-brand-green/15 text-brand-green-text flex size-4 shrink-0 items-center justify-center rounded-full"
                   aria-hidden="true"
                 >
                   <Check className="size-2.5" />

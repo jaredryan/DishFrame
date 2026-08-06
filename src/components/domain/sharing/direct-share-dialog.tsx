@@ -146,7 +146,9 @@ export function DirectShareDialog({
                 </p>
               )}
               {lookup.phase === "error" && (
-                <p className="text-destructive text-sm">{lookup.message}</p>
+                <p className="text-destructive-text text-sm">
+                  {lookup.message}
+                </p>
               )}
               {lookup.phase === "found" && (
                 <p className="text-sm">
@@ -170,7 +172,7 @@ export function DirectShareDialog({
             )}
 
             {sendError && (
-              <p className="text-destructive text-sm">{sendError}</p>
+              <p className="text-destructive-text text-sm">{sendError}</p>
             )}
           </div>
         )}

@@ -428,14 +428,14 @@ export function TasterManager({
 
       <div aria-live="polite" className="min-h-0">
         {createError && (
-          <p role="alert" className="text-destructive text-sm">
+          <p role="alert" className="text-destructive-text text-sm">
             {createError}
           </p>
         )}
         {!isPending && feedback?.kind === "success" && (
           <p
             role="status"
-            className="border-brand-green/30 bg-brand-green/10 text-brand-green flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"
+            className="border-brand-green/30 bg-brand-green/10 text-brand-green-text flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"
           >
             <CheckCircle2 className="size-4 shrink-0" aria-hidden="true" />
             <span>{feedback.message}</span>
@@ -444,7 +444,7 @@ export function TasterManager({
         {!isPending && feedback?.kind === "error" && (
           <p
             role="alert"
-            className="border-destructive/30 bg-destructive/10 text-destructive flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"
+            className="border-destructive/30 bg-destructive/10 text-destructive-text flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"
           >
             <AlertCircle className="size-4 shrink-0" aria-hidden="true" />
             <span>{feedback.message}</span>

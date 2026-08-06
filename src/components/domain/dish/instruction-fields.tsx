@@ -68,7 +68,7 @@ export function InstructionFields({
         label={`Remove ${label}`}
         icon={Trash2}
         onClick={onRemove}
-        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+        className="text-destructive-text hover:bg-destructive/10 hover:text-destructive-text"
       />
     </div>
   );

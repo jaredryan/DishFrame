@@ -54,7 +54,9 @@ export function DirectSharePreview({
               Loading preview…
             </p>
           )}
-          {error && <p className="text-destructive p-4 text-sm">{error}</p>}
+          {error && (
+            <p className="text-destructive-text p-4 text-sm">{error}</p>
+          )}
           {data && (
             <PublicShareView
               content={data.content}

@@ -32,7 +32,10 @@ export function PublicHeader({ signedIn = false }: { signedIn?: boolean }) {
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6 lg:px-8">
         <Wordmark />
 
-        <nav aria-label="Primary" className="hidden items-center gap-1 md:flex">
+        <nav
+          aria-label="Primary"
+          className="hidden items-center gap-1 min-[950px]:flex"
+        >
           {NAV_LINKS.map((link) => {
             const isActive = pathname === link.href;
             return (
@@ -53,7 +56,7 @@ export function PublicHeader({ signedIn = false }: { signedIn?: boolean }) {
           })}
         </nav>
 
-        <div className="hidden items-center gap-3 md:flex">
+        <div className="hidden items-center gap-3 min-[950px]:flex">
           <ThemeToggle />
           {signedIn ? (
             <Button asChild>
@@ -76,7 +79,7 @@ export function PublicHeader({ signedIn = false }: { signedIn?: boolean }) {
             <Button
               variant="outline"
               size="icon"
-              className="md:hidden"
+              className="min-[950px]:hidden"
               aria-label="Open menu"
             >
               <Menu className="size-5" />

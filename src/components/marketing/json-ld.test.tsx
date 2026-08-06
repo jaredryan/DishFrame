@@ -26,7 +26,7 @@ describe("JsonLd", () => {
     expect(data.name).toBe("DishFrame");
     expect(data.url).toBe("https://dish-frame.vercel.app");
     expect(data.description).toBe(
-      "Keep recipes organized, reuse what already works, and save what you learn each time you cook.",
+      "DishFrame is a personal cooking framework: turn scattered notes into structured, living Recipes you can cook from, improve over time, plan around, and share.",
     );
 
     for (const fabricatedField of [

@@ -27,7 +27,7 @@ describe("PublicHeader", () => {
       screen.getAllByRole("link", { name: "Sign in" }).length,
     ).toBeGreaterThan(0);
     expect(
-      screen.getAllByRole("link", { name: "Start building" }).length,
+      screen.getAllByRole("link", { name: "Create your first Recipe" }).length,
     ).toBeGreaterThan(0);
   });
 });

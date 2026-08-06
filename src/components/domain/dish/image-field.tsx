@@ -145,7 +145,7 @@ export function ImageField({ dishId }: { dishId: string | null }) {
         className="sr-only"
         onChange={handleFileChange}
       />
-      {error && <p className="text-destructive text-sm">{error}</p>}
+      {error && <p className="text-destructive-text text-sm">{error}</p>}
     </Field>
   );
 }

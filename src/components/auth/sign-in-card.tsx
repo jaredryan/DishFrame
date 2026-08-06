@@ -93,7 +93,7 @@ export function SignInCard({
         {error && (
           <div
             role="alert"
-            className="border-destructive/30 bg-destructive/10 text-destructive flex items-start gap-2 rounded-lg border px-3 py-2.5 text-sm"
+            className="border-destructive/30 bg-destructive/10 text-destructive-text flex items-start gap-2 rounded-lg border px-3 py-2.5 text-sm"
           >
             <AlertCircle
               className="mt-0.5 size-4 shrink-0"

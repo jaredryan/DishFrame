@@ -22,7 +22,7 @@ export function HeroVisual({ className }: { className?: string }) {
       aria-label="An example recipe card showing Sauce, Rice, Chicken, and Finish sections, with a saved-part marker connected to two other recipes that reuse it, a version marker, and a note from a previous meal."
     >
       {/* Version marker */}
-      <div className="border-border bg-card text-brand-purple absolute -top-3 right-6 z-20 flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium shadow-sm">
+      <div className="border-border bg-card text-brand-violet-text absolute -top-3 right-6 z-20 flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium shadow-sm">
         <GitBranch className="size-3.5" aria-hidden="true" />
         Version 3
       </div>
@@ -44,7 +44,7 @@ export function HeroVisual({ className }: { className?: string }) {
             </p>
             <p className="text-muted-foreground text-xs">4 sections</p>
           </div>
-          <span className="bg-brand-green/10 text-brand-green inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium">
+          <span className="bg-brand-green/10 text-brand-green-text inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium">
             Proven
           </span>
         </div>
@@ -62,13 +62,13 @@ export function HeroVisual({ className }: { className?: string }) {
                   {section.name}
                 </span>
                 {section.state === "linked" && (
-                  <span className="text-brand-green inline-flex items-center gap-1 text-[11px] font-medium">
+                  <span className="text-brand-green-text inline-flex items-center gap-1 text-[11px] font-medium">
                     <Link2 className="size-3" aria-hidden="true" />
                     Saved part
                   </span>
                 )}
                 {section.state === "active" && (
-                  <span className="text-brand-orange text-[11px] font-medium">
+                  <span className="text-brand-orange-text text-[11px] font-medium">
                     12:30 remaining
                   </span>
                 )}
@@ -79,7 +79,7 @@ export function HeroVisual({ className }: { className?: string }) {
                   aria-hidden="true"
                 >
                   <span className="bg-brand-green/40 h-px w-5" />
-                  <span className="border-brand-green/30 bg-card text-brand-green flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium shadow-sm">
+                  <span className="border-brand-green/30 bg-card text-brand-green-text flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium shadow-sm">
                     <Link2 className="size-3" />
                     Also in 2 other Recipes
                   </span>

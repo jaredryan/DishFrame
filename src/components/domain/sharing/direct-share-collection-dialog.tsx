@@ -231,7 +231,7 @@ export function DirectShareCollectionDialog({
               <p className="text-sm italic">&ldquo;{note.trim()}&rdquo;</p>
             )}
             {sendError && (
-              <p className="text-destructive text-sm">{sendError}</p>
+              <p className="text-destructive-text text-sm">{sendError}</p>
             )}
           </div>
         ) : (
@@ -262,7 +262,9 @@ export function DirectShareCollectionDialog({
                 </Button>
               </div>
               {recipient.phase === "error" && (
-                <p className="text-destructive text-sm">{recipient.message}</p>
+                <p className="text-destructive-text text-sm">
+                  {recipient.message}
+                </p>
               )}
               {recipient.phase === "found" && (
                 <p className="text-sm">
@@ -314,7 +316,7 @@ export function DirectShareCollectionDialog({
                 onChange={(event) => setSearch(event.target.value)}
               />
               {recipesError && (
-                <p className="text-destructive text-sm">{recipesError}</p>
+                <p className="text-destructive-text text-sm">{recipesError}</p>
               )}
               {!recipes && !recipesError && (
                 <p className="text-muted-foreground text-sm">Loading…</p>
@@ -382,7 +384,7 @@ export function DirectShareCollectionDialog({
             </div>
 
             {sendError && (
-              <p className="text-destructive text-sm">{sendError}</p>
+              <p className="text-destructive-text text-sm">{sendError}</p>
             )}
           </div>
         )}

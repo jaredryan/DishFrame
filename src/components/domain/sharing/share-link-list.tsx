@@ -116,7 +116,7 @@ function ShareLinkRow({ link }: { link: ShareLinkSummary }) {
         </div>
       )}
 
-      {error && <p className="text-destructive text-sm">{error}</p>}
+      {error && <p className="text-destructive-text text-sm">{error}</p>}
 
       {!isRevoked && (
         <div className="flex gap-2">

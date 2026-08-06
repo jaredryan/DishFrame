@@ -80,7 +80,7 @@ function SentCollectionCard({
           .map((status) => `${counts[status]} ${status.toLowerCase()}`)
           .join(" · ")}
       </p>
-      {error && <p className="text-destructive text-sm">{error}</p>}
+      {error && <p className="text-destructive-text text-sm">{error}</p>}
       {hasPending && (
         <Button
           variant="destructive"

@@ -119,7 +119,7 @@ export function GrocerySourcePicker({
         }
       />
 
-      {error && <p className="text-destructive text-sm">{error}</p>}
+      {error && <p className="text-destructive-text text-sm">{error}</p>}
 
       <div className="flex gap-2">
         <Button onClick={handleGenerate} disabled={isPending}>

@@ -177,7 +177,7 @@ export function ConvertSectionToPartDialog({
               onChange={(event) => setDescription(event.target.value)}
             />
           </Field>
-          {error && <p className="text-destructive text-sm">{error}</p>}
+          {error && <p className="text-destructive-text text-sm">{error}</p>}
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>
               Cancel

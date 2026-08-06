@@ -18,6 +18,8 @@ describe("sitemap", () => {
       "https://dish-frame.vercel.app/",
       "https://dish-frame.vercel.app/about",
       "https://dish-frame.vercel.app/contact",
+      "https://dish-frame.vercel.app/privacy",
+      "https://dish-frame.vercel.app/terms",
     ]);
   });
 

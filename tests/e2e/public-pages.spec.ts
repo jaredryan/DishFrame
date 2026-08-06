@@ -5,7 +5,7 @@ test("marketing home loads with the hero headline", async ({ page }) => {
   await expect(
     page.getByRole("heading", {
       level: 1,
-      name: "A better framework for the way you cook.",
+      name: "Build dishes the way you actually cook.",
     }),
   ).toBeVisible();
 });
@@ -13,14 +13,20 @@ test("marketing home loads with the hero headline", async ({ page }) => {
 test("About loads", async ({ page }) => {
   await page.goto("/about");
   await expect(
-    page.getByRole("heading", { level: 1, name: "About DishFrame" }),
+    page.getByRole("heading", {
+      level: 1,
+      name: "Dishes aren’t finished. They’re learned.",
+    }),
   ).toBeVisible();
 });
 
 test("Contact loads", async ({ page }) => {
   await page.goto("/contact");
   await expect(
-    page.getByRole("heading", { level: 1, name: "Contact" }),
+    page.getByRole("heading", {
+      level: 1,
+      name: "Help make DishFrame better.",
+    }),
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Send message" }),
