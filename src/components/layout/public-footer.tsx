@@ -2,20 +2,25 @@ import Link from "next/link";
 import { Wordmark } from "@/components/branding/wordmark";
 
 const LINKS = [
-  { href: "/", label: "Home" },
   { href: "/about", label: "About" },
   { href: "/contact", label: "Contact" },
-  { href: "/sign-in", label: "Sign in" },
+  { href: "/privacy", label: "Privacy" },
+  { href: "/terms", label: "Terms" },
 ];
 
 export function PublicFooter() {
   const year = new Date().getFullYear();
 
   return (
-    <footer className="border-border border-t">
+    <footer className="border-border bg-surface-subtle border-t">
       <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-10 sm:px-6 lg:px-8">
         <div className="flex flex-col items-start justify-between gap-6 sm:flex-row sm:items-center">
-          <Wordmark />
+          <div className="flex flex-col gap-1.5">
+            <Wordmark />
+            <p className="text-muted-foreground text-sm">
+              Cook. Refine. Repeat.
+            </p>
+          </div>
           <nav
             aria-label="Footer"
             className="flex flex-wrap items-center gap-x-6 gap-y-2"
@@ -32,8 +37,8 @@ export function PublicFooter() {
           </nav>
         </div>
         <p className="text-muted-foreground text-sm">
-          © {year} DishFrame. A framework for organizing, cooking, and improving
-          the dishes you make.
+          © {year} DishFrame. A personal cooking framework for building,
+          cooking, and improving the Recipes you actually make.
         </p>
       </div>
     </footer>

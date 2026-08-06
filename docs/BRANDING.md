@@ -25,6 +25,15 @@ Avoid:
 
 ### Meaning
 
+**DishFrame is short for Dish Framework.** It is not related to picture
+frames, framed photos, or gallery/museum display — "Frame" refers to a
+structural framework (as in "framework for cooking"), not a picture frame.
+Do not describe the name as meaning that recipes are placed inside a
+frame. (Slice 21 clarification, `docs/SLICE_21_PUBLIC_SITE_REDESIGN.md` —
+this was implicit in the original name rationale below but is stated
+explicitly here after the public-site redesign pass needed an unambiguous
+guardrail.)
+
 DishFrame is a framework for organizing, preparing, cooking, evaluating, and improving dishes.
 
 The name supports the product’s main ideas:
@@ -998,27 +1007,22 @@ Be direct about what will happen without exposing technical implementation detai
 
 # 16. Public Copy Direction
 
-## Hero
+> **Superseded by the Slice 21 public-site redesign**
+> (`docs/SLICE_21_PUBLIC_SITE_REDESIGN.md`). The headline, pillar, About,
+> and Contact copy below is the pre-Slice-21 draft, kept for history. The
+> current-truth public copy is the block that follows it.
+
+## Hero (superseded)
 
 Headline:
 
-> **A better framework for the way you cook.**
+> ~~A better framework for the way you cook.~~
 
 Supporting copy:
 
-> Keep recipes organized, reuse what already works, and save what you learn each time you cook.
+> ~~Keep recipes organized, reuse what already works, and save what you learn each time you cook.~~
 
-Primary action:
-
-> **Start building**
-
-Secondary action:
-
-> **Learn more**
-
-“Sign in” should remain visible in the header.
-
-## Homepage pillars
+## Homepage pillars (superseded)
 
 ### Reuse what you already know
 
@@ -1032,27 +1036,131 @@ Secondary action:
 
 > Organize recipes your way, keep track of what you’re still practicing, and use recent meals to decide what belongs in the week ahead.
 
-## About page
+## About page (superseded)
 
 Opening:
 
 > DishFrame began with a simple idea: cooking does not end when the meal is served. Every time you make something, you learn what worked, what changed, who liked it, and what you want to do differently next time.
 
-Section:
-
 ### More workshop than recipe box
 
 > DishFrame helps you keep the preparations you use often, organize complete recipes around them, and preserve each version as your cooking changes.
 
-The page should explain the philosophy rather than inventing a company history.
-
-## Contact page
-
-Suggested copy:
+## Contact page (superseded)
 
 > Questions, ideas, or feedback about DishFrame? Send a note. The product is still taking shape, and practical feedback from real home cooks is especially useful.
 
+---
+
+## 16.1 Current public copy (Slice 21)
+
+DishFrame is a **personal cooking framework**. Its defining idea:
+
+> Recipes are living things that improve through cooking.
+
+### Hero
+
+Eyebrow:
+
+> Your personal cooking framework
+
+Headline:
+
+> **Recipes that get better every time you cook.**
+
+Supporting copy:
+
+> Turn scattered notes into structured, living Recipes you can cook from, improve over time, plan around, and share with the people you feed.
+
+Primary action (signed out):
+
+> **Create your first Recipe**
+
+Primary action (signed in — truthful, never a generic “Sign in” or “Start
+building” once a session exists):
+
+> **Open DishFrame**
+
+Secondary action (scrolls to the on-page workflow explanation, does not
+navigate away):
+
+> **See how DishFrame works**
+
+Reassurance line (not a major selling point, a small aside):
+
+> Private by default. Built for real kitchens.
+
+### Short brand line
+
+> **Cook. Refine. Repeat.**
+
+Used in the footer and sparingly elsewhere — not forced into every
+section.
+
+### Core loop
+
+Primary conceptual loop (Home’s central workflow section):
+
+> **Build → Cook → Improve**
+
+Expanded workflow (Home’s Meal Plan/Grocery List connective section):
+
+> **Plan → Shop → Cook → Review → Refine**
+
+### Home content architecture
+
+In order: Hero; “A Recipe is more than a list of ingredients” (what a
+working Recipe holds vs. where that knowledge usually gets lost); the
+Build → Cook → Improve workflow as a connected step timeline; a Reusable
+Parts moment (one Part visually connected to the Recipes that use it);
+the Plan → Shop → Cook → Review → Refine connected path; one concise
+sharing section; a closing CTA (“Start with the Recipe you already
+make.”).
+
+### About page
+
+Hero:
+
+> Recipes aren’t finished. They’re learned.
+
+Structure: an origin story told as two frustrations (recipes were hard to
+cook from; recipes were hard to improve and maintain), each resolving
+into the DishFrame features it produced; three product principles
+(Cooking comes before collecting; Structure without rigidity; Improvement
+without erasing history); a closing statement (“DishFrame is built for
+the Recipes you return to — the ones that slowly become yours.”). Does
+not repeat Home’s full feature inventory, and does not mention any
+AI tool in the origin story.
+
+### Contact page
+
+Heading:
+
+> Help make DishFrame better.
+
+Supporting copy:
+
+> Found a bug, ran into friction while cooking, or have an idea that would improve the experience? Send a note.
+
+Desktop layout is two columns: the form beside a small branded
+Cooking-Mode-with-a-note illustration (`ContactVisual`), not a form alone
+on an empty page. A concise privacy line sits near the submit button,
+linking to `/privacy`. No response-time guarantee, no topic selector (the
+existing three-field form’s stability was prioritized over adding one).
+
 Do not invent an office, support department, company history, fake email address, or response-time guarantee.
+
+### Privacy and Terms
+
+New public routes, `/privacy` and `/terms`, share a single
+`LegalLayout` component (effective date, title, then plain typographic
+sections). Both are product-aligned baseline policies grounded in actual
+implementation (Google auth, Neon/Vercel hosting, Vercel Blob images,
+Resend for contact-form email only, USDA FoodData Central for nutrition
+search, no analytics/tracking installed) — see
+`docs/SLICE_21_PUBLIC_SITE_REDESIGN.md` for what was verified and what
+was deliberately left out. **Both need professional legal review before
+a broad commercial launch.**
 
 ## Sign-in page
 
@@ -1109,8 +1217,12 @@ Use simple empty text such as:
 - Home
 - About
 - Contact
-- Sign in
-- Start building
+- Sign in *(signed out only)*
+- Create your first Recipe *(signed out only, primary CTA)*
+- Open DishFrame *(signed in — replaces both of the above, Slice 21)*
+
+Footer additionally links About, Contact, Privacy, and Terms, plus the
+short brand line "Cook. Refine. Repeat." (`docs/SLICE_21_PUBLIC_SITE_REDESIGN.md`).
 
 ## Signed-in navigation
 
@@ -1250,7 +1362,9 @@ Should define technical architecture, database schema, authentication, APIs, sto
 - Frame expressed through composition rather than literal decoration
 - Governing voice: **DishFrame thinks in systems but speaks like a capable home cook**
 - Main interface terms: Parts, Sections, Recipe Status, Cooking Session, Session Review, Servings Made, Version
-- Public hero headline: **A better framework for the way you cook**
-- Public hero description: **Keep recipes organized, reuse what already works, and save what you learn each time you cook**
-- No separate tagline is locked
+- Public hero headline (Slice 21): **Recipes that get better every time you cook.**
+- Public hero description (Slice 21): **Turn scattered notes into structured, living Recipes you can cook from, improve over time, plan around, and share with the people you feed.**
+- Short brand line (Slice 21): **Cook. Refine. Repeat.**
+- Core loop (Slice 21): **Build → Cook → Improve**, expanded as **Plan → Shop → Cook → Review → Refine**
+- Public-site visual direction (Slice 21): a restrained "connected framework" motif — thin connector lines and small circular nodes linking modular Recipe/Section/Part cards, reused consistently across the hero, workflow, and Parts sections; no picture-frame imagery, no fake dashboard, no stock food photography
 - Exact fonts, hex values, and logo geometry remain adjustable during real-screen testing

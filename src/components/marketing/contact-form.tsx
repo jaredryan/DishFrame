@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useActionState } from "react";
 import { AlertCircle, CheckCircle2 } from "lucide-react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -44,7 +45,7 @@ export function ContactForm() {
     <form
       ref={formRef}
       action={formAction}
-      className="mt-10 flex flex-col gap-5"
+      className="mt-5 flex flex-col gap-5"
     >
       {/* Honeypot: invisible to real visitors, often filled by bots. */}
       <div
@@ -141,6 +142,15 @@ export function ContactForm() {
           Replies go to the email address you provide.
         </p>
       </div>
+
+      <p className="text-muted-foreground text-xs text-pretty">
+        DishFrame uses the information you provide to respond to your
+        message. Read the{" "}
+        <Link href="/privacy" className="text-foreground underline underline-offset-2">
+          Privacy Policy
+        </Link>
+        .
+      </p>
 
       <div aria-live="polite" className="min-h-0">
         {state.status === "success" && (

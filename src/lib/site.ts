@@ -5,9 +5,9 @@
 export const SITE_URL =
   process.env.NEXT_PUBLIC_APP_URL?.trim() || "http://localhost:3000";
 export const SITE_NAME = "DishFrame";
-export const SITE_TITLE = "DishFrame — A better framework for the way you cook";
+export const SITE_TITLE = "DishFrame — Recipes that get better every time you cook";
 export const SITE_DESCRIPTION =
-  "Keep recipes organized, reuse what already works, and save what you learn each time you cook.";
+  "DishFrame is a personal cooking framework: turn scattered notes into structured, living Recipes you can cook from, improve over time, plan around, and share.";
 
 /** Resolves a site-relative path to an absolute URL against the configured app origin. */
 export function absoluteUrl(path = "/"): string {
