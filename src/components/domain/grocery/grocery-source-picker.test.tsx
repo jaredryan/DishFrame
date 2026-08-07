@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { GrocerySourcePicker } from "@/components/domain/grocery/grocery-source-picker";
+import {
+  GrocerySourcePickerProvider,
+  GrocerySourcePickerTrigger,
+  GrocerySourcePickerPanel,
+} from "@/components/domain/grocery/grocery-source-picker";
 import type { GrocerySourceCandidate } from "@/lib/grocery/queries";
 
 vi.mock("next/navigation", () => ({
@@ -24,6 +28,15 @@ const RECIPE_CANDIDATE: GrocerySourceCandidate = {
   yieldUnit: "servings",
 };
 
+function renderPicker(candidates: GrocerySourceCandidate[]) {
+  return render(
+    <GrocerySourcePickerProvider>
+      <GrocerySourcePickerTrigger hasCandidates={candidates.length > 0} />
+      <GrocerySourcePickerPanel candidates={candidates} />
+    </GrocerySourcePickerProvider>,
+  );
+}
+
 /**
  * Slice 21 empty-account audit: a brand-new account has zero Recipes/Parts,
  * so `SourceGroup` (below) renders nothing for either group and the form
@@ -34,9 +47,9 @@ const RECIPE_CANDIDATE: GrocerySourceCandidate = {
 describe("GrocerySourcePicker", () => {
   it("disables the entry point with an explanation when there are no Recipes or Parts", async () => {
     const user = userEvent.setup();
-    render(<GrocerySourcePicker candidates={[]} />);
+    renderPicker([]);
 
-    const button = screen.getByRole("button", { name: "New grocery list" });
+    const button = screen.getByRole("button", { name: "Make grocery list" });
     expect(button).toBeDisabled();
 
     await user.click(button.closest("span")!);
@@ -49,9 +62,9 @@ describe("GrocerySourcePicker", () => {
 
   it("opens the picker and lists candidates when at least one Recipe or Part exists", async () => {
     const user = userEvent.setup();
-    render(<GrocerySourcePicker candidates={[RECIPE_CANDIDATE]} />);
+    renderPicker([RECIPE_CANDIDATE]);
 
-    const button = screen.getByRole("button", { name: "New grocery list" });
+    const button = screen.getByRole("button", { name: "Make grocery list" });
     expect(button).toBeEnabled();
 
     await user.click(button);

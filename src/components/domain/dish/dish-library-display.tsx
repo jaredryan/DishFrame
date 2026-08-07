@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useSearchParams } from "next/navigation";
 import { LayoutGrid, Rows3 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { EmptyState } from "@/components/app/empty-state";
@@ -15,32 +16,25 @@ import {
   type TagFilterOption,
 } from "@/components/domain/dish/library-filter-bar";
 import {
+  DISPLAY_VIEW_PARAM,
   isDefaultLibraryFilters,
+  readLibraryDisplayView,
+  type LibraryDisplayView,
   type LibraryFilters,
 } from "@/lib/dishes/library-filters";
 import type { DishKindValue } from "@/lib/dishes/schema";
 
-const VIEW_MODE_STORAGE_KEY = "dishframe:library-view-mode";
-const VIEW_MODES = [
+// Remembered via the `display` query param (grid is the default, so it's
+// simply absent from the URL) rather than localStorage, so the choice
+// round-trips through shared/bookmarked links too.
+const VIEW_MODES: {
+  value: LibraryDisplayView;
+  label: string;
+  icon: typeof LayoutGrid;
+}[] = [
   { value: "grid", label: "Grid", icon: LayoutGrid },
   { value: "compact", label: "Compact", icon: Rows3 },
-] as const;
-type ViewMode = (typeof VIEW_MODES)[number]["value"];
-
-function isViewMode(value: string | null): value is ViewMode {
-  return value === "grid" || value === "compact";
-}
-
-const noopSubscribe = () => () => {};
-
-function readStoredViewMode(): ViewMode {
-  const stored = window.localStorage.getItem(VIEW_MODE_STORAGE_KEY);
-  return isViewMode(stored) ? stored : "grid";
-}
-
-function defaultViewMode(): ViewMode {
-  return "grid";
-}
+];
 
 export function DishLibraryDisplay({
   dishes,
@@ -61,23 +55,27 @@ export function DishLibraryDisplay({
   cuisineOptions: string[];
   flavorProfileOptions: FlavorProfileFilterOption[];
 }) {
-  // The saved view mode only exists in localStorage, so it's unknown
-  // during SSR — useSyncExternalStore resolves the mismatch the React way
-  // (server snapshot "grid", client snapshot from storage) rather than
-  // reading localStorage in an effect and calling setState from it.
-  const storedMode = React.useSyncExternalStore(
-    noopSubscribe,
-    readStoredViewMode,
-    defaultViewMode,
+  const searchParams = useSearchParams();
+  const [override, setOverride] = React.useState<LibraryDisplayView | null>(
+    null,
   );
-  const [override, setOverride] = React.useState<ViewMode | null>(null);
 
-  function chooseViewMode(mode: ViewMode) {
-    window.localStorage.setItem(VIEW_MODE_STORAGE_KEY, mode);
+  function chooseViewMode(mode: LibraryDisplayView) {
+    const next = new URLSearchParams(searchParams.toString());
+    if (mode === "grid") {
+      next.delete(DISPLAY_VIEW_PARAM);
+    } else {
+      next.set(DISPLAY_VIEW_PARAM, mode);
+    }
+    const qs = next.toString();
+    // Shallow history update (Next syncs this with useSearchParams) — no
+    // router.push/replace, since the view is a client-only presentation
+    // choice that must never re-run the server query or touch scroll.
+    window.history.replaceState(null, "", qs ? `${basePath}?${qs}` : basePath);
     setOverride(mode);
   }
 
-  const activeMode = override ?? storedMode;
+  const activeMode = override ?? readLibraryDisplayView(searchParams);
 
   const hasActiveFilters = !isDefaultLibraryFilters(filters);
 

@@ -643,10 +643,11 @@ export async function endCookingSession(
 }
 
 /**
- * PRODUCT_SPEC.md §27.4's narrow "Delete session" carve-out — reachable
- * only through the final-unit guard's own choice, not a general delete
- * action. A plain cascade delete (units/checklist/timers/review/ratings
- * all `onDelete: Cascade` off `CookingSession`, schema.prisma).
+ * PRODUCT_SPEC.md §27.4's "Delete session" carve-out. Reachable through the
+ * final-unit guard's own choice on an active session, and (Slice 22 logged-
+ * in polish pass) as a row action on the Cook page's Completed sessions. A
+ * plain cascade delete (units/checklist/timers/review/ratings all
+ * `onDelete: Cascade` off `CookingSession`, schema.prisma).
  */
 export async function deleteCookingSession(ownerId: string, sessionId: string) {
   await getOwnedSessionOrThrow(ownerId, sessionId);

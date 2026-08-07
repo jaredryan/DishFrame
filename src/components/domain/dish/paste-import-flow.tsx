@@ -12,6 +12,7 @@ import {
   confirmImport,
 } from "@/lib/importExport/actions";
 import type { PasteParseResult } from "@/lib/importExport/paste-parser";
+import type { DishKindValue } from "@/lib/dishes/schema";
 
 /**
  * PRODUCT_SPEC.md §56.1's mandatory-review flow, §59's paste-and-review
@@ -19,16 +20,24 @@ import type { PasteParseResult } from "@/lib/importExport/paste-parser";
  * created if the user leaves this page); step 2 reuses the ordinary
  * `DishEditor` — pre-filled with the deterministic parser's proposal — as
  * the review/correct/confirm surface, so import confirmation is the exact
- * same validated Save path every other Recipe creation goes through
+ * same validated Save path every other Recipe/Part creation goes through
  * (`confirmImport`, which only additionally tags `sourceKind: "IMPORT"`).
  * §59.2: the original pasted text stays visible for reference throughout
  * review — it's kept in this component's own state, never persisted.
+ * Slice 22 logged-in polish pass: `kind` drives whether the parsed content
+ * is reviewed and confirmed as a Recipe or a Part — everything else
+ * (parsing, review, confirm) is identical either way.
  */
 export function PasteImportFlow({
+  kind = "RECIPE",
   cuisineOptions,
 }: {
+  kind?: DishKindValue;
   cuisineOptions: string[];
 }) {
+  const kindLabel = kind === "PART" ? "Part" : "recipe";
+  const collectionLabel = kind === "PART" ? "Parts" : "Recipes";
+  const basePath = kind === "PART" ? "/parts" : "/recipes";
   const [rawText, setRawText] = React.useState("");
   const [isParsing, setIsParsing] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -88,11 +97,11 @@ export function PasteImportFlow({
           Discard and start over
         </Button>
         <DishEditor
-          kind="RECIPE"
+          kind={kind}
           cuisineOptions={cuisineOptions}
           initialValues={parseResult.values}
           onCreate={confirmImport}
-          heading="Review imported recipe"
+          heading={`Review imported ${kindLabel.toLowerCase()}`}
         />
       </div>
     );
@@ -101,25 +110,35 @@ export function PasteImportFlow({
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6 pb-24">
       <Breadcrumbs
-        items={[{ label: "Recipes", href: "/recipes" }, { label: "Import" }]}
+        items={[
+          { label: collectionLabel, href: basePath },
+          { label: "Import" },
+        ]}
       />
       <h1 className="font-heading text-foreground text-2xl font-semibold">
-        Import a recipe
+        Import a {kindLabel.toLowerCase()}
       </h1>
       <p className="text-muted-foreground text-sm">
-        Paste recipe text from Apple Notes, a recipe website, a message, or any
-        plain-text document. DishFrame will propose a structured recipe for you
-        to review and correct before anything is saved.
+        Paste {kindLabel.toLowerCase()} text from Apple Notes, a recipe website,
+        a message, or any plain-text document. DishFrame will propose a
+        structured {kindLabel.toLowerCase()} for you to review and correct
+        before anything is saved.
+        {kind === "PART" &&
+          " Use this for a reusable sauce, dressing, topping, component, dough, or filling — not a full multi-part recipe."}
       </p>
       <Field>
-        <FieldLabel htmlFor="paste-import-text">Pasted recipe text</FieldLabel>
+        <FieldLabel htmlFor="paste-import-text">
+          Pasted {kindLabel.toLowerCase()} text
+        </FieldLabel>
         <Textarea
           id="paste-import-text"
           rows={16}
           value={rawText}
           onChange={(event) => setRawText(event.target.value)}
           placeholder={
-            "Grilled Cheese\n\n- 2 slices bread\n- 1 cup shredded cheddar\n\n1. Butter the bread.\n2. Cook until golden on both sides."
+            kind === "PART"
+              ? "Chimichurri\n\n- 1 cup parsley\n- 3 cloves garlic\n- 1/2 cup olive oil\n\n1. Finely chop parsley and garlic.\n2. Stir in oil and season to taste."
+              : "Grilled Cheese\n\n- 2 slices bread\n- 1 cup shredded cheddar\n\n1. Butter the bread.\n2. Cook until golden on both sides."
           }
         />
         <FieldDescription>
@@ -138,7 +157,7 @@ export function PasteImportFlow({
         disabled={isParsing || rawText.trim().length === 0}
         className="self-start"
       >
-        {isParsing ? "Parsing…" : "Parse recipe"}
+        {isParsing ? "Parsing…" : `Parse ${kindLabel.toLowerCase()}`}
       </Button>
     </div>
   );

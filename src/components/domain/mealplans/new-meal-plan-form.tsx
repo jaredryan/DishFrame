@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
+import { CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field, FieldLabel } from "@/components/ui/field";
@@ -23,9 +24,51 @@ function defaultRange(): { start: string; end: string } {
   return { start: isoDate(start), end: isoDate(end) };
 }
 
-export function NewMealPlanForm() {
+type OpenState = [boolean, React.Dispatch<React.SetStateAction<boolean>>];
+
+const MealPlanCreateContext = React.createContext<OpenState | null>(null);
+
+/**
+ * Shares open/closed state between `MealPlanCreateTrigger` (rendered in the
+ * page header, top-right) and `MealPlanCreatePanel` (rendered below, in the
+ * page body) so the two can live in different parts of the page layout.
+ */
+export function MealPlanCreateProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const state = React.useState(false);
+  return (
+    <MealPlanCreateContext.Provider value={state}>
+      {children}
+    </MealPlanCreateContext.Provider>
+  );
+}
+
+function useMealPlanCreateState(): OpenState {
+  const context = React.useContext(MealPlanCreateContext);
+  if (!context) {
+    throw new Error(
+      "MealPlanCreateTrigger/Panel must be used within a MealPlanCreateProvider",
+    );
+  }
+  return context;
+}
+
+export function MealPlanCreateTrigger() {
+  const [, setOpen] = useMealPlanCreateState();
+  return (
+    <Button onClick={() => setOpen(true)}>
+      <CalendarDays />
+      Plan meals
+    </Button>
+  );
+}
+
+export function MealPlanCreatePanel() {
   const router = useRouter();
-  const [open, setOpen] = React.useState(false);
+  const [open, setOpen] = useMealPlanCreateState();
   const [title, setTitle] = React.useState("This week");
   const [startDate, setStartDate] = React.useState(() => defaultRange().start);
   const [endDate, setEndDate] = React.useState(() => defaultRange().end);
@@ -33,7 +76,7 @@ export function NewMealPlanForm() {
   const [isPending, startTransition] = React.useTransition();
 
   if (!open) {
-    return <Button onClick={() => setOpen(true)}>New Meal Plan</Button>;
+    return null;
   }
 
   return (

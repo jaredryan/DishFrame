@@ -22,11 +22,13 @@ const PART_A = {
   id: "part-a",
   currentTitle: "Nuoc Cham",
   currentVersionId: "part-a-v1",
+  tags: ["Vietnamese", "Condiment"],
 };
 const PART_B = {
   id: "part-b",
   currentTitle: "Chili Oil",
   currentVersionId: "part-b-v1",
+  tags: [],
 };
 
 /**
@@ -59,13 +61,13 @@ describe("PartAttachPicker", () => {
     // Rendering the trigger alone must not eagerly fetch.
     expect(mockedListAttachableParts).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("button", { name: "Attach a Part" }));
+    await user.click(screen.getByRole("button", { name: "Attach a part" }));
     expect(await screen.findByText("Nuoc Cham")).toBeInTheDocument();
     expect(mockedListAttachableParts).toHaveBeenCalledTimes(1);
     expect(screen.queryByText("Chili Oil")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Close" }));
-    await user.click(screen.getByRole("button", { name: "Attach a Part" }));
+    await user.click(screen.getByRole("button", { name: "Attach a part" }));
 
     // The newly available Part (e.g. just created in another tab) appears
     // — this reopening ran its own request rather than reusing the first.
@@ -92,12 +94,47 @@ describe("PartAttachPicker", () => {
         onAttach={vi.fn()}
       />,
     );
-    await user.click(screen.getByRole("button", { name: "Attach a Part" }));
+    await user.click(screen.getByRole("button", { name: "Attach a part" }));
 
     expect(screen.getByText("Loading Parts…")).toBeInTheDocument();
 
     resolveFetch({ status: "success", parts: [PART_A] });
     expect(await screen.findByText("Nuoc Cham")).toBeInTheDocument();
+  });
+
+  it("shows each Part's tags, restrained to a small overflow-friendly set", async () => {
+    const user = userEvent.setup();
+    const heavilyTagged = {
+      id: "part-c",
+      currentTitle: "House Marinade",
+      currentVersionId: "part-c-v1",
+      tags: ["Savory", "Make-ahead", "Freezer-friendly", "Umami", "Spicy"],
+    };
+    mockedListAttachableParts.mockResolvedValue({
+      status: "success",
+      parts: [PART_A, heavilyTagged],
+    });
+
+    render(
+      <PartAttachPicker
+        containerDishId="dish-1"
+        containerKind="RECIPE"
+        onAttach={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Attach a part" }));
+
+    expect(await screen.findByText("Vietnamese")).toBeInTheDocument();
+    expect(screen.getByText("Condiment")).toBeInTheDocument();
+
+    // Five tags on House Marinade — only the first three render, plus a
+    // compact "+2" overflow indicator rather than blowing out the row.
+    expect(screen.getByText("Savory")).toBeInTheDocument();
+    expect(screen.getByText("Make-ahead")).toBeInTheDocument();
+    expect(screen.getByText("Freezer-friendly")).toBeInTheDocument();
+    expect(screen.queryByText("Umami")).not.toBeInTheDocument();
+    expect(screen.queryByText("Spicy")).not.toBeInTheDocument();
+    expect(screen.getByText("+2")).toBeInTheDocument();
   });
 
   it("shows a retryable error state when loading fails, and Retry re-fetches", async () => {
@@ -116,7 +153,7 @@ describe("PartAttachPicker", () => {
         onAttach={vi.fn()}
       />,
     );
-    await user.click(screen.getByRole("button", { name: "Attach a Part" }));
+    await user.click(screen.getByRole("button", { name: "Attach a part" }));
 
     expect(
       await screen.findByText("Could not load Parts."),
@@ -151,7 +188,7 @@ describe("PartAttachPicker", () => {
         onAttach={onAttach}
       />,
     );
-    await user.click(screen.getByRole("button", { name: "Attach a Part" }));
+    await user.click(screen.getByRole("button", { name: "Attach a part" }));
     await user.click(await screen.findByText("Nuoc Cham"));
     await user.click(screen.getByRole("button", { name: "Attach" }));
 

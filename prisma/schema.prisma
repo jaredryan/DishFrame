@@ -901,13 +901,17 @@ enum MealPlanEntryStatus {
 }
 
 model MealPlan {
-  id        String   @id @default(cuid())
-  ownerId   String
-  title     String
-  startDate DateTime
-  endDate   DateTime
-  notes     String?
-  createdAt DateTime @default(now())
+  id           String    @id @default(cuid())
+  ownerId      String
+  title        String
+  startDate    DateTime
+  endDate      DateTime
+  notes        String?
+  // Slice 22 logged-in polish pass — plan-level Active/Completed lifecycle
+  // (distinct from MealPlanEntry.status), mirroring GroceryList.completedAt:
+  // null = Active, set = Completed. Reactivating clears it back to null.
+  completedAt  DateTime?
+  createdAt    DateTime  @default(now())
 
   owner              User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   entries            MealPlanEntry[]

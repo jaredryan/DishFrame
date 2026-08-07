@@ -6,9 +6,11 @@ import type { DishCardItem } from "@/components/domain/dish/dish-card";
 import type { LibraryFilters } from "@/lib/dishes/library-filters";
 
 const push = vi.fn();
+let mockSearchParams = new URLSearchParams();
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push }),
+  useSearchParams: () => mockSearchParams,
 }));
 
 const dishes: DishCardItem[] = [
@@ -58,8 +60,9 @@ function renderDisplay(overrides: Partial<LibraryFilters> = {}) {
 
 describe("DishLibraryDisplay", () => {
   beforeEach(() => {
-    window.localStorage.clear();
+    mockSearchParams = new URLSearchParams();
     push.mockClear();
+    vi.spyOn(window.history, "replaceState").mockImplementation(() => {});
   });
 
   it("defaults to the grid view", () => {
@@ -75,7 +78,17 @@ describe("DishLibraryDisplay", () => {
     );
   });
 
-  it("switches to the compact view without losing any dish from the (already server-filtered) list", async () => {
+  it("reads the initial view from the `display` query param", () => {
+    mockSearchParams = new URLSearchParams("display=compact");
+    renderDisplay();
+
+    expect(screen.getByRole("radio", { name: "Compact view" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+  });
+
+  it("switches to the compact view without losing any dish from the (already server-filtered) list, and records it in the URL as `display=compact`", async () => {
     const user = userEvent.setup();
     renderDisplay();
 
@@ -92,13 +105,18 @@ describe("DishLibraryDisplay", () => {
     // is resolved server-side, before this component ever receives `dishes`.
     expect(screen.getByText("Ginger Bowl")).toBeInTheDocument();
     expect(screen.getByText("Old Stew")).toBeInTheDocument();
+    expect(window.history.replaceState).toHaveBeenCalledWith(
+      null,
+      "",
+      "/recipes?display=compact",
+    );
   });
 
-  it("switching back to grid still shows every dish", async () => {
+  it("switching back to grid still shows every dish, and drops `display` from the URL (grid is the default)", async () => {
+    mockSearchParams = new URLSearchParams("display=compact");
     const user = userEvent.setup();
     renderDisplay();
 
-    await user.click(screen.getByRole("radio", { name: "Compact view" }));
     await user.click(screen.getByRole("radio", { name: "Grid view" }));
 
     expect(screen.getByRole("radio", { name: "Grid view" })).toHaveAttribute(
@@ -107,22 +125,33 @@ describe("DishLibraryDisplay", () => {
     );
     expect(screen.getByText("Ginger Bowl")).toBeInTheDocument();
     expect(screen.getByText("Old Stew")).toBeInTheDocument();
+    expect(window.history.replaceState).toHaveBeenCalledWith(
+      null,
+      "",
+      "/recipes",
+    );
   });
 
-  it("both views render the same dish IDs in the same order", () => {
+  it("both views render the same dishes in the same order", () => {
     const { unmount } = renderDisplay();
     const gridOrder = screen
       .getAllByRole("link")
       .map((link) => link.getAttribute("href"));
     unmount();
 
-    window.localStorage.setItem("dishframe:library-view-mode", "compact");
+    mockSearchParams = new URLSearchParams("display=compact");
     renderDisplay();
+    // Compact view rows are no longer a row-level Link — read order off the
+    // View button's aria-label (which embeds the dish title) instead.
     const compactOrder = screen
-      .getAllByRole("link")
-      .map((link) => link.getAttribute("href"));
+      .getAllByRole("button", { name: /^View / })
+      .map((btn) => btn.getAttribute("aria-label")?.replace(/^View /, ""));
 
-    expect(compactOrder).toEqual(gridOrder);
+    expect(compactOrder).toEqual(
+      gridOrder.map(
+        (href) => dishes.find((d) => `/recipes/${d.id}` === href)?.currentTitle,
+      ),
+    );
   });
 
   it("switching views never navigates — active search/filter/sort criteria and scope survive untouched", async () => {
@@ -140,10 +169,10 @@ describe("DishLibraryDisplay", () => {
 
     await user.click(screen.getByRole("radio", { name: "Compact view" }));
 
-    // View toggling is local (React state + localStorage) only — it must
-    // never call the router, which would be the only way search/filter/sort
-    // params or the Recipe/Part scope (encoded in the URL, not touched here)
-    // could be lost.
+    // View toggling updates the URL via a shallow `history.replaceState`
+    // (see above), not `router.push` — it must never call the router, which
+    // would be the only way search/filter/sort params or the Recipe/Part
+    // scope (encoded in the URL, not touched here) could be lost.
     expect(push).not.toHaveBeenCalled();
     // The same `filters` prop still flows into LibraryFilterBar post-switch.
     expect(screen.getByText("“curry”")).toBeInTheDocument();

@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import path from "node:path";
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page, type Locator } from "@playwright/test";
 
 type SeedCookie = {
   name: string;
@@ -25,6 +25,17 @@ function seed(...args: string[]): string {
       NODE_OPTIONS: "--conditions=react-server",
     },
   });
+}
+
+// Same rationale as preferences-tasters-grocery.spec.ts's helper of the same
+// name: markGuide() updates local state optimistically before its Server
+// Action's fetch resolves, so a reload right after a click can race the
+// mutation and re-fetch server truth from before it landed.
+async function clickAndWaitForServerAction(page: Page, locator: Locator) {
+  await Promise.all([
+    page.waitForResponse((response) => response.request().method() === "POST"),
+    locator.click(),
+  ]);
 }
 
 /**
@@ -76,7 +87,10 @@ test.describe("Onboarding: initial introduction", () => {
       page.getByRole("heading", { name: "Welcome to DishFrame" }),
     ).toBeVisible();
 
-    await page.getByRole("button", { name: "Skip" }).click();
+    await clickAndWaitForServerAction(
+      page,
+      page.getByRole("button", { name: "Skip" }),
+    );
     await expect(
       page.getByRole("heading", { name: "Welcome to DishFrame" }),
     ).not.toBeVisible();
@@ -103,7 +117,10 @@ test.describe("Onboarding: initial introduction", () => {
       page.getByRole("heading", { name: "A few quick preferences" }),
     ).toBeVisible();
 
-    await page.getByRole("button", { name: "Done" }).click();
+    await clickAndWaitForServerAction(
+      page,
+      page.getByRole("button", { name: "Done" }),
+    );
     await expect(
       page.getByRole("heading", { name: "Welcome to DishFrame" }),
     ).not.toBeVisible();

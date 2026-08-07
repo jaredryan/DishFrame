@@ -126,7 +126,7 @@ test.describe("Settings: Preferences, Grocery Categories, and Tasters", () => {
     seed("cleanup", userId);
   });
 
-  test("save preferences, manage Grocery Categories (incl. the protected fallback), and navigate to Tasters", async ({
+  test("save preferences, manage Grocery Categories (incl. the protected fallback), and manage Tasters", async ({
     page,
   }) => {
     await page.goto("/settings");
@@ -358,13 +358,5 @@ test.describe("Settings: Preferences, Grocery Categories, and Tasters", () => {
     await expect(page.getByText("Mom (renamed)")).not.toBeVisible();
     await page.reload();
     await expect(page.getByText("Mom (renamed)")).not.toBeVisible();
-
-    // --- /tasters is still a directly-reachable route, even though the
-    // "Open Tasters page" link was removed from Settings (Tasters is now a
-    // first-class Settings section, so the link was redundant) ---
-    await page.goto("/tasters");
-    await expect(
-      page.getByRole("listitem").filter({ hasText: "You" }),
-    ).toBeVisible();
   });
 });

@@ -109,7 +109,7 @@ export function DishTagFlavorEditor({
                 {tagOptions.map((tag) => (
                   <Label
                     key={tag.id}
-                    className="flex items-center gap-2 text-sm font-normal"
+                    className="flex cursor-pointer items-center gap-2 text-sm font-normal"
                   >
                     <Checkbox
                       checked={tagIds.includes(tag.id)}
@@ -135,7 +135,7 @@ export function DishTagFlavorEditor({
                 {flavorProfileOptions.map((value) => (
                   <Label
                     key={value.id}
-                    className="flex items-center gap-2 text-sm font-normal"
+                    className="flex cursor-pointer items-center gap-2 text-sm font-normal"
                   >
                     <Checkbox
                       checked={flavorProfileIds.includes(value.id)}

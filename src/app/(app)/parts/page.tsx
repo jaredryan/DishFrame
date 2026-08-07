@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Plus } from "lucide-react";
+import { Layers } from "lucide-react";
 import { redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth/session";
 import { Button } from "@/components/ui/button";
@@ -36,11 +36,16 @@ export default async function PartsPage({
             more than one recipe.
           </p>
         </div>
-        <Button asChild>
-          <Link href="/parts/new">
-            <Plus /> Create Part
-          </Link>
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button asChild variant="outline">
+            <Link href="/parts/import">Import</Link>
+          </Button>
+          <Button asChild>
+            <Link href="/parts/new">
+              <Layers /> Create part
+            </Link>
+          </Button>
+        </div>
       </div>
 
       <CoachMark guideKey="parts-intro" title="Reusable Parts">

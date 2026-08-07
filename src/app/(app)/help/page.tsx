@@ -110,7 +110,6 @@ const DIRECT_LINKS = [
   { label: "Meal plans", href: "/meal-plans" },
   { label: "Grocery lists", href: "/grocery-lists" },
   { label: "Sharing", href: "/share" },
-  { label: "Tasters", href: "/tasters" },
   { label: "Settings & preferences", href: "/settings" },
 ];
 

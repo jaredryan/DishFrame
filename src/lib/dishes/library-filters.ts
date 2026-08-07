@@ -84,6 +84,22 @@ const RATING_VALUE_TO_PARAM: Record<RatingFilterValue, string> =
     ]),
   ) as Record<RatingFilterValue, string>;
 
+// View mode (grid/compact) is a client-only presentation choice — it never
+// affects `buildLibraryWhere`/sorting, so it's tracked as its own param
+// rather than folded into `LibraryFilters`. Exported here (rather than
+// duplicated) so `LibraryFilterBar`'s filter navigations can preserve it
+// alongside the filter params it does own.
+export const DISPLAY_VIEW_PARAM = "display";
+export type LibraryDisplayView = "grid" | "compact";
+
+export function readLibraryDisplayView(
+  searchParams: URLSearchParams,
+): LibraryDisplayView {
+  return searchParams.get(DISPLAY_VIEW_PARAM) === "compact"
+    ? "compact"
+    : "grid";
+}
+
 function firstParam(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }

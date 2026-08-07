@@ -232,6 +232,43 @@ export async function deleteMealPlan(
   });
 }
 
+/**
+ * Slice 22 logged-in polish pass — plan-level Active/Completed lifecycle,
+ * same shape as `grocery/list-service.ts#completeGroceryList`/
+ * `reopenGroceryList`. Marking a plan Completed doesn't touch its entries,
+ * linked grocery lists, or Cooking Sessions — it only changes which column
+ * the plan sorts into on the index.
+ */
+export async function completeMealPlan(
+  ownerId: string,
+  mealPlanId: string,
+): Promise<void> {
+  const mealPlan = await getOwnedMealPlanOrThrow(ownerId, mealPlanId);
+  if (mealPlan.completedAt != null) {
+    throw new ValidationError("This Meal Plan is already completed.");
+  }
+  await prisma.mealPlan.update({
+    where: { id: mealPlanId },
+    data: { completedAt: new Date() },
+  });
+}
+
+/** Reactivating moves a plan back to Active, preserving its entries and
+ * planned meals — never recreates the plan. */
+export async function reactivateMealPlan(
+  ownerId: string,
+  mealPlanId: string,
+): Promise<void> {
+  const mealPlan = await getOwnedMealPlanOrThrow(ownerId, mealPlanId);
+  if (mealPlan.completedAt == null) {
+    throw new ValidationError("This Meal Plan is already active.");
+  }
+  await prisma.mealPlan.update({
+    where: { id: mealPlanId },
+    data: { completedAt: null },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Entries (§76.2, §76.3)
 // ---------------------------------------------------------------------------

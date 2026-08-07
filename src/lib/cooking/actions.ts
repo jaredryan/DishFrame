@@ -9,6 +9,10 @@ import {
 } from "@/lib/errors";
 import * as cookingService from "@/lib/cooking/service";
 import {
+  listCookablePickerItems as queryCookablePickerItems,
+  type CookablePickerItem,
+} from "@/lib/dishes/queries";
+import {
   startCookingSessionSchema,
   addSessionUnitsSchema,
   removeSessionUnitSchema,
@@ -32,6 +36,25 @@ const SESSIONS_PATH = "/cook";
 function revalidateSession(sessionId?: string) {
   revalidatePath(SESSIONS_PATH);
   if (sessionId) revalidatePath(`${SESSIONS_PATH}/${sessionId}`);
+}
+
+export type ListCookablePickerItemsActionState =
+  | { status: "success"; items: CookablePickerItem[] }
+  | { status: "error"; message: string };
+
+/**
+ * Fresh every call, never cached — the "Select something to cook" picker
+ * (Home dashboard / Cook page) fetches this each time it opens, same
+ * convention as `sections/actions.ts`'s `listAttachableParts`.
+ */
+export async function listCookablePickerItems(): Promise<ListCookablePickerItemsActionState> {
+  try {
+    const userId = await requireUserId();
+    const items = await queryCookablePickerItems(userId);
+    return { status: "success", items };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
 }
 
 export type StartCookingSessionActionState =

@@ -1,63 +1,61 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { Plus, Upload } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { redirect } from "next/navigation";
+import { getServerSession } from "@/lib/auth/session";
+import { listSessionsForOwner } from "@/lib/cooking/queries";
+import { listRecentlyUpdatedDishes } from "@/lib/dishes/queries";
+import { listMealPlansForOwner } from "@/lib/mealplans/queries";
+import { listGroceryListsForOwner } from "@/lib/grocery/queries";
+import { prisma } from "@/lib/db/prisma";
+import { HomeDashboard } from "@/components/domain/home/home-dashboard";
 
 export const metadata: Metadata = {
   title: "Home",
 };
 
-const SECTIONS = [
-  { title: "Recent Recipes" },
-  { title: "Active Dishes" },
-  { title: "Saved Parts" },
-];
+const RECENTLY_UPDATED_LIMIT = 3;
+const MEAL_PLAN_LIMIT = 3;
+const GROCERY_LIST_LIMIT = 3;
 
-export default function AppHomePage() {
+export default async function AppHomePage() {
+  const session = await getServerSession();
+  if (!session) {
+    redirect("/sign-in");
+  }
+  const ownerId = session.user.id;
+
+  const [sessions, preference, mealPlans, groceryLists] = await Promise.all([
+    listSessionsForOwner(ownerId),
+    prisma.userPreference.findUnique({
+      where: { userId: ownerId },
+      select: { primaryRatingDisplay: true },
+    }),
+    listMealPlansForOwner(ownerId),
+    listGroceryListsForOwner(ownerId),
+  ]);
+  const recentlyUpdated = await listRecentlyUpdatedDishes(
+    ownerId,
+    RECENTLY_UPDATED_LIMIT,
+    preference?.primaryRatingDisplay ?? "GROUP_AVERAGE",
+  );
+
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-10">
-      <div className="flex flex-col gap-4">
-        <div>
-          <h1 className="font-heading text-foreground text-2xl font-semibold">
-            Start your DishFrame
-          </h1>
-          <p className="text-muted-foreground mt-2 max-w-xl">
-            Add your first recipe or bring one over from your existing notes. As
-            you cook, DishFrame will help you remember what worked and improve
-            it next time.
-          </p>
-        </div>
-        <div className="flex flex-col gap-3 sm:flex-row">
-          <Button asChild>
-            <Link href="/recipes/new">
-              <Plus />
-              Create a recipe
-            </Link>
-          </Button>
-          <Button variant="outline" asChild>
-            <Link href="/recipes/import">
-              <Upload />
-              Import a recipe
-            </Link>
-          </Button>
-        </div>
+    <div className="mx-auto flex max-w-5xl flex-col gap-6">
+      <div>
+        <h1 className="font-heading text-foreground text-2xl font-semibold">
+          Home
+        </h1>
+        <p className="text-muted-foreground mt-2 max-w-xl">
+          Pick up where you left off.
+        </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        {SECTIONS.map((section) => (
-          <div
-            key={section.title}
-            className="border-border bg-card rounded-xl border p-5"
-          >
-            <h2 className="font-heading text-foreground text-sm font-semibold">
-              {section.title}
-            </h2>
-            <p className="text-muted-foreground mt-3 text-sm">
-              Nothing here yet.
-            </p>
-          </div>
-        ))}
-      </div>
+      <HomeDashboard
+        activeSessions={sessions.active}
+        recentlyUpdated={recentlyUpdated}
+        activeMealPlans={mealPlans.active.slice(0, MEAL_PLAN_LIMIT)}
+        hasCompletedMealPlans={mealPlans.completed.length > 0}
+        activeGroceryLists={groceryLists.active.slice(0, GROCERY_LIST_LIMIT)}
+      />
     </div>
   );
 }

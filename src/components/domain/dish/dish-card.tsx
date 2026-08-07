@@ -65,7 +65,7 @@ export function DishCard({
           )}
         </div>
         <CardContent className="flex flex-col gap-1.5 pt-3">
-          <CardTitle className="line-clamp-2">
+          <CardTitle className="line-clamp-2 font-sans text-sm font-medium">
             {dish.currentTitle || "Untitled"}
           </CardTitle>
           <div className="flex flex-wrap items-center gap-1.5">

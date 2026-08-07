@@ -1,13 +1,15 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { LibraryFilterBar } from "@/components/domain/dish/library-filter-bar";
 import type { LibraryFilters } from "@/lib/dishes/library-filters";
 
 const push = vi.fn();
+let mockSearchParams = new URLSearchParams();
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push }),
+  useSearchParams: () => mockSearchParams,
 }));
 
 function baseFilters(overrides: Partial<LibraryFilters> = {}): LibraryFilters {
@@ -37,6 +39,22 @@ function renderBar(overrides: Partial<LibraryFilters> = {}) {
 }
 
 describe("LibraryFilterBar (URL/query-state)", () => {
+  beforeEach(() => {
+    mockSearchParams = new URLSearchParams();
+    push.mockClear();
+  });
+
+  it("preserves an active `display` view param (owned by DishLibraryDisplay) across a filter navigation", async () => {
+    mockSearchParams = new URLSearchParams("display=compact");
+    const user = userEvent.setup();
+    renderBar();
+
+    await user.click(screen.getByRole("button", { name: "Stage" }));
+    await user.click(screen.getByText("Active"));
+
+    expect(push).toHaveBeenCalledWith("/recipes?stage=ACTIVE&display=compact");
+  });
+
   it("submits a typed search query as the q param", async () => {
     const user = userEvent.setup();
     renderBar();

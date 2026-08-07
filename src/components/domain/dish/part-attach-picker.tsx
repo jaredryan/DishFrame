@@ -25,12 +25,14 @@ import {
   listAttachableParts,
   type PartVersionOption,
 } from "@/lib/sections/actions";
+import { PickerResultRow } from "@/components/domain/dish/picker-result-row";
 import type { DishKindValue } from "@/lib/dishes/schema";
 
 export type AttachablePartOption = {
   id: string;
   currentTitle: string | null;
   currentVersionId: string | null;
+  tags: string[];
 };
 
 /**
@@ -54,7 +56,7 @@ export function PartAttachPicker({
   containerKind,
   excludeDishId,
   onAttach,
-  triggerLabel = "Attach a Part",
+  triggerLabel = "Attach a part",
 }: {
   containerDishId: string | null;
   containerKind: DishKindValue;
@@ -187,7 +189,7 @@ export function PartAttachPicker({
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Attach a Part</DialogTitle>
+            <DialogTitle>Attach a part</DialogTitle>
             <DialogDescription>
               Use a saved sauce, side, or other reusable part in this recipe.
             </DialogDescription>
@@ -234,14 +236,12 @@ export function PartAttachPicker({
                     </p>
                   )}
                   {filtered.map((part) => (
-                    <button
+                    <PickerResultRow
                       key={part.id}
-                      type="button"
-                      onClick={() => selectPart(part)}
-                      className="hover:bg-muted focus-visible:bg-muted focus-visible:ring-ring cursor-pointer rounded-md px-3 py-2 text-left text-sm outline-none focus-visible:ring-2"
-                    >
-                      {part.currentTitle ?? "Untitled part"}
-                    </button>
+                      title={part.currentTitle ?? "Untitled part"}
+                      tags={part.tags}
+                      onSelect={() => selectPart(part)}
+                    />
                   ))}
                 </div>
               )}

@@ -10,7 +10,7 @@ export function SidebarNav() {
   const pathname = usePathname();
 
   return (
-    <aside className="border-sidebar-border bg-sidebar hidden w-60 shrink-0 flex-col border-r px-3 py-5 md:flex">
+    <aside className="border-sidebar-border bg-sidebar hidden w-60 shrink-0 flex-col border-r px-3 py-5 md:sticky md:top-0 md:flex md:h-screen md:self-start">
       <div className="px-2 pb-6">
         <Wordmark href="/home" />
       </div>

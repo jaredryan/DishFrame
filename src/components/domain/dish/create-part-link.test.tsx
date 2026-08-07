@@ -13,7 +13,7 @@ describe("CreatePartLink", () => {
   it("links to /parts/new in a new tab with a safe rel attribute", () => {
     render(<CreatePartLink />);
 
-    const link = screen.getByRole("link", { name: "Create Part" });
+    const link = screen.getByRole("link", { name: "Create part" });
     expect(link).toHaveAttribute("href", "/parts/new");
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", "noopener noreferrer");

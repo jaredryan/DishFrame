@@ -523,7 +523,7 @@ export async function listAttachableParts(
   ownerId: string,
   excludeDishId?: string,
 ) {
-  return prisma.dish.findMany({
+  const parts = await prisma.dish.findMany({
     where: {
       ownerId,
       kind: "PART",
@@ -531,12 +531,63 @@ export async function listAttachableParts(
       currentVersionId: { not: null },
       ...(excludeDishId ? { id: { not: excludeDishId } } : {}),
     },
-    select: { id: true, currentTitle: true, currentVersionId: true },
+    select: {
+      id: true,
+      currentTitle: true,
+      currentVersionId: true,
+      // Slice 23 Start-cooking picker pass: the same restrained tag
+      // treatment as the cooking picker's result rows (§ below) — Favorite
+      // is its own star elsewhere, never listed as an ordinary tag.
+      tags: {
+        select: { tag: { select: { displayName: true, isFavorite: true } } },
+      },
+    },
     orderBy: { currentTitle: "asc" },
   });
+  return parts.map((part) => ({
+    id: part.id,
+    currentTitle: part.currentTitle,
+    currentVersionId: part.currentVersionId,
+    tags: part.tags
+      .filter((t) => !t.tag.isFavorite)
+      .map((t) => t.tag.displayName),
+  }));
 }
 export type AttachablePart = Awaited<
   ReturnType<typeof listAttachableParts>
+>[number];
+
+/**
+ * Slice 23 — candidate list for the "Select something to cook" picker
+ * (Home dashboard / Cook page): every owned, non-archived Recipe and Part
+ * with a current Version, combined so the picker's All/Recipes/Parts tabs
+ * can filter client-side. Mirrors `listAttachableParts`'s restrained tag
+ * shape.
+ */
+export async function listCookablePickerItems(ownerId: string) {
+  const dishes = await prisma.dish.findMany({
+    where: { ownerId, archivedAt: null, currentVersionId: { not: null } },
+    select: {
+      id: true,
+      kind: true,
+      currentTitle: true,
+      tags: {
+        select: { tag: { select: { displayName: true, isFavorite: true } } },
+      },
+    },
+    orderBy: { currentTitle: "asc" },
+  });
+  return dishes.map((dish) => ({
+    id: dish.id,
+    kind: dish.kind,
+    currentTitle: dish.currentTitle,
+    tags: dish.tags
+      .filter((t) => !t.tag.isFavorite)
+      .map((t) => t.tag.displayName),
+  }));
+}
+export type CookablePickerItem = Awaited<
+  ReturnType<typeof listCookablePickerItems>
 >[number];
 
 /**
@@ -633,4 +684,65 @@ export async function listDistinctCuisines(
   return rows
     .map((row) => row.cuisine)
     .filter((cuisine): cuisine is string => !!cuisine);
+}
+
+/**
+ * Slice 22 logged-in polish pass — the Home dashboard's "Recently updated"
+ * section: the most recently changed Recipes and Parts combined into one
+ * list, newest first. Archived items are excluded, matching the library's
+ * own default filter (`buildLibraryWhere`) — this is a "return to current
+ * work" surface, not a full history. Returns `DishCardItem`-shaped rows
+ * (`imageAssetId` hardcoded null — the Home list renders `DishCompactCard`,
+ * which never shows an image, so it isn't queried) so Home can render the
+ * exact same compact-list card `/recipes` and `/parts` use.
+ */
+export async function listRecentlyUpdatedDishes(
+  ownerId: string,
+  limit: number,
+  ratingPreference: PrimaryRatingDisplayValue,
+) {
+  const dishes = await prisma.dish.findMany({
+    where: { ownerId, stage: { not: "ARCHIVED" } },
+    select: {
+      id: true,
+      kind: true,
+      currentTitle: true,
+      stage: true,
+      cuisine: true,
+      updatedAt: true,
+      currentVersionId: true,
+      sourceKind: true,
+      sourceAggregateRating: true,
+      sourceRatingCount: true,
+      sourceTitle: true,
+      sourceDishVersionLabel: true,
+      tags: { select: { tag: { select: { isFavorite: true } } } },
+    },
+    orderBy: { updatedAt: "desc" },
+    take: limit,
+  });
+  const ratingInputs = dishes.map((dish) => ({
+    id: dish.id,
+    currentVersionId: dish.currentVersionId,
+    sourceKind: dish.sourceKind,
+    sourceAggregateRating: decimalToNumber(dish.sourceAggregateRating),
+    sourceRatingCount: dish.sourceRatingCount,
+    sourceTitle: dish.sourceTitle,
+    sourceDishVersionLabel: dish.sourceDishVersionLabel,
+  }));
+  const ratings = await getPrincipalRatingsForDishes(
+    ratingInputs,
+    ratingPreference,
+  );
+  return dishes.map((dish) => ({
+    id: dish.id,
+    kind: dish.kind,
+    currentTitle: dish.currentTitle,
+    stage: dish.stage,
+    cuisine: dish.cuisine,
+    updatedAt: dish.updatedAt,
+    imageAssetId: null,
+    isFavorite: dish.tags.some((t) => t.tag.isFavorite),
+    rating: ratings.get(dish.id) ?? { kind: "none" as const },
+  }));
 }

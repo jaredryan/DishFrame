@@ -77,7 +77,7 @@ test.describe("Meal Plans: build, sync grocery list, edit, complete", () => {
 
     // --- Create a Meal Plan ---
     await page.goto("/meal-plans");
-    await page.getByRole("button", { name: "New Meal Plan" }).click();
+    await page.getByRole("button", { name: "Plan meals" }).click();
     await page.getByLabel("Title").fill("This week");
     await page.getByRole("button", { name: "Create Meal Plan" }).click();
     await expect(page).toHaveURL(/\/meal-plans\/[^/]+$/, { timeout: 15_000 });

@@ -40,20 +40,29 @@ export async function getOwnedMealPlanOrThrow(ownerId: string, id: string) {
 export type OwnedMealPlan = Awaited<ReturnType<typeof getOwnedMealPlanOrThrow>>;
 export type OwnedMealPlanEntry = OwnedMealPlan["entries"][number];
 
-// Ordered by start date, most-recently-started first — no separate
-// active/past split in the index (§78: "Past Meal Plans remain accessible").
-export function listMealPlansForOwner(ownerId: string) {
-  return prisma.mealPlan.findMany({
+// Slice 22 logged-in polish pass — split into Active/Completed (mirroring
+// `grocery/queries.ts#listGroceryListsForOwner`'s shape), reusing
+// PRODUCT_SPEC.md §78's "Past Meal Plans remain accessible" via the
+// Completed column rather than a single undifferentiated list.
+export async function listMealPlansForOwner(ownerId: string) {
+  const mealPlans = await prisma.mealPlan.findMany({
     where: { ownerId },
     select: {
       id: true,
       title: true,
       startDate: true,
       endDate: true,
+      completedAt: true,
       _count: { select: { entries: true } },
     },
     orderBy: { startDate: "desc" },
   });
+  return {
+    active: mealPlans.filter((p) => p.completedAt == null),
+    completed: mealPlans
+      .filter((p) => p.completedAt != null)
+      .sort((a, b) => b.completedAt!.getTime() - a.completedAt!.getTime()),
+  };
 }
 
 /**

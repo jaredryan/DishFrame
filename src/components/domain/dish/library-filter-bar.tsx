@@ -1,8 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
-import { Search, SlidersHorizontal, X } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { ChevronDown, Search, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/select";
 import { STAGE_LABEL } from "@/components/domain/dish/stage-badge";
 import {
+  DISPLAY_VIEW_PARAM,
   isDefaultLibraryFilters,
   libraryFiltersToSearchParams,
   librarySortValues,
@@ -74,6 +75,7 @@ export function LibraryFilterBar({
   flavorProfileOptions: FlavorProfileFilterOption[];
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   // Local, optimistically-updated mirror of the `filters` prop. Each popover
   // checkbox navigates immediately (no batched "Apply"), and `router.push`
@@ -106,7 +108,15 @@ export function LibraryFilterBar({
 
   function navigate(next: LibraryFilters) {
     setFilters(next);
-    const qs = libraryFiltersToSearchParams(next).toString();
+    const params = libraryFiltersToSearchParams(next);
+    // Filter navigations rebuild the query string from `next` alone, which
+    // would otherwise silently drop the view-mode param this bar doesn't
+    // own — carry it over from whatever's currently in the URL.
+    const displayView = searchParams.get(DISPLAY_VIEW_PARAM);
+    if (displayView) {
+      params.set(DISPLAY_VIEW_PARAM, displayView);
+    }
+    const qs = params.toString();
     router.push(qs ? `${basePath}?${qs}` : basePath);
   }
 
@@ -227,9 +237,20 @@ export function LibraryFilterBar({
 
   const hasActiveFilters = !isDefaultLibraryFilters(filters);
 
+  // Every dropdown/menu trigger in this group (Stage/Tags/Cuisine/Flavor
+  // profiles) shares this exact class list, so they read as one consistent
+  // family of menu triggers rather than a mix of chips and buttons.
+  const menuTriggerClass = "gap-1.5";
+
+  // Rating/Sort use shadcn's Select, whose default trigger (font size/
+  // weight, border/background color, corner radius) drifts from the
+  // Button-based triggers above — this brings the two into one family.
+  const selectTriggerMatchClass =
+    "gap-1 rounded-[min(var(--radius-md),12px)] data-[size=sm]:rounded-[min(var(--radius-md),12px)] border-border bg-background px-2.5 text-[0.8rem] font-medium hover:bg-muted hover:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50";
+
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-end gap-x-2 gap-y-3">
         <form onSubmit={submitSearch} className="min-w-48 flex-1">
           <div className="relative">
             <Search
@@ -246,175 +267,220 @@ export function LibraryFilterBar({
           </div>
         </form>
 
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button variant="outline" size="sm" className="gap-1.5">
-              <SlidersHorizontal className="size-3.5" aria-hidden="true" />
-              Stage
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-56 max-w-none" align="start">
-            <div className="flex flex-col gap-1.5">
-              {stageValues.map((stage) => (
-                <Label
-                  key={stage}
-                  className="flex items-center gap-2 text-sm font-normal"
-                >
-                  <Checkbox
-                    checked={filters.stages.includes(stage)}
-                    onCheckedChange={() => toggleStage(stage)}
-                  />
-                  {STAGE_LABEL[stage]}
-                </Label>
+        <div className="flex flex-wrap items-center gap-2">
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className={menuTriggerClass}>
+                Stage
+                <ChevronDown
+                  className="text-muted-foreground size-3.5"
+                  aria-hidden="true"
+                />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-56 max-w-none" align="start">
+              <div className="flex flex-col gap-1.5">
+                {stageValues.map((stage) => (
+                  <Label
+                    key={stage}
+                    className="flex cursor-pointer items-center gap-2 text-sm font-normal"
+                  >
+                    <Checkbox
+                      checked={filters.stages.includes(stage)}
+                      onCheckedChange={() => toggleStage(stage)}
+                    />
+                    {STAGE_LABEL[stage]}
+                  </Label>
+                ))}
+              </div>
+            </PopoverContent>
+          </Popover>
+
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className={menuTriggerClass}>
+                Tags
+                <ChevronDown
+                  className="text-muted-foreground size-3.5"
+                  aria-hidden="true"
+                />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-56 max-w-none" align="start">
+              {tagOptions.length === 0 ? (
+                <p className="text-muted-foreground text-xs">No tags yet.</p>
+              ) : (
+                <div className="flex max-h-56 flex-col gap-1.5 overflow-y-auto">
+                  {tagOptions.map((tag) => (
+                    <Label
+                      key={tag.id}
+                      className="flex cursor-pointer items-center gap-2 text-sm font-normal"
+                    >
+                      <Checkbox
+                        checked={filters.tagIds.includes(tag.id)}
+                        onCheckedChange={() => toggleTag(tag.id)}
+                      />
+                      {tag.displayName}
+                    </Label>
+                  ))}
+                </div>
+              )}
+            </PopoverContent>
+          </Popover>
+
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className={menuTriggerClass}>
+                Cuisine
+                <ChevronDown
+                  className="text-muted-foreground size-3.5"
+                  aria-hidden="true"
+                />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-56 max-w-none" align="start">
+              {cuisineOptions.length === 0 ? (
+                <p className="text-muted-foreground text-xs">
+                  No cuisines used yet.
+                </p>
+              ) : (
+                <div className="flex max-h-56 flex-col gap-1.5 overflow-y-auto">
+                  {cuisineOptions.map((cuisine) => (
+                    <Label
+                      key={cuisine}
+                      className="flex cursor-pointer items-center gap-2 text-sm font-normal"
+                    >
+                      <Checkbox
+                        checked={filters.cuisines.includes(cuisine)}
+                        onCheckedChange={() => toggleCuisine(cuisine)}
+                      />
+                      {cuisine}
+                    </Label>
+                  ))}
+                </div>
+              )}
+            </PopoverContent>
+          </Popover>
+
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className={menuTriggerClass}>
+                Flavor profiles
+                <ChevronDown
+                  className="text-muted-foreground size-3.5"
+                  aria-hidden="true"
+                />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-56 max-w-none" align="start">
+              {flavorProfileOptions.length === 0 ? (
+                <p className="text-muted-foreground text-xs">
+                  No Flavor profiles yet.
+                </p>
+              ) : (
+                <div className="flex max-h-56 flex-col gap-1.5 overflow-y-auto">
+                  {flavorProfileOptions.map((value) => (
+                    <Label
+                      key={value.id}
+                      className="flex cursor-pointer items-center gap-2 text-sm font-normal"
+                    >
+                      <Checkbox
+                        checked={filters.flavorProfileValueIds.includes(
+                          value.id,
+                        )}
+                        onCheckedChange={() => toggleFlavorProfile(value.id)}
+                      />
+                      {value.displayName}
+                    </Label>
+                  ))}
+                </div>
+              )}
+            </PopoverContent>
+          </Popover>
+
+          <Select value={filters.rating ?? "ANY"} onValueChange={setRating}>
+            <SelectTrigger
+              size="sm"
+              className={`${selectTriggerMatchClass} w-36`}
+              aria-label="Rating filter"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ANY">Any rating</SelectItem>
+              {ratingFilterValues.map((value) => (
+                <SelectItem key={value} value={value}>
+                  {RATING_LABEL[value]}
+                </SelectItem>
               ))}
-            </div>
-          </PopoverContent>
-        </Popover>
-
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button variant="outline" size="sm">
-              Tags
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-56 max-w-none" align="start">
-            {tagOptions.length === 0 ? (
-              <p className="text-muted-foreground text-xs">No tags yet.</p>
-            ) : (
-              <div className="flex max-h-56 flex-col gap-1.5 overflow-y-auto">
-                {tagOptions.map((tag) => (
-                  <Label
-                    key={tag.id}
-                    className="flex items-center gap-2 text-sm font-normal"
-                  >
-                    <Checkbox
-                      checked={filters.tagIds.includes(tag.id)}
-                      onCheckedChange={() => toggleTag(tag.id)}
-                    />
-                    {tag.displayName}
-                  </Label>
-                ))}
-              </div>
-            )}
-          </PopoverContent>
-        </Popover>
-
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button variant="outline" size="sm">
-              Cuisine
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-56 max-w-none" align="start">
-            {cuisineOptions.length === 0 ? (
-              <p className="text-muted-foreground text-xs">
-                No cuisines used yet.
-              </p>
-            ) : (
-              <div className="flex max-h-56 flex-col gap-1.5 overflow-y-auto">
-                {cuisineOptions.map((cuisine) => (
-                  <Label
-                    key={cuisine}
-                    className="flex items-center gap-2 text-sm font-normal"
-                  >
-                    <Checkbox
-                      checked={filters.cuisines.includes(cuisine)}
-                      onCheckedChange={() => toggleCuisine(cuisine)}
-                    />
-                    {cuisine}
-                  </Label>
-                ))}
-              </div>
-            )}
-          </PopoverContent>
-        </Popover>
-
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button variant="outline" size="sm">
-              Flavor profiles
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-56 max-w-none" align="start">
-            {flavorProfileOptions.length === 0 ? (
-              <p className="text-muted-foreground text-xs">
-                No Flavor profiles yet.
-              </p>
-            ) : (
-              <div className="flex max-h-56 flex-col gap-1.5 overflow-y-auto">
-                {flavorProfileOptions.map((value) => (
-                  <Label
-                    key={value.id}
-                    className="flex items-center gap-2 text-sm font-normal"
-                  >
-                    <Checkbox
-                      checked={filters.flavorProfileValueIds.includes(value.id)}
-                      onCheckedChange={() => toggleFlavorProfile(value.id)}
-                    />
-                    {value.displayName}
-                  </Label>
-                ))}
-              </div>
-            )}
-          </PopoverContent>
-        </Popover>
-
-        <Select value={filters.rating ?? "ANY"} onValueChange={setRating}>
-          <SelectTrigger size="sm" className="w-36" aria-label="Rating filter">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ANY">Any rating</SelectItem>
-            {ratingFilterValues.map((value) => (
-              <SelectItem key={value} value={value}>
-                {RATING_LABEL[value]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select value={filters.sort} onValueChange={setSort}>
-          <SelectTrigger size="sm" className="w-44" aria-label="Sort">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {librarySortValues.map((value) => (
-              <SelectItem key={value} value={value}>
-                {SORT_LABEL[value]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
-      {hasActiveFilters && (
+      {/* Sort is a display order, not a filter criterion (it never narrows
+          results) — kept in its own row, visually separated from the filter
+          controls above by a top border rather than sharing their row. */}
+      <div className="border-border flex flex-wrap items-center justify-between gap-3 border-t pt-3">
         <div className="flex flex-wrap items-center gap-1.5">
-          {activeChips.map((chip) => (
-            <Badge
-              key={chip.key}
-              variant="secondary"
-              className="gap-1 pr-1 text-xs"
-            >
-              {chip.label}
+          {hasActiveFilters ? (
+            <>
+              {activeChips.map((chip) => (
+                <Badge
+                  key={chip.key}
+                  variant="outline"
+                  className="bg-primary/15 text-brand-blue-text gap-1 border-transparent pr-1 text-xs"
+                >
+                  {chip.label}
+                  <button
+                    type="button"
+                    onClick={chip.onRemove}
+                    aria-label={`Remove ${chip.label} filter`}
+                    className="hover:bg-primary/20 cursor-pointer rounded-full p-0.5"
+                  >
+                    <X className="size-3" aria-hidden="true" />
+                  </button>
+                </Badge>
+              ))}
               <button
                 type="button"
-                onClick={chip.onRemove}
-                aria-label={`Remove ${chip.label} filter`}
-                className="hover:bg-muted-foreground/20 rounded-full p-0.5"
+                onClick={clearAll}
+                className="text-muted-foreground text-xs hover:underline"
               >
-                <X className="size-3" aria-hidden="true" />
+                Clear all
               </button>
-            </Badge>
-          ))}
-          <button
-            type="button"
-            onClick={clearAll}
-            className="text-muted-foreground text-xs hover:underline"
-          >
-            Clear all
-          </button>
+            </>
+          ) : (
+            <span className="text-muted-foreground text-xs">
+              No filters applied
+            </span>
+          )}
         </div>
-      )}
+        <div className="flex items-center gap-2">
+          <Label
+            htmlFor="library-sort"
+            className="text-muted-foreground text-xs font-normal"
+          >
+            Sort
+          </Label>
+          <Select value={filters.sort} onValueChange={setSort}>
+            <SelectTrigger
+              id="library-sort"
+              size="sm"
+              className={`${selectTriggerMatchClass} w-44`}
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {librarySortValues.map((value) => (
+                <SelectItem key={value} value={value}>
+                  {SORT_LABEL[value]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
     </div>
   );
 }

@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
+import { ListChecks } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,6 +16,65 @@ import { DisabledActionHint } from "@/components/app/disabled-action-hint";
 import { generateGroceryList } from "@/lib/grocery/list-actions";
 import type { GrocerySourceCandidate } from "@/lib/grocery/queries";
 
+type OpenState = [boolean, React.Dispatch<React.SetStateAction<boolean>>];
+
+const GrocerySourcePickerContext = React.createContext<OpenState | null>(null);
+
+/**
+ * Shares open/closed state between `GrocerySourcePickerTrigger` (rendered in
+ * the page header, top-right) and `GrocerySourcePickerPanel` (rendered
+ * below, in the page body) so the two can live in different parts of the
+ * page layout.
+ */
+export function GrocerySourcePickerProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const state = React.useState(false);
+  return (
+    <GrocerySourcePickerContext.Provider value={state}>
+      {children}
+    </GrocerySourcePickerContext.Provider>
+  );
+}
+
+function useGrocerySourcePickerState(): OpenState {
+  const context = React.useContext(GrocerySourcePickerContext);
+  if (!context) {
+    throw new Error(
+      "GrocerySourcePickerTrigger/Panel must be used within a GrocerySourcePickerProvider",
+    );
+  }
+  return context;
+}
+
+export function GrocerySourcePickerTrigger({
+  hasCandidates,
+}: {
+  hasCandidates: boolean;
+}) {
+  const [, setOpen] = useGrocerySourcePickerState();
+
+  if (!hasCandidates) {
+    return (
+      <DisabledActionHint explanation="Create a Recipe or Part first — a grocery list is generated from what you've saved.">
+        <Button disabled>
+          <ListChecks />
+          Make grocery list
+        </Button>
+      </DisabledActionHint>
+    );
+  }
+
+  return (
+    <Button onClick={() => setOpen(true)}>
+      <ListChecks />
+      Make grocery list
+    </Button>
+  );
+}
+
 /**
  * Source-selection screen (Build Plan Slice 12) — pick one or more owned
  * Recipes/Parts and set each one's desired amount (§60.1/§60.2), reusing the
@@ -24,13 +84,13 @@ import type { GrocerySourceCandidate } from "@/lib/grocery/queries";
  * generated-list view — this screen only selects whole Recipes/Parts,
  * matching Build Plan's own component description.
  */
-export function GrocerySourcePicker({
+export function GrocerySourcePickerPanel({
   candidates,
 }: {
   candidates: GrocerySourceCandidate[];
 }) {
   const router = useRouter();
-  const [open, setOpen] = React.useState(false);
+  const [open, setOpen] = useGrocerySourcePickerState();
   const [title, setTitle] = React.useState("Grocery list");
   const [selectedDishIds, setSelectedDishIds] = React.useState<string[]>([]);
   const [scales, setScales] = React.useState<Record<string, number | null>>({});
@@ -71,14 +131,7 @@ export function GrocerySourcePicker({
   }
 
   if (!open) {
-    if (candidates.length === 0) {
-      return (
-        <DisabledActionHint explanation="Create a Recipe or Part first — a grocery list is generated from what you've saved.">
-          <Button disabled>New grocery list</Button>
-        </DisabledActionHint>
-      );
-    }
-    return <Button onClick={() => setOpen(true)}>New grocery list</Button>;
+    return null;
   }
 
   return (

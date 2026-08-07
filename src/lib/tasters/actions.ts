@@ -13,7 +13,6 @@ import {
   type CreateTasterActionState,
 } from "@/lib/tasters/schema";
 
-const TASTERS_PATH = "/tasters";
 const SETTINGS_PATH = "/settings";
 
 export async function createTaster(
@@ -28,7 +27,6 @@ export async function createTaster(
 
     const taster = await tasterService.createTaster(userId, name);
 
-    revalidatePath(TASTERS_PATH);
     revalidatePath(SETTINGS_PATH);
     return {
       status: "success",
@@ -59,7 +57,6 @@ export async function renameTaster(
 
     await tasterService.renameTaster(userId, id, name);
 
-    revalidatePath(TASTERS_PATH);
     revalidatePath(SETTINGS_PATH);
     return { status: "success", message: "Renamed." };
   } catch (error) {
@@ -77,7 +74,6 @@ export async function archiveTaster(
 
     await tasterService.archiveTaster(userId, id);
 
-    revalidatePath(TASTERS_PATH);
     revalidatePath(SETTINGS_PATH);
     return { status: "success", message: "Archived." };
   } catch (error) {
@@ -95,7 +91,6 @@ export async function restoreTaster(
 
     await tasterService.restoreTaster(userId, id);
 
-    revalidatePath(TASTERS_PATH);
     revalidatePath(SETTINGS_PATH);
     return { status: "success", message: "Restored." };
   } catch (error) {
@@ -113,7 +108,6 @@ export async function deleteTaster(
 
     await tasterService.deleteTaster(userId, id);
 
-    revalidatePath(TASTERS_PATH);
     revalidatePath(SETTINGS_PATH);
     return { status: "success", message: "Deleted." };
   } catch (error) {
@@ -130,7 +124,6 @@ export async function reorderTasters(
 
     await tasterService.reorderTasters(userId, ids);
 
-    revalidatePath(TASTERS_PATH);
     revalidatePath(SETTINGS_PATH);
     return { status: "success" };
   } catch (error) {

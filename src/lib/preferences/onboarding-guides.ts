@@ -85,6 +85,6 @@ export const ONBOARDING_GUIDE_INFO: Record<
   "tasters-intro": {
     title: "Tasters",
     description: "Who Tasters are and how their ratings are remembered.",
-    href: "/tasters",
+    href: "/settings#tasters",
   },
 };

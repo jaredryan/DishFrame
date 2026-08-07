@@ -82,17 +82,8 @@ export default async function SettingsPage() {
         </div>
       </section>
 
-      <section className="flex flex-col gap-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-foreground text-lg font-semibold">Tasters</h2>
-          <Link
-            href="/tasters"
-            className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-sm hover:underline"
-          >
-            Open full view
-            <ArrowRight className="size-3.5" aria-hidden="true" />
-          </Link>
-        </div>
+      <section id="tasters" className="flex scroll-mt-6 flex-col gap-4">
+        <h2 className="text-foreground text-lg font-semibold">Tasters</h2>
         <p className="text-muted-foreground -mt-2 text-sm">
           Who tried it? Add the people whose ratings you want to remember.
         </p>

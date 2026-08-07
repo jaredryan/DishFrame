@@ -110,6 +110,34 @@ export async function deleteMealPlan(values: {
   }
 }
 
+export async function completeMealPlan(values: {
+  mealPlanId: string;
+}): Promise<ActionState> {
+  try {
+    const userId = await requireUserId();
+    const { mealPlanId } = mealPlanIdSchema.parse(values);
+    await mealPlanService.completeMealPlan(userId, mealPlanId);
+    revalidateMealPlan(mealPlanId);
+    return { status: "success" };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export async function reactivateMealPlan(values: {
+  mealPlanId: string;
+}): Promise<ActionState> {
+  try {
+    const userId = await requireUserId();
+    const { mealPlanId } = mealPlanIdSchema.parse(values);
+    await mealPlanService.reactivateMealPlan(userId, mealPlanId);
+    revalidateMealPlan(mealPlanId);
+    return { status: "success" };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
 export type EntryIdActionState =
   { status: "success"; entryId: string } | { status: "error"; message: string };
 
