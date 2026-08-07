@@ -56,35 +56,23 @@ the global `~/.claude/CLAUDE.md` "Testing / verification policy" and
 "Git policy" sections. This section is only the DishFrame-scoped script
 reference.
 
-## Verification scripts (current meanings — updated 2026-07-27 for `verify:feature`)
+## Verification scripts
 
-- `pnpm run verify:feature` — the low-cost, pre-Playwright bundle: `check`
-  (format check, lint, typecheck, build) + `verify:frontend` (vitest
-  unit/component tests) + `verify:backend` (`db:verify:local`,
-  `db:scan-migrations`, `test:integration`). Requires local Postgres.
-  Excludes Playwright entirely. Owner-run only, in a fresh session — see
-  "When to run these" below.
-- `pnpm run verify:frontend` — `test:frontend` (vitest unit/component
-  tests) only.
-- `pnpm run verify:backend` — `db:docker:up` (starts/waits for the local
-  Postgres container, added 2026-07-27), then `db:verify:local`,
-  `db:scan-migrations`, `test:integration`. No longer includes Playwright
-  (moved to `verify:e2e` below).
-- `pnpm run verify:e2e` — full Chromium Playwright suite, pinned to one
-  worker (avoids the known shared-local-Postgres/dev-server parallelism
-  flake).
-- `pnpm run verify:fullstack` — `verify:frontend` then `verify:backend`
-  then `verify:e2e`.
-- `pnpm run verify:all` — `check` then `verify:fullstack`.
+Script compositions (`verify:feature`, `verify:frontend`, `verify:backend`,
+`verify:e2e`, `verify:fullstack`, `verify:all`) are defined in
+`package.json`'s `scripts` field — read there for exactly which
+sub-scripts each one runs. What's not obvious from that file:
 
-`verify:backend` now starts the local Postgres container itself as its
-first step (via `db:docker:up`), so this cascades automatically to
-`verify:feature`, `verify:fullstack`, and `verify:all` too — no separate
-`db:docker:up` step needed before running any of them. Docker Desktop
-itself (the daemon/app) still has to be running; if it's fully quit,
-`db:docker:up` fails immediately with a connection error rather than
-launching Docker Desktop for you. This is the owner's concern when
-running these scripts themselves.
+- `verify:e2e`'s Playwright run is pinned to one worker to avoid a known
+  shared-local-Postgres/dev-server parallelism flake.
+- `verify:backend` starts the local Postgres container itself (via
+  `db:docker:up`), which cascades to `verify:feature`/`verify:fullstack`/
+  `verify:all` too — no separate `db:docker:up` step needed. Docker
+  Desktop itself still has to be running; if it's fully quit,
+  `db:docker:up` fails immediately with a connection error rather than
+  launching Docker Desktop for you.
+- All of these are owner-run only, in a fresh session — see "When to run
+  these" below.
 
 ## When to run these
 
