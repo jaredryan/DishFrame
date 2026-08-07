@@ -43,6 +43,7 @@ export function DirectShareCollectionReviewDialog({
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const [submitError, setSubmitError] = React.useState<string | null>(null);
   const [done, setDone] = React.useState(false);
+  const [, startLoadTransition] = React.useTransition();
   const [isPending, startTransition] = React.useTransition();
 
   const loadedRef = React.useRef(false);
@@ -51,7 +52,7 @@ export function DirectShareCollectionReviewDialog({
     if (!open) return;
     if (loadedRef.current) return;
     loadedRef.current = true;
-    startTransition(async () => {
+    startLoadTransition(async () => {
       const result = await getDirectShareCollectionDetail({ collectionId });
       if (result.status === "error") {
         setLoadError(result.message);

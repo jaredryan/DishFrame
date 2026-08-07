@@ -1,5 +1,4 @@
 import { CalendarDays, History, Layers, Timer } from "lucide-react";
-import { getServerSession } from "@/lib/auth/session";
 import { HeroShowcase } from "@/components/marketing/hero-showcase";
 import { WorkflowPath } from "@/components/marketing/workflow-path";
 import { JsonLd } from "@/components/marketing/json-ld";
@@ -43,34 +42,31 @@ const TIMELINE = [
   },
 ];
 
-export default async function MarketingHomePage() {
-  const session = await getServerSession();
-  const signedIn = Boolean(session);
-
+export default function MarketingHomePage() {
   return (
     <>
       <JsonLd />
 
       {/* Hero */}
-      <HeroShowcase signedIn={signedIn} />
+      <HeroShowcase />
 
       {/* The four-part framework */}
       <section
         id="framework"
-        className="border-border bg-surface-subtle flex flex-col items-center border-t"
+        className="border-border bg-surface-subtle border-t"
       >
-        <div className="mx-4 max-w-5xl px-4 py-20 sm:px-6 lg:px-8">
-          <h2 className="font-heading text-foreground text-2xl font-semibold sm:text-3xl">
+        <div className="mx-auto w-full max-w-2xl px-4 py-20 sm:px-6 lg:px-8">
+          <h2 className="font-heading text-foreground text-2xl font-semibold sm:text-3xl text-center">
             The framework underneath every dish.
           </h2>
           <WorkflowPath steps={FRAMEWORK_STEPS} className="mt-8" />
 
-          <ol className="border-border mt-6 flex flex-col border-l">
+          <ol className="border-border ml-4 mt-6 flex flex-col border-l">
             {TIMELINE.map(
               ({ title, accent, ring, icon: Icon, body }, index) => (
                 <li
                   key={title}
-                  className="relative pr-4 pb-12 pl-8 last:pb-0 sm:pr-0"
+                  className="relative pb-12 pl-8 last:pb-0"
                 >
                   <span
                     className={`absolute top-0 -left-[19px] flex size-9 items-center justify-center rounded-full border-2 ${ring}`}
@@ -95,9 +91,8 @@ export default async function MarketingHomePage() {
       </section>
 
       <ClosingCta
-        heading="Make every meal better than the last."
+        heading="Make every dish better than the last."
         description="Build it clearly, plan it into the week, cook without losing your place, and keep what you learn for next time."
-        signedIn={signedIn}
       />
     </>
   );

@@ -3,10 +3,10 @@ import { cn } from "@/lib/utils";
 type Accent = "blue" | "green" | "orange" | "violet" | "neutral";
 
 const ACCENT_RING: Record<Accent, string> = {
-  blue: "border-primary bg-primary/10 text-primary",
-  green: "border-brand-green bg-brand-green/10 text-brand-green",
-  orange: "border-brand-orange bg-brand-orange/10 text-brand-orange",
-  violet: "border-brand-violet bg-brand-violet/10 text-brand-violet",
+  blue: "border-primary bg-primary/10 text-brand-blue-text",
+  green: "border-brand-green bg-brand-green/10 text-brand-green-text",
+  orange: "border-brand-orange bg-brand-orange/10 text-brand-orange-text",
+  violet: "border-brand-violet bg-brand-violet/10 text-brand-violet-text",
   neutral: "border-border bg-surface-subtle text-muted-foreground",
 };
 
@@ -19,8 +19,8 @@ export function WorkflowPath({
   className?: string;
 }) {
   return (
-    <div className={cn("overflow-x-auto", className)}>
-      <ol className="flex min-w-max items-start gap-0 px-1 py-2">
+    <div className={className}>
+      <ol className="flex min-w-max items-start justify-center gap-0 py-2">
         {steps.map((step, index) => (
           <li key={step.label} className="flex items-start">
             <div className="flex w-[50px] flex-col items-center gap-1.5 sm:w-[60px] sm:gap-2">

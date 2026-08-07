@@ -63,7 +63,7 @@ export default async function SettingsPage() {
               Choose Light, Dark, or match your device.
             </p>
           </div>
-          <ThemeToggle />
+          <ThemeToggle size="large" />
         </div>
       </section>
 

@@ -40,6 +40,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# lighthouse audit scratch output
+/.lighthouse-tmp/
+
 # prisma
 /src/generated/
 

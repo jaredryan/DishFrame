@@ -26,8 +26,12 @@ describe("PublicHeader", () => {
     expect(
       screen.getAllByRole("link", { name: "Sign in" }).length,
     ).toBeGreaterThan(0);
-    expect(
-      screen.getAllByRole("link", { name: "Create your first Recipe" }).length,
-    ).toBeGreaterThan(0);
+    const ctas = screen.getAllByRole("link", {
+      name: "Create your first recipe",
+    });
+    expect(ctas.length).toBeGreaterThan(0);
+    for (const cta of ctas) {
+      expect(cta).toHaveAttribute("href", "/recipes/new");
+    }
   });
 });

@@ -76,7 +76,7 @@ const STATES: {
   },
   {
     id: "cooking-sessions",
-    tabLabel: "Learn each time",
+    tabLabel: "Keep learning",
     heading: "Learn from every cooking session.",
     description:
       "Save notes, ratings, and meaningful changes while the details are still fresh.",
@@ -90,7 +90,7 @@ const STATES: {
 const PANEL_TRANSITION =
   "[grid-area:1/1] transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none motion-reduce:transform-none";
 
-export function HeroShowcase({ signedIn }: { signedIn: boolean }) {
+export function HeroShowcase() {
   const [activeIndex, setActiveIndex] = useState(0);
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const baseId = useId();
@@ -130,8 +130,8 @@ export function HeroShowcase({ signedIn }: { signedIn: boolean }) {
   const active = STATES[activeIndex];
 
   return (
-    <section className="mx-auto grid max-w-6xl gap-14 px-4 pt-16 pb-20 sm:px-6 sm:pt-20 sm:pb-28 lg:grid-cols-2 lg:items-center lg:gap-10 lg:px-8 [&>*]:min-w-0">
-      <div className="flex min-w-0 flex-col items-center gap-6 lg:items-start">
+    <section className="mx-auto grid max-w-6xl gap-8 px-4 pt-16 pb-20 sm:px-6 sm:pt-20 sm:pb-28 lg:grid-cols-2 lg:items-center lg:gap-x-10 lg:gap-y-6 lg:px-8 [&>*]:min-w-0">
+      <div className="flex min-w-0 flex-col items-center gap-6 lg:col-start-1 lg:row-start-1 lg:items-start">
         <span className="text-primary text-sm font-semibold tracking-wide uppercase">
           Your personal cooking framework
         </span>
@@ -182,7 +182,7 @@ export function HeroShowcase({ signedIn }: { signedIn: boolean }) {
           role="tablist"
           aria-label="Hero feature"
           aria-orientation="horizontal"
-          className="grid w-full max-w-lg min-w-0 grid-cols-3 gap-2"
+          className="grid w-full max-w-lg min-w-0 grid-cols-3 gap-1.5 sm:gap-2"
         >
           {STATES.map((state, index) => {
             const isActive = index === activeIndex;
@@ -220,31 +220,12 @@ export function HeroShowcase({ signedIn }: { signedIn: boolean }) {
             );
           })}
         </div>
-
-        <div className="flex flex-col gap-3 sm:flex-row">
-          <Button size="lg" asChild>
-            {signedIn ? (
-              <Link href="/home">
-                Open DishFrame
-                <ArrowRight className="size-4" aria-hidden="true" />
-              </Link>
-            ) : (
-              <Link href="/sign-in">
-                Create your first Recipe
-                <ArrowRight className="size-4" aria-hidden="true" />
-              </Link>
-            )}
-          </Button>
-          <Button size="lg" variant="outline" asChild>
-            <Link href="#framework">See how DishFrame works</Link>
-          </Button>
-        </div>
       </div>
 
       <div
         role="img"
         aria-label={active.visualLabel}
-        className="relative mx-auto grid aspect-4/3 w-full max-w-md min-w-0"
+        className="relative mx-auto grid aspect-4/3 w-full max-w-md min-w-0 lg:col-start-2 lg:row-span-2 lg:row-start-1"
       >
         {STATES.map((state, index) => {
           const isActive = index === activeIndex;
@@ -263,6 +244,18 @@ export function HeroShowcase({ signedIn }: { signedIn: boolean }) {
             </div>
           );
         })}
+      </div>
+
+      <div className="mt-4 flex flex-col justify-center gap-3 sm:flex-row lg:col-start-1 lg:row-start-2 lg:mt-0 lg:justify-start">
+        <Button size="lg" asChild>
+          <Link href="/recipes/new">
+            Create your first recipe
+            <ArrowRight className="size-4" aria-hidden="true" />
+          </Link>
+        </Button>
+        <Button size="lg" variant="outline" asChild>
+          <Link href="#framework">See how DishFrame works</Link>
+        </Button>
       </div>
     </section>
   );

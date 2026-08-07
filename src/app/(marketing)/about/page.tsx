@@ -1,13 +1,20 @@
 import type { Metadata } from "next";
 import { CalendarDays, ChefHat, History, Layers } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getServerSession } from "@/lib/auth/session";
 import { AboutHeroVisual } from "@/components/marketing/about-hero-visual";
 import { PartsMoment } from "@/components/marketing/parts-moment";
 import { PlanMoment } from "@/components/marketing/plan-moment";
 import { CookMoment } from "@/components/marketing/cook-moment";
 import { ImproveMoment } from "@/components/marketing/improve-moment";
 import { ClosingCta } from "@/components/marketing/closing-cta";
+import {
+  AboutFrameworkThreadSegment,
+  type ThreadAccent,
+} from "@/components/marketing/about-framework-thread";
+
+// PROTOTYPE: pairs with AboutFrameworkThreadSegment below — see
+// docs/PUBLIC_PAGES_DESIGN_POLISH.md for rollback steps.
+const THREAD_ACCENTS: ThreadAccent[] = ["blue", "green", "orange", "violet"];
 
 export const metadata: Metadata = {
   title: "About",
@@ -26,7 +33,7 @@ export const metadata: Metadata = {
 
 const PROBLEMS = [
   {
-    number: "01",
+    number: "1",
     accent: "primary" as const,
     title: "Hard to use while cooking",
     body: "Recipes often lived in scattered personal notes or inside an app as one long block of text. While cooking, that meant scrolling up and down to find the right ingredient group, a sauce instruction, a timing note, the preparation for one part of the dish, or the next step. Saving a Recipe did not automatically make it easy to cook from.",
@@ -34,8 +41,8 @@ const PROBLEMS = [
       "DishFrame breaks a Recipe into clear Sections, helps you prepare before you begin, and gives you a Cooking Mode designed to be followed in the kitchen.",
   },
   {
-    number: "02",
-    accent: "violet" as const,
+    number: "2",
+    accent: "green" as const,
     title: "Hard to improve and keep updated",
     body: "Cooking can be experimental. There was no easy way to track how each experiment and piece of feedback panned out. The usual choices were to overwrite the old Recipe, scatter more observations into separate notes, or try to recall what happened last time. Repeated Parts made this worse. If the white rice, sauce, or topping changed, every Recipe using it had to be edited separately.",
     response:
@@ -51,9 +58,9 @@ const PROBLEM_STYLES = {
     numeral: "text-brand-blue-text/65",
     callout: "border-primary bg-primary/5 text-foreground",
   },
-  violet: {
-    numeral: "text-brand-violet-text/65",
-    callout: "border-brand-violet bg-brand-violet/5 text-foreground",
+  green: {
+    numeral: "text-brand-green-text/65",
+    callout: "border-brand-green bg-brand-green/5 text-foreground",
   },
 };
 
@@ -92,14 +99,11 @@ const STEPS = [
   },
 ];
 
-export default async function AboutPage() {
-  const session = await getServerSession();
-  const signedIn = Boolean(session);
-
+export default function AboutPage() {
   return (
     <>
       {/* Hero */}
-      <div className="mx-auto grid max-w-5xl gap-12 px-4 py-16 sm:px-6 sm:py-20 lg:grid-cols-[9fr_11fr] lg:items-center lg:gap-16 lg:px-8">
+      <div className="mx-auto grid w-full max-w-5xl gap-12 px-4 py-16 sm:px-6 sm:py-20 lg:grid-cols-[9fr_11fr] lg:items-center lg:gap-16 lg:px-8">
         <div className="mx-auto max-w-xl text-left lg:order-last lg:mx-0 lg:max-w-md">
           <span className="text-primary text-sm font-semibold tracking-wide uppercase">
             Why DishFrame exists
@@ -181,13 +185,13 @@ export default async function AboutPage() {
             The framework underneath every dish.
           </h2>
 
-          <div className="mt-14 flex flex-col gap-20">
+          <div className="mt-14 flex flex-col gap-28">
             {STEPS.map(
               ({ title, accent, ring, icon: Icon, body, Visual }, index) => (
                 <div
                   key={title}
                   className={cn(
-                    "flex flex-col gap-8 lg:items-center lg:gap-16",
+                    "relative flex flex-col gap-8 lg:items-center lg:gap-16",
                     index % 2 === 1 ? "lg:flex-row-reverse" : "lg:flex-row",
                   )}
                 >
@@ -211,6 +215,12 @@ export default async function AboutPage() {
                   <div className="flex flex-1 justify-center">
                     <Visual />
                   </div>
+                  {index < STEPS.length - 1 && (
+                    <AboutFrameworkThreadSegment
+                      from={THREAD_ACCENTS[index]}
+                      to={THREAD_ACCENTS[index + 1]}
+                    />
+                  )}
                 </div>
               ),
             )}
@@ -221,7 +231,6 @@ export default async function AboutPage() {
       <ClosingCta
         heading="Organize meals, cooking, and feedback."
         description="All so everything is easier and tastier next time."
-        signedIn={signedIn}
       />
     </>
   );

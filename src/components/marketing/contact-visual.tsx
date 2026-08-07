@@ -27,7 +27,7 @@ export function ContactVisual({ className }: { className?: string }) {
       </div>
 
       <div
-        className="border-brand-violet/30 bg-card text-brand-violet-text absolute -right-5 -bottom-5 z-20 hidden w-48 items-center gap-1.5 rounded-xl border p-3 shadow-md sm:flex"
+        className="border-brand-green/30 bg-card text-brand-green-text absolute -right-5 -bottom-5 z-20 hidden items-center gap-1.5 rounded-xl border p-3 shadow-md sm:flex"
         aria-hidden="true"
       >
         <MessageCircle className="size-3.5 shrink-0" />

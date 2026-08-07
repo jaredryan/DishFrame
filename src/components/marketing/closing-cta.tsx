@@ -1,19 +1,19 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ClosingCtaDotPattern } from "@/components/marketing/closing-cta-dot-pattern";
 
 export function ClosingCta({
   heading,
   description,
-  signedIn,
 }: {
   heading: string;
   description: string;
-  signedIn: boolean;
 }) {
   return (
-    <section className="bg-primary text-primary-foreground">
-      <div className="mx-auto flex max-w-6xl flex-col items-center gap-6 px-4 py-20 text-center sm:px-6 lg:px-8">
+    <section className="bg-primary text-primary-foreground relative overflow-hidden">
+      <ClosingCtaDotPattern />
+      <div className="relative z-10 mx-auto flex max-w-6xl flex-col items-center gap-6 px-4 py-20 text-center sm:px-6 lg:px-8">
         <h2 className="font-heading max-w-xl text-3xl font-semibold text-balance">
           {heading}
         </h2>
@@ -25,17 +25,10 @@ export function ClosingCta({
           asChild
           className="bg-primary-foreground text-primary hover:bg-primary-foreground/90"
         >
-          {signedIn ? (
-            <Link href="/home">
-              Open DishFrame
-              <ArrowRight className="size-4" aria-hidden="true" />
-            </Link>
-          ) : (
-            <Link href="/sign-in">
-              Create your first Recipe
-              <ArrowRight className="size-4" aria-hidden="true" />
-            </Link>
-          )}
+          <Link href="/recipes/new">
+            Create your first recipe
+            <ArrowRight className="size-4" aria-hidden="true" />
+          </Link>
         </Button>
       </div>
     </section>
