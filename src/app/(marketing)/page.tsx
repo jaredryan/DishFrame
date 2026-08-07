@@ -56,18 +56,15 @@ export default function MarketingHomePage() {
         className="border-border bg-surface-subtle border-t"
       >
         <div className="mx-auto w-full max-w-2xl px-4 py-20 sm:px-6 lg:px-8">
-          <h2 className="font-heading text-foreground text-2xl font-semibold sm:text-3xl text-center">
+          <h2 className="font-heading text-foreground text-center text-2xl font-semibold sm:text-3xl">
             The framework underneath every dish.
           </h2>
           <WorkflowPath steps={FRAMEWORK_STEPS} className="mt-8" />
 
-          <ol className="border-border ml-4 mt-6 flex flex-col border-l">
+          <ol className="border-border mt-6 ml-4 flex flex-col border-l">
             {TIMELINE.map(
               ({ title, accent, ring, icon: Icon, body }, index) => (
-                <li
-                  key={title}
-                  className="relative pb-12 pl-8 last:pb-0"
-                >
+                <li key={title} className="relative pb-12 pl-8 last:pb-0">
                   <span
                     className={`absolute top-0 -left-[19px] flex size-9 items-center justify-center rounded-full border-2 ${ring}`}
                     aria-hidden="true"
