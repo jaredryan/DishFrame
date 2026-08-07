@@ -65,17 +65,15 @@ export default async function SharePage() {
   }, 0);
 
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-10">
+    <div className="mx-auto flex max-w-2xl flex-col gap-6">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="font-heading text-foreground text-2xl font-semibold">
             Sharing
           </h1>
           <p className="text-muted-foreground mt-2">
-            Send recipes and parts directly to another DishFrame user, or create
-            a public link anyone can view without an account. Start a new one
-            from here, or from the Share or Send to user action on any recipe or
-            part.
+            Exchange recipes and parts directly with other DishFrame users, or
+            create public links anyone can view without an account.
           </p>
         </div>
         <SendRecipesButton />
@@ -93,11 +91,6 @@ export default async function SharePage() {
       </CoachMark>
 
       <section className="space-y-4">
-        <h2 className="text-foreground text-lg font-semibold">Sent</h2>
-        <DirectShareSentList items={sentItems} />
-      </section>
-
-      <section className="space-y-4">
         <div className="flex items-center gap-2">
           <h2 className="text-foreground text-lg font-semibold">Received</h2>
           {pendingReceivedCount > 0 && (
@@ -105,6 +98,11 @@ export default async function SharePage() {
           )}
         </div>
         <DirectShareReceivedList items={receivedItems} />
+      </section>
+
+      <section className="space-y-4">
+        <h2 className="text-foreground text-lg font-semibold">Sent</h2>
+        <DirectShareSentList items={sentItems} />
       </section>
 
       <section className="space-y-4">

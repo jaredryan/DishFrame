@@ -125,12 +125,18 @@ function ReceivedSingleCard({
           <Button
             variant="destructive"
             size="sm"
+            className="h-[1.875rem]"
             onClick={handleDecline}
             disabled={isPending}
           >
             Decline
           </Button>
-          <Button size="sm" onClick={handleAccept} disabled={isPending}>
+          <Button
+            size="sm"
+            className="h-[1.875rem]"
+            onClick={handleAccept}
+            disabled={isPending}
+          >
             Accept
           </Button>
         </div>
@@ -201,7 +207,11 @@ function ReceivedGroupCard({
           {expanded ? "Hide recipes" : "Show recipes"}
         </Button>
         {pendingCount > 0 && (
-          <Button size="sm" onClick={() => setReviewOpen(true)}>
+          <Button
+            size="sm"
+            className="h-[1.875rem]"
+            onClick={() => setReviewOpen(true)}
+          >
             Review
           </Button>
         )}

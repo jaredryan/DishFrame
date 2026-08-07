@@ -257,7 +257,7 @@ test.describe("Home dashboard: populated data", () => {
     await picker.getByPlaceholder("Search").fill(recipeTitle);
     await picker.getByRole("button", { name: new RegExp(recipeTitle) }).click();
     await picker.getByRole("button", { name: "Cook", exact: true }).click();
-    await expect(page).toHaveURL(/\/cook$/, { timeout: 15_000 });
+    await expect(page).toHaveURL(/\/cook\?from=home$/, { timeout: 15_000 });
     await page.getByRole("button", { name: "Start cooking" }).click();
     await expect(page).toHaveURL(/\/cook\/[^/]+$/, { timeout: 15_000 });
 

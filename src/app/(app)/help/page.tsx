@@ -115,7 +115,7 @@ const DIRECT_LINKS = [
 
 export default function HelpPage() {
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-10">
+    <div className="mx-auto flex max-w-2xl flex-col gap-6">
       <div>
         <h1 className="font-heading text-foreground text-2xl font-semibold">
           Help

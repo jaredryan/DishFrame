@@ -136,19 +136,32 @@ function SentGroupCard({
       </p>
       {item.note && <p className="text-sm italic">&ldquo;{item.note}&rdquo;</p>}
 
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={() => setExpanded((prev) => !prev)}
-      >
-        {expanded ? (
-          <ChevronUp aria-hidden="true" />
-        ) : (
-          <ChevronDown aria-hidden="true" />
+      <div className="flex items-center gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => setExpanded((prev) => !prev)}
+        >
+          {expanded ? (
+            <ChevronUp aria-hidden="true" />
+          ) : (
+            <ChevronDown aria-hidden="true" />
+          )}
+          {expanded ? "Hide recipes" : "Show recipes"}
+        </Button>
+        {hasPending && (
+          <Button
+            variant="destructive"
+            size="sm"
+            className="h-[1.875rem]"
+            onClick={handleCancel}
+            disabled={isPending}
+          >
+            Cancel pending
+          </Button>
         )}
-        {expanded ? "Hide recipes" : "Show recipes"}
-      </Button>
+      </div>
 
       {expanded && (
         <ul className="border-border divide-border rounded-md border">
@@ -169,16 +182,6 @@ function SentGroupCard({
       )}
 
       {error && <p className="text-destructive-text text-sm">{error}</p>}
-      {hasPending && (
-        <Button
-          variant="destructive"
-          size="sm"
-          onClick={handleCancel}
-          disabled={isPending}
-        >
-          Cancel pending
-        </Button>
-      )}
     </li>
   );
 }

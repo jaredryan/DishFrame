@@ -126,16 +126,16 @@ describe("buildSentItems", () => {
     expect(items.map((item) => item.id)).toEqual(["c1", "s1"]);
   });
 
-  it("renders a one-item collection as a single item using the child's own id", () => {
+  it("renders a one-item collection as a group, preserving the Show recipes control", () => {
     const items = buildSentItems([], [sentCollection()]);
     expect(items).toHaveLength(1);
-    expect(items[0]).toMatchObject({
-      kind: "single",
-      id: "child-1",
-      dishTitleSnapshot: "Soup",
-      recipientName: "Jordan",
-      status: "PENDING",
-    });
+    expect(items[0].kind).toBe("group");
+    if (items[0].kind === "group") {
+      expect(items[0].id).toBe("col-1");
+      expect(items[0].children).toMatchObject([
+        { id: "child-1", dishTitleSnapshot: "Soup", status: "PENDING" },
+      ]);
+    }
   });
 
   it("renders a multi-item collection as a group with its children", () => {

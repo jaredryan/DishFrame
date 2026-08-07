@@ -44,6 +44,17 @@ const GROUP: SentItemView = {
   ],
 };
 
+const ONE_RECIPE_GROUP: SentItemView = {
+  kind: "group",
+  id: "col-2",
+  recipientName: "Sam",
+  recipientLookup: "sam@example.invalid",
+  hasJoined: true,
+  note: null,
+  createdAt: "2026-01-03T00:00:00.000Z",
+  children: [{ id: "c3", dishTitleSnapshot: "Ramen", status: "PENDING" }],
+};
+
 describe("DirectShareSentList", () => {
   beforeEach(() => {
     mockRefresh.mockClear();
@@ -94,6 +105,20 @@ describe("DirectShareSentList", () => {
     expect(mockCancelCollection).toHaveBeenCalledWith({
       collectionId: "col-1",
     });
+  });
+
+  it("keeps the Show recipes control for a one-recipe collection", async () => {
+    const user = userEvent.setup();
+    render(<DirectShareSentList items={[ONE_RECIPE_GROUP]} />);
+
+    expect(screen.getByText("Sam")).toBeInTheDocument();
+    expect(screen.getByText(/1 recipe(?!s)/)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Show recipes" }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Show recipes" }));
+    expect(screen.getByText("Ramen")).toBeInTheDocument();
   });
 
   it("shows an empty-state message when nothing has been sent", () => {
