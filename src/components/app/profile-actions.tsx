@@ -21,10 +21,12 @@ export function ProfileActions() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="border-border bg-card flex items-center justify-between gap-4 rounded-xl border p-4">
-        <div>
-          <p className="text-foreground text-sm font-medium">Export my data</p>
+    <>
+      <section className="flex flex-col gap-4">
+        <h2 className="text-foreground text-lg font-semibold">
+          Export my data
+        </h2>
+        <div className="border-border bg-card flex items-center justify-between gap-4 rounded-xl border p-4">
           <p className="text-muted-foreground text-sm">
             Downloads a structured export of your account data — Recipes, Parts,
             Cooking Sessions, Cooking notes, Session Reviews, and Taster data
@@ -32,27 +34,31 @@ export function ProfileActions() {
             image files aren&apos;t included, and there&apos;s no import path
             back into DishFrame yet. Keep the file private.
           </p>
+          <Button variant="outline" asChild>
+            <a href="/api/export/account" download>
+              <Download />
+              Export
+            </a>
+          </Button>
         </div>
-        <Button variant="outline" asChild>
-          <a href="/api/export/account" download>
-            <Download />
-            Export
-          </a>
-        </Button>
-      </div>
+      </section>
 
-      <div className="border-border bg-card flex items-center justify-between rounded-xl border p-4">
-        <div>
-          <p className="text-foreground text-sm font-medium">Sign out</p>
+      <section className="flex flex-col gap-4">
+        <h2 className="text-foreground text-lg font-semibold">Sign out</h2>
+        <div className="border-border bg-card flex items-center justify-between rounded-xl border p-4">
           <p className="text-muted-foreground text-sm">
             End your session on this device.
           </p>
+          <Button
+            variant="outline"
+            disabled={signingOut}
+            onClick={handleSignOut}
+          >
+            <LogOut />
+            {signingOut ? "Signing out…" : "Sign out"}
+          </Button>
         </div>
-        <Button variant="outline" disabled={signingOut} onClick={handleSignOut}>
-          <LogOut />
-          {signingOut ? "Signing out…" : "Sign out"}
-        </Button>
-      </div>
-    </div>
+      </section>
+    </>
   );
 }

@@ -35,13 +35,19 @@ export default async function RecipeCookingSetupPage({
   searchParams,
 }: {
   params: Promise<{ dishId: string }>;
-  searchParams: Promise<{ versionId?: string }>;
+  searchParams: Promise<{ versionId?: string; from?: string }>;
 }) {
   const session = await getServerSession();
   if (!session) redirect("/sign-in");
 
   const { dishId } = await params;
-  const { versionId } = await searchParams;
+  const { versionId, from } = await searchParams;
+  const cancelHref =
+    from === "home"
+      ? "/home"
+      : from === "cook"
+        ? "/cook"
+        : `/recipes/${dishId}`;
 
   let dish, version;
   try {
@@ -85,7 +91,6 @@ export default async function RecipeCookingSetupPage({
 
   return (
     <CookingSetup
-      kind="RECIPE"
       dishId={dish.id}
       dishVersionId={version.id}
       dishTitle={dish.currentTitle || "Untitled"}
@@ -94,6 +99,7 @@ export default async function RecipeCookingSetupPage({
       units={units}
       sourceOutputQuantity={decimalToNumber(version.yieldQuantity)}
       sourceOutputUnit={version.yieldUnit}
+      cancelHref={cancelHref}
     />
   );
 }

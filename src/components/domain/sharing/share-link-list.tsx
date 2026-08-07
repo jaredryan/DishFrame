@@ -11,6 +11,7 @@ import {
   regenerateShareLink,
   updateShareLinkSettings,
 } from "@/lib/sharing/actions";
+import { shareLinkLifecycle } from "@/lib/sharing/view-model";
 import type { ShareLinkModeValue } from "@/lib/sharing/schema";
 
 export type ShareLinkSummary = {
@@ -24,6 +25,16 @@ export type ShareLinkSummary = {
   createdAt: string;
 };
 
+const MODE_LABEL: Record<ShareLinkModeValue, string> = {
+  CURRENT: "Always up to date",
+  FIXED_SNAPSHOT: "Snapshot",
+};
+
+const MODE_DESCRIPTION: Record<ShareLinkModeValue, string> = {
+  CURRENT: "Follows your recipe or part as you keep editing it.",
+  FIXED_SNAPSHOT: "Stays exactly as it looked when you shared it.",
+};
+
 function ShareLinkRow({ link }: { link: ShareLinkSummary }) {
   const router = useRouter();
   const [isPending, startTransition] = React.useTransition();
@@ -31,16 +42,14 @@ function ShareLinkRow({ link }: { link: ShareLinkSummary }) {
   const [copied, setCopied] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  const isRevoked = link.revokedAt !== null;
-  const isExpired =
-    link.expiresAt !== null && new Date(link.expiresAt) < new Date();
+  const lifecycle = shareLinkLifecycle(link);
 
   async function handleCopy() {
     await navigator.clipboard.writeText(url);
     setCopied(true);
   }
 
-  function handleRevoke() {
+  function handleDisable() {
     setError(null);
     startTransition(async () => {
       const result = await revokeShareLink({ shareLinkId: link.id });
@@ -52,13 +61,14 @@ function ShareLinkRow({ link }: { link: ShareLinkSummary }) {
     });
   }
 
-  function handleRegenerate() {
+  function handleReplace() {
     setError(null);
     startTransition(async () => {
       const result = await regenerateShareLink({ shareLinkId: link.id });
       if (result.status === "success") {
         setUrl(result.url);
         setCopied(false);
+        router.refresh();
       } else {
         setError(result.message);
       }
@@ -81,33 +91,46 @@ function ShareLinkRow({ link }: { link: ShareLinkSummary }) {
   }
 
   return (
-    <li className="border-border space-y-2 rounded-lg border p-4">
+    <li className="border-border bg-card space-y-2 rounded-lg border p-4">
       <div className="flex items-center justify-between gap-2">
         <p className="font-medium">{link.dishTitleSnapshot}</p>
         <div className="flex gap-1">
-          <Badge variant="outline">
-            {link.mode === "FIXED_SNAPSHOT" ? "Fixed" : "Current"}
-          </Badge>
-          {isRevoked && <Badge variant="secondary">Revoked</Badge>}
-          {!isRevoked && isExpired && (
+          <Badge variant="outline">{MODE_LABEL[link.mode]}</Badge>
+          {lifecycle === "disabled" && (
+            <Badge variant="secondary">Disabled</Badge>
+          )}
+          {lifecycle === "expired" && (
             <Badge variant="secondary">Expired</Badge>
           )}
         </div>
       </div>
+      <p className="text-muted-foreground text-sm">
+        {MODE_DESCRIPTION[link.mode]}
+      </p>
 
-      {!isRevoked && (
+      {lifecycle === "active" && (
         <div className="border-border bg-muted flex items-center gap-2 rounded-md border px-3 py-2">
           <code className="flex-1 truncate text-sm">{url}</code>
-          <Button variant="outline" size="icon" onClick={handleCopy}>
+          <Button
+            variant="outline"
+            size="icon"
+            aria-label="Copy link"
+            onClick={handleCopy}
+          >
             <CopyIcon aria-hidden="true" />
           </Button>
         </div>
       )}
+      {lifecycle === "expired" && (
+        <p className="text-muted-foreground text-sm">
+          This link stopped working. Replace it to share a working link again.
+        </p>
+      )}
       {copied && <p className="text-muted-foreground text-sm">Copied.</p>}
 
-      {!isRevoked && (
+      {lifecycle === "active" && (
         <div className="flex items-center justify-between">
-          <span className="text-sm">Show my name</span>
+          <span className="text-sm">Show my name on shared page</span>
           <Switch
             checked={link.showCreatorName}
             disabled={isPending}
@@ -118,24 +141,26 @@ function ShareLinkRow({ link }: { link: ShareLinkSummary }) {
 
       {error && <p className="text-destructive-text text-sm">{error}</p>}
 
-      {!isRevoked && (
+      {lifecycle !== "disabled" && (
         <div className="flex gap-2">
           <Button
             variant="outline"
             size="sm"
-            onClick={handleRegenerate}
+            onClick={handleReplace}
             disabled={isPending}
           >
-            Regenerate
+            Replace link
           </Button>
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={handleRevoke}
-            disabled={isPending}
-          >
-            Revoke
-          </Button>
+          {lifecycle === "active" && (
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={handleDisable}
+              disabled={isPending}
+            >
+              Disable link
+            </Button>
+          )}
         </div>
       )}
     </li>
@@ -150,7 +175,7 @@ export function ShareLinkList({
   if (shareLinks.length === 0) {
     return (
       <p className="text-muted-foreground text-sm">
-        You haven&apos;t shared anything yet.
+        You haven&apos;t shared any links yet.
       </p>
     );
   }

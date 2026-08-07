@@ -10,19 +10,29 @@ const MAX_VISIBLE_TAGS = 3;
  * pickers — a handful of Badges plus a compact "+N" overflow indicator, so a
  * heavily-tagged item never blows out the row height.
  */
-function PickerTagList({ tags }: { tags: string[] }) {
+function PickerTagList({
+  tags,
+  selected,
+}: {
+  tags: string[];
+  selected?: boolean;
+}) {
   if (tags.length === 0) return null;
   const shown = tags.slice(0, MAX_VISIBLE_TAGS);
   const overflow = tags.length - shown.length;
+  const selectedBorder = selected ? "border-primary/40" : undefined;
   return (
     <>
       {shown.map((tag) => (
-        <Badge key={tag} variant="outline">
+        <Badge key={tag} variant="outline" className={selectedBorder}>
           {tag}
         </Badge>
       ))}
       {overflow > 0 && (
-        <Badge variant="outline" className="text-muted-foreground">
+        <Badge
+          variant="outline"
+          className={cn("text-muted-foreground", selectedBorder)}
+        >
           +{overflow}
         </Badge>
       )}
@@ -65,8 +75,8 @@ export function PickerResultRow({
       <span className="font-medium">{title}</span>
       {(kind || tags.length > 0) && (
         <span className="flex flex-wrap items-center gap-1">
-          {kind && <DishKindBadge kind={kind} />}
-          <PickerTagList tags={tags} />
+          {kind && <DishKindBadge kind={kind} selected={selected} />}
+          <PickerTagList tags={tags} selected={selected} />
         </span>
       )}
     </button>

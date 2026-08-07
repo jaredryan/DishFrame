@@ -95,8 +95,8 @@ test.describe("Home dashboard: navigation (empty account)", () => {
       ).toBeVisible();
     }
 
-    // --- Continue cooking: Start cooking opens the "Select something to
-    // cook" picker, empty state, View cooking sessions -> Cook ---
+    // --- Continue cooking: Start cooking opens the "What will you
+    // cook?" picker, empty state, View cooking sessions -> Cook ---
     const cooking = dashboardSection(page, "Continue cooking");
     await expect(
       cooking.getByText(
@@ -105,11 +105,11 @@ test.describe("Home dashboard: navigation (empty account)", () => {
     ).toBeVisible();
     await cooking.getByRole("button", { name: "Start cooking" }).click();
     const picker = page.getByRole("dialog", {
-      name: "Select something to cook",
+      name: "What will you cook?",
     });
     await expect(picker).toBeVisible();
     await expect(
-      picker.getByText("You don't have any Recipes or Parts saved yet."),
+      picker.getByText("You don't have any recipes or parts saved yet."),
     ).toBeVisible();
     await expect(
       picker.getByRole("button", { name: "Cook", exact: true }),
@@ -123,7 +123,7 @@ test.describe("Home dashboard: navigation (empty account)", () => {
     // --- Cook page's own Start cooking action opens the same picker ---
     await page.getByRole("button", { name: "Start cooking" }).click();
     await expect(
-      page.getByRole("dialog", { name: "Select something to cook" }),
+      page.getByRole("dialog", { name: "What will you cook?" }),
     ).toBeVisible();
     await page.getByRole("button", { name: "Cancel" }).click();
 
@@ -242,8 +242,8 @@ test.describe("Home dashboard: populated data", () => {
       timeout: 15_000,
     });
 
-    // --- Active Cooking Session, started via the Home "Select something to
-    // cook" picker: search, select the Recipe, Cook lands on its Cooking
+    // --- Active Cooking Session, started via the Home "What will you
+    // cook?" picker: search, select the Recipe, Cook lands on its Cooking
     // setup route (same as the Recipe's own Cook button), then the existing
     // Start cooking there creates the real session and enters Cooking Mode.
     await page.goto("/home");
@@ -251,12 +251,10 @@ test.describe("Home dashboard: populated data", () => {
       .getByRole("button", { name: "Start cooking" })
       .click();
     const picker = page.getByRole("dialog", {
-      name: "Select something to cook",
+      name: "What will you cook?",
     });
     await expect(picker).toBeVisible();
-    await picker
-      .getByPlaceholder("Search your Recipes and Parts")
-      .fill(recipeTitle);
+    await picker.getByPlaceholder("Search").fill(recipeTitle);
     await picker.getByRole("button", { name: new RegExp(recipeTitle) }).click();
     await picker.getByRole("button", { name: "Cook", exact: true }).click();
     await expect(page).toHaveURL(/\/cook$/, { timeout: 15_000 });

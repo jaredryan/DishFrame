@@ -558,7 +558,7 @@ export type AttachablePart = Awaited<
 >[number];
 
 /**
- * Slice 23 — candidate list for the "Select something to cook" picker
+ * Slice 23 — candidate list for the "What will you cook?" picker
  * (Home dashboard / Cook page): every owned, non-archived Recipe and Part
  * with a current Version, combined so the picker's All/Recipes/Parts tabs
  * can filter client-side. Mirrors `listAttachableParts`'s restrained tag

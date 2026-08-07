@@ -59,18 +59,20 @@ export function DeleteAccountDialog({ email }: { email: string }) {
 
   return (
     <>
-      <div className="border-destructive/30 bg-destructive/5 flex items-center justify-between rounded-xl border p-4">
-        <div>
-          <p className="text-foreground text-sm font-medium">Delete account</p>
+      <section className="flex flex-col gap-4">
+        <h2 className="text-foreground text-lg font-semibold">
+          Delete account
+        </h2>
+        <div className="border-destructive/30 bg-destructive/5 flex items-center justify-between rounded-xl border p-4">
           <p className="text-muted-foreground text-sm">
             Permanently removes your Recipes, Parts, Cooking Sessions, Reviews,
             and sharing history. This cannot be undone.
           </p>
+          <Button variant="destructive" onClick={() => setOpen(true)}>
+            Delete account
+          </Button>
         </div>
-        <Button variant="destructive" onClick={() => setOpen(true)}>
-          Delete account
-        </Button>
-      </div>
+      </section>
 
       <Dialog open={open} onOpenChange={(next) => !next && close()}>
         <DialogContent>

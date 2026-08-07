@@ -13,7 +13,7 @@ export function SendRecipesButton() {
     <>
       <Button onClick={() => setOpen(true)}>
         <Send aria-hidden="true" />
-        Send Recipes
+        Send recipes
       </Button>
       <DirectShareCollectionDialog open={open} onOpenChange={setOpen} />
     </>

@@ -10,8 +10,10 @@ vi.mock("@/lib/cooking/actions", () => ({
 }));
 
 const push = vi.fn();
+let mockPathname = "/home";
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push }),
+  usePathname: () => mockPathname,
 }));
 
 const mockedListCookablePickerItems = vi.mocked(listCookablePickerItems);
@@ -30,7 +32,7 @@ const SAUCE: CookablePickerItem = {
 };
 
 /**
- * "Select something to cook" picker: modeled after PartAttachPicker's own
+ * "What will you cook?" picker: modeled after PartAttachPicker's own
  * fresh-fetch-per-opening convention (part-attach-picker.test.tsx), plus the
  * All/Recipes/Parts tabs and select-then-Cook flow this picker adds on top.
  * Home and Cook each render this same component — see home-dashboard.test.tsx
@@ -40,9 +42,10 @@ describe("StartCookingButton picker", () => {
   beforeEach(() => {
     mockedListCookablePickerItems.mockReset();
     push.mockReset();
+    mockPathname = "/home";
   });
 
-  it("does not fetch until opened, and opens the Select something to cook dialog", async () => {
+  it("does not fetch until opened, and opens the What will you cook? dialog", async () => {
     const user = userEvent.setup();
     mockedListCookablePickerItems.mockResolvedValue({
       status: "success",
@@ -54,7 +57,7 @@ describe("StartCookingButton picker", () => {
 
     await user.click(screen.getByRole("button", { name: "Start cooking" }));
     expect(
-      await screen.findByRole("dialog", { name: "Select something to cook" }),
+      await screen.findByRole("dialog", { name: "What will you cook?" }),
     ).toBeInTheDocument();
     expect(mockedListCookablePickerItems).toHaveBeenCalledTimes(1);
   });
@@ -86,10 +89,7 @@ describe("StartCookingButton picker", () => {
     await user.click(screen.getByRole("button", { name: "Start cooking" }));
     await screen.findByText("Weeknight Ragu");
 
-    await user.type(
-      screen.getByPlaceholderText("Search your Recipes and Parts"),
-      "sauce",
-    );
+    await user.type(screen.getByPlaceholderText("Search"), "sauce");
     expect(screen.queryByText("Weeknight Ragu")).not.toBeInTheDocument();
     expect(screen.getByText("Tomato Sauce")).toBeInTheDocument();
   });
@@ -110,10 +110,7 @@ describe("StartCookingButton picker", () => {
 
     // Searching for the Recipe's own title while scoped to Parts finds
     // nothing — the tab restricts what search can match.
-    await user.type(
-      screen.getByPlaceholderText("Search your Recipes and Parts"),
-      "Ragu",
-    );
+    await user.type(screen.getByPlaceholderText("Search"), "Ragu");
     expect(
       screen.getByText("Nothing matches that search."),
     ).toBeInTheDocument();
@@ -151,12 +148,13 @@ describe("StartCookingButton picker", () => {
 
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(
-      screen.queryByRole("dialog", { name: "Select something to cook" }),
+      screen.queryByRole("dialog", { name: "What will you cook?" }),
     ).not.toBeInTheDocument();
     expect(push).not.toHaveBeenCalled();
   });
 
-  it("Cook navigates into the selected Recipe's own Cooking setup route", async () => {
+  it("Cook navigates into the selected Recipe's own Cooking setup route, tagged with the Home origin so Cancel returns here", async () => {
+    mockPathname = "/home";
     const user = userEvent.setup();
     mockedListCookablePickerItems.mockResolvedValue({
       status: "success",
@@ -169,10 +167,11 @@ describe("StartCookingButton picker", () => {
     );
     await user.click(screen.getByRole("button", { name: "Cook" }));
 
-    expect(push).toHaveBeenCalledWith("/recipes/recipe-1/cook");
+    expect(push).toHaveBeenCalledWith("/recipes/recipe-1/cook?from=home");
   });
 
-  it("Cook navigates into the selected Part's own Cooking setup route", async () => {
+  it("Cook navigates into the selected Part's own Cooking setup route, tagged with the Cook-page origin so Cancel returns here", async () => {
+    mockPathname = "/cook";
     const user = userEvent.setup();
     mockedListCookablePickerItems.mockResolvedValue({
       status: "success",
@@ -185,6 +184,6 @@ describe("StartCookingButton picker", () => {
     );
     await user.click(screen.getByRole("button", { name: "Cook" }));
 
-    expect(push).toHaveBeenCalledWith("/parts/part-1/cook");
+    expect(push).toHaveBeenCalledWith("/parts/part-1/cook?from=cook");
   });
 });

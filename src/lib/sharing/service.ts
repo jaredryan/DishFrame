@@ -12,6 +12,7 @@ import type { DishKindValue } from "@/lib/dishes/schema";
 import {
   generateTokenId,
   buildShareToken,
+  buildShareUrl,
   parseShareToken,
 } from "@/lib/sharing/tokens";
 import {
@@ -159,7 +160,7 @@ export async function getShareLinkUrl(
   shareLinkId: string,
 ): Promise<string> {
   const shareLink = await getOwnedShareLinkOrThrow(ownerId, shareLinkId);
-  return buildShareToken(shareLink.tokenId);
+  return buildShareUrl(shareLink.tokenId);
 }
 
 export async function revokeShareLink(
@@ -179,6 +180,11 @@ export async function revokeShareLink(
  * findable at lookup time, no separate revocation flag needed for the old
  * value (Build Plan's Slice 16 entry, "not because its old signature stops
  * verifying").
+ *
+ * If the link was already past its expiration, regenerating also clears
+ * `expiresAt` — otherwise the freshly issued token would be dead on
+ * arrival, which defeats the point of the owner replacing an expired link
+ * with a working one.
  */
 export async function regenerateShareLink(
   ownerId: string,
@@ -186,11 +192,13 @@ export async function regenerateShareLink(
 ): Promise<string> {
   const shareLink = await getOwnedShareLinkOrThrow(ownerId, shareLinkId);
   const tokenId = generateTokenId();
+  const wasExpired =
+    shareLink.expiresAt !== null && shareLink.expiresAt.getTime() < Date.now();
   await prisma.shareLink.update({
     where: { id: shareLink.id },
-    data: { tokenId },
+    data: { tokenId, ...(wasExpired ? { expiresAt: null } : {}) },
   });
-  return buildShareToken(tokenId);
+  return buildShareUrl(tokenId);
 }
 
 export async function updateShareLinkSettings(
@@ -699,6 +707,7 @@ export type SentDirectShareSummary = {
   dishTitleSnapshot: string;
   recipientName: string | null;
   recipientLookup: string;
+  hasJoined: boolean;
   note: string | null;
   status: DirectShareStatusValue;
   createdAt: Date;
@@ -727,6 +736,7 @@ export async function listSentDirectShares(
     dishTitleSnapshot: row.dishTitleSnapshot,
     recipientName: row.recipient?.name ?? null,
     recipientLookup: row.recipientLookup,
+    hasJoined: row.recipientId !== null,
     note: row.note,
     status: row.status,
     createdAt: row.createdAt,

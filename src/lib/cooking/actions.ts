@@ -43,7 +43,7 @@ export type ListCookablePickerItemsActionState =
   | { status: "error"; message: string };
 
 /**
- * Fresh every call, never cached — the "Select something to cook" picker
+ * Fresh every call, never cached — the "What will you cook?" picker
  * (Home dashboard / Cook page) fetches this each time it opens, same
  * convention as `sections/actions.ts`'s `listAttachableParts`.
  */

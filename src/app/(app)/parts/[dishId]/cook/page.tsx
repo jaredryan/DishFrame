@@ -35,13 +35,15 @@ export default async function PartCookingSetupPage({
   searchParams,
 }: {
   params: Promise<{ dishId: string }>;
-  searchParams: Promise<{ versionId?: string }>;
+  searchParams: Promise<{ versionId?: string; from?: string }>;
 }) {
   const session = await getServerSession();
   if (!session) redirect("/sign-in");
 
   const { dishId } = await params;
-  const { versionId } = await searchParams;
+  const { versionId, from } = await searchParams;
+  const cancelHref =
+    from === "home" ? "/home" : from === "cook" ? "/cook" : `/parts/${dishId}`;
 
   let dish, version;
   try {
@@ -81,7 +83,6 @@ export default async function PartCookingSetupPage({
 
   return (
     <CookingSetup
-      kind="PART"
       dishId={dish.id}
       dishVersionId={version.id}
       dishTitle={dish.currentTitle || "Untitled"}
@@ -90,6 +91,7 @@ export default async function PartCookingSetupPage({
       units={units}
       sourceOutputQuantity={decimalToNumber(version.yieldQuantity)}
       sourceOutputUnit={version.yieldUnit}
+      cancelHref={cancelHref}
     />
   );
 }

@@ -23,7 +23,6 @@ import {
   ScaleControl,
   computeOutputBasis,
 } from "@/components/domain/cooking/scale-control";
-import type { DishKindValue } from "@/lib/dishes/schema";
 
 export type SetupUnit = {
   unitKey: string;
@@ -63,7 +62,6 @@ function countsLabel(unit: SetupUnit): string {
  * no residue by construction (Gate 4), never an explicit cleanup call.
  */
 export function CookingSetup({
-  kind,
   dishId,
   dishVersionId,
   dishTitle,
@@ -72,8 +70,8 @@ export function CookingSetup({
   units,
   sourceOutputQuantity,
   sourceOutputUnit,
+  cancelHref,
 }: {
-  kind: DishKindValue;
   dishId: string;
   dishVersionId: string;
   dishTitle: string;
@@ -82,9 +80,11 @@ export function CookingSetup({
   units: SetupUnit[];
   sourceOutputQuantity: number | null;
   sourceOutputUnit: string | null;
+  // Where Cancel returns to: the page this setup was opened from (Home, the
+  // Cook sessions list, or — the default — the item's own detail page).
+  cancelHref: string;
 }) {
   const router = useRouter();
-  const basePath = kind === "PART" ? "/parts" : "/recipes";
 
   // §23.3: every eligible unit begins included, in the server-suggested
   // order (§23.5). `includedKeys` is the ordered active plan; anything not
@@ -308,7 +308,7 @@ export function CookingSetup({
           {isPending ? "Starting…" : "Start cooking"}
         </Button>
         <Button variant="outline" asChild>
-          <Link href={`${basePath}/${dishId}`}>Cancel</Link>
+          <Link href={cancelHref}>Cancel</Link>
         </Button>
       </div>
 

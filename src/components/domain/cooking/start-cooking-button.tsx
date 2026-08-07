@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { ChefHat, RotateCcw, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,7 +28,7 @@ const TABS: { value: PickerTab; label: string }[] = [
 ];
 
 /**
- * "Select something to cook" — the Home dashboard's and Cook page's shared
+ * "What will you cook?" — the Home dashboard's and Cook page's shared
  * entry point into the existing per-item cooking flow (PRODUCT_SPEC.md
  * §5.7/§42 "Cooking entry and plan"). Modeled after `PartAttachPicker`: the
  * candidate list is fetched fresh every time the dialog opens, never a
@@ -42,6 +42,7 @@ export function StartCookingButton({
   size?: "default" | "sm";
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [open, setOpen] = React.useState(false);
   const [query, setQuery] = React.useState("");
   const [tab, setTab] = React.useState<PickerTab>("ALL");
@@ -98,7 +99,13 @@ export function StartCookingButton({
   function handleCook() {
     if (!selected) return;
     setOpen(false);
-    router.push(`${dishBasePath(selected.kind)}/${selected.id}/cook`);
+    // Lets Cooking Setup's Cancel return to wherever this picker was opened
+    // from (Home or the Cook sessions list) instead of always landing on
+    // the item's own detail page.
+    const from = pathname === "/home" ? "home" : "cook";
+    router.push(
+      `${dishBasePath(selected.kind)}/${selected.id}/cook?from=${from}`,
+    );
   }
 
   return (
@@ -121,9 +128,9 @@ export function StartCookingButton({
       >
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Select something to cook</DialogTitle>
+            <DialogTitle>What will you cook?</DialogTitle>
             <DialogDescription>
-              Search your saved Recipes and Parts, then choose one to cook.
+              Search your saved recipes and parts, then choose one to cook.
             </DialogDescription>
           </DialogHeader>
 
@@ -135,7 +142,7 @@ export function StartCookingButton({
               />
               <Input
                 autoFocus
-                placeholder="Search your Recipes and Parts"
+                placeholder="Search"
                 className="pl-8"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
@@ -164,7 +171,7 @@ export function StartCookingButton({
 
             {isLoading ? (
               <p className="text-muted-foreground py-6 text-center text-sm">
-                Loading Recipes and Parts…
+                Loading recipes and parts…
               </p>
             ) : loadError ? (
               <div className="flex flex-col items-center gap-2 py-6 text-center">
@@ -183,7 +190,7 @@ export function StartCookingButton({
                 {filtered.length === 0 && (
                   <p className="text-muted-foreground py-6 text-center text-sm">
                     {(items ?? []).length === 0
-                      ? "You don't have any Recipes or Parts saved yet."
+                      ? "You don't have any recipes or parts saved yet."
                       : tabItems.length === 0
                         ? "Nothing here yet."
                         : "Nothing matches that search."}

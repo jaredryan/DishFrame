@@ -11,12 +11,11 @@ import {
   listReceivedDirectShareCollections,
   reconcilePendingDirectShareCollectionsForViewer,
 } from "@/lib/sharing/collections";
-import { buildShareToken } from "@/lib/sharing/tokens";
+import { buildShareUrl } from "@/lib/sharing/tokens";
+import { buildSentItems, buildReceivedItems } from "@/lib/sharing/view-model";
 import { ShareLinkList } from "@/components/domain/sharing/share-link-list";
 import { DirectShareSentList } from "@/components/domain/sharing/direct-share-sent-list";
 import { DirectShareReceivedList } from "@/components/domain/sharing/direct-share-received-list";
-import { DirectShareCollectionSentList } from "@/components/domain/sharing/direct-share-collection-sent-list";
-import { DirectShareCollectionReceivedList } from "@/components/domain/sharing/direct-share-collection-received-list";
 import { SendRecipesButton } from "@/components/domain/sharing/send-recipes-button";
 import { Badge } from "@/components/ui/badge";
 import { CoachMark } from "@/components/onboarding/coach-mark";
@@ -53,12 +52,17 @@ export default async function SharePage() {
     listReceivedDirectShareCollections(session.user.id),
   ]);
 
-  const pendingReceivedCount = receivedCollections.reduce(
-    (sum, collection) =>
-      sum +
-      collection.children.filter((child) => child.status === "PENDING").length,
-    0,
-  );
+  const sentItems = buildSentItems(sentShares, sentCollections);
+  const receivedItems = buildReceivedItems(receivedShares, receivedCollections);
+
+  const pendingReceivedCount = receivedItems.reduce((sum, item) => {
+    if (item.kind === "single") {
+      return item.status === "PENDING" ? sum + 1 : sum;
+    }
+    return (
+      sum + item.children.filter((child) => child.status === "PENDING").length
+    );
+  }, 0);
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-10">
@@ -68,123 +72,53 @@ export default async function SharePage() {
             Sharing
           </h1>
           <p className="text-muted-foreground mt-2">
-            Unlisted links and direct sends for your Recipes and Parts. Create a
-            new one from the Share or Send to user action on any Recipe or Part.
+            Send recipes and parts directly to another DishFrame user, or create
+            a public link anyone can view without an account. Start a new one
+            from here, or from the Share or Send to user action on any recipe or
+            part.
           </p>
         </div>
         <SendRecipesButton />
       </div>
 
-      <CoachMark
-        guideKey="sharing-intro"
-        title="Links, direct sends, and copies"
-      >
-        A <strong className="text-foreground">Link</strong> is a read-only URL —
-        no account needed to view — either frozen to the Version you shared, or
-        set to keep following your current Version.{" "}
-        <strong className="text-foreground">Sending directly</strong> instead
-        goes to one specific DishFrame account, who can accept or decline.
+      <CoachMark guideKey="sharing-intro" title="Direct sends and public links">
+        <strong className="text-foreground">Sending directly</strong> goes to
+        one specific DishFrame account, who can accept or decline. A{" "}
+        <strong className="text-foreground">public link</strong> is a read-only
+        URL instead — no account needed to view — either always up to date with
+        your current Version, or a snapshot frozen to the Version you shared.
         Either way, saving a copy is a separate, explicit choice — the result is
         the recipient&apos;s own independent copy, which never syncs back to
         your original (or your later edits) again.
       </CoachMark>
 
       <section className="space-y-4">
-        <h2 className="text-foreground text-lg font-semibold">Links</h2>
+        <h2 className="text-foreground text-lg font-semibold">Sent</h2>
+        <DirectShareSentList items={sentItems} />
+      </section>
+
+      <section className="space-y-4">
+        <div className="flex items-center gap-2">
+          <h2 className="text-foreground text-lg font-semibold">Received</h2>
+          {pendingReceivedCount > 0 && (
+            <Badge variant="outline">{pendingReceivedCount} pending</Badge>
+          )}
+        </div>
+        <DirectShareReceivedList items={receivedItems} />
+      </section>
+
+      <section className="space-y-4">
+        <h2 className="text-foreground text-lg font-semibold">Public links</h2>
         <ShareLinkList
           shareLinks={shareLinks.map((link) => ({
             id: link.id,
             mode: link.mode,
             dishTitleSnapshot: link.dishTitleSnapshot,
-            url: buildShareToken(link.tokenId),
+            url: buildShareUrl(link.tokenId),
             revokedAt: link.revokedAt?.toISOString() ?? null,
             expiresAt: link.expiresAt?.toISOString() ?? null,
             showCreatorName: link.showCreatorName,
             createdAt: link.createdAt.toISOString(),
-          }))}
-        />
-      </section>
-
-      <section className="space-y-4">
-        <h2 className="text-foreground text-lg font-semibold">
-          Sent Recipe collections
-        </h2>
-        <DirectShareCollectionSentList
-          collections={sentCollections.map((collection) => ({
-            id: collection.id,
-            recipientName: collection.recipientName,
-            recipientLookup: collection.recipientLookup,
-            hasJoined: collection.hasJoined,
-            note: collection.note,
-            createdAt: collection.createdAt.toISOString(),
-            children: collection.children.map((child) => ({
-              id: child.id,
-              dishTitleSnapshot: child.dishTitleSnapshot,
-              status: child.status,
-            })),
-          }))}
-        />
-      </section>
-
-      <section className="space-y-4">
-        <div className="flex items-center gap-2">
-          <h2 className="text-foreground text-lg font-semibold">
-            Received Recipe collections
-          </h2>
-          {pendingReceivedCount > 0 && (
-            <Badge variant="outline">{pendingReceivedCount} pending</Badge>
-          )}
-        </div>
-        <DirectShareCollectionReceivedList
-          collections={receivedCollections.map((collection) => ({
-            id: collection.id,
-            senderName: collection.senderName,
-            note: collection.note,
-            createdAt: collection.createdAt.toISOString(),
-            children: collection.children.map((child) => ({
-              id: child.id,
-              dishTitleSnapshot: child.dishTitleSnapshot,
-              status: child.status,
-            })),
-          }))}
-        />
-      </section>
-
-      <section className="space-y-4">
-        <h2 className="text-foreground text-lg font-semibold">
-          Individual sends
-        </h2>
-        <p className="text-muted-foreground text-sm">
-          Single-item Part sends, and Recipe sends from before collections
-          existed.
-        </p>
-        <DirectShareSentList
-          shares={sentShares.map((share) => ({
-            id: share.id,
-            dishTitleSnapshot: share.dishTitleSnapshot,
-            recipientName: share.recipientName,
-            recipientLookup: share.recipientLookup,
-            note: share.note,
-            status: share.status,
-            createdAt: share.createdAt.toISOString(),
-          }))}
-        />
-      </section>
-
-      <section className="space-y-4">
-        <h2 className="text-foreground text-lg font-semibold">
-          Individual received
-        </h2>
-        <DirectShareReceivedList
-          shares={receivedShares.map((share) => ({
-            id: share.id,
-            dishKind: share.dishKind,
-            dishTitleSnapshot: share.dishTitleSnapshot,
-            senderName: share.senderName,
-            note: share.note,
-            status: share.status,
-            createdAt: share.createdAt.toISOString(),
-            createdDishId: share.createdDishId,
           }))}
         />
       </section>

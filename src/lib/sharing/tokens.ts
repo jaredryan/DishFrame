@@ -2,6 +2,8 @@ import "server-only";
 import { randomBytes, createHmac, timingSafeEqual } from "node:crypto";
 import { env } from "@/lib/env/server";
 
+const SHARE_LINK_PATH_PREFIX = "/s/";
+
 /**
  * ARCHITECTURE_PROPOSAL.md §D.13/§M.4, round-2 Correction 6: `ShareLink.tokenId`
  * is a public lookup key, not a secret — the shareable URL token is
@@ -23,6 +25,15 @@ function sign(tokenId: string): string {
 
 export function buildShareToken(tokenId: string): string {
   return `${tokenId}.${sign(tokenId)}`;
+}
+
+/**
+ * The actual pasteable URL for a share link (`buildShareToken` alone is
+ * just the token — never valid to hand to a viewer on its own, since it's
+ * missing the origin and the `/s/` route).
+ */
+export function buildShareUrl(tokenId: string): string {
+  return `${env.NEXT_PUBLIC_APP_URL}${SHARE_LINK_PATH_PREFIX}${buildShareToken(tokenId)}`;
 }
 
 /**

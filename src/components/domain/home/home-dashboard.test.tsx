@@ -11,6 +11,7 @@ import type { GroceryListRowItem } from "@/components/domain/grocery/grocery-lis
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
+  usePathname: () => "/",
 }));
 
 vi.mock("@/lib/cooking/actions", () => ({
@@ -156,7 +157,7 @@ describe("HomeDashboard", () => {
       expect(screen.getByText("Sourdough Loaf")).toBeInTheDocument();
     });
 
-    it("renders a Start cooking primary action opening the Select something to cook picker, and a View cooking sessions link to /cook", async () => {
+    it("renders a Start cooking primary action opening the What will you cook? picker, and a View cooking sessions link to /cook", async () => {
       const user = userEvent.setup();
       render(<HomeDashboard {...baseProps()} />);
       const scope = within(section("Continue cooking"));
@@ -170,7 +171,7 @@ describe("HomeDashboard", () => {
       await user.click(scope.getByRole("button", { name: "Start cooking" }));
       expect(
         await screen.findByRole("dialog", {
-          name: "Select something to cook",
+          name: "What will you cook?",
         }),
       ).toBeInTheDocument();
     });
