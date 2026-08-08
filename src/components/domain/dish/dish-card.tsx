@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { Star, UtensilsCrossed } from "lucide-react";
+import { Star } from "lucide-react";
 import { Card, CardContent, CardTitle } from "@/components/ui/card";
+import { PlatePlaceholderIcon } from "@/components/domain/dish/plate-placeholder-icon";
 import { StageBadge } from "@/components/domain/dish/stage-badge";
 import { RatingBadge } from "@/components/domain/dish/rating-badge";
 import type { DishKindValue, StageValue } from "@/lib/dishes/schema";
@@ -53,8 +54,8 @@ export function DishCard({
             // generic "missing image" glyph — reads as intentional in both
             // themes without competing with a real photo elsewhere in the
             // grid.
-            <div className="text-muted-foreground/40 flex size-full items-center justify-center">
-              <UtensilsCrossed className="size-8" aria-hidden="true" />
+            <div className="text-muted-foreground/80 flex size-full items-center justify-center">
+              <PlatePlaceholderIcon className="size-20" aria-hidden="true" />
             </div>
           )}
           {dish.isFavorite && (

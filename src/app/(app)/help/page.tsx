@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { ReplayableGuideList } from "@/components/onboarding/replayable-guide-list";
+import { ContactForm } from "@/components/marketing/contact-form";
 
 export const metadata: Metadata = {
   title: "Help",
@@ -103,14 +103,11 @@ const FAQS = [
   },
 ];
 
-const DIRECT_LINKS = [
-  { label: "Recipes", href: "/recipes" },
-  { label: "Reusable Parts", href: "/parts" },
-  { label: "Cooking sessions", href: "/cook" },
-  { label: "Meal plans", href: "/meal-plans" },
-  { label: "Grocery lists", href: "/grocery-lists" },
-  { label: "Sharing", href: "/share" },
-  { label: "Settings & preferences", href: "/settings" },
+const JUMP_LINKS = [
+  { label: "Guides", href: "#guides" },
+  { label: "FAQs", href: "#faqs" },
+  { label: "Key terms", href: "#key-terms" },
+  { label: "Contact us", href: "#contact-us" },
 ];
 
 export default function HelpPage() {
@@ -133,20 +130,20 @@ export default function HelpPage() {
           Jump to
         </h2>
         <ul className="mt-4 flex flex-wrap gap-2">
-          {DIRECT_LINKS.map(({ label, href }) => (
+          {JUMP_LINKS.map(({ label, href }) => (
             <li key={href}>
-              <Link
+              <a
                 href={href}
-                className="border-border bg-card hover:bg-muted text-foreground rounded-lg border px-3 py-1.5 text-sm"
+                className="border-border bg-card hover:bg-muted text-foreground block rounded-lg border px-3 py-1.5 text-sm"
               >
                 {label}
-              </Link>
+              </a>
             </li>
           ))}
         </ul>
       </div>
 
-      <div>
+      <div id="guides">
         <h2 className="font-heading text-foreground text-lg font-semibold">
           Guides
         </h2>
@@ -159,7 +156,7 @@ export default function HelpPage() {
         </div>
       </div>
 
-      <div>
+      <div id="faqs">
         <h2 className="font-heading text-foreground text-lg font-semibold">
           FAQs
         </h2>
@@ -178,7 +175,7 @@ export default function HelpPage() {
         </dl>
       </div>
 
-      <div>
+      <div id="key-terms">
         <h2 className="font-heading text-foreground text-lg font-semibold">
           Key terms
         </h2>
@@ -195,6 +192,17 @@ export default function HelpPage() {
             </div>
           ))}
         </dl>
+      </div>
+
+      <div id="contact-us">
+        <h2 className="font-heading text-foreground text-lg font-semibold">
+          Contact us
+        </h2>
+        <p className="text-muted-foreground mt-2 text-sm">
+          Found a bug, ran into friction while cooking, or have an idea that
+          would improve the experience? Send a note.
+        </p>
+        <ContactForm />
       </div>
     </div>
   );

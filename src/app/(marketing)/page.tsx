@@ -34,7 +34,7 @@ const TIMELINE = [
     body: "Cooking Setup and Cooking Mode keep sections, checkoffs, and timers close at hand, so the information you need stays with the step you're on instead of buried in one long block of text.",
   },
   {
-    title: "Improve it through use",
+    title: "Improve it each time",
     accent: "text-brand-violet",
     ring: "border-brand-violet bg-brand-violet/10",
     icon: History,

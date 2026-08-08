@@ -90,7 +90,7 @@ const STEPS = [
     Visual: CookMoment,
   },
   {
-    title: "Improve it through use",
+    title: "Improve it each time",
     accent: "text-brand-violet",
     ring: "border-brand-violet bg-brand-violet/10",
     icon: History,

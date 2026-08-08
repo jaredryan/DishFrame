@@ -30,7 +30,7 @@ Do these once Milestone 2 is merged and redeployed to production.
 - [ ] Inspect the Open Graph image by pasting
       `https://dish-frame.vercel.app/` into a social-share debugger (e.g.
       Facebook Sharing Debugger, Twitter Card Validator, or
-      `https://www.opengraph.xyz/`) — confirm the temporary DishFrame image
+      `https://www.opengraph.xyz/`) — confirm the DishFrame social image
       renders correctly.
 - [ ] Test the 404 page at a nonexistent path, e.g.
       `https://dish-frame.vercel.app/does-not-exist` — confirm the branded
@@ -162,21 +162,21 @@ Optional future decisions — do not install until there's a concrete need.
 
 ## H. Final brand assets
 
-Milestone 2 shipped temporary, easily-replaceable assets — the nested-frame
-mark from `src/components/branding/mark.tsx`, rendered via `next/og` in
-`src/app/icon.tsx`, `apple-icon.tsx`, `opengraph-image.tsx`, and
-`twitter-image.tsx`.
+Milestone 2 shipped temporary, `next/og`-generated placeholder assets from
+the nested-frame mark in `src/components/branding/mark.tsx`. Both the
+icon set and the social card have since been replaced with final static
+assets (`src/app/icon.png`, `apple-icon.png`, `favicon.ico`,
+`opengraph-image.png`, `twitter-image.png`) — the old `.tsx` generators
+are gone.
 
-- [ ] Final logo.
-- [ ] Final favicon / app icon set (replacing `src/app/icon.tsx` and
-      `apple-icon.tsx`).
-- [ ] Final social card (replacing `src/app/opengraph-image.tsx` and
-      `twitter-image.tsx`).
+- [x] Final logo.
+- [x] Final favicon / app icon set.
+- [x] Final social card.
 - [ ] Final typography review (Manrope/Inter are provisional per
       `docs/BRANDING.md`).
 - [ ] Final contrast testing across light and dark themes.
-- [ ] Replace the temporary manifest icons in `src/app/manifest.ts` once
-      final icons exist.
+- [x] Manifest icons in `src/app/manifest.ts` point at the final
+      icon/apple-icon/android-chrome/maskable assets.
 
 ## I. PWA and cooking-mode enhancements
 

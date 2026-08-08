@@ -1,12 +1,6 @@
-import {
-  Clock,
-  Flame,
-  Gauge,
-  History,
-  Soup,
-  UtensilsCrossed,
-} from "lucide-react";
+import { Clock, Flame, Gauge, History, Soup } from "lucide-react";
 import { Prisma } from "@/generated/prisma/client";
+import { PlatePlaceholderIcon } from "@/components/domain/dish/plate-placeholder-icon";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { Badge } from "@/components/ui/badge";
 import { StageBadge } from "@/components/domain/dish/stage-badge";
@@ -356,8 +350,8 @@ export async function DishDetailView({
   );
 
   const imagePlaceholder = (
-    <div className="text-muted-foreground/40 flex size-full items-center justify-center">
-      <UtensilsCrossed className="size-10" aria-hidden="true" />
+    <div className="text-muted-foreground/80 flex size-full items-center justify-center">
+      <PlatePlaceholderIcon className="size-24" aria-hidden="true" />
     </div>
   );
 

@@ -196,12 +196,11 @@ Added in Milestone 2 (`docs/MILESTONE_2.md`):
 - **JSON-LD** — `src/components/marketing/json-ld.tsx` renders a
   `WebApplication` schema on the homepage, with `<` escaped so the payload
   can't break out of its `<script>` tag.
-- **Social image & icons** — `src/app/opengraph-image.tsx` /
-  `twitter-image.tsx` generate a temporary DishFrame share image via
-  `next/og`; `src/app/icon.tsx` / `apple-icon.tsx` generate a temporary
-  favicon and Apple touch icon from the same nested-frame mark used in
-  `src/components/branding/mark.tsx`. All four are meant to be replaced
-  once a final logo exists (see `POST_LAUNCH_TODO.md`).
+- **Social image & icons** — `src/app/opengraph-image.png` /
+  `twitter-image.png` are the DishFrame share images; `src/app/icon.png` /
+  `apple-icon.png` / `favicon.ico` are the favicon and Apple touch icon.
+  All are static final assets (no `next/og` generation for these
+  anymore).
 - **Manifest** — `src/app/manifest.ts`, served at `/manifest.webmanifest`,
   with no service worker or offline behavior (deferred — see
   `POST_LAUNCH_TODO.md`).
