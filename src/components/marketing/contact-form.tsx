@@ -72,6 +72,7 @@ export function ContactForm() {
         <Input
           id="name"
           name="name"
+          className="bg-card dark:bg-card"
           autoComplete="name"
           required
           minLength={2}
@@ -94,6 +95,7 @@ export function ContactForm() {
           id="email"
           name="email"
           type="email"
+          className="bg-card dark:bg-card"
           autoComplete="email"
           required
           maxLength={254}
@@ -116,6 +118,7 @@ export function ContactForm() {
         <Textarea
           id="message"
           name="message"
+          className="bg-card dark:bg-card"
           rows={5}
           required
           minLength={10}
