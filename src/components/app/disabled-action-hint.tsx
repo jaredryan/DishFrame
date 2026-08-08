@@ -16,7 +16,7 @@ import {
 /**
  * Explains why a disabled action is unavailable — without the Settings-
  * page scroll jitter the prior Popover-only implementation caused (final
- * Gate 2 correction pass, `docs/GATE_2_REMEDIATION.md`).
+ * Gate 2 correction pass).
  *
  * Root cause of the jitter: that implementation opened a focus-trapping
  * Popover on `onMouseEnter`. Radix's Popover content uses `FocusScope`,

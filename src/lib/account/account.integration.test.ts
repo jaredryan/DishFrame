@@ -471,4 +471,33 @@ describe("revokeAuthSession authorization", () => {
       revokeAuthSession(owner.id, "nonexistent-session-id"),
     ).rejects.toBeInstanceOf(AuthorizationError);
   });
+
+  it("deleting one of an account's own sessions leaves its other sessions intact", async () => {
+    const owner = await createTestUser();
+    ownerId = owner.id;
+
+    const sessionA = await prisma.session.create({
+      data: {
+        id: `${owner.id}-session-a`,
+        token: `${owner.id}-token-a`,
+        userId: owner.id,
+        expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24),
+      },
+    });
+    const sessionB = await prisma.session.create({
+      data: {
+        id: `${owner.id}-session-b`,
+        token: `${owner.id}-token-b`,
+        userId: owner.id,
+        expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24),
+      },
+    });
+
+    await prisma.session.delete({ where: { id: sessionA.id } });
+
+    const remaining = await prisma.session.findMany({
+      where: { userId: owner.id },
+    });
+    expect(remaining.map((s) => s.id)).toEqual([sessionB.id]);
+  });
 });

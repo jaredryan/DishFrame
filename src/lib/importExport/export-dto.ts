@@ -32,8 +32,8 @@ export const exportTierValues = [
 export type ExportTierValue = (typeof exportTierValues)[number];
 
 // Slice 11 correction pass: stable top-level envelope (`format`,
-// `formatVersion`, `exportedAt`) on every export payload — see
-// docs/SLICE_11.md's correction section. `formatVersion` starts at 1;
+// `formatVersion`, `exportedAt`) on every export payload.
+// `formatVersion` starts at 1;
 // bump it if the payload shape changes in a way a future importer would
 // need to distinguish.
 const DISH_EXPORT_FORMAT = "dishframe.dish-export";
@@ -181,7 +181,7 @@ type ExportVersionRow = {
  * §57.1: structured formats use "yield", not the friendlier UI wording.
  * `imageAssetId` is an internal DishFrame reference only — not
  * independently portable, and the image binary itself is never included in
- * this export (docs/SLICE_11.md correction section). The owner's own
+ * this export. The owner's own
  * signed-in account can still resolve it via the authenticated
  * `/api/images/[assetId]` route; the Blob `storageKey` itself is never
  * included (that's the one thing standing between "private" and a
@@ -381,7 +381,7 @@ async function buildFullPrivateHistory(
 }
 
 /**
- * Slice 11 correction pass (docs/SLICE_11.md): individual export defaults
+ * Slice 11 correction pass: individual export defaults
  * to the current Version only — full history is no longer implicit. Callers
  * choose `{ mode: "SINGLE" }` (current Version, the dialog's default),
  * `{ mode: "SINGLE", versionId }` (one explicit historical Version), or

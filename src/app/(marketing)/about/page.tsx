@@ -12,8 +12,8 @@ import {
   type ThreadAccent,
 } from "@/components/marketing/about-framework-thread";
 
-// PROTOTYPE: pairs with AboutFrameworkThreadSegment below — see
-// docs/PUBLIC_PAGES_DESIGN_POLISH.md for rollback steps.
+// PROTOTYPE: pairs with AboutFrameworkThreadSegment below — remove both
+// (and this accents array) if this doesn't earn its place.
 const THREAD_ACCENTS: ThreadAccent[] = ["blue", "green", "orange", "violet"];
 
 export const metadata: Metadata = {

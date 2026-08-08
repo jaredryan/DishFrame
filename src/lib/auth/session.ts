@@ -3,10 +3,25 @@ import { headers } from "next/headers";
 import { auth } from "@/lib/auth/auth";
 import { AuthorizationError } from "@/lib/errors";
 
+/**
+ * Better Auth's own `getSession` re-wraps any internal failure (a dead DB
+ * connection, a broken session-store query) as a thrown
+ * `FAILED_TO_GET_SESSION` APIError rather than returning null — so an
+ * unguarded call here doesn't fail "not signed in," it crashes whatever
+ * page called it (every page does, via requireUserId/this function).
+ * Better Auth's own internal callers (getSessionFromCtx) already treat
+ * that failure as "no session"; this does the same at the application
+ * boundary instead of letting it reach the client-side error boundary.
+ */
 export async function getServerSession() {
-  return auth.api.getSession({
-    headers: await headers(),
-  });
+  try {
+    return await auth.api.getSession({
+      headers: await headers(),
+    });
+  } catch (error) {
+    console.error("[getServerSession] Session lookup failed:", error);
+    return null;
+  }
 }
 
 /**

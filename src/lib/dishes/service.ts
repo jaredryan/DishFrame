@@ -66,7 +66,8 @@ import type { ShareGraph, ShareGraphPartLinkRef } from "@/lib/sharing/graph";
  * `applyVersionMetadataUpdate` (below) is the one sanctioned exception to
  * "DishVersion rows are never updated directly" — see its own doc comment.
  *
- * `editDish`'s settled classification (docs/SLICE_3.md's Gate 2 pass,
+ * `editDish`'s settled classification (Gate 2 pass, see
+ * docs/ARCHITECTURE_PROPOSAL.md §F.5a,
  * corrected by the Version-trigger and Slice 5 image correction pass, and
  * by the Slice 13 metadata-classification correction pass —
  * PRODUCT_SPEC.md §7.1/§7.2/§13.1/§13.2a/§54) — determined independently

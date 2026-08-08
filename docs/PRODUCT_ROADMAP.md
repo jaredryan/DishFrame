@@ -1343,6 +1343,11 @@ Technology choices should use the latest stable, well-supported versions availab
 
 # 13. Current Planning Status
 
+> **Superseded.** This section describes planning status from before any
+> implementation began. See §14 "Final Implementation Updates" below for
+> what actually happened; the "Agreed next steps" list here is historical
+> only.
+
 The product feature-discovery phase is substantially complete.
 
 Agreed next steps:
@@ -1354,3 +1359,27 @@ Agreed next steps:
 5. Create `FRONTEND_SPEC.md`.
 6. Finalize the technology and implementation plan.
 7. Provide Claude with the documentation required to build the app.
+
+---
+
+# 14. Final Implementation Updates
+
+`PRODUCT_SPEC.md` was written next, as planned. `FRONTEND_SPEC.md` and
+`IMPLEMENTATION_SPEC.md` (§12) were never created as separate documents —
+that planning role was absorbed instead by `ARCHITECTURE_PROPOSAL.md`
+(technical/data-model planning) and `BUILD_PLAN.md` (slice sequencing and
+implementation planning), which together carried the project through to a
+complete build.
+
+**Tier 1 (§4) and Tier 2 (§6) are both now fully implemented** — see
+`PRODUCT_SPEC.md` §95 ("Final Priority Model") and §99 ("Final
+Implementation Updates") for the current state. Tier 3 (§8) remains
+optional, forward-looking scope, largely unbuilt, exactly as this roadmap
+originally intended — with two exceptions worth noting: Recipe Gallery
+migration (part of Tier 1 Phase 7, §4) was deliberately deferred by owner
+decision rather than built (the generic paste-and-review importer serves
+as the interim substitute), and barcode scanning (listed as optional/late
+Tier 2, §6 Phase whichever covers it) was built as a convenience entry
+point into the existing nutrition-lookup search, not a separate search
+mechanism. Any other roadmap item not mentioned here shipped as
+originally scoped; see `docs/TODO.md` for genuinely still-open work.

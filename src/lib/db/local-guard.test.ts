@@ -1,5 +1,18 @@
-import { describe, it, expect } from "vitest";
-import { assertLocalDatabaseEnv } from "@/lib/db/local-guard";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import {
+  assertLocalDatabaseEnv,
+  assertLocalDatabaseReachable,
+} from "@/lib/db/local-guard";
+
+const { connect, end } = vi.hoisted(() => ({
+  connect: vi.fn(),
+  end: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock("pg", () => ({
+  Client: vi.fn().mockImplementation(function () {
+    return { connect, end };
+  }),
+}));
 
 const LOCAL = {
   DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/dishframe",
@@ -77,5 +90,38 @@ describe("assertLocalDatabaseEnv", () => {
     expect(() =>
       assertLocalDatabaseEnv({ ...LOCAL, DATABASE_URL: "not-a-url" }),
     ).toThrow();
+  });
+});
+
+describe("assertLocalDatabaseReachable", () => {
+  beforeEach(() => {
+    connect.mockClear();
+    end.mockClear();
+  });
+
+  it("resolves without throwing when the database accepts a connection", async () => {
+    connect.mockResolvedValueOnce(undefined);
+    await expect(
+      assertLocalDatabaseReachable(LOCAL.DATABASE_URL),
+    ).resolves.toBeUndefined();
+  });
+
+  it("throws a message pointing at db:docker:up, not db:reset, when the connection is refused", async () => {
+    connect.mockRejectedValueOnce(
+      Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:5432"), {
+        code: "ECONNREFUSED",
+      }),
+    );
+    await expect(
+      assertLocalDatabaseReachable(LOCAL.DATABASE_URL),
+    ).rejects.toThrow(/db:docker:up/);
+  });
+
+  it("always closes the client, even after a failed connection attempt", async () => {
+    connect.mockRejectedValueOnce(new Error("connect ECONNREFUSED"));
+    await expect(
+      assertLocalDatabaseReachable(LOCAL.DATABASE_URL),
+    ).rejects.toThrow();
+    expect(end).toHaveBeenCalledTimes(1);
   });
 });

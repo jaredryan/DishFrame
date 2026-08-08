@@ -69,7 +69,8 @@ async function ensureFavoriteTag(userId: string) {
 
 async function ensureOwnerTaster(userId: string) {
   // No @@unique on (ownerId, isOwner) in the Prisma schema — it's a partial
-  // unique index (one_owner_taster_per_user, PRISMA_SCHEMA_PROPOSAL.md §4)
+  // unique index (one_owner_taster_per_user, raw SQL in the migration —
+  // Prisma cannot express a partial unique index directly)
   // rather than an ordinary column-level constraint Prisma can target with
   // `upsert`. Check-then-create is safe here because a concurrent duplicate
   // insert fails on that index and is swallowed below.

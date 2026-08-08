@@ -7,46 +7,16 @@
 // grow into a shortcut for tests, seeds, resets, or migrations against
 // production — those always belong on the disposable local/CI Postgres.
 
-import { existsSync, readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
+import {
+  loadProductionEnvOverrides,
+  requireProductionConfirmation,
+} from "./lib/production-env.mjs";
 
-const PRODUCTION_ENV_FILE = ".env.production-access.local";
+const COMMAND_LABEL = "dev:production-db";
 
-if (process.env.CONFIRM_PRODUCTION_DATABASE !== "yes") {
-  console.error(
-    "[dev:production-db] Refusing to run: this would connect your local " +
-      "dev server to the PRODUCTION database. Re-run with " +
-      "CONFIRM_PRODUCTION_DATABASE=yes to confirm this is intentional:\n" +
-      "  CONFIRM_PRODUCTION_DATABASE=yes pnpm dev:production-db",
-  );
-  process.exit(1);
-}
-
-if (!existsSync(PRODUCTION_ENV_FILE)) {
-  console.error(
-    `[dev:production-db] Missing ${PRODUCTION_ENV_FILE} — see .env.example ` +
-      "for what it must contain (DATABASE_DRIVER/DATABASE_URL/DIRECT_URL " +
-      "for the real Neon database).",
-  );
-  process.exit(1);
-}
-
-// Parsed and injected into the child process's environment only — never
-// logged, printed, or otherwise surfaced here.
-const overrides = {};
-for (const line of readFileSync(PRODUCTION_ENV_FILE, "utf-8").split("\n")) {
-  const match = /^([A-Z_][A-Z0-9_]*)="?(.*?)"?$/.exec(line.trim());
-  if (!match || line.trim().startsWith("#")) continue;
-  const [, key, value] = match;
-  overrides[key] = value;
-}
-
-if (overrides.DATABASE_DRIVER !== "neon") {
-  console.error(
-    `[dev:production-db] ${PRODUCTION_ENV_FILE} must set DATABASE_DRIVER=neon.`,
-  );
-  process.exit(1);
-}
+requireProductionConfirmation(COMMAND_LABEL);
+const overrides = loadProductionEnvOverrides(COMMAND_LABEL);
 
 console.warn("");
 console.warn("############################################################");
@@ -63,6 +33,6 @@ const child = spawn("pnpm", ["run", "dev"], {
 
 child.on("exit", (code) => process.exit(code ?? 0));
 child.on("error", (error) => {
-  console.error("[dev:production-db] Failed to start:", error.message);
+  console.error(`[${COMMAND_LABEL}] Failed to start:`, error.message);
   process.exit(1);
 });

@@ -29,10 +29,9 @@ Avoid:
 frames, framed photos, or gallery/museum display — "Frame" refers to a
 structural framework (as in "framework for cooking"), not a picture frame.
 Do not describe the name as meaning that recipes are placed inside a
-frame. (Slice 21 clarification, `docs/SLICE_21_PUBLIC_SITE_REDESIGN.md` —
-this was implicit in the original name rationale below but is stated
-explicitly here after the public-site redesign pass needed an unambiguous
-guardrail.)
+frame. (Slice 21 clarification — this was implicit in the original name
+rationale below but was stated explicitly after the public-site redesign
+pass needed an unambiguous guardrail.)
 
 DishFrame is a framework for organizing, preparing, cooking, evaluating, and improving dishes.
 
@@ -392,9 +391,8 @@ Use it for:
 > **Amended by the Slice 6 design remediation pass (owner-approved, in
 > that pass's own conversation):** Active previously shared this same
 > green with Proven at two opacities, which read as indistinguishable at a
-> glance — Active now uses the primary blue family instead
-> (`docs/SLICE_6.md`'s design-remediation section), leaving green as
-> Proven's own distinct "what works" signal. Wherever this document still
+> glance — Active now uses the primary blue family instead, leaving green
+> as Proven's own distinct "what works" signal. Wherever this document still
 > says "Active" alongside green below (§9's screen-level color use), treat
 > Active as blue and Proven as the green state.
 
@@ -1007,10 +1005,11 @@ Be direct about what will happen without exposing technical implementation detai
 
 # 16. Public Copy Direction
 
-> **Superseded by the Slice 21 public-site redesign**
-> (`docs/SLICE_21_PUBLIC_SITE_REDESIGN.md`). The headline, pillar, About,
-> and Contact copy below is the pre-Slice-21 draft, kept for history. The
-> current-truth public copy is the block that follows it.
+> **Superseded by the Slice 21 public-site redesign.** The headline,
+> pillar, About, and Contact copy below is the pre-Slice-21 draft, kept
+> for history. The current-truth public copy is the block that follows
+> it (see also §23 "Final Implementation Updates" for what shipped after
+> that).
 
 ## Hero (superseded)
 
@@ -1163,10 +1162,8 @@ New public routes, `/privacy` and `/terms`, share a single
 sections). Both are product-aligned baseline policies grounded in actual
 implementation (Google auth, Neon/Vercel hosting, Vercel Blob images,
 Resend for contact-form email only, USDA FoodData Central for nutrition
-search, no analytics/tracking installed) — see
-`docs/SLICE_21_PUBLIC_SITE_REDESIGN.md` for what was verified and what
-was deliberately left out. **Both need professional legal review before
-a broad commercial launch.**
+search, no analytics/tracking installed). **Both need professional legal
+review before a broad commercial launch** — tracked in `docs/TODO.md`.
 
 ## Sign-in page
 
@@ -1223,12 +1220,15 @@ Use simple empty text such as:
 - Home
 - About
 - Contact
-- Sign in *(signed out only)*
-- Create your first Recipe *(signed out only, primary CTA)*
-- Open DishFrame *(signed in — replaces both of the above, Slice 21)*
+- Sign in
+- Create your first Recipe *(primary CTA)*
+
+Shown identically to every visitor regardless of auth state — see §23
+"Final Implementation Updates" (the earlier signed-in-only "Open
+DishFrame" variant was superseded by the fully static public site).
 
 Footer additionally links About, Contact, Privacy, and Terms, plus the
-short brand line "Cook. Refine. Repeat." (`docs/SLICE_21_PUBLIC_SITE_REDESIGN.md`).
+short brand line "Cook. Refine. Repeat."
 
 ## Signed-in navigation
 
@@ -1243,8 +1243,8 @@ short brand line "Cook. Refine. Repeat." (`docs/SLICE_21_PUBLIC_SITE_REDESIGN.md
 - Profile
 - Sign out
 
-Settled deviation (Slice 3 Gate 2 remediation, `docs/GATE_2_REMEDIATION.md`):
-Settings and the Light/Dark/System theme selector were both removed from
+Settled deviation (Slice 3 Gate 2 remediation): Settings and the
+Light/Dark/System theme selector were both removed from
 this dropdown. Settings already lives in the signed-in left navigation
 (§17's own "Signed-in navigation" list did not include it, so the dropdown
 copy was the only place it was duplicated), and a wide three-option
@@ -1378,3 +1378,25 @@ Should define technical architecture, database schema, authentication, APIs, sto
 - Core loop (Slice 21): **Build → Cook → Improve**, expanded as **Plan → Shop → Cook → Review → Refine**
 - Public-site visual direction (Slice 21): a restrained "connected framework" motif — thin connector lines and small circular nodes linking modular Recipe/Section/Part cards, reused consistently across the hero, workflow, and Parts sections; no picture-frame imagery, no fake dashboard, no stock food photography
 - Exact fonts, hex values, and logo geometry remain adjustable during real-screen testing
+
+---
+
+# 23. Final Implementation Updates
+
+The "connected framework" motif (§22) shipped as one signature visual grammar reused with variation across the public site, not a single one-off graphic:
+
+- **`ClosingCta`** (shared by Home/About) uses a static full-bleed radial-gradient dot pattern as its background texture — the final, approved treatment, after an earlier mirrored-corner-flourish motif was judged too subtle to register at desktop widths.
+- **Navbar** carries a small brand-specific "leading dot" that appears on the active nav link and on hover/focus, echoing the hero's own dot-indicator language.
+- **About's** four-step framework section has a permanent gradient connector "thread" running through the row gutters between steps, color-blended between each step's brand color and the next (blue → green → orange → violet) — judged the single strongest visual-cohesion win of the public redesign, since it makes the "connected framework" thesis visible rather than only stated in prose.
+- **Contact** intentionally carries no connector/motif decoration — judged as lacking a content-driven reason, and adding the motif everywhere would flatten it into wallpaper.
+- Typography stayed Manrope (display) / Inter (body); no third typeface or new color tokens were introduced anywhere in the redesign.
+
+**Accessible-contrast convention, now established:** any colored text (digits, labels) sitting on a tinted/colored background must use the `text-brand-{blue,green,orange,violet}-text` token variants (`globals.css`), never the raw `text-primary`/`text-brand-*` tokens — the raw tokens measured as low as 2.59:1 in places, failing WCAG AA, while the `-text` variants measure 5.87–9.64:1 in both themes. Applies to any future colored-text-on-tint component.
+
+**Known, still-open accessibility gap (not yet acted on):** a sitewide pattern of small colored badge text on ~10%-tint backgrounds ("Proven," "Saved part," version tags, star ratings — used throughout the signed-in app, not just the public pages) generally measures 3.1–3.3:1, below the 4.5:1 AA text threshold, though these read as compact status badges rather than body text. This needs an explicit owner decision — introduce darker accessible accent-text variants system-wide, or declare these badges exempt from the AA text threshold — tracked in `docs/TODO.md`.
+
+`/privacy` and `/terms` (see "Privacy and Terms" above) are linked from the public footer alongside the "Cook. Refine. Repeat." brand line.
+
+**Public pages carry no signed-in personalization.** An earlier design (Slice 21) gave `PublicHeader` a `signedIn` prop so signed-in visitors saw a different header/CTA; this was later simplified so every visitor sees the same visitor-oriented header/hero/CTA regardless of auth state, restoring static prerendering for the whole marketing route group. Treat any mention elsewhere of session-aware public headers as superseded by this current state.
+
+Final design-review scores (browser-verified against the live public pages, out of 10): Home 9.5, About 9.5, Navbar 8.5, Contact 8, Footer 8 — considered complete, with only the accessibility gap above and a couple of very-low-priority cosmetic items (asymmetric whitespace in Home's framework timeline at ≥1536px, About's step numerals sitting close to their card edge) left open.

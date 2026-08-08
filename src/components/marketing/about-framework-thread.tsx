@@ -8,8 +8,8 @@ const ACCENT_VAR: Record<ThreadAccent, string> = {
 };
 
 /**
- * PROTOTYPE — see docs/PUBLIC_PAGES_DESIGN_POLISH.md for the rollback steps
- * if this doesn't earn its place.
+ * PROTOTYPE — remove this component and its use in about/page.tsx if it
+ * doesn't earn its place.
  *
  * Connects one About framework step to the next through the empty `gap-28`
  * (112px) space between them, never over card content, so it never crosses

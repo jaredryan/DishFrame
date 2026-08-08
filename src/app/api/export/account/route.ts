@@ -6,8 +6,7 @@ import { buildAccountBackupDto } from "@/lib/importExport/export-dto";
  * data — computed synchronously and streamed back
  * (ARCHITECTURE_PROPOSAL.md §L, "no persistent export-job table at this
  * scale"). This is a data export, not a restorable backup: no image
- * binaries and no restore/import path exist yet (docs/SLICE_11.md
- * correction section). Owner authorization applies to every private read,
+ * binaries and no restore/import path exist yet. Owner authorization applies to every private read,
  * per Slice 11's scope: only the signed-in owner's own data is ever
  * queried (`buildAccountBackupDto` is scoped by `ownerId` throughout), and
  * there is no `dishId`-style route param here for a malformed request to

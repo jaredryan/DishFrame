@@ -436,8 +436,8 @@ export type DirectShareCollectionFixtureSummary = {
 };
 
 /**
- * Slice 22: three representative `DirectShareCollection` states —
- * MANUAL_QA_SEED.md/SEED_REVIEW_GUIDE.md's compact fixture set for the
+ * Slice 22: three representative `DirectShareCollection` states — a
+ * compact fixture set for the
  * unified multi-Recipe sharing flow. Uses dedicated throwaway Recipes
  * (rather than reusing `buildRecipeFixtures`' set) so this function has no
  * ordering dependency on which of those Recipes' pending single-item

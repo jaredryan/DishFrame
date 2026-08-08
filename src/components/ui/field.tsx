@@ -3,8 +3,7 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 
 /**
- * Shared field primitives (final Gate 2 correction pass — see the
- * "reusable building blocks" audit in `docs/GATE_2_REMEDIATION.md`).
+ * Shared field primitives (final Gate 2 correction pass).
  *
  * Before this, top-level Recipe/Part metadata fields used the plain
  * `Label` component at its default size/weight, while every field nested

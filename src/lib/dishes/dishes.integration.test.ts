@@ -189,7 +189,7 @@ describe("dishes service", () => {
     });
   });
 
-  // Gate 2 correction (docs/SLICE_3.md): editDish's settled Version
+  // Gate 2 correction (see docs/ARCHITECTURE_PROPOSAL.md §F.5a): editDish's settled Version
   // classification — stable-only/no-op create no Version, non-cooking
   // Version-owned changes auto-bump a minor Version, and any Ingredient/
   // Instruction change requires an explicit minor/major choice.
@@ -1288,7 +1288,7 @@ describe("dishes service", () => {
     });
   });
 
-  // Task 3 (docs/SLICE_3.md Gate 2 section): proves the approved Ingredient
+  // Task 3 (Gate 2): proves the approved Ingredient
   // entry values survive server validation, creation, an edit, and a
   // reload. Fraction/mixed-number *text parsing* is a client-side concern
   // covered separately in number-field.test.ts — this suite proves the
@@ -1422,7 +1422,7 @@ describe("dishes service", () => {
     });
   });
 
-  // Gate 2 remediation (docs/GATE_2_REMEDIATION.md): a completely unused
+  // Gate 2 remediation: a completely unused
   // "Add substitute" click used to be submitted as `{ name: "", ... }` and
   // fail `dishContentSchema.parse()` outright, breaking Recipe/Part
   // creation. `substituteInputSchema`'s `z.preprocess` step now strips a
@@ -1698,7 +1698,7 @@ describe("dishes service", () => {
     });
   });
 
-  // Gate 2 polish pass (docs/SLICE_3_FOLLOWUP.md): Ingredient.quantity/
+  // Gate 2 polish pass: Ingredient.quantity/
   // quantityEnd are `Decimal @db.Decimal(12, 3)` — normalization to 3
   // decimal places happens in `sanitizedSectionsOrThrow` (service.ts),
   // which both `createDish` and `editDish` always pass sections through
@@ -3292,7 +3292,7 @@ describe("Slice 6 — linked Parts", () => {
 
 // Slice 6 post-gate (Build Plan Review Gate 3): unified Section/PartLink
 // position, duplicate-target rejection, propagation, and the two-phase
-// Part-deletion flow — docs/SLICE_6.md.
+// Part-deletion flow.
 describe("Slice 6 post-gate — unified position round-trip", () => {
   let userId: string | undefined;
 
@@ -4646,7 +4646,7 @@ describe("Slice 6 post-gate — deletePart (Phase 2)", () => {
     expect(materialized.targetDishVersionId).toBeNull();
     expect(materialized.materializedTitle).toBe("Nuoc Cham");
     expect(materialized.materializedVersionLabel).toBe("V1.0");
-    // §Judgment call (docs/SLICE_6.md): the multiplier column is left as
+    // §Judgment call: the multiplier column is left as
     // historical record, not reset or baked into the JSON snapshot.
     expect(decimalToNumber(materialized.multiplier)).toBe(3);
     expect(materialized.materializedContent).not.toBeNull();

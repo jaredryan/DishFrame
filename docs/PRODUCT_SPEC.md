@@ -3656,7 +3656,7 @@ No-result behavior supports:
 > yield line (e.g. "Makes 4 servings") derived from §51.4's saved default
 > batch scale, which remains editable from the Recipe/Part editor. §51.4's
 > underlying save-a-default behavior is unchanged, only its editing surface
-> moved (see `docs/SLICE_6.md`'s design-remediation section). The rest of
+> moved. The rest of
 > this section's intent is expected to resurface inside Cooking Mode's own
 > slice, not to be rebuilt from scratch.
 
@@ -6492,9 +6492,7 @@ Defines:
 
 ## 97.3 Milestone documents
 
-`DishFrame_MILESTONE_1.md` and `MILESTONE_2.md` preserve setup and platform-scaffolding context.
-
-They do not replace the canonical product behavior in this document.
+The Milestone 1/2 scaffolding-era planning documents this section originally referenced are no longer kept in the repository (git history is the archive); they never replaced the canonical product behavior in this document.
 
 ## 97.4 Frontend design work
 
@@ -6625,3 +6623,16 @@ The following decisions are canonical unless the product owner explicitly revise
 - Tier 3 as optional productization.
 
 Architecture, design, build plans, and implementation must preserve these rules rather than silently replacing them.
+
+---
+
+# 99. Final Implementation Updates
+
+Tier 1 and Tier 2 (§95.1/§95.2) are now fully implemented, including Slice 22's Multi-Recipe direct sharing (§85.1) and the whole cross-account sharing/print/account-deletion/onboarding surface (§80–§93). The bulk of this document's "Canonical Decision Stability" list (§98) reflects shipped, current behavior, not aspiration.
+
+Two product surfaces exist that predate/sit alongside this document and are worth recording here rather than in a since-removed slice report:
+
+- **Legal pages.** `/privacy` and `/terms` exist (a shared legal-page layout), reachable from the site footer and listed in the sitemap/robots files. Content describes the actual current implementation (Google-only sign-in, private-by-default data, Vercel Blob images, a Resend-backed Contact form that is not persisted to the database, no analytics/tracking SDK). Both pages still need professional legal review before any broad commercial launch — see `docs/TODO.md`.
+- **Public marketing pages carry no signed-in personalization.** Every visitor — signed in or not — sees the same header, hero, and CTA copy ("Create your first recipe" → `/recipes/new`, which itself redirects to sign-in when needed). This was a deliberate simplification of an earlier session-aware design; see `ARCHITECTURE_PROPOSAL.md` §Q for the architectural reason (it also restores static prerendering for those routes).
+
+A small number of genuinely open product questions and known gaps remain from the Tier 1/2 build (e.g. `/home`'s dashboard sections still being static placeholders, a sitewide badge-text contrast gap, the Meal-Plan grocery-generation UI's pre- vs. post-generation customization scope). These are tracked as current work in `docs/TODO.md` rather than restated here, since they are not yet settled decisions.

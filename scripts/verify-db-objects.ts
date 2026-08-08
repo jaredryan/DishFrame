@@ -3,8 +3,8 @@
  * Runtime protected-object verification (Slice 2 follow-up).
  *
  * Confirms every hand-authored raw-SQL CHECK constraint, composite foreign
- * key, and partial unique/trigram index (docs/PRISMA_SCHEMA_PROPOSAL.md §4)
- * actually exists in the connected database's system catalogs — a
+ * key, and partial unique/trigram index (documented throughout
+ * prisma/schema.prisma) actually exists in the connected database's system catalogs — a
  * complement to scripts/scan-migrations.ts, which only checks the
  * migration *files* themselves. Run this after applying migrations to a
  * fresh database, both in CI (after `prisma migrate deploy`) and locally

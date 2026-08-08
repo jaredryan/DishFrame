@@ -39,8 +39,8 @@ export const saveSharedCopySchema = z.object({
   token: z.string().min(1),
 });
 
-// Slice 17: exact-email-only, per the recipient-lookup privacy boundary
-// (docs/SLICE_17.md) — never a partial/prefix query, which would let a
+// Slice 17: exact-email-only, per the recipient-lookup privacy boundary —
+// never a partial/prefix query, which would let a
 // sender enumerate accounts by typing a few characters at a time.
 export const lookupDirectShareRecipientSchema = z.object({
   email: z

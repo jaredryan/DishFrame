@@ -309,8 +309,8 @@ manual-review policies above — those stand as written.
 
 DishFrame uses custom CHECK constraints, composite foreign keys, partial
 unique indexes, and trigram indexes that Prisma Schema Language cannot
-fully represent (see `docs/PRISMA_SCHEMA_PROPOSAL.md` §1/§4). Always
-generate migrations against local PostgreSQL with
+fully represent (see `prisma/schema.prisma` and `docs/ARCHITECTURE_PROPOSAL.md`
+§D for the rationale). Always generate migrations against local PostgreSQL with
 `prisma migrate dev --create-only`. Inspect the complete generated SQL
 before applying it. Reject unexpected `DROP CONSTRAINT`, `DROP INDEX`,
 `ALTER TABLE ... DROP`, or equivalent removals of protected DishFrame
@@ -325,7 +325,8 @@ and migration work uses the local Docker PostgreSQL (`pnpm db:docker:up`,
 Do not blindly apply Prisma-generated migration SQL. Temporary
 partial-schema generation (staging a subset of `schema.prisma` to generate
 one migration at a time) can produce erroneous `DROP` proposals for
-raw-SQL objects the shadow-database diff doesn't know about — see
-`docs/SLICE_2.md` §5.2 for a real instance of this. Any migration history
-containing hand-authored SQL requires explicit inspection before trusting
-a freshly generated file, not just a visual skim.
+raw-SQL objects the shadow-database diff doesn't know about — this has
+happened repeatedly across this repo's migration history (see
+`docs/BUILD_PLAN.md` §F). Any migration history containing hand-authored
+SQL requires explicit inspection before trusting a freshly generated
+file, not just a visual skim.

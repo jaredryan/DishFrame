@@ -4,12 +4,12 @@
  *
  * DishFrame's migrations contain hand-authored raw SQL (CHECK constraints,
  * composite foreign keys, partial unique indexes, trigram indexes) with no
- * Prisma Schema Language representation — see
- * docs/PRISMA_SCHEMA_PROPOSAL.md §1/§4 and the CLAUDE.md migration rule.
+ * Prisma Schema Language representation — see the raw-SQL constraint
+ * comments throughout prisma/schema.prisma and the CLAUDE.md migration rule.
  * Because `prisma migrate dev --create-only`'s shadow-database diffing
  * replays every prior migration.sql file verbatim, it can propose spurious
- * DROP statements for these unmanaged objects (a real issue hit and
- * documented in docs/SLICE_2.md §5.2). This script is a second, independent
+ * DROP statements for these unmanaged objects (a real issue hit during
+ * development). This script is a second, independent
  * line of defense: it scans every migration.sql file for a DROP targeting
  * one of these protected names and fails the build if one slips through
  * uninspected — run via `pnpm db:scan-migrations`, wired into CI.
@@ -24,8 +24,8 @@ import path from "node:path";
 
 const MIGRATIONS_DIR = path.join(process.cwd(), "prisma", "migrations");
 
-// Every hand-added constraint/index name from
-// docs/PRISMA_SCHEMA_PROPOSAL.md §4, plus the Slice 2 follow-up's fallback
+// Every hand-added constraint/index name declared as raw SQL in
+// prisma/schema.prisma's migrations, plus the Slice 2 follow-up's fallback
 // Grocery Category index. Keep this list in sync whenever a new protected
 // raw-SQL object is added to the schema.
 const PROTECTED_OBJECT_NAMES = [

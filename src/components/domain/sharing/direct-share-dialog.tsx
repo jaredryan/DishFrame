@@ -29,7 +29,7 @@ type LookupState =
  * PRODUCT_SPEC.md §85: the per-Dish "Send to another DishFrame user"
  * action — a recipient must be identified by exact email before the note
  * and Send controls appear at all, so the sender always confirms exactly
- * who they're sending to (docs/SLICE_17.md's recipient-lookup section).
+ * who they're sending to.
  */
 export function DirectShareDialog({
   open,

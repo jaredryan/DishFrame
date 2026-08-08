@@ -92,8 +92,7 @@ export type SubstituteInput = z.infer<typeof substituteInputSchema>;
  * Loosely typed (`unknown`-ish field access) because this also runs as a
  * Zod `preprocess` step, ahead of the real schema, on a value that hasn't
  * been validated yet (Gate 2 correction: this used to reach
- * `substituteInputSchema`'s `name` check as a hard failure — see
- * `docs/GATE_2_REMEDIATION.md`).
+ * `substituteInputSchema`'s `name` check as a hard failure instead).
  */
 export function isBlankSubstitute(
   substitute: Partial<SubstituteInput> | null | undefined,
@@ -314,9 +313,10 @@ export function hasMinimumContent(
   );
 }
 
-// Gate 2 correction (docs/SLICE_3.md): a Ingredient/Instruction content
-// change requires the user to explicitly choose between staying in the
-// current major line (a minor bump) or starting a new major Version.
+// Gate 2 correction (see docs/ARCHITECTURE_PROPOSAL.md §F.5a): an
+// Ingredient/Instruction content change requires the user to explicitly
+// choose between staying in the current major line (a minor bump) or
+// starting a new major Version.
 export const versionChoiceValues = ["MINOR", "MAJOR"] as const;
 export type VersionChoiceValue = (typeof versionChoiceValues)[number];
 export const versionChoiceSchema = z.enum(versionChoiceValues);
@@ -449,7 +449,7 @@ export type VersionContentInput = {
  * `base` is always treated as a genuine addition. Framework- and
  * DB-agnostic on purpose so both the client (to decide whether to show the
  * minor/major choice dialog) and the server (the actual authority) can run
- * the identical classification — see docs/SLICE_3.md's Gate 2 section.
+ * the identical classification — see docs/ARCHITECTURE_PROPOSAL.md §F.5a.
  */
 export function diffVersionContent(
   base: VersionContentInput,

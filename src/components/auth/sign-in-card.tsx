@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { AlertCircle } from "lucide-react";
+import Link from "next/link";
+import { AlertCircle, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { signIn } from "@/lib/auth/client";
@@ -66,57 +67,67 @@ export function SignInCard({
   }
 
   return (
-    <Card className="w-full max-w-sm">
-      <CardHeader className="items-center text-center">
-        <h1 className="font-heading text-foreground text-2xl font-semibold">
-          Welcome to DishFrame
-        </h1>
-        <p className="text-muted-foreground text-sm">
-          Sign in to keep your recipes, reusable parts, and cooking history in
-          one place.
-        </p>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        {!googleConfigured && (
-          <div className="border-border bg-muted text-muted-foreground flex items-start gap-2 rounded-lg border px-3 py-2.5 text-sm">
-            <AlertCircle
-              className="mt-0.5 size-4 shrink-0"
-              aria-hidden="true"
-            />
-            <span>
-              Google sign-in isn&apos;t configured yet. Add GOOGLE_CLIENT_ID and
-              GOOGLE_CLIENT_SECRET to enable it — see the README.
-            </span>
-          </div>
-        )}
+    <div className="flex w-full max-w-sm flex-col items-center gap-4">
+      <Card className="w-full">
+        <CardHeader className="items-center text-center">
+          <h1 className="font-heading text-foreground text-2xl font-semibold">
+            Welcome to DishFrame
+          </h1>
+          <p className="text-muted-foreground text-sm">
+            Sign in to keep your recipes, reusable parts, and cooking history in
+            one place.
+          </p>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          {!googleConfigured && (
+            <div className="border-border bg-muted text-muted-foreground flex items-start gap-2 rounded-lg border px-3 py-2.5 text-sm">
+              <AlertCircle
+                className="mt-0.5 size-4 shrink-0"
+                aria-hidden="true"
+              />
+              <span>
+                Google sign-in isn&apos;t configured yet. Add GOOGLE_CLIENT_ID
+                and GOOGLE_CLIENT_SECRET to enable it — see the README.
+              </span>
+            </div>
+          )}
 
-        {error && (
-          <div
-            role="alert"
-            className="border-destructive/30 bg-destructive/10 text-destructive-text flex items-start gap-2 rounded-lg border px-3 py-2.5 text-sm"
+          {error && (
+            <div
+              role="alert"
+              className="border-destructive/30 bg-destructive/10 text-destructive-text flex items-start gap-2 rounded-lg border px-3 py-2.5 text-sm"
+            >
+              <AlertCircle
+                className="mt-0.5 size-4 shrink-0"
+                aria-hidden="true"
+              />
+              <span>{error}</span>
+            </div>
+          )}
+
+          <Button
+            size="lg"
+            className="w-full"
+            disabled={!googleConfigured || pending}
+            onClick={handleGoogleSignIn}
           >
-            <AlertCircle
-              className="mt-0.5 size-4 shrink-0"
-              aria-hidden="true"
-            />
-            <span>{error}</span>
-          </div>
-        )}
+            <GoogleIcon />
+            {pending ? "Redirecting…" : "Continue with Google"}
+          </Button>
 
-        <Button
-          size="lg"
-          className="w-full"
-          disabled={!googleConfigured || pending}
-          onClick={handleGoogleSignIn}
-        >
-          <GoogleIcon />
-          {pending ? "Redirecting…" : "Continue with Google"}
-        </Button>
+          <p className="text-muted-foreground text-center text-xs">
+            Your recipes stay private unless you choose to share them.
+          </p>
+        </CardContent>
+      </Card>
 
-        <p className="text-muted-foreground text-center text-xs">
-          Your recipes stay private unless you choose to share them.
-        </p>
-      </CardContent>
-    </Card>
+      <Link
+        href="/"
+        className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 text-sm transition-colors"
+      >
+        <ArrowLeft className="size-3.5" aria-hidden="true" />
+        Back to Home
+      </Link>
+    </div>
   );
 }

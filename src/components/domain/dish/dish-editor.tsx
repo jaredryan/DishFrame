@@ -238,8 +238,8 @@ export function DishEditor({
 
   // Build Plan Review Gate 3's "unified authored order": top-level Sections
   // and top-level linked Parts share one authored sequence. Both are still
-  // two separate `useFieldArray`s (the schema/type change stayed minimal —
-  // see docs/SLICE_6.md) — this merges them for *rendering and reordering
+  // two separate `useFieldArray`s (the schema/type change stayed minimal)
+  // — this merges them for *rendering and reordering
   // only*, sorted by each item's own live `position` value (not array
   // index, which no longer reflects true order once the two arrays
   // interleave).

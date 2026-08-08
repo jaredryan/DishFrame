@@ -623,9 +623,8 @@ export type AcceptDirectShareResult =
 
 /**
  * Gate 7 §2.8's "only once" invariant, applied to `DirectShare` directly
- * (per docs/GATE_7_ARCHITECTURE_REVIEW.md's Slice 17 note: "do not reuse
- * ShareLinkAcceptance blindly if the direct-share state model already
- * provides the required one-time invariant") — a `DirectShare` is already
+ * (do not reuse ShareLinkAcceptance blindly when the direct-share state
+ * model already provides the required one-time invariant) — a `DirectShare` is already
  * one row per delivery, so the conditional `status: "PENDING"` guard on the
  * transition update IS the guard, no separate acceptance table needed.
  * Postgres row-level locking on the `UPDATE ... WHERE status = 'PENDING'`

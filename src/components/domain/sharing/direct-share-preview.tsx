@@ -10,7 +10,7 @@ import type { DirectSharePreview as DirectSharePreviewData } from "@/lib/sharing
  * Gate 7 §2.2's public whitelist DTO, reused here for a signed-in
  * recipient's (or sender's) preview of a direct share — same
  * `PublicShareView` renderer a public `ShareLink` page uses, images
- * authorized via `?directShareId=` (docs/SLICE_17.md) instead of a share
+ * authorized via `?directShareId=` instead of a share
  * token. Fetched on demand rather than preloaded with the list, since most
  * shares in a list are never expanded.
  *

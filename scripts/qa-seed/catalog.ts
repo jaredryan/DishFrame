@@ -30,7 +30,7 @@ export function printCatalog(input: {
   const imageLine = !input.image.requested
     ? 'Image fixtures: skipped — SEED_UPLOAD_BLOB_IMAGES is not "true" (ordinary pnpm db:seed never contacts Vercel Blob). Run "pnpm db:seed-images" for the image-enabled review seed.'
     : input.image.attachedCount > 0
-      ? `Image fixtures: attached to ${input.image.attachedCount} Recipes/Parts (see docs/SEED_REVIEW_GUIDE.md). [QA] Toasted Sesame Oil Drizzle and [QA] Weeknight Stir-Fry stay image-less for the image-empty UI states.${input.imageCleanupDeletedCount > 0 ? ` Cleaned up ${input.imageCleanupDeletedCount} orphaned image asset(s) from a prior run.` : ""}`
+      ? `Image fixtures: attached to ${input.image.attachedCount} Recipes/Parts. [QA] Toasted Sesame Oil Drizzle and [QA] Weeknight Stir-Fry stay image-less for the image-empty UI states.${input.imageCleanupDeletedCount > 0 ? ` Cleaned up ${input.imageCleanupDeletedCount} orphaned image asset(s) from a prior run.` : ""}`
       : `Image fixtures: skipped — ${input.image.skippedReason}`;
   const lines = [
     "",
@@ -117,7 +117,7 @@ export function printCatalog(input: {
         `  ${collection.label} — to ${collection.recipientLookup}: ${collection.recipeTitles.join(", ")} [${collection.status}]`,
     ),
     "",
-    "See docs/SEED_REVIEW_GUIDE.md for the full coverage matrix.",
+    "See this script's own qa-seed/*.ts modules for the full fixture coverage.",
     "",
     "======================================",
     "",

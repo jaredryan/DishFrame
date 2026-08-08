@@ -27,7 +27,7 @@ export function remainingSecondsAt(
 
 /** A timer is "expired" purely by comparing its persisted target time to
  * `now` — DishFrame never writes a separate EXPIRED row for this (Slice 8
- * scope decision, see docs/SLICE_8.md): a RUNNING timer whose target has
+ * scope decision): a RUNNING timer whose target has
  * passed is expired for display/alert purposes until dismissed. */
 export function isTimerExpired(timer: TimerSnapshot, nowMs: number): boolean {
   if (timer.state !== "RUNNING" || !timer.targetEndAt) return false;

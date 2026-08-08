@@ -27,8 +27,7 @@ function seed(...args: string[]): string {
 
 /**
  * BUILD_PLAN.md Slice 10 e2e journey: search, multi-criterion filtering, and
- * the visible active-filter chips (§47.8's example). Written but not run —
- * see docs/SLICE_10.md.
+ * the visible active-filter chips (§47.8's example).
  */
 test.describe("Recipe library: search, filters, and active-filter chips", () => {
   test.describe.configure({ mode: "serial" });

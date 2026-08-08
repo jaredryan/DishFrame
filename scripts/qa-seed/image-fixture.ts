@@ -27,8 +27,8 @@ export function isImageUploadRequested(): boolean {
 
 /**
  * Real, repository-owner-supplied food photos, mapped deterministically to
- * their Recipe/Part by descriptive filename (see `docs/MANUAL_QA_SEED.md`'s
- * "Image fixtures" section). Not committed for any user beyond this
+ * their Recipe/Part by descriptive filename (see this file's own
+ * filename-matching logic below). Not committed for any user beyond this
  * repository, and licensing/ownership of these specific files is the
  * repository owner's responsibility, not something this script verifies.
  */
@@ -91,8 +91,8 @@ export type AttachSeedImagesResult = {
 /**
  * Attaches a real local food photo (`prisma/seed-assets/food/`) to each
  * target's CURRENT Version (re-fetched fresh per target, never trusted from
- * a caller-held snapshot — `docs/SEED_REVIEW_GUIDE.md`'s Cooking-session
- * fixtures hit exactly this staleness bug when an earlier pipeline step
+ * a caller-held snapshot — the cooking-session fixtures once hit exactly
+ * this staleness bug when an earlier pipeline step
  * MINOR-edited a Recipe after its Version id had already been captured) via
  * the real `updateVersionMetadata` domain function — a pure in-place
  * metadata update, never creates a Version. Each source file is routed

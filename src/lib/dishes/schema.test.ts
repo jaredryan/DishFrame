@@ -261,8 +261,8 @@ describe("hasMinimumContent", () => {
 // Final Gate 2 correction pass: Section/Ingredient/Instruction reordering
 // moved from Move up/down buttons to drag-and-drop, but both mechanisms
 // produce the exact same result — a reordered array, rows matched by
-// `lineageId` — so `diffVersionContent`'s classification rule (settled in
-// docs/SLICE_3.md's Gate 2 pass) needs no change and is still the right
+// `lineageId` — so `diffVersionContent`'s classification rule (settled at
+// Gate 2, see docs/ARCHITECTURE_PROPOSAL.md §F.5a) needs no change and is still the right
 // thing to test directly, without simulating a drag gesture.
 describe("diffVersionContent after a reorder (drag or otherwise)", () => {
   it("classifies a same-Section Ingredient reorder as a cooking change", () => {

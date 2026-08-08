@@ -8,12 +8,14 @@ for (const file of [".env.local", ".env"]) {
 }
 
 async function main() {
-  const { assertLocalDatabaseEnv } = await import("@/lib/db/local-guard");
+  const { assertLocalDatabaseEnv, assertLocalDatabaseReachable } =
+    await import("@/lib/db/local-guard");
   assertLocalDatabaseEnv({
     DATABASE_URL: process.env.DATABASE_URL,
     DIRECT_URL: process.env.DIRECT_URL,
     DATABASE_DRIVER: process.env.DATABASE_DRIVER,
   });
+  await assertLocalDatabaseReachable(process.env.DATABASE_URL!);
 
   function run(command: string, args: string[]) {
     const result = spawnSync(command, args, {

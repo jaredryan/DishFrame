@@ -45,7 +45,7 @@ async function openMoreActions(page: Page) {
 test.describe("Recipes: create, view, edit, archive, restore, duplicate, delete", () => {
   // Both tests in this suite mutate the same local dev server + Postgres
   // database; running them in parallel workers occasionally produced a
-  // >5s timeout on an unrelated assertion under load (docs/SLICE_3_FOLLOWUP.md).
+  // >5s timeout on an unrelated assertion under load.
   // Serial mode removes the shared-resource contention without forcing
   // every unrelated Playwright suite onto one worker.
   test.describe.configure({ mode: "serial" });
@@ -204,7 +204,7 @@ test.describe("Recipes: create, view, edit, archive, restore, duplicate, delete"
   });
 
   /**
-   * Slice 3 Gate 2 correction pass (docs/SLICE_3.md): covers the three
+   * Slice 3 Gate 2 correction pass: covers the three
    * areas that changed — foundational Ingredient controls (fraction/mixed-
    * number quantity entry, range, approximate, optional), the minor/major
    * Version choice when Ingredient content changes (here: choosing a new

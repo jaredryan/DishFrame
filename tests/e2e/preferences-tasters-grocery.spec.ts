@@ -64,8 +64,7 @@ async function clickAndWaitForServerAction(page: Page, locator: Locator) {
  * reorders based on `closestCenter` collision between the *dragged
  * element's* transformed rect and sibling droppable rects, recalculated on
  * every `pointermove` — reproducing that precisely with Playwright's
- * synthetic mouse events proved unreliable across several attempts (see
- * "Backend verification repair" in docs/GATE_2_REMEDIATION.md), whereas
+ * synthetic mouse events proved unreliable across several attempts, whereas
  * the keyboard path moves exactly one index per Arrow press,
  * deterministically, and is itself one of this component's required
  * accessibility guarantees — exercising it here is strictly more valuable

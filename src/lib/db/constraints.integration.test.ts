@@ -3,8 +3,8 @@ import { prisma } from "@/lib/db/prisma";
 import { createTestUser, deleteTestUser } from "@/test/factories";
 
 /**
- * Confirms the hand-added raw-SQL constraints from
- * docs/PRISMA_SCHEMA_PROPOSAL.md §4 actually exist in the database and
+ * Confirms the hand-added raw-SQL constraints documented in
+ * prisma/schema.prisma actually exist in the database and
  * reject invalid data — not just that the migration files mention them.
  * Each test provokes exactly one constraint via the lowest-level Prisma
  * call available, bypassing any application-level validation.

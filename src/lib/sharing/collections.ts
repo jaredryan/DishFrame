@@ -461,9 +461,8 @@ export async function claimPendingDirectShareCollections(
 
 /**
  * `/share` page wiring: reconciles this signed-in user's own pending
- * invitations before the page's Sent/Received queries run, closing the
- * narrow race documented in `docs/SLICE_22_MULTI_RECIPE_SHARING.md`
- * (sender's exact-email lookup racing a few ms ahead of the recipient's own
+ * invitations before the page's Sent/Received queries run, closing a
+ * narrow race (sender's exact-email lookup racing a few ms ahead of the recipient's own
  * account row becoming visible, stranding the invitation past the one-shot
  * `account/init.ts` claim window). `email`/`emailVerified` are read fresh
  * from `userId`'s own row here — never taken from a caller-supplied

@@ -97,7 +97,7 @@ export function toActionErrorMessage(error: unknown): string {
   // user input), not an unexpected server failure — surface the first
   // issue's own message (e.g. "Enter a name for the substitute.") instead
   // of the generic fallback below, which is reserved for genuinely
-  // unanticipated errors (docs/GATE_2_REMEDIATION.md).
+  // unanticipated errors.
   if (error instanceof z.ZodError) {
     return error.issues[0]?.message ?? "Please check your input and try again.";
   }

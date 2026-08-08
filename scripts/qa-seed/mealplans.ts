@@ -62,7 +62,7 @@ export async function buildMealPlanFixtures(
     title: "[QA] This Week",
     startDate: plan1Start,
     endDate: plan1End,
-    notes: "Live grocery-sync fixture — see docs/SEED_REVIEW_GUIDE.md.",
+    notes: "Live grocery-sync fixture.",
   });
 
   // E1 — over-allocated (target 6 vs. authored 4), stays Planned: Weeknight
@@ -216,8 +216,7 @@ export async function buildMealPlanFixtures(
   // after the mutation below, so the review dataset has one acknowledged
   // and one unacknowledged CHANGED example side by side (both keep showing
   // the "Plan changed" badge — acknowledgeGroceryItemSync only clears the
-  // "Acknowledge" prompt, never the syncFlag itself; see
-  // docs/SEED_REVIEW_GUIDE.md's "Linked-list sync states").
+  // "Acknowledge" prompt, never the syncFlag itself).
   const e1ItemUnacknowledged = await itemForEntryIngredient(
     listCId,
     e1,

@@ -8,8 +8,8 @@ import type { RecipeFixtureIds } from "./recipes";
 /**
  * Nutrition (Slice 13, PRODUCT_SPEC.md §54) is Version-scoped but mutable
  * metadata — editing it alone updates the current Version in place and
- * never creates a new one (`docs/SLICE_13.md`'s metadata-classification
- * correction). Every call below therefore loads the dish's own current
+ * never creates a new one (Slice 13's metadata-classification correction,
+ * see docs/ARCHITECTURE_PROPOSAL.md §F.5a). Every call below therefore loads the dish's own current
  * content unchanged and merges in only the nutrition fields, then calls
  * `editDish` with `versionChoice: undefined` — the same "metadata-only
  * edit stays on the same Version" pattern `ramen.ts`'s cuisine-only step
