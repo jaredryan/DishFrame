@@ -248,7 +248,7 @@ export function HeroShowcase() {
 
       <div className="mt-4 flex flex-col justify-center gap-3 sm:flex-row lg:col-start-1 lg:row-start-2 lg:mt-0 lg:justify-start">
         <Button size="lg" asChild>
-          <Link href="/recipes/new">
+          <Link href="/home">
             Create your first recipe
             <ArrowRight className="size-4" aria-hidden="true" />
           </Link>

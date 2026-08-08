@@ -31,7 +31,7 @@ describe("PublicHeader", () => {
     });
     expect(ctas.length).toBeGreaterThan(0);
     for (const cta of ctas) {
-      expect(cta).toHaveAttribute("href", "/recipes/new");
+      expect(cta).toHaveAttribute("href", "/home");
     }
   });
 });

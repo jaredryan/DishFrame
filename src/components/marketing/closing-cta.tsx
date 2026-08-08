@@ -25,7 +25,7 @@ export function ClosingCta({
           asChild
           className="bg-primary-foreground text-primary hover:bg-primary-foreground/90"
         >
-          <Link href="/recipes/new">
+          <Link href="/home">
             Create your first recipe
             <ArrowRight className="size-4" aria-hidden="true" />
           </Link>

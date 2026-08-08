@@ -81,7 +81,7 @@ export function PublicHeader() {
             <Link href="/sign-in">Sign in</Link>
           </Button>
           <Button asChild>
-            <Link href="/recipes/new">Create your first recipe</Link>
+            <Link href="/home">Create your first recipe</Link>
           </Button>
         </div>
 
@@ -135,7 +135,7 @@ export function PublicHeader() {
                 </SheetClose>
                 <SheetClose asChild>
                   <Button asChild>
-                    <Link href="/recipes/new">Create your first recipe</Link>
+                    <Link href="/home">Create your first recipe</Link>
                   </Button>
                 </SheetClose>
               </div>
