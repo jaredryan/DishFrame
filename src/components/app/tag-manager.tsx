@@ -271,7 +271,7 @@ export function TagManager({ initialTags }: { initialTags: TagDto[] }) {
         </Button>
       </form>
 
-      <div aria-live="polite" className="min-h-0">
+      <div aria-live="polite" className="min-h-0 empty:hidden">
         {createError && (
           <p role="alert" className="text-destructive-text text-sm">
             {createError}

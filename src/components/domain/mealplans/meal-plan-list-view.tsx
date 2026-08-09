@@ -89,13 +89,7 @@ export function MealPlanCard({
   const isCompleted = variant === "completed";
 
   return (
-    <li
-      className={
-        isCompleted
-          ? "border-border flex items-center justify-between gap-3 rounded-lg border border-dashed px-4 py-3"
-          : "border-border bg-card flex items-center justify-between gap-3 rounded-lg border px-4 py-3"
-      }
-    >
+    <li className="border-border bg-card flex items-center justify-between gap-3 rounded-lg border px-4 py-3">
       <div className="min-w-0">
         <p className="text-foreground truncate text-sm font-medium">
           {plan.title}

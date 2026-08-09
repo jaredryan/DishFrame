@@ -137,7 +137,7 @@ export function PreferencesForm({
         />
       </div>
 
-      <div aria-live="polite" className="min-h-0">
+      <div aria-live="polite" className="min-h-0 empty:hidden">
         {!isPending && state.status === "success" && (
           <p
             role="status"

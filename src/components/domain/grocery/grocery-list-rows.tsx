@@ -59,13 +59,7 @@ export function GroceryListCard({
   const isCompleted = variant === "completed";
 
   return (
-    <li
-      className={
-        isCompleted
-          ? "border-border relative flex items-center justify-between gap-3 rounded-lg border border-dashed px-4 py-3"
-          : "border-border bg-card relative flex items-center justify-between gap-3 rounded-lg border px-4 py-3"
-      }
-    >
+    <li className="border-border bg-card relative flex items-center justify-between gap-3 rounded-lg border px-4 py-3">
       <Link
         href={`/grocery-lists/${list.id}`}
         aria-label={`Open ${list.title}`}
