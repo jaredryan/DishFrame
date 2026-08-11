@@ -245,3 +245,16 @@ the full list and rationale. Not scoped into any slice:
 - Recipe Gallery-specific importer (the generic paste-and-review importer
   at `/recipes/import` is the deliberate interim substitute — no
   `/parts/import` equivalent exists either).
+
+## I. Future audit
+
+- After the remaining logged-in flows finish their design/UX review,
+  perform a final comprehensive engineering/accessibility audit of the
+  application. The public pages and already-completed top-level
+  authenticated pages have already received an architecture/performance,
+  code-hygiene, reliability/data-integrity, Lighthouse, and accessibility
+  review — don't independently redo that work later unless those pages or
+  their shared implementation have materially changed. The future audit
+  should concentrate especially on the flows still being redesigned, then
+  do only the necessary regression/reintegration review of previously
+  audited shared code.

@@ -29,19 +29,27 @@ export default async function SettingsPage() {
   // Ordinarily seeded by initializeNewUser at sign-up (src/lib/account/init.ts)
   // and repaired by the (app) shell layout on any request where it's still
   // missing; upsert-on-read here is a defensive fallback only.
-  const preference = await prisma.userPreference.upsert({
-    where: { userId: user.id },
-    update: {},
-    create: { userId: user.id },
-  });
-  const groceryCategories = await prisma.groceryCategory.findMany({
-    where: { ownerId: user.id },
-    orderBy: { position: "asc" },
-    select: { id: true, displayName: true, position: true, isFallback: true },
-  });
-  const tasters = await listTasters(user.id);
-  const flavorProfiles = await listFlavorProfileValues(user.id);
-  const tags = await listTagsWithUsageCount(user.id);
+  const [preference, groceryCategories, tasters, flavorProfiles, tags] =
+    await Promise.all([
+      prisma.userPreference.upsert({
+        where: { userId: user.id },
+        update: {},
+        create: { userId: user.id },
+      }),
+      prisma.groceryCategory.findMany({
+        where: { ownerId: user.id },
+        orderBy: { position: "asc" },
+        select: {
+          id: true,
+          displayName: true,
+          position: true,
+          isFallback: true,
+        },
+      }),
+      listTasters(user.id),
+      listFlavorProfileValues(user.id),
+      listTagsWithUsageCount(user.id),
+    ]);
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-6">

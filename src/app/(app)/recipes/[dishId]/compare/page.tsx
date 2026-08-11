@@ -18,6 +18,7 @@ import {
 } from "@/lib/dishes/compare";
 import { versionContentToInput } from "@/lib/dishes/mappers";
 import { decimalToNumber } from "@/lib/dishes/format";
+import { versionLabel as formatVersionLabel } from "@/lib/dishes/version-note";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
 import {
   resolvePartLinkDisplayInfo,
@@ -133,7 +134,10 @@ async function resolvePartLinkLabels(
           );
           labels[key] = {
             title: info.title,
-            versionLabel: `V${info.majorVersion}.${info.minorVersion}`,
+            versionLabel: formatVersionLabel(
+              info.majorVersion,
+              info.minorVersion,
+            ),
           };
         } catch (error) {
           if (error instanceof NotFoundError) {
@@ -214,8 +218,14 @@ export default async function RecipeComparePage({
   ]);
   const result = compareDishVersions(fromVersion.input, toVersion.input);
   const partLinkLabels = await resolvePartLinkLabels(session.user.id, result);
-  const fromLabel = `V${fromVersion.majorVersion}.${fromVersion.minorVersion}`;
-  const toLabel = `V${toVersion.majorVersion}.${toVersion.minorVersion}`;
+  const fromLabel = formatVersionLabel(
+    fromVersion.majorVersion,
+    fromVersion.minorVersion,
+  );
+  const toLabel = formatVersionLabel(
+    toVersion.majorVersion,
+    toVersion.minorVersion,
+  );
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6">

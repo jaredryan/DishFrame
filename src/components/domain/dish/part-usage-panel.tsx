@@ -144,7 +144,11 @@ export function PartUsagePanel({
           </div>
         )}
       </div>
-      {error && <p className="text-destructive-text text-sm">{error}</p>}
+      {error && (
+        <p role="alert" className="text-destructive-text text-sm">
+          {error}
+        </p>
+      )}
       <ul className="flex flex-col gap-2">
         {usages.map((usage) => {
           const outOfDate =
@@ -242,7 +246,11 @@ export function PartUsagePanel({
               );
             })}
           </div>
-          {error && <p className="text-destructive-text text-sm">{error}</p>}
+          {error && (
+            <p role="alert" className="text-destructive-text text-sm">
+              {error}
+            </p>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setPickerOpen(false)}>
               Cancel

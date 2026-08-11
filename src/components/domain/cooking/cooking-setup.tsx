@@ -298,7 +298,11 @@ export function CookingSetup({
         />
       </ContentCard>
 
-      {error && <p className="text-destructive-text text-sm">{error}</p>}
+      {error && (
+        <p role="alert" className="text-destructive-text text-sm">
+          {error}
+        </p>
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         <Button

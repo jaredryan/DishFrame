@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { prisma } from "@/lib/db/prisma";
 import { NotFoundError } from "@/lib/errors";
 import { decimalToNumber } from "@/lib/dishes/format";
@@ -29,14 +30,19 @@ function mealPlanDetailInclude() {
   };
 }
 
-export async function getOwnedMealPlanOrThrow(ownerId: string, id: string) {
-  const mealPlan = await prisma.mealPlan.findFirst({
-    where: { id, ownerId },
-    include: mealPlanDetailInclude(),
-  });
-  if (!mealPlan) throw new NotFoundError("Meal Plan not found.");
-  return mealPlan;
-}
+// Wrapped in React's `cache()`: the meal plan detail page's
+// `generateMetadata` and page component both call this with identical args
+// in one request.
+export const getOwnedMealPlanOrThrow = cache(
+  async function getOwnedMealPlanOrThrow(ownerId: string, id: string) {
+    const mealPlan = await prisma.mealPlan.findFirst({
+      where: { id, ownerId },
+      include: mealPlanDetailInclude(),
+    });
+    if (!mealPlan) throw new NotFoundError("Meal Plan not found.");
+    return mealPlan;
+  },
+);
 export type OwnedMealPlan = Awaited<ReturnType<typeof getOwnedMealPlanOrThrow>>;
 export type OwnedMealPlanEntry = OwnedMealPlan["entries"][number];
 

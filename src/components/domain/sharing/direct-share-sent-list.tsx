@@ -75,7 +75,11 @@ function SentSingleCard({
         <NotJoinedBadge hasJoined={item.hasJoined} />
       </div>
       {item.note && <p className="text-sm italic">&ldquo;{item.note}&rdquo;</p>}
-      {error && <p className="text-destructive-text text-sm">{error}</p>}
+      {error && (
+        <p role="alert" className="text-destructive-text text-sm">
+          {error}
+        </p>
+      )}
       {item.status === "PENDING" && (
         <Button
           variant="destructive"
@@ -181,7 +185,11 @@ function SentGroupCard({
         </ul>
       )}
 
-      {error && <p className="text-destructive-text text-sm">{error}</p>}
+      {error && (
+        <p role="alert" className="text-destructive-text text-sm">
+          {error}
+        </p>
+      )}
     </li>
   );
 }

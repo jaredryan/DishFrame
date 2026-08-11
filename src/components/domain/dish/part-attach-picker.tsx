@@ -216,7 +216,9 @@ export function PartAttachPicker({
                 </p>
               ) : loadError ? (
                 <div className="flex flex-col items-center gap-2 py-6 text-center">
-                  <p className="text-destructive-text text-sm">{loadError}</p>
+                  <p role="alert" className="text-destructive-text text-sm">
+                    {loadError}
+                  </p>
                   <Button
                     type="button"
                     variant="outline"
@@ -274,7 +276,9 @@ export function PartAttachPicker({
                 </Select>
               )}
               {error && (
-                <p className="text-destructive-text text-sm">{error}</p>
+                <p role="alert" className="text-destructive-text text-sm">
+                  {error}
+                </p>
               )}
               <DialogFooter>
                 <Button variant="outline" onClick={reset}>

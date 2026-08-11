@@ -39,4 +39,34 @@ describe("DisabledActionHint", () => {
     // Closing must not have moved focus away either.
     expect(document.activeElement).toBe(trigger);
   });
+
+  it('Enter and Space toggle the explanation, matching the trigger\'s role="button" semantics', async () => {
+    const user = userEvent.setup();
+    render(
+      <DisabledActionHint explanation="This action isn't available.">
+        <button type="button" disabled aria-label="Delete (unavailable)">
+          Delete
+        </button>
+      </DisabledActionHint>,
+    );
+
+    const trigger = screen.getByText("Delete").closest("span")!;
+    trigger.focus();
+
+    // Focus alone already opens the Tooltip (Radix opens it on `onFocus`,
+    // independent of the tap-triggered Popover Enter/Space controls), so
+    // the explanation text renders twice once the Popover also opens —
+    // assert against the Popover's own node rather than the shared text.
+    await user.keyboard("{Enter}");
+    expect(
+      await screen.findByText("This action isn't available.", {
+        selector: '[data-slot="popover-content"]',
+      }),
+    ).toBeInTheDocument();
+
+    await user.keyboard(" ");
+    expect(
+      document.querySelector('[data-slot="popover-content"]'),
+    ).not.toBeInTheDocument();
+  });
 });

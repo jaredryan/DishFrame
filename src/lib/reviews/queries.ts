@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { prisma } from "@/lib/db/prisma";
 import { NotFoundError } from "@/lib/errors";
 import { versionLabel } from "@/lib/dishes/version-note";
@@ -11,53 +12,54 @@ import type { PrimaryRatingDisplayValue } from "@/lib/preferences/schema";
  * `getOwnedSessionOrThrow` (ARCHITECTURE_PROPOSAL.md §K.6).
  */
 
-export async function getOwnedSessionForReview(
-  ownerId: string,
-  sessionId: string,
-) {
-  const session = await prisma.cookingSession.findFirst({
-    where: { id: sessionId, ownerId },
-    include: {
-      units: {
-        orderBy: { position: "asc" },
-        select: {
-          id: true,
-          label: true,
-          removedAt: true,
-          completedAt: true,
-          checklistItems: {
-            select: {
-              id: true,
-              kind: true,
-              displayText: true,
-              checkedAt: true,
+// Wrapped in React's `cache()`: the Session Review page's `generateMetadata`
+// and page component both call this with identical args in one request.
+export const getOwnedSessionForReview = cache(
+  async function getOwnedSessionForReview(ownerId: string, sessionId: string) {
+    const session = await prisma.cookingSession.findFirst({
+      where: { id: sessionId, ownerId },
+      include: {
+        units: {
+          orderBy: { position: "asc" },
+          select: {
+            id: true,
+            label: true,
+            removedAt: true,
+            completedAt: true,
+            checklistItems: {
+              select: {
+                id: true,
+                kind: true,
+                displayText: true,
+                checkedAt: true,
+              },
             },
           },
         },
-      },
-      review: true,
-      ratings: {
-        include: {
-          taster: { select: { id: true, name: true, archivedAt: true } },
+        review: true,
+        ratings: {
+          include: {
+            taster: { select: { id: true, name: true, archivedAt: true } },
+          },
         },
       },
-    },
-  });
-  if (!session) throw new NotFoundError("Cooking Session not found.");
+    });
+    if (!session) throw new NotFoundError("Cooking Session not found.");
 
-  const dish = await prisma.dish.findFirst({
-    where: { id: session.dishId },
-    select: {
-      id: true,
-      kind: true,
-      currentTitle: true,
-      currentVersionId: true,
-      stage: true,
-    },
-  });
+    const dish = await prisma.dish.findFirst({
+      where: { id: session.dishId },
+      select: {
+        id: true,
+        kind: true,
+        currentTitle: true,
+        currentVersionId: true,
+        stage: true,
+      },
+    });
 
-  return { session, dish };
-}
+    return { session, dish };
+  },
+);
 export type OwnedSessionForReview = Awaited<
   ReturnType<typeof getOwnedSessionForReview>
 >;

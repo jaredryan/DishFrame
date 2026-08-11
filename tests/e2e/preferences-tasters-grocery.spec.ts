@@ -147,9 +147,15 @@ test.describe("Settings: Preferences, Grocery Categories, and Tasters", () => {
     // Delete action still renders in the same position as every other
     // category — disabled, with an explanation (Gate 2 remediation) ---
     await expect(page.getByText("Fallback")).toBeVisible();
-    const fallbackDelete = page.getByRole("button", {
-      name: "Delete Other (unavailable)",
-    });
+    // `DisabledActionHint` wraps the real `<button>` in a `role="button"`
+    // `<span>` trigger (see that component for why), so a bare role lookup
+    // resolves to both the span and the button it wraps — intersect with
+    // the `button` tag to land on the actual disabled button.
+    const fallbackDelete = page
+      .getByRole("button", {
+        name: "Delete Other (unavailable)",
+      })
+      .and(page.locator("button"));
     await expect(fallbackDelete).toBeVisible();
     await expect(fallbackDelete).toBeDisabled();
     // The disabled button itself is `pointer-events: none`, so the hover
@@ -243,9 +249,14 @@ test.describe("Settings: Preferences, Grocery Categories, and Tasters", () => {
 
     // The built-in owner Taster's archive/delete are unavailable, explained
     // on hover rather than relying only on the "You" badge.
-    const ownerDelete = page.getByRole("button", {
-      name: "Delete You (unavailable)",
-    });
+    // Same `DisabledActionHint` span/button ambiguity as the Grocery
+    // Categories fallback above — intersect with `button` to get the real
+    // disabled button, not its role="button" wrapper span.
+    const ownerDelete = page
+      .getByRole("button", {
+        name: "Delete You (unavailable)",
+      })
+      .and(page.locator("button"));
     await expect(ownerDelete).toBeDisabled();
     await ownerDelete.locator("xpath=..").hover();
     // See the matching comment on the Grocery Categories fallback hover

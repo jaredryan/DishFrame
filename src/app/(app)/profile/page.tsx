@@ -6,22 +6,11 @@ import { ProfileActions } from "@/components/app/profile-actions";
 import { AuthSessionManager } from "@/components/app/auth-session-manager";
 import { DeleteAccountDialog } from "@/components/app/delete-account-dialog";
 import { listAuthSessionsForDisplay } from "@/lib/account/service";
+import { initials } from "@/lib/format/initials";
 
 export const metadata: Metadata = {
   title: "Profile",
 };
-
-function initials(name: string) {
-  return (
-    name
-      .trim()
-      .split(/\s+/)
-      .map((part) => part[0])
-      .slice(0, 2)
-      .join("")
-      .toUpperCase() || "?"
-  );
-}
 
 export default async function ProfilePage() {
   const session = await getServerSession();

@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth/auth";
 import { AuthorizationError } from "@/lib/errors";
@@ -12,8 +13,15 @@ import { AuthorizationError } from "@/lib/errors";
  * Better Auth's own internal callers (getSessionFromCtx) already treat
  * that failure as "no session"; this does the same at the application
  * boundary instead of letting it reach the client-side error boundary.
+ *
+ * Wrapped in React's `cache()` because every protected route calls this at
+ * least twice (once in `(app)/layout.tsx`, again in the page) — without
+ * request-level memoization each call was a separate session-table lookup.
+ * `cache()` dedupes those into one lookup per render pass; it does not
+ * persist across separate requests/Server Actions, so it can't serve a
+ * stale session.
  */
-export async function getServerSession() {
+export const getServerSession = cache(async function getServerSession() {
   try {
     return await auth.api.getSession({
       headers: await headers(),
@@ -22,7 +30,7 @@ export async function getServerSession() {
     console.error("[getServerSession] Session lookup failed:", error);
     return null;
   }
-}
+});
 
 /**
  * For Server Actions and other authenticated-only entry points: returns the

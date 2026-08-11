@@ -110,7 +110,11 @@ function ReceivedSingleCard({
       </p>
       {item.note && <p className="text-sm italic">&ldquo;{item.note}&rdquo;</p>}
 
-      {error && <p className="text-destructive-text text-sm">{error}</p>}
+      {error && (
+        <p role="alert" className="text-destructive-text text-sm">
+          {error}
+        </p>
+      )}
 
       {item.status === "PENDING" && (
         <div className="flex items-center gap-2">

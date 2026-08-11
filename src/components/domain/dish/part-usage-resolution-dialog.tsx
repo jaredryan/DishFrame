@@ -142,7 +142,11 @@ export function PartUsageResolutionDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {error && <p className="text-destructive-text text-sm">{error}</p>}
+        {error && (
+          <p role="alert" className="text-destructive-text text-sm">
+            {error}
+          </p>
+        )}
 
         {usages === null ? (
           <p className="text-muted-foreground py-4 text-center text-sm">

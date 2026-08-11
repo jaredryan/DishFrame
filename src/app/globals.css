@@ -82,7 +82,7 @@
   --secondary: #f8fafc;
   --secondary-foreground: #252932;
   --muted: #f8fafc;
-  --muted-foreground: #667080;
+  --muted-foreground: #4d5460;
   --accent: #eaf1fe;
   --accent-foreground: #1d3f8f;
   --destructive: #dc2626;
@@ -90,8 +90,10 @@
   /* Text-safe destructive foreground — darker than --destructive so plain
      destructive text/icons (errors, delete affordances) clear 4.5:1 on
      card/surface-subtle/background; --destructive itself stays dual-purpose
-     (borders, tints, and the destructive-foreground-on-solid-fill pair). */
-  --destructive-text: #c81e1e;
+     (borders, tints, and the destructive-foreground-on-solid-fill pair).
+     Darkened from #c81e1e so the destructive Button's bg-destructive/10
+     tint also clears AA with a reasonable margin (was ~4.25:1). */
+  --destructive-text: #b81a1a;
   --border: #dfe4ea;
   --input: #dfe4ea;
   --ring: #2563eb;
@@ -138,12 +140,15 @@
   --secondary: #39404c;
   --secondary-foreground: #f5f7fa;
   --muted: #39404c;
-  --muted-foreground: #b8c0cc;
+  --muted-foreground: #cdd5da;
   --accent: #33415e;
   --accent-foreground: #cfe0ff;
   --destructive: #dc2626;
   --destructive-foreground: #ffffff;
-  --destructive-text: #f79292;
+  /* Lightened from #f79292 so the destructive Button's bg-destructive/20
+     tint also clears AA with a reasonable margin (was under 4.5:1 on
+     --secondary). */
+  --destructive-text: #f8a3a3;
   --border: #48515f;
   --input: #48515f;
   --ring: #4f7dff;

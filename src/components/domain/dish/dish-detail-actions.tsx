@@ -288,7 +288,11 @@ export function DishDetailActions({
               can restore it later.
             </DialogDescription>
           </DialogHeader>
-          {error && <p className="text-destructive-text text-sm">{error}</p>}
+          {error && (
+            <p role="alert" className="text-destructive-text text-sm">
+              {error}
+            </p>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={close}>
               Cancel
@@ -328,7 +332,11 @@ export function DishDetailActions({
               ))}
             </SelectContent>
           </Select>
-          {error && <p className="text-destructive-text text-sm">{error}</p>}
+          {error && (
+            <p role="alert" className="text-destructive-text text-sm">
+              {error}
+            </p>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={close}>
               Cancel
@@ -353,7 +361,11 @@ export function DishDetailActions({
               ratings start empty.
             </DialogDescription>
           </DialogHeader>
-          {error && <p className="text-destructive-text text-sm">{error}</p>}
+          {error && (
+            <p role="alert" className="text-destructive-text text-sm">
+              {error}
+            </p>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={close}>
               Cancel
@@ -482,7 +494,11 @@ export function DishDetailActions({
               undone.
             </DialogDescription>
           </DialogHeader>
-          {error && <p className="text-destructive-text text-sm">{error}</p>}
+          {error && (
+            <p role="alert" className="text-destructive-text text-sm">
+              {error}
+            </p>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={close}>
               Cancel

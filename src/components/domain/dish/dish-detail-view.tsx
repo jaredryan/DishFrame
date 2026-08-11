@@ -29,6 +29,7 @@ import {
 } from "@/lib/dishes/queries";
 import { decimalToNumber } from "@/lib/dishes/format";
 import { versionContentToInput } from "@/lib/dishes/mappers";
+import { versionLabel as formatVersionLabel } from "@/lib/dishes/version-note";
 import {
   resolvePartLinkTrees,
   type PartLinkTree,
@@ -194,7 +195,10 @@ export async function DishDetailView({
       ),
     ]);
 
-  const versionLabel = `V${version.majorVersion}.${version.minorVersion}`;
+  const versionLabel = formatVersionLabel(
+    version.majorVersion,
+    version.minorVersion,
+  );
   const collectionLabel = kind === "PART" ? "Parts" : "Recipes";
   // Version-trigger correction pass: title is stable Dish identity
   // (PRODUCT_SPEC.md §7.1), not Version content — `dish.currentTitle` is

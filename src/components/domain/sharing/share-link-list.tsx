@@ -139,7 +139,11 @@ function ShareLinkRow({ link }: { link: ShareLinkSummary }) {
         </div>
       )}
 
-      {error && <p className="text-destructive-text text-sm">{error}</p>}
+      {error && (
+        <p role="alert" className="text-destructive-text text-sm">
+          {error}
+        </p>
+      )}
 
       {lifecycle !== "disabled" && (
         <div className="flex gap-2">

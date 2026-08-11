@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { prisma } from "@/lib/db/prisma";
 import { NotFoundError } from "@/lib/errors";
 import { decimalToNumber } from "@/lib/dishes/format";
@@ -48,45 +49,50 @@ export async function getOwnedDishVersionOrThrow(
  * and every PART-kind unit snapshots the *Part's own* title, not the
  * container's.
  */
-export async function getSessionSourceSummary(
-  dishId: string,
-  dishVersionId: string,
-) {
-  const [dish, version] = await Promise.all([
-    prisma.dish.findFirst({
-      where: { id: dishId },
-      select: { currentTitle: true, kind: true },
-    }),
-    prisma.dishVersion.findFirst({
-      where: { id: dishVersionId, dishId },
-      select: { majorVersion: true, minorVersion: true },
-    }),
-  ]);
-  return {
-    dishTitle: dish?.currentTitle ?? "Deleted item",
-    dishKind: dish?.kind ?? null,
-    versionLabel: version
-      ? versionLabel(version.majorVersion, version.minorVersion)
-      : "—",
-  };
-}
+// Wrapped in React's `cache()`: the Cooking Mode page's `generateMetadata`
+// and page component both call this with identical args in one request.
+export const getSessionSourceSummary = cache(
+  async function getSessionSourceSummary(
+    dishId: string,
+    dishVersionId: string,
+  ) {
+    const [dish, version] = await Promise.all([
+      prisma.dish.findFirst({
+        where: { id: dishId },
+        select: { currentTitle: true, kind: true },
+      }),
+      prisma.dishVersion.findFirst({
+        where: { id: dishVersionId, dishId },
+        select: { majorVersion: true, minorVersion: true },
+      }),
+    ]);
+    return {
+      dishTitle: dish?.currentTitle ?? "Deleted item",
+      dishKind: dish?.kind ?? null,
+      versionLabel: version
+        ? versionLabel(version.majorVersion, version.minorVersion)
+        : "—",
+    };
+  },
+);
 
-export async function getOwnedSessionOrThrow(
-  ownerId: string,
-  sessionId: string,
-) {
-  const session = await prisma.cookingSession.findFirst({
-    where: { id: sessionId, ownerId },
-    include: {
-      units: {
-        orderBy: { position: "asc" },
-        include: { checklistItems: true, timers: true },
+// Wrapped in React's `cache()`: the Cooking Mode page's `generateMetadata`
+// and page component both call this with identical args in one request.
+export const getOwnedSessionOrThrow = cache(
+  async function getOwnedSessionOrThrow(ownerId: string, sessionId: string) {
+    const session = await prisma.cookingSession.findFirst({
+      where: { id: sessionId, ownerId },
+      include: {
+        units: {
+          orderBy: { position: "asc" },
+          include: { checklistItems: true, timers: true },
+        },
       },
-    },
-  });
-  if (!session) throw new NotFoundError("Cooking Session not found.");
-  return session;
-}
+    });
+    if (!session) throw new NotFoundError("Cooking Session not found.");
+    return session;
+  },
+);
 export type OwnedCookingSession = Awaited<
   ReturnType<typeof getOwnedSessionOrThrow>
 >;

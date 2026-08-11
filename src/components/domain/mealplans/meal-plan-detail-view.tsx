@@ -831,7 +831,11 @@ function RecommendationsPanel({
           {isPending ? "Loading…" : "Get recommendations"}
         </Button>
       </div>
-      {error && <p className="text-destructive-text text-sm">{error}</p>}
+      {error && (
+        <p role="alert" className="text-destructive-text text-sm">
+          {error}
+        </p>
+      )}
       {results &&
         (results.length === 0 ? (
           recipeEligibility?.totalRecipeCount === 0 ? (
@@ -952,7 +956,11 @@ function GenerateGroceryListDialog({
               </li>
             ))}
           </ul>
-          {error && <p className="text-destructive-text text-sm">{error}</p>}
+          {error && (
+            <p role="alert" className="text-destructive-text text-sm">
+              {error}
+            </p>
+          )}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>

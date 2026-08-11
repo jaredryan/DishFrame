@@ -49,7 +49,11 @@ describe("GrocerySourcePicker", () => {
     const user = userEvent.setup();
     renderPicker([]);
 
-    const button = screen.getByRole("button", { name: "Make grocery list" });
+    // getByRole is ambiguous here: the DisabledActionHint wrapper span now
+    // also carries role="button" (for Enter/Space parity), matching the
+    // inner disabled <button> too. getByText only checks direct text-node
+    // children, so it uniquely resolves to the real button.
+    const button = screen.getByText("Make grocery list");
     expect(button).toBeDisabled();
 
     await user.click(button.closest("span")!);

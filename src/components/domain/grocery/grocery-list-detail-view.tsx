@@ -952,7 +952,11 @@ function RefreshSourceDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {error && <p className="text-destructive-text text-sm">{error}</p>}
+        {error && (
+          <p role="alert" className="text-destructive-text text-sm">
+            {error}
+          </p>
+        )}
 
         {preview && !hasChanges && (
           <p className="text-muted-foreground text-sm">

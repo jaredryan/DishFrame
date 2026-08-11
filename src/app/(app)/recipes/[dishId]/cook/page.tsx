@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth/session";
+import { buildCookableUnits } from "@/lib/cooking/queries";
 import {
-  getOwnedDishVersionOrThrow,
-  buildCookableUnits,
-} from "@/lib/cooking/queries";
-import { getOwnedDishOrThrow } from "@/lib/dishes/queries";
+  getOwnedDishOrThrow,
+  getDishScopedVersionContentOrThrow,
+} from "@/lib/dishes/queries";
 import { NotFoundError } from "@/lib/errors";
 import {
   CookingSetup,
@@ -51,20 +51,12 @@ export default async function RecipeCookingSetupPage({
 
   let dish, version;
   try {
-    const dishRow = await getOwnedDishOrThrow(
-      session.user.id,
-      dishId,
-      "RECIPE",
-    );
-    const targetVersionId = versionId || dishRow.currentVersionId;
+    dish = await getOwnedDishOrThrow(session.user.id, dishId, "RECIPE");
+    const targetVersionId = versionId || dish.currentVersionId;
     if (!targetVersionId) throw new NotFoundError("Recipe not found.");
-    const result = await getOwnedDishVersionOrThrow(
-      session.user.id,
-      dishId,
-      targetVersionId,
-    );
-    dish = result.dish;
-    version = result.version;
+    // Ownership of `dishId` is already established above — scope directly
+    // by dishId instead of re-fetching the Dish row a second time.
+    version = await getDishScopedVersionContentOrThrow(dishId, targetVersionId);
   } catch (error) {
     if (error instanceof NotFoundError) notFound();
     throw error;

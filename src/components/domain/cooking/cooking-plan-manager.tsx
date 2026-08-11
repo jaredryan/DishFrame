@@ -148,7 +148,11 @@ export function CookingPlanManager({
           </SheetHeader>
 
           <div className="flex flex-col gap-4 overflow-y-auto px-4 pb-4">
-            {error && <p className="text-destructive-text text-sm">{error}</p>}
+            {error && (
+              <p role="alert" className="text-destructive-text text-sm">
+                {error}
+              </p>
+            )}
 
             <ul className="flex flex-col gap-2">
               {activeUnits.map((unit, index) => (

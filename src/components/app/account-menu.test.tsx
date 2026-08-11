@@ -22,7 +22,9 @@ describe("AccountMenu", () => {
     const events = userEvent.setup();
     render(<AccountMenu user={user} />);
 
-    await events.click(screen.getByRole("button", { name: "Account menu" }));
+    await events.click(
+      screen.getByRole("button", { name: "JR, account menu" }),
+    );
 
     expect(await screen.findByText("Jamie Rivera")).toBeInTheDocument();
     expect(screen.getByText("jamie@example.com")).toBeInTheDocument();
@@ -32,10 +34,19 @@ describe("AccountMenu", () => {
     const events = userEvent.setup();
     render(<AccountMenu user={user} />);
 
-    await events.click(screen.getByRole("button", { name: "Account menu" }));
+    await events.click(
+      screen.getByRole("button", { name: "JR, account menu" }),
+    );
     await events.click(await screen.findByText("Sign out"));
 
     expect(signOut).toHaveBeenCalled();
     expect(push).toHaveBeenCalledWith("/");
+  });
+
+  it("includes the visible initials in the accessible name (WCAG 2.5.3)", () => {
+    render(<AccountMenu user={user} />);
+
+    const trigger = screen.getByRole("button", { name: "JR, account menu" });
+    expect(trigger).toHaveTextContent("JR");
   });
 });

@@ -131,7 +131,11 @@ export function MealPlanCreatePanel() {
             />
           </Field>
         </div>
-        {error && <p className="text-destructive-text text-sm">{error}</p>}
+        {error && (
+          <p role="alert" className="text-destructive-text text-sm">
+            {error}
+          </p>
+        )}
         <div>
           <Button type="submit" disabled={isPending}>
             {isPending ? "Creating…" : "Create Meal Plan"}

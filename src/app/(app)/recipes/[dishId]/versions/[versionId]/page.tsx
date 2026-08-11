@@ -22,6 +22,7 @@ import {
 } from "@/components/domain/dish/nutrition-summary";
 import { versionContentToInput } from "@/lib/dishes/mappers";
 import { decimalToNumber } from "@/lib/dishes/format";
+import { versionLabel as formatVersionLabel } from "@/lib/dishes/version-note";
 import {
   resolvePartLinkTrees,
   resolveMaterializedPartLinkTreesForVersion,
@@ -124,7 +125,10 @@ export default async function RecipeVersionPage({
   );
 
   const basePath = dishBasePath("RECIPE");
-  const versionLabel = `V${version.majorVersion}.${version.minorVersion}`;
+  const versionLabel = formatVersionLabel(
+    version.majorVersion,
+    version.minorVersion,
+  );
   // Version-trigger correction pass: title is stable Dish identity
   // (PRODUCT_SPEC.md §7.1), not Version content — every historical Version
   // page shows the Dish's one current title, not a per-Version snapshot.
@@ -282,7 +286,7 @@ export default async function RecipeVersionPage({
               kind="RECIPE"
               dishId={dish.id}
               versionId={version.id}
-              newMajorLabel={`V${highestMajor + 1}.0`}
+              newMajorLabel={formatVersionLabel(highestMajor + 1, 0)}
             />
           )}
           <Button variant="outline" asChild>

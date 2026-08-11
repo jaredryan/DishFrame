@@ -15,24 +15,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { signOut } from "@/lib/auth/client";
 import { cn } from "@/lib/utils";
+import { initials } from "@/lib/format/initials";
 
 type AccountUser = {
   name: string;
   email: string;
   image?: string | null;
 };
-
-function initials(name: string) {
-  return (
-    name
-      .trim()
-      .split(/\s+/)
-      .map((part) => part[0])
-      .slice(0, 2)
-      .join("")
-      .toUpperCase() || "?"
-  );
-}
 
 export function AccountMenu({
   user,
@@ -43,6 +32,7 @@ export function AccountMenu({
 }) {
   const router = useRouter();
   const [signingOut, setSigningOut] = React.useState(false);
+  const userInitials = initials(user.name);
 
   async function handleSignOut() {
     setSigningOut(true);
@@ -60,11 +50,11 @@ export function AccountMenu({
             "focus-visible:ring-ring/50 flex cursor-pointer items-center gap-2 rounded-full focus-visible:ring-2 focus-visible:outline-none",
             className,
           )}
-          aria-label="Account menu"
+          aria-label={`${userInitials}, account menu`}
         >
-          <Avatar>
+          <Avatar aria-hidden="true">
             <AvatarImage src={user.image ?? undefined} alt="" />
-            <AvatarFallback>{initials(user.name)}</AvatarFallback>
+            <AvatarFallback>{userInitials}</AvatarFallback>
           </Avatar>
         </button>
       </DropdownMenuTrigger>

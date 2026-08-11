@@ -144,7 +144,11 @@ export function ShareDialog({
               />
             </div>
 
-            {error && <p className="text-destructive-text text-sm">{error}</p>}
+            {error && (
+              <p role="alert" className="text-destructive-text text-sm">
+                {error}
+              </p>
+            )}
           </div>
         )}
 

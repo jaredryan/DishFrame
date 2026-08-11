@@ -525,7 +525,9 @@ export function CookingModeShell({
       )}
 
       {error && (
-        <p className="text-destructive-text px-4 pt-2 text-sm">{error}</p>
+        <p role="alert" className="text-destructive-text px-4 pt-2 text-sm">
+          {error}
+        </p>
       )}
 
       <div className="px-4 pt-3">
@@ -1105,7 +1107,11 @@ function AddTimerForm({
           Cancel
         </Button>
       </div>
-      {error && <p className="text-destructive-text text-xs">{error}</p>}
+      {error && (
+        <p role="alert" className="text-destructive-text text-xs">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

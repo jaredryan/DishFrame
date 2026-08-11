@@ -70,7 +70,11 @@ export function PromoteVersionButton({
               historical version changes.
             </DialogDescription>
           </DialogHeader>
-          {error && <p className="text-destructive-text text-sm">{error}</p>}
+          {error && (
+            <p role="alert" className="text-destructive-text text-sm">
+              {error}
+            </p>
+          )}
           <DialogFooter>
             <Button
               variant="outline"

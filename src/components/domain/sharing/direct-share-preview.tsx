@@ -63,7 +63,11 @@ export function DirectSharePreviewPanel({
       {isPending && !data && (
         <p className="text-muted-foreground p-4 text-sm">Loading preview…</p>
       )}
-      {error && <p className="text-destructive-text p-4 text-sm">{error}</p>}
+      {error && (
+        <p role="alert" className="text-destructive-text p-4 text-sm">
+          {error}
+        </p>
+      )}
       {data && (
         <PublicShareView
           content={data.content}

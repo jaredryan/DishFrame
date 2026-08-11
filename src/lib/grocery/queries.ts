@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { prisma } from "@/lib/db/prisma";
 import { NotFoundError } from "@/lib/errors";
 import { decimalToNumber } from "@/lib/dishes/format";
@@ -70,16 +71,21 @@ const groceryListDetailInclude = {
   },
 } as const;
 
-export async function getOwnedGroceryListOrThrow(ownerId: string, id: string) {
-  const list = await prisma.groceryList.findFirst({
-    where: { id, ownerId },
-    include: groceryListDetailInclude,
-  });
-  if (!list) {
-    throw new NotFoundError("Grocery list not found.");
-  }
-  return list;
-}
+// Wrapped in React's `cache()`: the grocery list detail page's
+// `generateMetadata` and page component both call this with identical args
+// in one request.
+export const getOwnedGroceryListOrThrow = cache(
+  async function getOwnedGroceryListOrThrow(ownerId: string, id: string) {
+    const list = await prisma.groceryList.findFirst({
+      where: { id, ownerId },
+      include: groceryListDetailInclude,
+    });
+    if (!list) {
+      throw new NotFoundError("Grocery list not found.");
+    }
+    return list;
+  },
+);
 export type OwnedGroceryList = Awaited<
   ReturnType<typeof getOwnedGroceryListOrThrow>
 >;

@@ -41,6 +41,19 @@ import {
  *   touch, so it can't cover tap discovery on its own). Its
  *   `onOpenAutoFocus`/`onCloseAutoFocus` are explicitly prevented so a tap
  *   can't steal or restore focus either.
+ *
+ * The wrapper span carries `role="button"` because Radix's `PopoverTrigger
+ * asChild` clones `aria-haspopup`/`aria-expanded` onto it, and a click
+ * already toggles the popover for mouse/touch users (Radix wires that
+ * `onClick` regardless of role) — so `role="button"` is describing real,
+ * already-present behavior, not just satisfying `aria-allowed-attr`. The
+ * one gap that left was keyboard parity: a `<span>` doesn't get the
+ * browser's native Enter/Space-triggers-click behavior a real `<button>`
+ * gets for free, so `onKeyDown` below completes it explicitly. Keyboard
+ * users don't strictly need this to see the explanation — focus alone
+ * already opens the Tooltip — but leaving Enter/Space inert on an element
+ * announced as a button would still violate the WAI-ARIA button pattern's
+ * keyboard contract.
  */
 export function DisabledActionHint({
   explanation,
@@ -57,7 +70,17 @@ export function DisabledActionHint({
         <Tooltip>
           <TooltipTrigger asChild>
             <PopoverTrigger asChild>
-              <span className="inline-flex cursor-not-allowed" tabIndex={0}>
+              <span
+                role="button"
+                className="inline-flex cursor-not-allowed"
+                tabIndex={0}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setTapOpen((open) => !open);
+                  }
+                }}
+              >
                 {children}
               </span>
             </PopoverTrigger>

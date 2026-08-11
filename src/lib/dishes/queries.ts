@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { NotFoundError } from "@/lib/errors";
@@ -24,8 +25,12 @@ import type { PrimaryRatingDisplayValue } from "@/lib/preferences/schema";
  * Ownership guard (ARCHITECTURE_PROPOSAL.md §K.6): every mutation walks up
  * to the owning row via a query scoped by both `id` and `ownerId` together,
  * rather than fetching by id alone and checking ownership after the fact.
+ *
+ * Wrapped in React's `cache()`: every detail-type route's `generateMetadata`
+ * and its page component both call this with identical args, so without
+ * request-level memoization each request ran the lookup twice.
  */
-export async function getOwnedDishOrThrow(
+export const getOwnedDishOrThrow = cache(async function getOwnedDishOrThrow(
   ownerId: string,
   dishId: string,
   kind?: DishKindValue,
@@ -39,7 +44,7 @@ export async function getOwnedDishOrThrow(
     );
   }
   return dish;
-}
+});
 
 // Reusable select/include shapes (ARCHITECTURE_PROPOSAL.md §K.7).
 export const dishCardSelect = {
@@ -332,22 +337,27 @@ export async function queryDishLibrary(
   }));
 }
 
-export async function getOwnedDishDetailOrThrow(
-  ownerId: string,
-  dishId: string,
-  kind: DishKindValue,
-) {
-  const dish = await prisma.dish.findFirst({
-    where: { id: dishId, ownerId, kind },
-    include: dishDetailInclude,
-  });
-  if (!dish) {
-    throw new NotFoundError(
-      kind === "PART" ? "Part not found." : "Recipe not found.",
-    );
-  }
-  return dish;
-}
+// Wrapped in React's `cache()` for the same reason as getOwnedDishOrThrow
+// above — the recipe/part detail page's `generateMetadata` and page
+// component both call this with identical args in one request.
+export const getOwnedDishDetailOrThrow = cache(
+  async function getOwnedDishDetailOrThrow(
+    ownerId: string,
+    dishId: string,
+    kind: DishKindValue,
+  ) {
+    const dish = await prisma.dish.findFirst({
+      where: { id: dishId, ownerId, kind },
+      include: dishDetailInclude,
+    });
+    if (!dish) {
+      throw new NotFoundError(
+        kind === "PART" ? "Part not found." : "Recipe not found.",
+      );
+    }
+    return dish;
+  },
+);
 
 export function getVersionContent(dishVersionId: string) {
   return prisma.dishVersion.findUniqueOrThrow({
@@ -433,16 +443,24 @@ export async function getDishScopedVersionMetaOrThrow(
  * both the owning Dish (stage, currentVersionId, cuisine) and one specific
  * Version's full content.
  */
-export async function getOwnedVersionDetailOrThrow(
-  ownerId: string,
-  dishId: string,
-  versionId: string,
-  kind?: DishKindValue,
-) {
-  const dish = await getOwnedDishOrThrow(ownerId, dishId, kind);
-  const version = await getDishScopedVersionContentOrThrow(dish.id, versionId);
-  return { dish, version };
-}
+// Wrapped in React's `cache()` for the same reason as getOwnedDishOrThrow
+// above — the version-detail page's `generateMetadata` and page component
+// both call this with identical args in one request.
+export const getOwnedVersionDetailOrThrow = cache(
+  async function getOwnedVersionDetailOrThrow(
+    ownerId: string,
+    dishId: string,
+    versionId: string,
+    kind?: DishKindValue,
+  ) {
+    const dish = await getOwnedDishOrThrow(ownerId, dishId, kind);
+    const version = await getDishScopedVersionContentOrThrow(
+      dish.id,
+      versionId,
+    );
+    return { dish, version };
+  },
+);
 
 // Ordered ascending by version number (chronological, since major/minor only
 // ever increase) — backs the Version selector/pager (PRODUCT_SPEC.md §13.8)

@@ -108,7 +108,11 @@ export function AuthSessionManager({
         ))}
       </ul>
 
-      {error && <p className="text-destructive-text text-sm">{error}</p>}
+      {error && (
+        <p role="alert" className="text-destructive-text text-sm">
+          {error}
+        </p>
+      )}
 
       {hasOtherSessions && (
         <Button

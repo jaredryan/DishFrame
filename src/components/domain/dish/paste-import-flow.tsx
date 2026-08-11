@@ -146,7 +146,10 @@ export function PasteImportFlow({
         </FieldDescription>
       </Field>
       {error && (
-        <p className="text-destructive-text flex items-center gap-2 text-sm">
+        <p
+          role="alert"
+          className="text-destructive-text flex items-center gap-2 text-sm"
+        >
           <AlertCircle className="size-4 shrink-0" />
           {error}
         </p>

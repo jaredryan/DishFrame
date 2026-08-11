@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { DragHandle } from "@/components/ui/drag-handle";
+import { versionLabel as formatVersionLabel } from "@/lib/dishes/version-note";
 import {
   Tooltip,
   TooltipContent,
@@ -221,7 +222,7 @@ export function PartLinkFields({
   const style = { transform: CSS.Transform.toString(transform), transition };
 
   const versionLabel = display
-    ? `V${display.majorVersion}.${display.minorVersion}`
+    ? formatVersionLabel(display.majorVersion, display.minorVersion)
     : null;
   const title = error
     ? "Linked Part unavailable"
@@ -314,7 +315,11 @@ export function PartLinkFields({
 
       {expanded && (
         <>
-          {error && <p className="text-destructive-text text-sm">{error}</p>}
+          {error && (
+            <p role="alert" className="text-destructive-text text-sm">
+              {error}
+            </p>
+          )}
           {display?.description && (
             <p className="text-muted-foreground text-sm">
               {display.description}
@@ -360,7 +365,9 @@ export function PartLinkFields({
               />
             )}
             {preview?.key === requestKey && !preview.tree && preview.error && (
-              <p className="text-destructive-text text-sm">{preview.error}</p>
+              <p role="alert" className="text-destructive-text text-sm">
+                {preview.error}
+              </p>
             )}
             {preview?.key === requestKey && !preview.tree && !preview.error && (
               <p className="text-muted-foreground text-sm">
