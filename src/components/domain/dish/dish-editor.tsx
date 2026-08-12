@@ -141,6 +141,7 @@ export function DishEditor({
   initialValues,
   onCreate,
   heading,
+  importHref,
 }: {
   kind: DishKindValue;
   // Slice 11: seeds create-mode `defaultValues` in place of
@@ -161,6 +162,8 @@ export function DishEditor({
   // importer uses this for "Review imported recipe/part" so the reviewer
   // understands they're confirming a parsed proposal, not starting blank.
   heading?: string;
+  // Top-right "Import recipe/part" escape hatch — only the plain "New" pages pass this.
+  importHref?: string;
   dish?: {
     id: string;
     // The Version this edit is based on — any saved Version belonging to
@@ -216,6 +219,16 @@ export function DishEditor({
     cleaned: DishFormValues;
     extras: EditorExtras;
   } | null>(null);
+  // The Section modal must never open on page load — not for a freshly
+  // loaded editor, not for an import-review proposal, not for any existing
+  // Section. The one exception is a Section just added via "Add section"
+  // below, which sets this to that new Section's `position` so its
+  // `SectionFields` row can open its own modal on mount. `position` (not
+  // array index or field id) is what's synchronously known at click time
+  // and stable enough for a one-shot, read-once-at-mount match.
+  const [autoOpenSectionPosition, setAutoOpenSectionPosition] = React.useState<
+    number | null
+  >(null);
 
   const form = useForm<EditorFormValues>({
     defaultValues: dish
@@ -539,9 +552,16 @@ export function DishEditor({
     <FormProvider {...form}>
       <div className="mx-auto flex max-w-3xl flex-col gap-6 pb-24">
         <Breadcrumbs items={breadcrumbItems} />
-        <h1 className="font-heading text-foreground text-2xl font-semibold">
-          {editorHeading}
-        </h1>
+        <div className="flex items-start justify-between gap-4">
+          <h1 className="font-heading text-foreground text-2xl font-semibold">
+            {editorHeading}
+          </h1>
+          {importHref && (
+            <Button asChild>
+              <Link href={importHref}>Import {kindLabel.toLowerCase()}</Link>
+            </Button>
+          )}
+        </div>
 
         {!dish && kind === "RECIPE" && (
           <CoachMark
@@ -591,6 +611,7 @@ export function DishEditor({
             <FieldLabel htmlFor="dish-title">{kindLabel} title</FieldLabel>
             <Input
               id="dish-title"
+              className="bg-card dark:bg-card"
               placeholder={
                 kind === "PART"
                   ? "e.g. Nuoc Cham"
@@ -728,7 +749,7 @@ export function DishEditor({
                   <NumberField
                     name="prepTimeMinutes"
                     id="dish-prep-time"
-                    placeholder="Optional"
+                    placeholder="e.g. 15"
                     aria-label="Prep time in minutes"
                     className="w-13"
                   />
@@ -741,7 +762,7 @@ export function DishEditor({
                   <NumberField
                     name="cookTimeMinutes"
                     id="dish-cook-time"
-                    placeholder="Optional"
+                    placeholder="e.g. 30"
                     aria-label="Cook time in minutes"
                     className="w-13"
                   />
@@ -812,6 +833,7 @@ export function DishEditor({
                       }}
                       containerDishId={dish?.id ?? null}
                       containerKind={kind}
+                      startOpen={entry.position === autoOpenSectionPosition}
                     />
                   ) : (
                     <PartLinkFields
@@ -833,16 +855,18 @@ export function DishEditor({
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() =>
+                onClick={() => {
+                  const position = nextTopLevelPosition();
                   sections.append({
                     name: null,
                     guidanceNote: null,
                     ingredients: [],
                     instructions: [],
                     partLinks: [],
-                    position: nextTopLevelPosition(),
-                  })
-                }
+                    position,
+                  });
+                  setAutoOpenSectionPosition(position);
+                }}
               >
                 <Plus /> Add section
               </Button>

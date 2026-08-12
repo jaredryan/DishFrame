@@ -15,6 +15,12 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { DragHandle } from "@/components/ui/drag-handle";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useReorderSensors } from "@/lib/dnd/sensors";
 import { createReorderAnnouncements } from "@/lib/dnd/announcements";
 import { ItemToolbar } from "@/components/domain/dish/reorder-buttons";
@@ -54,6 +60,7 @@ export function SectionFields({
   onConvertToPart,
   containerDishId,
   containerKind,
+  startOpen = false,
 }: {
   id: string;
   sectionIndex: number;
@@ -64,21 +71,22 @@ export function SectionFields({
   }) => void;
   containerDishId: string | null;
   containerKind: DishKindValue;
+  // The Section modal never opens on its own — not for a freshly loaded
+  // page, not for a brand-new Section with no saved content, not for an
+  // import-review proposal. It opens only for an explicit "Edit" click
+  // (handled locally below) or an explicit "Add section" click, which the
+  // parent DishEditor signals by passing `startOpen: true` for exactly the
+  // row it just appended. Read once at mount, same as `editing` itself.
+  startOpen?: boolean;
 }) {
-  const { control, register, watch, getValues } = useFormContext();
+  const { control, register, watch } = useFormContext();
   const prefix = `sections.${sectionIndex}`;
   const idPrefix = prefix.replace(/\./g, "-");
   const sectionName: string = watch(`${prefix}.name`);
   const guidanceNote: string = watch(`${prefix}.guidanceNote`);
-  // Slice 6 correction pass §4: view-first by default — but only once
-  // there's saved content to view. A brand-new Section (no `lineageId` yet,
-  // added via "Add section" in this same editing session) has nothing to
-  // show, so it starts in edit mode instead; a Section loaded from an
-  // existing saved Dish starts view-first. Read once at mount (a
-  // `lineageId`, once assigned, never changes for the lifetime of this row).
-  const [editing, setEditing] = React.useState(
-    () => !getValues(`${prefix}.lineageId`),
-  );
+  // `editing` doubles as the Section modal's own open state — see the
+  // Dialog below.
+  const [editing, setEditing] = React.useState(startOpen);
   const watchedIngredients: IngredientInput[] =
     useWatch({ control, name: `${prefix}.ingredients` }) ?? [];
   const watchedInstructions: InstructionInput[] =
@@ -130,6 +138,7 @@ export function SectionFields({
 
   const label = sectionName || `section ${sectionIndex + 1}`;
   const sectionNumberLabel = `Section ${sectionIndex + 1}`;
+  const sectionTitle = `${sectionNumberLabel}${sectionName ? ` — ${sectionName}` : ""}`;
 
   const {
     attributes,
@@ -166,10 +175,10 @@ export function SectionFields({
       className="border-border bg-card flex flex-col gap-4 rounded-xl border p-4"
     >
       {/* Design remediation pass: full-width header row — drag handle far
-          left, a live numbered title, actions far right. The name/
-          guidance-note fields (when editing) move below, aligned with the
-          Ingredients/Instructions content rather than indented under this
-          row's own drag-handle column. */}
+          left, a live numbered title, actions far right. Clicking the Edit
+          action now opens the Section editor in a modal (below) rather than
+          expanding this row inline; this collapsed representation is the
+          parent page's permanent view of the Section. */}
       <div className="flex items-center gap-2">
         <DragHandle
           label={`Drag to reorder ${label}`}
@@ -178,8 +187,7 @@ export function SectionFields({
           isDragging={isDragging}
         />
         <h3 className="font-heading text-foreground min-w-0 flex-1 truncate text-base font-medium">
-          {sectionNumberLabel}
-          {sectionName ? ` — ${sectionName}` : ""}
+          {sectionTitle}
         </h3>
         <div className="flex shrink-0 items-center gap-0.5">
           <ConvertSectionToPartDialog
@@ -199,8 +207,88 @@ export function SectionFields({
         </div>
       </div>
 
-      {editing ? (
-        <>
+      {guidanceNote && (
+        <p className="text-muted-foreground text-xs italic">{guidanceNote}</p>
+      )}
+
+      {/* Slice 6 correction pass §4: view-first by default — concise
+          formatted content, not empty editable fields. Editing (added
+          ingredients/instructions, reordering, substitutes) requires the
+          explicit Edit action above, which now opens the Section modal. */}
+      <div className="flex flex-col gap-3">
+        {watchedIngredients.length > 0 && (
+          <ul className="flex flex-col gap-1">
+            {watchedIngredients.map((ingredient, index) => (
+              <li key={index} className="text-sm">
+                {formatIngredientLine(ingredient)}
+                {ingredient.isOptional && (
+                  <span className="text-muted-foreground"> (optional)</span>
+                )}
+                {ingredient.substitute && (
+                  <span className="text-muted-foreground block pl-4 text-xs">
+                    Substitute: {formatIngredientLine(ingredient.substitute)}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+        {watchedInstructions.length > 0 && (
+          <ol className="flex flex-col gap-1.5">
+            {watchedInstructions.map((instruction, index) => (
+              <li key={index} className="flex gap-2 text-sm">
+                <span className="text-muted-foreground tabular-nums">
+                  {index + 1}.
+                </span>
+                <span>{instruction.text}</span>
+              </li>
+            ))}
+          </ol>
+        )}
+        {watchedIngredients.length === 0 &&
+          watchedInstructions.length === 0 &&
+          partLinks.fields.length === 0 && (
+            <p className="text-muted-foreground text-sm">
+              No content yet — Edit to add ingredients or instructions.
+            </p>
+          )}
+      </div>
+
+      {partLinks.fields.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <h4 className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+            Linked Parts
+          </h4>
+          {partLinks.fields.map((field, partLinkIndex) => (
+            <PartLinkFields
+              key={field.id}
+              id={field.id}
+              prefix={`${prefix}.partLinks.${partLinkIndex}`}
+              containerKind={containerKind}
+              onRemove={() => partLinks.remove(partLinkIndex)}
+              onDetach={(content) => handleDetach(partLinkIndex, content)}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Structural presentation change: the Section editor itself is
+          unchanged — only its container moved from an inline expansion to a
+          modal. `max-w-3xl` reuses DishEditor's own outer content width
+          (src/components/domain/dish/dish-editor.tsx) so the editable
+          content area matches what it was inline; the default `p-4` inset
+          is unchanged from DialogContent's base styling. Closing the modal
+          by any means (Finish section, the X button, Escape, or an overlay
+          click) collapses the Section the same way — none of it is a save;
+          the Section's field values already live in the parent form via
+          react-hook-form and are unaffected by this modal mounting or
+          unmounting. */}
+      <Dialog open={editing} onOpenChange={setEditing}>
+        <DialogContent className="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-y-auto sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>{sectionTitle}</DialogTitle>
+          </DialogHeader>
+
           <Field>
             <FieldLabel htmlFor={`${idPrefix}-name`}>Section name</FieldLabel>
             <Input
@@ -220,19 +308,7 @@ export function SectionFields({
               {...register(`${prefix}.guidanceNote`)}
             />
           </Field>
-        </>
-      ) : (
-        guidanceNote && (
-          <p className="text-muted-foreground text-xs italic">{guidanceNote}</p>
-        )
-      )}
 
-      {/* Slice 6 correction pass §4: view-first by default — concise
-          formatted content, not empty editable fields. Editing (added
-          ingredients/instructions, reordering, substitutes) requires the
-          explicit Edit action above. */}
-      {editing ? (
-        <>
           <div className="flex flex-col gap-2">
             <h4 className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
               Ingredients
@@ -278,10 +354,10 @@ export function SectionFields({
               type="button"
               variant="outline"
               size="sm"
-              className="self-start"
+              className="mt-1 self-start"
               onClick={() => ingredients.append(BLANK_INGREDIENT)}
             >
-              <Plus /> Add ingredient
+              <Plus /> Add another ingredient
             </Button>
           </div>
 
@@ -336,82 +412,35 @@ export function SectionFields({
               <Plus /> Add instruction
             </Button>
           </div>
-        </>
-      ) : (
-        <div className="flex flex-col gap-3">
-          {watchedIngredients.length > 0 && (
-            <ul className="flex flex-col gap-1">
-              {watchedIngredients.map((ingredient, index) => (
-                <li key={index} className="text-sm">
-                  {formatIngredientLine(ingredient)}
-                  {ingredient.isOptional && (
-                    <span className="text-muted-foreground"> (optional)</span>
-                  )}
-                  {ingredient.substitute && (
-                    <span className="text-muted-foreground block pl-4 text-xs">
-                      Substitute: {formatIngredientLine(ingredient.substitute)}
-                    </span>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-          {watchedInstructions.length > 0 && (
-            <ol className="flex flex-col gap-1.5">
-              {watchedInstructions.map((instruction, index) => (
-                <li key={index} className="flex gap-2 text-sm">
-                  <span className="text-muted-foreground tabular-nums">
-                    {index + 1}.
-                  </span>
-                  <span>{instruction.text}</span>
-                </li>
-              ))}
-            </ol>
-          )}
-          {watchedIngredients.length === 0 &&
-            watchedInstructions.length === 0 &&
-            partLinks.fields.length === 0 && (
-              <p className="text-muted-foreground text-sm">
-                No content yet — Edit to add ingredients or instructions.
-              </p>
-            )}
-        </div>
-      )}
 
-      {partLinks.fields.length > 0 && (
-        <div className="flex flex-col gap-2">
-          <h4 className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
-            Linked Parts
-          </h4>
-          {partLinks.fields.map((field, partLinkIndex) => (
-            <PartLinkFields
-              key={field.id}
-              id={field.id}
-              prefix={`${prefix}.partLinks.${partLinkIndex}`}
+          <div className="flex flex-wrap gap-2">
+            <PartAttachPicker
+              containerDishId={containerDishId}
               containerKind={containerKind}
-              onRemove={() => partLinks.remove(partLinkIndex)}
-              onDetach={(content) => handleDetach(partLinkIndex, content)}
+              excludeDishId={containerDishId ?? undefined}
+              onAttach={(link) =>
+                partLinks.append({
+                  ...link,
+                  position: partLinks.fields.length,
+                  multiplier: 1,
+                })
+              }
             />
-          ))}
-        </div>
-      )}
-      {editing && (
-        <div className="flex flex-wrap gap-2">
-          <PartAttachPicker
-            containerDishId={containerDishId}
-            containerKind={containerKind}
-            excludeDishId={containerDishId ?? undefined}
-            onAttach={(link) =>
-              partLinks.append({
-                ...link,
-                position: partLinks.fields.length,
-                multiplier: 1,
-              })
-            }
-          />
-          <CreatePartLink />
-        </div>
-      )}
+            <CreatePartLink />
+          </div>
+
+          {/* Same Finish model as IngredientFields, one level up — now also
+              the modal's natural completion action. */}
+          <Button
+            type="button"
+            size="sm"
+            className="self-start"
+            onClick={() => setEditing(false)}
+          >
+            Finish section
+          </Button>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

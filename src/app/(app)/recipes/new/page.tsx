@@ -16,5 +16,11 @@ export default async function NewRecipePage() {
 
   const cuisineOptions = await listDistinctCuisines(session.user.id, "RECIPE");
 
-  return <DishEditor kind="RECIPE" cuisineOptions={cuisineOptions} />;
+  return (
+    <DishEditor
+      kind="RECIPE"
+      cuisineOptions={cuisineOptions}
+      importHref="/recipes/import"
+    />
+  );
 }

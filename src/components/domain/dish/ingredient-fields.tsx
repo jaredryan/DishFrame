@@ -219,6 +219,16 @@ export function IngredientFields({
               />
             )}
           </div>
+
+          {/* Explicit workflow completion, separate from the top-right collapse shortcut. */}
+          <Button
+            type="button"
+            size="sm"
+            className="self-start"
+            onClick={() => setCollapsed(true)}
+          >
+            Finish ingredient
+          </Button>
         </div>
       )}
     </div>

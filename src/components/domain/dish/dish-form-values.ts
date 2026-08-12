@@ -128,16 +128,7 @@ export function blankDishFormValues(): DishFormValues {
     nutritionSourceProvider: null,
     nutritionSourceId: null,
     nutritionSourceName: null,
-    sections: [
-      {
-        name: null,
-        guidanceNote: null,
-        ingredients: [],
-        instructions: [],
-        partLinks: [],
-        position: 0,
-      },
-    ],
+    sections: [],
     partLinks: [],
   };
 }

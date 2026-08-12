@@ -132,6 +132,7 @@ export function PasteImportFlow({
         </FieldLabel>
         <Textarea
           id="paste-import-text"
+          className="bg-card dark:bg-card"
           rows={16}
           value={rawText}
           onChange={(event) => setRawText(event.target.value)}

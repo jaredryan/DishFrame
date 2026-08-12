@@ -16,5 +16,11 @@ export default async function NewPartPage() {
 
   const cuisineOptions = await listDistinctCuisines(session.user.id, "PART");
 
-  return <DishEditor kind="PART" cuisineOptions={cuisineOptions} />;
+  return (
+    <DishEditor
+      kind="PART"
+      cuisineOptions={cuisineOptions}
+      importHref="/parts/import"
+    />
+  );
 }
