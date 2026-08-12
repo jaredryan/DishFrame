@@ -53,11 +53,16 @@ import { Badge } from "@/components/ui/badge";
 import { NumberField } from "@/components/domain/dish/number-field";
 import { NutritionFields } from "@/components/domain/dish/nutrition-fields";
 import { SectionFields } from "@/components/domain/dish/section-fields";
+import {
+  SectionEditorDialog,
+  type SectionEditorResult,
+} from "@/components/domain/dish/section-editor-dialog";
 import { CuisineField } from "@/components/domain/dish/cuisine-field";
 import { ImageField } from "@/components/domain/dish/image-field";
 import { PartLinkFields } from "@/components/domain/dish/part-link-fields";
 import { PartAttachPicker } from "@/components/domain/dish/part-attach-picker";
 import { CreatePartLink } from "@/components/domain/dish/create-part-link";
+import { AddSectionFromTextButton } from "@/components/domain/dish/add-section-from-text-button";
 import type { DetachedContent } from "@/lib/sections/service";
 import { useUnsavedChangesGuard } from "@/components/domain/dish/use-unsaved-changes-guard";
 import { CoachMark } from "@/components/onboarding/coach-mark";
@@ -82,8 +87,10 @@ import {
   stageValues,
   difficultyValues,
   type DishKindValue,
+  type SectionInput,
   type VersionChoiceValue,
 } from "@/lib/dishes/schema";
+import { duplicateSectionContent } from "@/lib/dishes/section-duplication";
 
 const STAGE_LABEL: Record<(typeof stageValues)[number], string> = {
   IDEA: "Idea",
@@ -99,6 +106,23 @@ const STAGE_LABEL: Record<(typeof stageValues)[number], string> = {
 // unnecessary setDefaultScale call even when the user typed "1" by hand.
 function normalizeDefaultScale(value: number | null): number | null {
   return value != null && value > 0 && value !== 1 ? value : null;
+}
+
+// A fresh, empty draft for "Add section" — deliberately never inserted into
+// `sections` until the Section modal's Finish action hands back its edited
+// values (see `SectionEditorDialog`'s doc comment): unlike editing an
+// existing Section, there's no parent-form row to snapshot from, so this is
+// the modal's `initialValues` directly. A factory (not a shared constant)
+// so nothing keeps the same object identity across separate drafts.
+function blankSectionDraft(): SectionInput {
+  return {
+    name: null,
+    guidanceNote: null,
+    ingredients: [],
+    instructions: [],
+    partLinks: [],
+    position: 0,
+  };
 }
 
 // Design remediation pass: edited alongside every other field in this one
@@ -219,16 +243,15 @@ export function DishEditor({
     cleaned: DishFormValues;
     extras: EditorExtras;
   } | null>(null);
-  // The Section modal must never open on page load — not for a freshly
-  // loaded editor, not for an import-review proposal, not for any existing
-  // Section. The one exception is a Section just added via "Add section"
-  // below, which sets this to that new Section's `position` so its
-  // `SectionFields` row can open its own modal on mount. `position` (not
-  // array index or field id) is what's synchronously known at click time
-  // and stable enough for a one-shot, read-once-at-mount match.
-  const [autoOpenSectionPosition, setAutoOpenSectionPosition] = React.useState<
-    number | null
-  >(null);
+  // "Add section" opens a blank Section draft in its own modal session
+  // (see `SectionEditorDialog`'s doc comment) rather than immediately
+  // appending an empty Section to `sections` — the draft only reaches
+  // `sections` if the user Finishes it. `newSectionSession` forces a fresh
+  // modal mount (and therefore a fresh blank draft) on every "Add section"
+  // click, the same way `SectionFields`'s own `editorSession` does for an
+  // existing Section.
+  const [newSectionOpen, setNewSectionOpen] = React.useState(false);
+  const [newSectionSession, setNewSectionSession] = React.useState(0);
 
   const form = useForm<EditorFormValues>({
     defaultValues: dish
@@ -293,6 +316,22 @@ export function DishEditor({
     })),
   ].sort((a, b) => a.position - b.position);
 
+  // "Section N" numbering must reflect the currently-visible order (per
+  // Section-kind entry only, skipping top-level linked Parts), not the raw
+  // `sections` fieldArray index — drag-and-drop reorders `topLevelEntries`
+  // by `position` without ever calling `sections.move()`, so the fieldArray
+  // index alone goes stale as soon as items are dragged.
+  const sectionDisplayNumberByFieldId = new Map<string, number>();
+  {
+    let sectionOrdinal = 0;
+    topLevelEntries.forEach((entry) => {
+      if (entry.kind === "section") {
+        sectionOrdinal += 1;
+        sectionDisplayNumberByFieldId.set(entry.fieldId, sectionOrdinal);
+      }
+    });
+  }
+
   function nextTopLevelPosition(): number {
     return topLevelEntries.length === 0
       ? 0
@@ -320,6 +359,34 @@ export function DishEditor({
       nextPosition += 1;
     });
     topLevelPartLinks.remove(partLinkIndex);
+  }
+
+  // Inserts an independent copy of `sections[sectionIndex]` immediately
+  // after it in the unified top-level order — shifts every Section/
+  // top-level PartLink already at or past that slot forward by one
+  // `position`, then appends the copy at the freed slot. Position (not
+  // array/insert index) is what actually drives rendered order here (see
+  // `topLevelEntries` above), so an `append` at the right position reads as
+  // "right after the original" the same way a raw-array insert would.
+  function handleDuplicateSection(sectionIndex: number) {
+    const original = getValues(`sections.${sectionIndex}`) as SectionInput;
+    const insertPosition = original.position + 1;
+    topLevelEntries.forEach((entry) => {
+      if (entry.position < insertPosition) return;
+      if (entry.kind === "section") {
+        form.setValue(`sections.${entry.index}.position`, entry.position + 1, {
+          shouldDirty: true,
+        });
+      } else {
+        form.setValue(`partLinks.${entry.index}.position`, entry.position + 1, {
+          shouldDirty: true,
+        });
+      }
+    });
+    sections.append({
+      ...duplicateSectionContent(original),
+      position: insertPosition,
+    });
   }
 
   function handleTopLevelDragEnd(event: DragEndEvent) {
@@ -351,7 +418,10 @@ export function DishEditor({
         const name = getValues(
           `sections.${entry.index}.name` as never,
         ) as unknown as string | null;
-        return name || `section ${entry.index + 1}`;
+        return (
+          name ||
+          `section ${sectionDisplayNumberByFieldId.get(id) ?? entry.index + 1}`
+        );
       }
       return "linked part";
     },
@@ -625,177 +695,188 @@ export function DishEditor({
             </FieldError>
           </Field>
 
-          <div className="border-border bg-card flex flex-col gap-4 rounded-xl border p-4">
-            <h2 className="text-foreground text-sm font-semibold">Details</h2>
-            <ImageField dishId={dish?.id ?? null} />
-            <div className="grid gap-4 sm:grid-cols-2">
-              <CuisineField options={cuisineOptions} />
-              <Field>
-                <FieldLabel htmlFor="dish-stage">{kindLabel} stage</FieldLabel>
-                <Controller
-                  control={control}
-                  name="stage"
-                  render={({ field }) => (
-                    <Select value={field.value} onValueChange={field.onChange}>
-                      <SelectTrigger id="dish-stage" className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {stageValues.map((value) => (
-                          <SelectItem key={value} value={value}>
-                            {STAGE_LABEL[value]}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                />
-              </Field>
-            </div>
+          <div className="flex flex-col gap-4">
+            <h2 className="font-heading text-lg font-medium">Details</h2>
+            <div className="border-border bg-card flex flex-col gap-4 rounded-xl border p-4">
+              <ImageField dishId={dish?.id ?? null} />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <CuisineField options={cuisineOptions} />
+                <Field>
+                  <FieldLabel htmlFor="dish-stage">
+                    {kindLabel} stage
+                  </FieldLabel>
+                  <Controller
+                    control={control}
+                    name="stage"
+                    render={({ field }) => (
+                      <Select
+                        value={field.value}
+                        onValueChange={field.onChange}
+                      >
+                        <SelectTrigger id="dish-stage" className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {stageValues.map((value) => (
+                            <SelectItem key={value} value={value}>
+                              {STAGE_LABEL[value]}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                </Field>
+              </div>
 
-            <Field>
-              <FieldLabel htmlFor="dish-description">Description</FieldLabel>
-              <Textarea
-                id="dish-description"
-                placeholder="Optional"
-                {...register("description")}
-              />
-            </Field>
-
-            {dish && (
               <Field>
-                <FieldLabel htmlFor="dish-note">Version note</FieldLabel>
+                <FieldLabel htmlFor="dish-description">Description</FieldLabel>
                 <Textarea
-                  id="dish-note"
-                  placeholder="What changed, or why — optional"
-                  maxLength={500}
-                  rows={2}
-                  {...register("note")}
+                  id="dish-description"
+                  placeholder="Optional"
+                  {...register("description")}
                 />
               </Field>
-            )}
 
-            <div className="flex flex-wrap gap-4">
-              {/* Slice 6A: Yield (authored) and Default scale (the saved
-                  proportional multiplier, a preference only — never a
-                  second authored quantity/unit) live together under one
-                  concept. */}
-              <Field className="w-full">
-                <FieldLabel htmlFor="dish-yield-quantity">Yield</FieldLabel>
-                <div className="flex gap-2">
-                  <NumberField
-                    name="yieldQuantity"
-                    id="dish-yield-quantity"
-                    placeholder="Amount"
-                    step="any"
-                    aria-label="Yield amount"
-                    className="w-24"
+              {dish && (
+                <Field>
+                  <FieldLabel htmlFor="dish-note">Version note</FieldLabel>
+                  <Textarea
+                    id="dish-note"
+                    placeholder="What changed, or why — optional"
+                    maxLength={500}
+                    rows={2}
+                    {...register("note")}
                   />
-                  <Input
-                    placeholder="Unit, e.g. servings"
-                    aria-label="Yield unit"
-                    className="w-40"
-                    {...register("yieldUnit")}
-                  />
-                </div>
-                {dish && (
-                  <div className="border-border mt-2 flex flex-col gap-1.5 border-t pt-3">
-                    <FieldLabel htmlFor="dish-default-scale">
-                      Default scale
-                    </FieldLabel>
-                    <FieldDescription>
-                      Automatically adjust all {kindLabel} quantities when this{" "}
-                      {kindLabel.toLowerCase()} is opened.
-                    </FieldDescription>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <div className="flex items-center gap-1">
-                        <span aria-hidden="true">×</span>
-                        <NumberField
-                          name="defaultScale"
-                          id="dish-default-scale"
-                          placeholder="1"
-                          step="any"
-                          aria-label="Default scale multiplier"
-                          className="w-13"
-                          emptyDisplay="1"
-                        />
+                </Field>
+              )}
+
+              <div className="flex flex-wrap gap-4">
+                {/* Slice 6A: Yield (authored) and Default scale (the saved
+                    proportional multiplier, a preference only — never a
+                    second authored quantity/unit) live together under one
+                    concept. */}
+                <Field className="w-full">
+                  <FieldLabel htmlFor="dish-yield-quantity">Yield</FieldLabel>
+                  <div className="flex gap-2">
+                    <NumberField
+                      name="yieldQuantity"
+                      id="dish-yield-quantity"
+                      placeholder="Amount"
+                      step="any"
+                      aria-label="Yield amount"
+                      className="w-24"
+                    />
+                    <Input
+                      placeholder="Unit, e.g. servings"
+                      aria-label="Yield unit"
+                      className="w-40"
+                      {...register("yieldUnit")}
+                    />
+                  </div>
+                  {dish && (
+                    <div className="border-border mt-2 flex flex-col gap-1.5 border-t pt-3">
+                      <FieldLabel htmlFor="dish-default-scale">
+                        Default scale
+                      </FieldLabel>
+                      <FieldDescription>
+                        Automatically adjust all {kindLabel} quantities when
+                        this {kindLabel.toLowerCase()} is opened.
+                      </FieldDescription>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex items-center gap-1">
+                          <span aria-hidden="true">×</span>
+                          <NumberField
+                            name="defaultScale"
+                            id="dish-default-scale"
+                            placeholder="1"
+                            step="any"
+                            aria-label="Default scale multiplier"
+                            className="w-13"
+                            emptyDisplay="1"
+                          />
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            form.setValue("defaultScale", null, {
+                              shouldDirty: true,
+                            })
+                          }
+                        >
+                          Reset
+                        </Button>
+                        {defaultScaleResultText && (
+                          <span className="text-muted-foreground text-sm">
+                            {kindLabel} {defaultScaleResultText}
+                          </span>
+                        )}
                       </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() =>
-                          form.setValue("defaultScale", null, {
-                            shouldDirty: true,
-                          })
+                    </div>
+                  )}
+                </Field>
+                {/* Slice 6A: "minutes" moves out of the label, next to each
+                    input, in a compact row sized for realistic values. */}
+                <Field>
+                  <FieldLabel htmlFor="dish-prep-time">Prep time</FieldLabel>
+                  <div className="flex items-center gap-2">
+                    <NumberField
+                      name="prepTimeMinutes"
+                      id="dish-prep-time"
+                      placeholder="15"
+                      aria-label="Prep time in minutes"
+                      className="w-13"
+                    />
+                    <span className="text-muted-foreground text-sm">
+                      minutes
+                    </span>
+                  </div>
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="dish-cook-time">Cook time</FieldLabel>
+                  <div className="flex items-center gap-2">
+                    <NumberField
+                      name="cookTimeMinutes"
+                      id="dish-cook-time"
+                      placeholder="30"
+                      aria-label="Cook time in minutes"
+                      className="w-13"
+                    />
+                    <span className="text-muted-foreground text-sm">
+                      minutes
+                    </span>
+                  </div>
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="dish-difficulty">Difficulty</FieldLabel>
+                  <Controller
+                    control={control}
+                    name="difficulty"
+                    render={({ field }) => (
+                      <Select
+                        value={field.value ?? "UNSET"}
+                        onValueChange={(value) =>
+                          field.onChange(value === "UNSET" ? null : value)
                         }
                       >
-                        Reset
-                      </Button>
-                      {defaultScaleResultText && (
-                        <span className="text-muted-foreground text-sm">
-                          {kindLabel} {defaultScaleResultText}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </Field>
-              {/* Slice 6A: "minutes" moves out of the label, next to each
-                  input, in a compact row sized for realistic values. */}
-              <Field>
-                <FieldLabel htmlFor="dish-prep-time">Prep time</FieldLabel>
-                <div className="flex items-center gap-2">
-                  <NumberField
-                    name="prepTimeMinutes"
-                    id="dish-prep-time"
-                    placeholder="e.g. 15"
-                    aria-label="Prep time in minutes"
-                    className="w-13"
+                        <SelectTrigger id="dish-difficulty" className="w-36">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="UNSET">Not set</SelectItem>
+                          {difficultyValues.map((value) => (
+                            <SelectItem key={value} value={value}>
+                              {value}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
                   />
-                  <span className="text-muted-foreground text-sm">minutes</span>
-                </div>
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="dish-cook-time">Cook time</FieldLabel>
-                <div className="flex items-center gap-2">
-                  <NumberField
-                    name="cookTimeMinutes"
-                    id="dish-cook-time"
-                    placeholder="e.g. 30"
-                    aria-label="Cook time in minutes"
-                    className="w-13"
-                  />
-                  <span className="text-muted-foreground text-sm">minutes</span>
-                </div>
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="dish-difficulty">Difficulty</FieldLabel>
-                <Controller
-                  control={control}
-                  name="difficulty"
-                  render={({ field }) => (
-                    <Select
-                      value={field.value ?? "UNSET"}
-                      onValueChange={(value) =>
-                        field.onChange(value === "UNSET" ? null : value)
-                      }
-                    >
-                      <SelectTrigger id="dish-difficulty" className="w-36">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="UNSET">Not set</SelectItem>
-                        {difficultyValues.map((value) => (
-                          <SelectItem key={value} value={value}>
-                            {value}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                />
-              </Field>
+                </Field>
+              </div>
             </div>
           </div>
 
@@ -803,7 +884,7 @@ export function DishEditor({
 
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between">
-              <h2 className="font-heading text-lg font-medium">Content</h2>
+              <h2 className="font-heading text-lg font-medium">Recipe</h2>
             </div>
             <DndContext
               id="dish-content"
@@ -822,7 +903,12 @@ export function DishEditor({
                       key={entry.fieldId}
                       id={entry.fieldId}
                       sectionIndex={entry.index}
+                      sectionNumber={
+                        sectionDisplayNumberByFieldId.get(entry.fieldId) ??
+                        entry.index + 1
+                      }
                       onRemove={() => sections.remove(entry.index)}
+                      onDuplicate={() => handleDuplicateSection(entry.index)}
                       onConvertToPart={(link) => {
                         topLevelPartLinks.append({
                           ...link,
@@ -833,7 +919,6 @@ export function DishEditor({
                       }}
                       containerDishId={dish?.id ?? null}
                       containerKind={kind}
-                      startOpen={entry.position === autoOpenSectionPosition}
                     />
                   ) : (
                     <PartLinkFields
@@ -856,20 +941,20 @@ export function DishEditor({
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  const position = nextTopLevelPosition();
-                  sections.append({
-                    name: null,
-                    guidanceNote: null,
-                    ingredients: [],
-                    instructions: [],
-                    partLinks: [],
-                    position,
-                  });
-                  setAutoOpenSectionPosition(position);
+                  setNewSectionSession((session) => session + 1);
+                  setNewSectionOpen(true);
                 }}
               >
                 <Plus /> Add section
               </Button>
+              <AddSectionFromTextButton
+                onAdd={(section) =>
+                  sections.append({
+                    ...section,
+                    position: nextTopLevelPosition(),
+                  })
+                }
+              />
               <PartAttachPicker
                 containerDishId={dish?.id ?? null}
                 containerKind={kind}
@@ -885,6 +970,27 @@ export function DishEditor({
               <CreatePartLink />
             </div>
           </div>
+
+          <SectionEditorDialog
+            key={newSectionSession}
+            open={newSectionOpen}
+            initialValues={blankSectionDraft()}
+            sectionNumber={
+              topLevelEntries.filter((entry) => entry.kind === "section")
+                .length + 1
+            }
+            containerDishId={dish?.id ?? null}
+            containerKind={kind}
+            onClose={(result: SectionEditorResult) => {
+              setNewSectionOpen(false);
+              if (result.action === "finish") {
+                sections.append({
+                  ...result.values,
+                  position: nextTopLevelPosition(),
+                });
+              }
+            }}
+          />
 
           {serverError && (
             <p

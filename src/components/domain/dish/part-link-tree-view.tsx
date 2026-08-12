@@ -13,7 +13,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { PartLinkTree } from "@/lib/sections/service";
+import type { PartLinkTree, ResolvedSection } from "@/lib/sections/service";
+import { orderSectionsAndTopLevelPartLinks } from "@/lib/dishes/display-order";
 
 /**
  * PRODUCT_SPEC.md §67.4/§68.6 (Slice 6 post-gate): a linked Part renders its
@@ -114,6 +115,71 @@ export function PartLinkTreeView({
   );
 }
 
+function NestedSectionBlock({
+  section,
+  effectiveScale,
+  depth,
+}: {
+  section: ResolvedSection;
+  effectiveScale: number;
+  depth: number;
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      {section.name && <h5 className="text-sm font-medium">{section.name}</h5>}
+      {section.guidanceNote && (
+        <p className="text-muted-foreground text-xs italic">
+          {section.guidanceNote}
+        </p>
+      )}
+      {section.ingredients.length > 0 && (
+        <ul className="flex flex-col gap-1">
+          {section.ingredients.map((ingredient, i) => (
+            <li key={i} className="text-sm">
+              {scaledIngredientDisplay(ingredient, effectiveScale, null).line}
+              {ingredient.isOptional && (
+                <span className="text-muted-foreground"> (optional)</span>
+              )}
+              {ingredient.substitute && (
+                <span className="text-muted-foreground block pl-4 text-xs">
+                  Substitute:{" "}
+                  {
+                    scaledIngredientDisplay(
+                      ingredient.substitute,
+                      effectiveScale,
+                      null,
+                    ).line
+                  }
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {section.instructions.length > 0 && (
+        <ol className="flex flex-col gap-1.5">
+          {section.instructions.map((instruction, i) => (
+            <li key={i} className="flex gap-2 text-sm">
+              <span className="text-muted-foreground tabular-nums">
+                {i + 1}.
+              </span>
+              <span>{instruction.text}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+      {section.partLinks.map((nested, nestedIndex) => (
+        <PartLinkTreeView
+          key={`${nested.targetDishId ?? "materialized"}:${nested.targetDishVersionId ?? nestedIndex}`}
+          tree={nested}
+          scaleFactor={effectiveScale}
+          depth={depth + 1}
+        />
+      ))}
+    </div>
+  );
+}
+
 /**
  * The content body only — Sections' ingredients/instructions and nested
  * linked Parts, with no header of its own. Exported so the editor's
@@ -121,6 +187,14 @@ export function PartLinkTreeView({
  * relationship-specific header, rather than nesting a second, redundant
  * copy of the same title/Version/multiplier/Open-Part header this
  * component's own header (above) already renders on detail pages.
+ *
+ * A linked Part is itself a Recipe/Part, so its own Sections and top-level
+ * PartLinks share the same interleaved persisted `position` sequence
+ * (schema.prisma's `Section.position` comment) as the root item's do —
+ * merged back into that single order here via the same
+ * `orderSectionsAndTopLevelPartLinks` helper every other read-only
+ * Section/PartLink renderer uses, rather than always rendering every
+ * Section before every top-level Part.
  */
 export function PartLinkTreeContent({
   tree,
@@ -131,76 +205,32 @@ export function PartLinkTreeContent({
   effectiveScale: number;
   depth: number;
 }) {
+  const items = orderSectionsAndTopLevelPartLinks(
+    tree.sections.map((section) => ({
+      position: section.position,
+      value: section,
+    })),
+    tree.partLinks.map((link) => ({ position: link.position, value: link })),
+  );
   return (
     <>
-      {tree.sections.map((section, sectionIndex) => (
-        <div key={sectionIndex} className="flex flex-col gap-2">
-          {section.name && (
-            <h5 className="text-sm font-medium">{section.name}</h5>
-          )}
-          {section.guidanceNote && (
-            <p className="text-muted-foreground text-xs italic">
-              {section.guidanceNote}
-            </p>
-          )}
-          {section.ingredients.length > 0 && (
-            <ul className="flex flex-col gap-1">
-              {section.ingredients.map((ingredient, i) => (
-                <li key={i} className="text-sm">
-                  {
-                    scaledIngredientDisplay(ingredient, effectiveScale, null)
-                      .line
-                  }
-                  {ingredient.isOptional && (
-                    <span className="text-muted-foreground"> (optional)</span>
-                  )}
-                  {ingredient.substitute && (
-                    <span className="text-muted-foreground block pl-4 text-xs">
-                      Substitute:{" "}
-                      {
-                        scaledIngredientDisplay(
-                          ingredient.substitute,
-                          effectiveScale,
-                          null,
-                        ).line
-                      }
-                    </span>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-          {section.instructions.length > 0 && (
-            <ol className="flex flex-col gap-1.5">
-              {section.instructions.map((instruction, i) => (
-                <li key={i} className="flex gap-2 text-sm">
-                  <span className="text-muted-foreground tabular-nums">
-                    {i + 1}.
-                  </span>
-                  <span>{instruction.text}</span>
-                </li>
-              ))}
-            </ol>
-          )}
-          {section.partLinks.map((nested, nestedIndex) => (
-            <PartLinkTreeView
-              key={`${nested.targetDishId ?? "materialized"}:${nested.targetDishVersionId ?? nestedIndex}`}
-              tree={nested}
-              scaleFactor={effectiveScale}
-              depth={depth + 1}
-            />
-          ))}
-        </div>
-      ))}
-
-      {tree.partLinks.map((nested, nestedIndex) => (
-        <PartLinkTreeView
-          key={`${nested.targetDishId ?? "materialized"}:${nested.targetDishVersionId ?? nestedIndex}`}
-          tree={nested}
-          scaleFactor={effectiveScale}
-          depth={depth + 1}
-        />
-      ))}
+      {items.map((item, i) =>
+        item.type === "section" ? (
+          <NestedSectionBlock
+            key={`section-${i}`}
+            section={item.section}
+            effectiveScale={effectiveScale}
+            depth={depth}
+          />
+        ) : (
+          <PartLinkTreeView
+            key={`partLink-${item.partLink.targetDishId ?? "materialized"}:${item.partLink.targetDishVersionId ?? i}`}
+            tree={item.partLink}
+            scaleFactor={effectiveScale}
+            depth={depth + 1}
+          />
+        ),
+      )}
     </>
   );
 }

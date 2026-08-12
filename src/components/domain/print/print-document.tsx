@@ -4,8 +4,54 @@ import type {
   PublicSection,
   PublicPartLinkNode,
 } from "@/lib/sharing/public-dto";
+import { orderSectionsAndTopLevelPartLinks } from "@/lib/dishes/display-order";
 
 type ImageSrc = (imageAssetId: string) => string;
+
+/**
+ * Sections and top-level PartLinks share one interleaved persisted
+ * `position` sequence (schema.prisma's `Section.position` comment) — this
+ * merges the two back into that single order, the same
+ * `orderSectionsAndTopLevelPartLinks` helper the app's own current-Version
+ * detail page and Version History use, rather than always rendering every
+ * Section before every top-level Part. Used both for the root item's own
+ * top-level content and, recursively, for each linked Part's own top-level
+ * content (`PartLinkBlock`, below) — a linked Part is itself a Recipe/Part
+ * with the exact same ordering invariant among its own Sections/PartLinks.
+ */
+function OrderedTopLevelContent({
+  sections,
+  partLinks,
+  imageSrc,
+}: {
+  sections: PublicSection[];
+  partLinks: PublicPartLinkNode[];
+  imageSrc: ImageSrc;
+}) {
+  const items = orderSectionsAndTopLevelPartLinks(
+    sections.map((section) => ({ position: section.position, value: section })),
+    partLinks.map((link) => ({ position: link.position, value: link })),
+  );
+  return (
+    <>
+      {items.map((item, i) =>
+        item.type === "section" ? (
+          <SectionBlock
+            key={`section-${i}`}
+            section={item.section}
+            imageSrc={imageSrc}
+          />
+        ) : (
+          <PartLinkBlock
+            key={`partLink-${i}`}
+            link={item.partLink}
+            imageSrc={imageSrc}
+          />
+        ),
+      )}
+    </>
+  );
+}
 
 /**
  * PRODUCT_SPEC.md §87: a purpose-built print/PDF presentation, not the
@@ -119,12 +165,11 @@ function PartLinkBlock({
         />
       )}
       <div className="flex flex-col gap-3">
-        {link.sections.map((section, i) => (
-          <SectionBlock key={i} section={section} imageSrc={imageSrc} />
-        ))}
-        {link.partLinks.map((nested, i) => (
-          <PartLinkBlock key={i} link={nested} imageSrc={imageSrc} />
-        ))}
+        <OrderedTopLevelContent
+          sections={link.sections}
+          partLinks={link.partLinks}
+          imageSrc={imageSrc}
+        />
       </div>
     </div>
   );
@@ -213,12 +258,11 @@ export function PrintDocument({
       </header>
 
       <div className="flex flex-col gap-5">
-        {content.sections.map((section, i) => (
-          <SectionBlock key={i} section={section} imageSrc={imageSrc} />
-        ))}
-        {content.topLevelPartLinks.map((link, i) => (
-          <PartLinkBlock key={i} link={link} imageSrc={imageSrc} />
-        ))}
+        <OrderedTopLevelContent
+          sections={content.sections}
+          partLinks={content.topLevelPartLinks}
+          imageSrc={imageSrc}
+        />
       </div>
 
       {content.nutrition && (

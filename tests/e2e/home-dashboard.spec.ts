@@ -220,8 +220,17 @@ test.describe("Home dashboard: populated data", () => {
       .fill(recipeTitle, { timeout: 15_000 });
     await page.getByLabel("Yield amount").fill("4");
     await page.getByLabel("Yield unit").fill("servings");
-    await page.getByRole("button", { name: "Add ingredient" }).click();
-    await page.getByLabel("Ingredient name").fill("Basil");
+
+    await page.getByRole("button", { name: "Add section", exact: true }).click();
+    const recipeSectionDialog = page.getByRole("dialog");
+    await recipeSectionDialog
+      .getByRole("button", { name: "Add ingredient" })
+      .click();
+    await recipeSectionDialog.getByLabel("Ingredient name").fill("Basil");
+    await recipeSectionDialog
+      .getByRole("button", { name: "Finish section" })
+      .click();
+
     await page.getByRole("button", { name: "Save", exact: true }).click();
     // Excludes "new" explicitly: `/\/recipes\/[^/]+$/` alone would also
     // match the still-unsaved /recipes/new form itself, masking a save
@@ -235,8 +244,16 @@ test.describe("Home dashboard: populated data", () => {
     await page.getByLabel("Part title").fill(partTitle, { timeout: 15_000 });
     // A Dish must have at least one ingredient/instruction/linked Part to
     // save (§8.3's minimum-content rule, shared by Recipes and Parts).
-    await page.getByRole("button", { name: "Add ingredient" }).click();
-    await page.getByLabel("Ingredient name").fill("Tomato Paste");
+    await page.getByRole("button", { name: "Add section", exact: true }).click();
+    const partSectionDialog = page.getByRole("dialog");
+    await partSectionDialog
+      .getByRole("button", { name: "Add ingredient" })
+      .click();
+    await partSectionDialog.getByLabel("Ingredient name").fill("Tomato Paste");
+    await partSectionDialog
+      .getByRole("button", { name: "Finish section" })
+      .click();
+
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect(page).toHaveURL(/\/parts\/(?!new$)[^/]+$/, {
       timeout: 15_000,

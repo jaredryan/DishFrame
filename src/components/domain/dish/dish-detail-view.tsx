@@ -1,8 +1,10 @@
-import { Clock, Flame, Gauge, History, Soup } from "lucide-react";
+import { ChefHat, Clock, Flame, Gauge, History, Soup } from "lucide-react";
+import Link from "next/link";
 import { Prisma } from "@/generated/prisma/client";
 import { PlatePlaceholderIcon } from "@/components/domain/dish/plate-placeholder-icon";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { StageBadge } from "@/components/domain/dish/stage-badge";
 import { DishDetailActions } from "@/components/domain/dish/dish-detail-actions";
 import { RatingBadge } from "@/components/domain/dish/rating-badge";
@@ -61,6 +63,7 @@ function toDisplaySections(
 ): ScaledSectionRow[] {
   return sections.map((section, index) => ({
     id: section.id,
+    position: section.position,
     name: section.name,
     guidanceNote: section.guidanceNote,
     partLinks: sectionPartLinkTreeLists[index] ?? [],
@@ -194,6 +197,25 @@ export async function DishDetailView({
         resolvePartLinkTrees(dish.ownerId, section.partLinks),
       ),
     ]);
+
+  // Sections and top-level PartLinks share one interleaved persisted
+  // ordering sequence (schema.prisma's `Section.position` comment) —
+  // `resolvePartLinkTrees` can drop an unresolvable edge, so positions are
+  // matched back onto the resolved trees by target identity rather than
+  // index, matching `mergeLiveAndMaterializedTrees`'s existing pattern.
+  const topLevelPartLinkPositionByTarget = new Map(
+    topLevelPartLinkInputs.map((input) => [
+      `${input.targetDishId}:${input.targetDishVersionId}`,
+      input.position,
+    ]),
+  );
+  const displayTopLevelPartLinks = topLevelPartLinkTrees.map((tree) => ({
+    position:
+      topLevelPartLinkPositionByTarget.get(
+        `${tree.targetDishId}:${tree.targetDishVersionId}`,
+      ) ?? 0,
+    tree,
+  }));
 
   const versionLabel = formatVersionLabel(
     version.majorVersion,
@@ -353,6 +375,26 @@ export async function DishDetailView({
     <NutritionSummary nutrition={toNutritionSummaryData(version)} />
   );
 
+  // Separated from the recipe-management action cluster (Edit/overflow
+  // menu, `DishDetailActions`) — Cook is the action for *using* the
+  // Recipe/Part, not for modifying it, so it renders as its own row at the
+  // bottom of the details column instead of grouped with those controls.
+  // One element placed once: the left column below is a plain `flex-col`
+  // at every breakpoint (only the outer shell switches to `lg:flex-row`),
+  // so this same row naturally lands at the bottom of the left column on
+  // desktop and directly below the details/tags — above the narrow image
+  // and the Section/Ingredient content that follows — on a single column.
+  const cookRowEl = (
+    <div>
+      <Button asChild>
+        <Link href={`${dishBasePath(kind)}/${dish.id}/cook`}>
+          <ChefHat aria-hidden="true" />
+          Cook
+        </Link>
+      </Button>
+    </div>
+  );
+
   const imagePlaceholder = (
     <div className="text-muted-foreground/80 flex size-full items-center justify-center">
       <PlatePlaceholderIcon className="size-24" aria-hidden="true" />
@@ -424,6 +466,7 @@ export async function DishDetailView({
           {descriptionEl}
           {metadataChipsEl}
           {nutritionEl}
+          {cookRowEl}
         </div>
         {wideImageEl}
         {narrowImageEl}
@@ -441,7 +484,7 @@ export async function DishDetailView({
         kind={kind}
         dishId={dish.id}
         sections={toDisplaySections(version.sections, sectionPartLinkTreeLists)}
-        topLevelPartLinks={topLevelPartLinkTrees}
+        topLevelPartLinks={displayTopLevelPartLinks}
         defaultScale={defaultScale}
         preferredUnitOverrides={dish.preferredUnitOverrides}
       />

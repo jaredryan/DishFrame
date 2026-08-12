@@ -653,6 +653,10 @@ describe("sections service", () => {
         targetDishId: "part-live",
         targetDishVersionId: "part-live-v1",
         multiplier: 1,
+        // Unused here — this test's own ordering comes from the
+        // `{position, tree}` wrapper, not this tree's own `position`
+        // field.
+        position: 0,
         title: "Live Part",
         versionLabel: "V1.0",
         sections: [],
@@ -663,6 +667,7 @@ describe("sections service", () => {
         targetDishId: null,
         targetDishVersionId: null,
         multiplier: 1,
+        position: 0,
         title: "Deleted Part",
         versionLabel: "V1.0",
         sections: [],
@@ -682,7 +687,13 @@ describe("sections service", () => {
         [{ position: 0, tree: materializedTree }],
       );
 
-      expect(merged.map((t) => t.title)).toEqual(["Deleted Part", "Live Part"]);
+      expect(merged.map((entry) => entry.tree.title)).toEqual([
+        "Deleted Part",
+        "Live Part",
+      ]);
+      // Position is preserved (not discarded) — callers merge it back
+      // against Sections via `orderSectionsAndTopLevelPartLinks`.
+      expect(merged.map((entry) => entry.position)).toEqual([0, 1]);
     });
   });
 });

@@ -1,92 +1,66 @@
 "use client";
 
 import * as React from "react";
-import { Plus } from "lucide-react";
+import { Copy } from "lucide-react";
 import { useFieldArray, useFormContext, useWatch } from "react-hook-form";
-import { DndContext, closestCenter, type DragEndEvent } from "@dnd-kit/core";
-import {
-  SortableContext,
-  useSortable,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
+import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Field, FieldLabel } from "@/components/ui/field";
 import { DragHandle } from "@/components/ui/drag-handle";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { useReorderSensors } from "@/lib/dnd/sensors";
-import { createReorderAnnouncements } from "@/lib/dnd/announcements";
-import { ItemToolbar } from "@/components/domain/dish/reorder-buttons";
-import { IngredientFields } from "@/components/domain/dish/ingredient-fields";
-import { InstructionFields } from "@/components/domain/dish/instruction-fields";
+  ItemToolbar,
+  TooltipIconButton,
+} from "@/components/domain/dish/reorder-buttons";
 import { PartLinkFields } from "@/components/domain/dish/part-link-fields";
-import { PartAttachPicker } from "@/components/domain/dish/part-attach-picker";
-import { CreatePartLink } from "@/components/domain/dish/create-part-link";
 import { ConvertSectionToPartDialog } from "@/components/domain/dish/convert-section-to-part-dialog";
+import {
+  SectionEditorDialog,
+  type SectionEditorResult,
+} from "@/components/domain/dish/section-editor-dialog";
 import { formatIngredientLine } from "@/lib/dishes/format";
 import type { DetachedContent } from "@/lib/sections/service";
 import type {
   DishKindValue,
   IngredientInput,
   InstructionInput,
+  SectionInput,
 } from "@/lib/dishes/schema";
-
-const BLANK_INGREDIENT = {
-  name: "",
-  quantity: null,
-  quantityEnd: null,
-  isApproximate: false,
-  unit: null,
-  displayText: null,
-  preparationNote: null,
-  isOptional: false,
-  substitute: null,
-};
-
-const BLANK_INSTRUCTION = { text: "" };
 
 // Untyped useFormContext — see ingredient-fields.tsx's doc comment.
 export function SectionFields({
   id,
   sectionIndex,
+  sectionNumber,
   onRemove,
+  onDuplicate,
   onConvertToPart,
   containerDishId,
   containerKind,
-  startOpen = false,
 }: {
   id: string;
   sectionIndex: number;
+  // The Section's ordinal among top-level Sections only (skipping
+  // top-level linked Parts), in the current drag-and-drop-derived display
+  // order — not `sectionIndex`, which is the underlying `sections`
+  // fieldArray index and goes stale on reorder (see `dish-editor.tsx`'s
+  // `sectionDisplayNumberByFieldId`).
+  sectionNumber: number;
   onRemove: () => void;
+  // Inserts an independent copy of this Section right after it — see
+  // `dish-editor.tsx`'s `handleDuplicateSection`/`duplicateSectionContent`
+  // for what "independent" covers (fresh lineageIds, no nested linked
+  // Parts).
+  onDuplicate: () => void;
   onConvertToPart: (link: {
     targetDishId: string;
     targetDishVersionId: string;
   }) => void;
   containerDishId: string | null;
   containerKind: DishKindValue;
-  // The Section modal never opens on its own — not for a freshly loaded
-  // page, not for a brand-new Section with no saved content, not for an
-  // import-review proposal. It opens only for an explicit "Edit" click
-  // (handled locally below) or an explicit "Add section" click, which the
-  // parent DishEditor signals by passing `startOpen: true` for exactly the
-  // row it just appended. Read once at mount, same as `editing` itself.
-  startOpen?: boolean;
 }) {
-  const { control, register, watch } = useFormContext();
+  const { control, watch, getValues, setValue } = useFormContext();
   const prefix = `sections.${sectionIndex}`;
-  const idPrefix = prefix.replace(/\./g, "-");
   const sectionName: string = watch(`${prefix}.name`);
   const guidanceNote: string = watch(`${prefix}.guidanceNote`);
-  // `editing` doubles as the Section modal's own open state — see the
-  // Dialog below.
-  const [editing, setEditing] = React.useState(startOpen);
   const watchedIngredients: IngredientInput[] =
     useWatch({ control, name: `${prefix}.ingredients` }) ?? [];
   const watchedInstructions: InstructionInput[] =
@@ -98,8 +72,43 @@ export function SectionFields({
     name: `${prefix}.instructions`,
   });
   const partLinks = useFieldArray({ control, name: `${prefix}.partLinks` });
-  const ingredientSensors = useReorderSensors();
-  const instructionSensors = useReorderSensors();
+
+  // The Section modal never opens on its own — not for a freshly loaded
+  // page, not for a brand-new Section with no saved content, not for an
+  // import-review proposal. It opens only for an explicit "Edit" click,
+  // which snapshots the Section's current values into `snapshot` and hands
+  // that snapshot to `SectionEditorDialog` as an isolated editing session
+  // (see that component's own doc comment). `editorSession` forces a fresh
+  // mount of that isolated session on every open, so its local form always
+  // starts from the just-captured snapshot rather than stale prior edits.
+  const [editing, setEditing] = React.useState(false);
+  const [editorSession, setEditorSession] = React.useState(0);
+  const [snapshot, setSnapshot] = React.useState<SectionInput>(
+    () => structuredClone(getValues(prefix)) as SectionInput,
+  );
+
+  function openEditor() {
+    setSnapshot(structuredClone(getValues(prefix)) as SectionInput);
+    setEditorSession((session) => session + 1);
+    setEditing(true);
+  }
+
+  // "Finish section" is the only path that writes the modal's local edits
+  // into this (parent) form — every other dismissal reports "cancel" and
+  // nothing here changes, which is what makes Cancel/X/Escape/outside-click
+  // all revert to the pre-open snapshot: the snapshot was never overwritten
+  // in the first place.
+  function handleEditorClose(result: SectionEditorResult) {
+    setEditing(false);
+    if (result.action !== "finish") return;
+    setValue(`${prefix}.name`, result.values.name, { shouldDirty: true });
+    setValue(`${prefix}.guidanceNote`, result.values.guidanceNote, {
+      shouldDirty: true,
+    });
+    ingredients.replace(result.values.ingredients);
+    instructions.replace(result.values.instructions);
+    partLinks.replace(result.values.partLinks);
+  }
 
   // Slice 6, PRODUCT_SPEC.md §70.1: detaching content nested inside a
   // Section flattens the target Part Version's own Ingredients/
@@ -111,6 +120,9 @@ export function SectionFields({
   // the one Section it was attached to. A top-level detach (DishEditor)
   // instead keeps each of the target's Sections intact as brand-new
   // top-level Sections, since there's room for that at the container level.
+  // This still operates directly on the parent form (not the modal's
+  // isolated session) — an already-attached linked Part is shown and
+  // detached from this collapsed card, not from inside the Section modal.
   function handleDetach(partLinkIndex: number, content: DetachedContent) {
     // `useFieldArray`'s `.fields` doesn't update synchronously between
     // multiple `.append()` calls in one handler, so a running counter (not
@@ -136,8 +148,8 @@ export function SectionFields({
     partLinks.remove(partLinkIndex);
   }
 
-  const label = sectionName || `section ${sectionIndex + 1}`;
-  const sectionNumberLabel = `Section ${sectionIndex + 1}`;
+  const label = sectionName || `section ${sectionNumber}`;
+  const sectionNumberLabel = `Section ${sectionNumber}`;
   const sectionTitle = `${sectionNumberLabel}${sectionName ? ` — ${sectionName}` : ""}`;
 
   const {
@@ -150,24 +162,6 @@ export function SectionFields({
   } = useSortable({ id });
   const style = { transform: CSS.Transform.toString(transform), transition };
 
-  function handleIngredientDragEnd(event: DragEndEvent) {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-    const oldIndex = ingredients.fields.findIndex((f) => f.id === active.id);
-    const newIndex = ingredients.fields.findIndex((f) => f.id === over.id);
-    if (oldIndex === -1 || newIndex === -1) return;
-    ingredients.move(oldIndex, newIndex);
-  }
-
-  function handleInstructionDragEnd(event: DragEndEvent) {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-    const oldIndex = instructions.fields.findIndex((f) => f.id === active.id);
-    const newIndex = instructions.fields.findIndex((f) => f.id === over.id);
-    if (oldIndex === -1 || newIndex === -1) return;
-    instructions.move(oldIndex, newIndex);
-  }
-
   return (
     <div
       ref={setNodeRef}
@@ -176,9 +170,10 @@ export function SectionFields({
     >
       {/* Design remediation pass: full-width header row — drag handle far
           left, a live numbered title, actions far right. Clicking the Edit
-          action now opens the Section editor in a modal (below) rather than
+          action opens the Section editor in a modal (below) rather than
           expanding this row inline; this collapsed representation is the
-          parent page's permanent view of the Section. */}
+          parent page's permanent view of the Section, updated only when
+          the modal session is Finished. */}
       <div className="flex items-center gap-2">
         <DragHandle
           label={`Drag to reorder ${label}`}
@@ -190,6 +185,12 @@ export function SectionFields({
           {sectionTitle}
         </h3>
         <div className="flex shrink-0 items-center gap-0.5">
+          <TooltipIconButton
+            label={`Duplicate ${label}`}
+            tooltip={`Duplicate ${label} — inserts an independent copy right after it`}
+            icon={Copy}
+            onClick={onDuplicate}
+          />
           <ConvertSectionToPartDialog
             prefix={prefix}
             sectionLabel={label}
@@ -201,7 +202,7 @@ export function SectionFields({
             toggleLabel={sectionName || sectionNumberLabel}
             variant="edit"
             collapsed={!editing}
-            onToggleCollapsed={() => setEditing((prev) => !prev)}
+            onToggleCollapsed={openEditor}
             onRemove={onRemove}
           />
         </div>
@@ -214,7 +215,7 @@ export function SectionFields({
       {/* Slice 6 correction pass §4: view-first by default — concise
           formatted content, not empty editable fields. Editing (added
           ingredients/instructions, reordering, substitutes) requires the
-          explicit Edit action above, which now opens the Section modal. */}
+          explicit Edit action above, which opens the Section modal. */}
       <div className="flex flex-col gap-3">
         {watchedIngredients.length > 0 && (
           <ul className="flex flex-col gap-1">
@@ -272,175 +273,15 @@ export function SectionFields({
         </div>
       )}
 
-      {/* Structural presentation change: the Section editor itself is
-          unchanged — only its container moved from an inline expansion to a
-          modal. `max-w-3xl` reuses DishEditor's own outer content width
-          (src/components/domain/dish/dish-editor.tsx) so the editable
-          content area matches what it was inline; the default `p-4` inset
-          is unchanged from DialogContent's base styling. Closing the modal
-          by any means (Finish section, the X button, Escape, or an overlay
-          click) collapses the Section the same way — none of it is a save;
-          the Section's field values already live in the parent form via
-          react-hook-form and are unaffected by this modal mounting or
-          unmounting. */}
-      <Dialog open={editing} onOpenChange={setEditing}>
-        <DialogContent className="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-y-auto sm:max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>{sectionTitle}</DialogTitle>
-          </DialogHeader>
-
-          <Field>
-            <FieldLabel htmlFor={`${idPrefix}-name`}>Section name</FieldLabel>
-            <Input
-              id={`${idPrefix}-name`}
-              placeholder="Optional, e.g. Sauce"
-              {...register(`${prefix}.name`)}
-            />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor={`${idPrefix}-guidance-note`}>
-              Guidance note
-            </FieldLabel>
-            <Textarea
-              id={`${idPrefix}-guidance-note`}
-              placeholder="Optional, e.g. Best made one day ahead"
-              className="min-h-8"
-              {...register(`${prefix}.guidanceNote`)}
-            />
-          </Field>
-
-          <div className="flex flex-col gap-2">
-            <h4 className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
-              Ingredients
-            </h4>
-            <DndContext
-              id={`ingredients-${id}`}
-              sensors={ingredientSensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleIngredientDragEnd}
-              accessibility={{
-                announcements: createReorderAnnouncements(
-                  (rowId) => {
-                    const index = ingredients.fields.findIndex(
-                      (f) => f.id === rowId,
-                    );
-                    return index >= 0
-                      ? `ingredient ${index + 1}`
-                      : "ingredient";
-                  },
-                  (rowId) => ({
-                    index: ingredients.fields.findIndex((f) => f.id === rowId),
-                    total: ingredients.fields.length,
-                  }),
-                ),
-              }}
-            >
-              <SortableContext
-                items={ingredients.fields.map((field) => field.id)}
-                strategy={verticalListSortingStrategy}
-              >
-                {ingredients.fields.map((field, ingredientIndex) => (
-                  <IngredientFields
-                    key={field.id}
-                    id={field.id}
-                    prefix={`${prefix}.ingredients.${ingredientIndex}`}
-                    index={ingredientIndex}
-                    onRemove={() => ingredients.remove(ingredientIndex)}
-                  />
-                ))}
-              </SortableContext>
-            </DndContext>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="mt-1 self-start"
-              onClick={() => ingredients.append(BLANK_INGREDIENT)}
-            >
-              <Plus /> Add another ingredient
-            </Button>
-          </div>
-
-          <div className="flex flex-col gap-2">
-            <h4 className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
-              Instructions
-            </h4>
-            <DndContext
-              id={`instructions-${id}`}
-              sensors={instructionSensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleInstructionDragEnd}
-              accessibility={{
-                announcements: createReorderAnnouncements(
-                  (rowId) => {
-                    const index = instructions.fields.findIndex(
-                      (f) => f.id === rowId,
-                    );
-                    return index >= 0
-                      ? `instruction ${index + 1}`
-                      : "instruction";
-                  },
-                  (rowId) => ({
-                    index: instructions.fields.findIndex((f) => f.id === rowId),
-                    total: instructions.fields.length,
-                  }),
-                ),
-              }}
-            >
-              <SortableContext
-                items={instructions.fields.map((field) => field.id)}
-                strategy={verticalListSortingStrategy}
-              >
-                {instructions.fields.map((field, instructionIndex) => (
-                  <InstructionFields
-                    key={field.id}
-                    id={field.id}
-                    prefix={`${prefix}.instructions.${instructionIndex}`}
-                    index={instructionIndex}
-                    onRemove={() => instructions.remove(instructionIndex)}
-                  />
-                ))}
-              </SortableContext>
-            </DndContext>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="self-start"
-              onClick={() => instructions.append(BLANK_INSTRUCTION)}
-            >
-              <Plus /> Add instruction
-            </Button>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <PartAttachPicker
-              containerDishId={containerDishId}
-              containerKind={containerKind}
-              excludeDishId={containerDishId ?? undefined}
-              onAttach={(link) =>
-                partLinks.append({
-                  ...link,
-                  position: partLinks.fields.length,
-                  multiplier: 1,
-                })
-              }
-            />
-            <CreatePartLink />
-          </div>
-
-          {/* Same Finish model as IngredientFields, one level up — now also
-              the modal's natural completion action. */}
-          <Button
-            type="button"
-            size="sm"
-            className="self-start"
-            onClick={() => setEditing(false)}
-          >
-            Finish section
-          </Button>
-        </DialogContent>
-      </Dialog>
+      <SectionEditorDialog
+        key={editorSession}
+        open={editing}
+        initialValues={snapshot}
+        sectionNumber={sectionNumber}
+        containerDishId={containerDishId}
+        containerKind={containerKind}
+        onClose={handleEditorClose}
+      />
     </div>
   );
 }

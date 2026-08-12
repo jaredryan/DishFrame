@@ -116,12 +116,15 @@ export default async function PartVersionPage({
   );
   const sectionPartLinkTreeLists = sectionPartLinkInputs.map(
     (section, sectionIndex) =>
+      // Section-nested PartLinks don't interleave with anything else
+      // (schema.prisma's `Section.position` comment) — only the `.tree` is
+      // needed here, unlike `topLevelPartLinkTrees` above.
       mergeLiveAndMaterializedTrees(
         section.partLinks,
         sectionLiveTreeLists[sectionIndex],
         materializedTrees.bySectionId.get(version.sections[sectionIndex].id) ??
           [],
-      ),
+      ).map((entry) => entry.tree),
   );
 
   const basePath = dishBasePath("PART");

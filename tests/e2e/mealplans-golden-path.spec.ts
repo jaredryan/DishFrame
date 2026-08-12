@@ -67,10 +67,14 @@ test.describe("Meal Plans: build, sync grocery list, edit, complete", () => {
     await page.getByLabel("Recipe title").fill(title, { timeout: 15_000 });
     await page.getByLabel("Yield amount").fill("4");
     await page.getByLabel("Yield unit").fill("servings");
-    await page.getByRole("button", { name: "Add ingredient" }).click();
-    await page.getByLabel("Ingredient name").fill("Rice");
-    await page.getByLabel("Quantity", { exact: true }).fill("2");
-    await page.getByLabel("Unit", { exact: true }).fill("cup");
+
+    await page.getByRole("button", { name: "Add section", exact: true }).click();
+    const sectionDialog = page.getByRole("dialog");
+    await sectionDialog.getByRole("button", { name: "Add ingredient" }).click();
+    await sectionDialog.getByLabel("Ingredient name").fill("Rice");
+    await sectionDialog.getByLabel("Quantity", { exact: true }).fill("2");
+    await sectionDialog.getByLabel("Unit", { exact: true }).fill("cup");
+    await sectionDialog.getByRole("button", { name: "Finish section" }).click();
 
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect(page).toHaveURL(/\/recipes\/[^/]+$/, { timeout: 15_000 });

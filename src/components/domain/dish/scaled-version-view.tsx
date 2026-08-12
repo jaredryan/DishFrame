@@ -16,6 +16,7 @@ import {
 import { PartLinkTreeView } from "@/components/domain/dish/part-link-tree-view";
 import type { PartLinkTree } from "@/lib/sections/service";
 import type { DishKindValue } from "@/lib/dishes/schema";
+import { orderSectionsAndTopLevelPartLinks } from "@/lib/dishes/display-order";
 
 /**
  * A plain-object mirror of the Prisma Section/Ingredient/Instruction row
@@ -53,12 +54,18 @@ export type ScaledIngredientRow = {
 
 export type ScaledSectionRow = {
   id: string;
+  // Shares one interleaved top-level ordering sequence with `topLevelPartLinks`'
+  // own `position` (see schema.prisma's `Section.position` comment) — needed
+  // here so the two can be merged back into one persisted display order below.
+  position: number;
   name: string | null;
   guidanceNote: string | null;
   ingredients: ScaledIngredientRow[];
   instructions: { id: string; text: string }[];
   partLinks: PartLinkTree[];
 };
+
+export type ScaledTopLevelPartLink = { position: number; tree: PartLinkTree };
 
 /**
  * The *current*-Version detail page's ingredient/instruction renderer —
@@ -87,7 +94,7 @@ export function ScaledVersionView({
   kind: DishKindValue;
   dishId: string;
   sections: ScaledSectionRow[];
-  topLevelPartLinks: PartLinkTree[];
+  topLevelPartLinks: ScaledTopLevelPartLink[];
   defaultScale: number | null;
   preferredUnitOverrides: { ingredientLineageId: string; unit: string }[];
 }) {
@@ -108,6 +115,27 @@ export function ScaledVersionView({
   >({});
   const [pendingLineageId, setPendingLineageId] = React.useState<string | null>(
     null,
+  );
+
+  // Sections and top-level PartLinks share one interleaved persisted
+  // ordering sequence (schema.prisma's `Section.position` comment) — merge
+  // them back into that single order here rather than rendering all
+  // Sections followed by all top-level Parts. Shared with Version History
+  // (`version-sections-view.tsx`) and print/public-share views
+  // (`print-document.tsx`) — one merge, not three independent sorts.
+  const displayItems = React.useMemo(
+    () =>
+      orderSectionsAndTopLevelPartLinks(
+        sections.map((section) => ({
+          position: section.position,
+          value: section,
+        })),
+        topLevelPartLinks.map(({ position, tree }) => ({
+          position,
+          value: tree,
+        })),
+      ),
+    [sections, topLevelPartLinks],
   );
 
   const savedOverrideByLineage = React.useMemo(() => {
@@ -147,91 +175,69 @@ export function ScaledVersionView({
 
   return (
     <div className="flex flex-col gap-4">
-      {sections.map((section) => (
-        <ContentCard key={section.id}>
-          {section.name && (
-            <h2 className={CONTENT_CARD_TITLE_CLASS}>{section.name}</h2>
-          )}
-          {section.guidanceNote && (
-            <p className="text-muted-foreground text-sm italic">
-              {section.guidanceNote}
-            </p>
-          )}
+      {displayItems.map((item) => {
+        if (item.type === "partLink") {
+          const tree = item.partLink;
+          return (
+            <PartLinkTreeView
+              key={`toplevel:${tree.targetDishId ?? "materialized"}:${tree.targetDishVersionId ?? item.position}`}
+              tree={tree}
+              scaleFactor={scaleFactor}
+            />
+          );
+        }
+        const { section } = item;
+        return (
+          <ContentCard key={section.id}>
+            {section.name && (
+              <h2 className={CONTENT_CARD_TITLE_CLASS}>{section.name}</h2>
+            )}
+            {section.guidanceNote && (
+              <p className="text-muted-foreground text-sm italic">
+                {section.guidanceNote}
+              </p>
+            )}
 
-          {section.ingredients.length > 0 && (
-            <ul className="flex flex-col gap-2">
-              {section.ingredients
-                .filter((i) => i.substituteForIngredientId === null)
-                .map((ingredient) => {
-                  const effectiveOverride =
-                    tempUnits[ingredient.lineageId] ??
-                    savedOverrideByLineage.get(ingredient.lineageId) ??
-                    null;
-                  const isSaved = savedOverrideByLineage.has(
-                    ingredient.lineageId,
-                  );
-                  const display = scaledIngredientDisplay(
-                    {
-                      quantity: ingredient.quantity,
-                      quantityEnd: ingredient.quantityEnd,
-                      isApproximate: ingredient.isApproximate,
-                      unit: ingredient.unit,
-                      displayText: ingredient.displayText,
-                      name: ingredient.name,
-                      preparationNote: ingredient.preparationNote,
-                    },
-                    scaleFactor,
-                    effectiveOverride,
-                  );
-                  const isPending = pendingLineageId === ingredient.lineageId;
+            {section.ingredients.length > 0 && (
+              <ul className="flex flex-col gap-2">
+                {section.ingredients
+                  .filter((i) => i.substituteForIngredientId === null)
+                  .map((ingredient) => {
+                    const effectiveOverride =
+                      tempUnits[ingredient.lineageId] ??
+                      savedOverrideByLineage.get(ingredient.lineageId) ??
+                      null;
+                    const isSaved = savedOverrideByLineage.has(
+                      ingredient.lineageId,
+                    );
+                    const display = scaledIngredientDisplay(
+                      {
+                        quantity: ingredient.quantity,
+                        quantityEnd: ingredient.quantityEnd,
+                        isApproximate: ingredient.isApproximate,
+                        unit: ingredient.unit,
+                        displayText: ingredient.displayText,
+                        name: ingredient.name,
+                        preparationNote: ingredient.preparationNote,
+                      },
+                      scaleFactor,
+                      effectiveOverride,
+                    );
+                    const isPending = pendingLineageId === ingredient.lineageId;
 
-                  return (
-                    <li key={ingredient.id} className="text-sm">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span>
-                          {display.line}
-                          {ingredient.isOptional && (
-                            <span className="text-muted-foreground">
-                              {" "}
-                              (optional)
-                            </span>
-                          )}
-                        </span>
-                        {effectiveOverride && (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-auto py-0 text-xs"
-                            disabled={isPending}
-                            onClick={() =>
-                              handleClearOverride(ingredient.lineageId)
-                            }
-                          >
-                            {isSaved
-                              ? "Saved unit — reset"
-                              : "Reset to authored unit"}
-                          </Button>
-                        )}
-                        {!effectiveOverride && display.suggestion && (
-                          <span className="text-muted-foreground flex items-center gap-1 text-xs">
-                            ≈ {display.suggestion.quantity}{" "}
-                            {display.suggestion.unit}
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="h-auto py-0 text-xs"
-                              onClick={() =>
-                                setTempUnits((prev) => ({
-                                  ...prev,
-                                  [ingredient.lineageId]:
-                                    display.suggestion!.unit,
-                                }))
-                              }
-                            >
-                              Use
-                            </Button>
+                    return (
+                      <li key={ingredient.id} className="text-sm">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span>
+                            {display.line}
+                            {ingredient.isOptional && (
+                              <span className="text-muted-foreground">
+                                {" "}
+                                (optional)
+                              </span>
+                            )}
+                          </span>
+                          {effectiveOverride && (
                             <Button
                               type="button"
                               variant="ghost"
@@ -239,75 +245,104 @@ export function ScaledVersionView({
                               className="h-auto py-0 text-xs"
                               disabled={isPending}
                               onClick={() =>
-                                handleSaveOverride(
-                                  ingredient.lineageId,
-                                  display.suggestion!.unit,
-                                )
+                                handleClearOverride(ingredient.lineageId)
                               }
                             >
-                              Save
+                              {isSaved
+                                ? "Saved unit — reset"
+                                : "Reset to authored unit"}
                             </Button>
+                          )}
+                          {!effectiveOverride && display.suggestion && (
+                            <span className="text-muted-foreground flex items-center gap-1 text-xs">
+                              ≈ {display.suggestion.quantity}{" "}
+                              {display.suggestion.unit}
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-auto py-0 text-xs"
+                                onClick={() =>
+                                  setTempUnits((prev) => ({
+                                    ...prev,
+                                    [ingredient.lineageId]:
+                                      display.suggestion!.unit,
+                                  }))
+                                }
+                              >
+                                Use
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-auto py-0 text-xs"
+                                disabled={isPending}
+                                onClick={() =>
+                                  handleSaveOverride(
+                                    ingredient.lineageId,
+                                    display.suggestion!.unit,
+                                  )
+                                }
+                              >
+                                Save
+                              </Button>
+                            </span>
+                          )}
+                        </div>
+                        {ingredient.substitute && (
+                          <span className="text-muted-foreground block pl-4 text-xs">
+                            Substitute:{" "}
+                            {
+                              scaledIngredientDisplay(
+                                {
+                                  quantity: ingredient.substitute.quantity,
+                                  quantityEnd:
+                                    ingredient.substitute.quantityEnd,
+                                  isApproximate:
+                                    ingredient.substitute.isApproximate,
+                                  unit: ingredient.substitute.unit,
+                                  displayText:
+                                    ingredient.substitute.displayText,
+                                  name: ingredient.substitute.name,
+                                  preparationNote:
+                                    ingredient.substitute.preparationNote,
+                                },
+                                scaleFactor,
+                                null,
+                              ).line
+                            }
                           </span>
                         )}
-                      </div>
-                      {ingredient.substitute && (
-                        <span className="text-muted-foreground block pl-4 text-xs">
-                          Substitute:{" "}
-                          {
-                            scaledIngredientDisplay(
-                              {
-                                quantity: ingredient.substitute.quantity,
-                                quantityEnd: ingredient.substitute.quantityEnd,
-                                isApproximate:
-                                  ingredient.substitute.isApproximate,
-                                unit: ingredient.substitute.unit,
-                                displayText: ingredient.substitute.displayText,
-                                name: ingredient.substitute.name,
-                                preparationNote:
-                                  ingredient.substitute.preparationNote,
-                              },
-                              scaleFactor,
-                              null,
-                            ).line
-                          }
-                        </span>
-                      )}
-                    </li>
-                  );
-                })}
-            </ul>
-          )}
+                      </li>
+                    );
+                  })}
+              </ul>
+            )}
 
-          {section.instructions.length > 0 && (
-            <ol className="flex flex-col gap-2">
-              {section.instructions.map((instruction, i) => (
-                <li key={instruction.id} className="flex gap-2 text-sm">
-                  <span className="text-muted-foreground tabular-nums">
-                    {i + 1}.
-                  </span>
-                  <span>{instruction.text}</span>
-                </li>
-              ))}
-            </ol>
-          )}
+            {section.instructions.length > 0 && (
+              <ol className="flex flex-col gap-2">
+                {section.instructions.map((instruction, i) => (
+                  <li key={instruction.id} className="flex gap-2 text-sm">
+                    <span className="text-muted-foreground tabular-nums">
+                      {i + 1}.
+                    </span>
+                    <span>{instruction.text}</span>
+                  </li>
+                ))}
+              </ol>
+            )}
 
-          {section.partLinks.map((tree, treeIndex) => (
-            <PartLinkTreeView
-              key={`${tree.targetDishId ?? "materialized"}:${tree.targetDishVersionId ?? treeIndex}`}
-              tree={tree}
-              scaleFactor={scaleFactor}
-            />
-          ))}
-        </ContentCard>
-      ))}
-
-      {topLevelPartLinks.map((tree, treeIndex) => (
-        <PartLinkTreeView
-          key={`${tree.targetDishId ?? "materialized"}:${tree.targetDishVersionId ?? treeIndex}`}
-          tree={tree}
-          scaleFactor={scaleFactor}
-        />
-      ))}
+            {section.partLinks.map((tree, treeIndex) => (
+              <PartLinkTreeView
+                key={`${tree.targetDishId ?? "materialized"}:${tree.targetDishVersionId ?? treeIndex}`}
+                tree={tree}
+                scaleFactor={scaleFactor}
+              />
+            ))}
+          </ContentCard>
+        );
+      })}
     </div>
   );
 }

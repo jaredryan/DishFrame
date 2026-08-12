@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   Archive,
-  ChefHat,
   Copy,
   Download,
   GitCompareArrows,
@@ -196,16 +195,10 @@ export function DishDetailActions({
           styled Tooltip) so it fits beside the title in the responsive
           hero's top-right — everything else moved into this overflow menu,
           widened so its longer labels (Version history, Compare versions)
-          never wrap. Slice 7: Prepare to cook (PRODUCT_SPEC.md §21.1) joins
-          this same row as its own prominent button — cooking is the
-          primary reason to open a Recipe/Part, not an overflow action. */}
+          never wrap. Cook is no longer grouped here — it's a "use this
+          recipe" action, not a management one, and now renders as its own
+          row at the bottom of the details column (`dish-detail-view.tsx`). */}
       <div className="flex items-center gap-1">
-        <Button asChild>
-          <Link href={`${basePath}/${dishId}/cook`}>
-            <ChefHat aria-hidden="true" />
-            Cook
-          </Link>
-        </Button>
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>

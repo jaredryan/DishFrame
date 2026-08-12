@@ -362,6 +362,13 @@ export type ResolvedIngredient = {
 };
 
 export type ResolvedSection = {
+  // This Section's slot in its container's one shared interleaved
+  // Section/top-level-PartLink ordering sequence (schema.prisma's
+  // `Section.position` comment) — needed so a nested Part's own content
+  // (`PartLinkTreeContent`, `part-link-tree-view.tsx`) can merge it back
+  // against that same container's `partLinks` via
+  // `orderSectionsAndTopLevelPartLinks` (`lib/dishes/display-order.ts`).
+  position: number;
   name: string | null;
   guidanceNote: string | null;
   ingredients: ResolvedIngredient[];
@@ -392,6 +399,16 @@ export type PartLinkTree = {
   multiplier: number;
   title: string | null;
   versionLabel: string;
+  // This tree's own slot in its container's shared interleaved
+  // Section/top-level-PartLink ordering sequence, when known — populated
+  // for every nested occurrence (resolved via `resolveNestedPartLinks`,
+  // which always has a real persisted `position` to attach). `0` for a
+  // root tree resolved directly via `resolvePartLinkTree`/
+  // `resolvePartLinkTrees`/`getPartLinkPreview`, where a root's own
+  // position is tracked externally by the caller (`dish-detail-view.tsx`,
+  // `mergeLiveAndMaterializedTrees`) instead — nothing reads a root tree's
+  // own `position` field.
+  position: number;
   sections: ResolvedSection[];
   partLinks: PartLinkTree[];
 };
@@ -448,6 +465,7 @@ async function resolveNestedPartLinks(
           targetDishId: link.targetDishId,
           targetDishVersionId: link.targetDishVersionId,
           multiplier: link.multiplier,
+          position: link.position,
         },
         visited,
         depth + 1,
@@ -463,6 +481,12 @@ async function resolvePartLinkTreeInner(
     targetDishId: string;
     targetDishVersionId: string;
     multiplier: number;
+    // Only known when resolved via `resolveNestedPartLinks` (a nested
+    // occurrence, whose `PartLinkInput` carries a real persisted
+    // position) — absent for a root edge resolved directly via
+    // `resolvePartLinkTree`/`resolvePartLinkTrees`/`getPartLinkPreview`,
+    // whose own position (if any) is tracked externally by the caller.
+    position?: number;
   },
   visited: Set<string>,
   depth: number,
@@ -496,6 +520,7 @@ async function resolvePartLinkTreeInner(
   const resolvedSections: ResolvedSection[] = [];
   for (const section of sortByPosition(sections)) {
     resolvedSections.push({
+      position: section.position,
       name: section.name ?? null,
       guidanceNote: section.guidanceNote ?? null,
       ingredients: section.ingredients.map(toResolvedIngredient),
@@ -516,6 +541,12 @@ async function resolvePartLinkTreeInner(
     targetDishId: edge.targetDishId,
     targetDishVersionId: edge.targetDishVersionId,
     multiplier: edge.multiplier,
+    // Only a nested occurrence (resolved via `resolveNestedPartLinks`) has
+    // a real position here — a root edge (`resolvePartLinkTree`/
+    // `resolvePartLinkTrees`/`getPartLinkPreview`) has none to give, so
+    // this stays an unused placeholder for those callers (see
+    // `PartLinkTree.position`'s own doc comment).
+    position: edge.position ?? 0,
     title: targetDish.currentTitle,
     versionLabel: formatVersionLabel(
       version.majorVersion,
@@ -558,6 +589,7 @@ async function resolveMaterializedPartLinkTree(
   const resolvedSections: ResolvedSection[] = [];
   for (const section of sortByPosition(snapshot.sections)) {
     resolvedSections.push({
+      position: section.position,
       name: section.name ?? null,
       guidanceNote: section.guidanceNote ?? null,
       ingredients: section.ingredients.map(toResolvedIngredient),
@@ -578,6 +610,11 @@ async function resolveMaterializedPartLinkTree(
     targetDishId: null,
     targetDishVersionId: null,
     multiplier: row.multiplier,
+    // This root snapshot's own position (among its container's top-level
+    // Sections/PartLinks) is tracked externally by the caller
+    // (`resolveMaterializedPartLinkTreesForVersion`'s `{position, tree}`
+    // wrapper) — unused placeholder here, same as a LIVE root tree.
+    position: 0,
     title: row.materializedTitle,
     versionLabel: row.materializedVersionLabel ?? "",
     sections: resolvedSections,
@@ -656,12 +693,20 @@ export async function resolveMaterializedPartLinkTreesForVersion(
  * Version-history pages. `liveEdges` supplies each LIVE tree's position
  * (matched by target identity, since `resolvePartLinkTrees` itself drops
  * stale/unresolvable entries and so can't be zipped by index).
+ *
+ * Returns each tree alongside its resolved `position` (rather than
+ * discarding it) — for a *top-level* bucket, the caller needs it to merge
+ * back against that same Version's top-level Sections via
+ * `orderSectionsAndTopLevelPartLinks` (`lib/dishes/display-order.ts`), the
+ * one shared merge every read-only Section/PartLink renderer uses. A
+ * Section-nested bucket's caller is free to ignore `position` and just
+ * read `.tree` — nested PartLinks don't interleave with anything else.
  */
 export function mergeLiveAndMaterializedTrees(
   liveEdges: PartLinkInput[],
   liveTrees: PartLinkTree[],
   materialized: { position: number; tree: PartLinkTree }[],
-): PartLinkTree[] {
+): { position: number; tree: PartLinkTree }[] {
   const positionByTarget = new Map(
     liveEdges.map((edge) => [
       `${edge.targetDishId}:${edge.targetDishVersionId}`,
@@ -678,9 +723,7 @@ export function mergeLiveAndMaterializedTrees(
     })),
     ...materialized,
   ];
-  return combined
-    .sort((a, b) => a.position - b.position)
-    .map((entry) => entry.tree);
+  return combined.sort((a, b) => a.position - b.position);
 }
 
 /**

@@ -30,8 +30,13 @@ function seed(...args: string[]): string {
 async function createRecipe(page: Page, title: string): Promise<string> {
   await page.goto("/recipes/new");
   await page.getByLabel("Recipe title").fill(title);
-  await page.getByRole("button", { name: "Add ingredient" }).click();
-  await page.getByLabel("Ingredient name").fill("Ginger");
+
+  await page.getByRole("button", { name: "Add section", exact: true }).click();
+  const sectionDialog = page.getByRole("dialog");
+  await sectionDialog.getByRole("button", { name: "Add ingredient" }).click();
+  await sectionDialog.getByLabel("Ingredient name").fill("Ginger");
+  await sectionDialog.getByRole("button", { name: "Finish section" }).click();
+
   await page.getByRole("button", { name: "Save", exact: true }).click();
   // Excludes "new" itself — the plain `[^/]+$` pattern other specs use
   // would also match `/recipes/new` before the post-save navigation has

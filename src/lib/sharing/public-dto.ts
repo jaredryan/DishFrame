@@ -44,6 +44,12 @@ export type PublicIngredient = {
 };
 
 export type PublicSection = {
+  // Shares one interleaved top-level ordering sequence with this same
+  // container's own `partLinks`/`topLevelPartLinks` (schema.prisma's
+  // `Section.position` comment) — carried here so a renderer can merge the
+  // two back into that persisted order via
+  // `orderSectionsAndTopLevelPartLinks` (`lib/dishes/display-order.ts`).
+  position: number;
   name: string | null;
   guidanceNote: string | null;
   ingredients: PublicIngredient[];
@@ -52,6 +58,11 @@ export type PublicSection = {
 };
 
 export type PublicPartLinkNode = {
+  // See `PublicSection.position` — this node's own position among its
+  // container's top-level Sections/PartLinks (root `PublicShareContent` or
+  // an ancestor `PublicPartLinkNode`), not a property of the linked Part
+  // itself.
+  position: number;
   title: string;
   versionLabel: string;
   multiplier: number;
@@ -115,7 +126,12 @@ function toPublicPartLinkRef(
 ): PublicPartLinkNode {
   return ref.kind === "MATERIALIZED"
     ? toPublicMaterializedPartLinkNode(graph, ref)
-    : toPublicPartLinkNode(graph, ref.targetDishVersionId, ref.multiplier);
+    : toPublicPartLinkNode(
+        graph,
+        ref.targetDishVersionId,
+        ref.position,
+        ref.multiplier,
+      );
 }
 
 function toPublicSections(
@@ -123,6 +139,7 @@ function toPublicSections(
   node: ShareGraphNode,
 ): PublicSection[] {
   return node.sections.map((section) => ({
+    position: section.position,
     name: section.name ?? null,
     guidanceNote: section.guidanceNote ?? null,
     ingredients: section.ingredients.map(toPublicIngredient),
@@ -148,6 +165,7 @@ function toPublicMaterializedPartLinkNode(
 ): PublicPartLinkNode {
   const content = ref.materializedContent;
   return {
+    position: ref.position,
     title: ref.materializedTitle ?? "Deleted Part",
     versionLabel: ref.materializedVersionLabel ?? "",
     multiplier: ref.multiplier,
@@ -157,6 +175,7 @@ function toPublicMaterializedPartLinkNode(
     cookTimeMinutes: null,
     difficulty: null,
     sections: content.sections.map((section: SectionInput) => ({
+      position: section.position,
       name: section.name ?? null,
       guidanceNote: section.guidanceNote ?? null,
       ingredients: section.ingredients.map(toPublicIngredient),
@@ -166,11 +185,21 @@ function toPublicMaterializedPartLinkNode(
         }),
       ),
       partLinks: section.partLinks.map((link: PartLinkInput) =>
-        toPublicPartLinkNode(graph, link.targetDishVersionId, link.multiplier),
+        toPublicPartLinkNode(
+          graph,
+          link.targetDishVersionId,
+          link.position,
+          link.multiplier,
+        ),
       ),
     })),
     partLinks: content.partLinks.map((link: PartLinkInput) =>
-      toPublicPartLinkNode(graph, link.targetDishVersionId, link.multiplier),
+      toPublicPartLinkNode(
+        graph,
+        link.targetDishVersionId,
+        link.position,
+        link.multiplier,
+      ),
     ),
   };
 }
@@ -220,6 +249,7 @@ function toPublicIngredient(ingredient: {
 function toPublicPartLinkNode(
   graph: ShareGraph,
   targetVersionId: string,
+  position: number,
   multiplier: number,
 ): PublicPartLinkNode {
   const node = graph.nodes.get(targetVersionId);
@@ -231,6 +261,7 @@ function toPublicPartLinkNode(
     );
   }
   return {
+    position,
     title: node.dishTitle,
     versionLabel: `V${node.majorVersion}.${node.minorVersion}`,
     multiplier,

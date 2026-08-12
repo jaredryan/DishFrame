@@ -197,29 +197,124 @@ describe("DishEditor unsaved-changes guard", () => {
 });
 
 describe("DishEditor Sections", () => {
-  it("adds and removes a Section", async () => {
+  // §7: "Add section" opens a blank draft in its own modal rather than
+  // immediately adding an empty Section to the page — the new Section only
+  // reaches the page's Section list once the modal is Finished.
+  it("opens Add section as a modal draft, invisible on the page until Finished", async () => {
     const user = userEvent.setup();
     render(<DishEditor kind="RECIPE" />);
 
-    const nameField = () => screen.getAllByLabelText("Section name");
-
-    expect(nameField()).toHaveLength(1);
+    expect(screen.queryByLabelText("Section name")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: /Section/ }),
+    ).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Add section" }));
-    expect(nameField()).toHaveLength(2);
+    const nameInput = screen.getByLabelText("Section name");
+    await user.type(nameInput, "Sauce");
 
-    await user.click(screen.getByRole("button", { name: "Remove section 2" }));
-    expect(nameField()).toHaveLength(1);
+    // Not yet part of the page's own Section list, behind the modal — the
+    // modal's own dialog title (an h2) legitimately shows a live preview of
+    // this same text as it's typed; only the page's own Section heading (an
+    // h3, rendered by SectionFields) reflects a truly committed Section.
+    expect(
+      screen.queryByRole("heading", { name: /Section 1/, level: 3 }),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Finish section" }));
+
+    expect(
+      screen.getByRole("heading", { name: "Section 1 — Sauce" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText("Section name")).not.toBeInTheDocument();
   });
 
-  it("renames a Section", async () => {
+  it("discards a new Section draft entirely on Cancel", async () => {
     const user = userEvent.setup();
     render(<DishEditor kind="RECIPE" />);
 
-    const input = screen.getByLabelText("Section name");
-    await user.type(input, "Sauce");
+    await user.click(screen.getByRole("button", { name: "Add section" }));
+    await user.type(screen.getByLabelText("Section name"), "Sauce");
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
 
-    expect(input).toHaveValue("Sauce");
+    expect(screen.queryByLabelText("Section name")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: /Section/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("removes a finished Section", async () => {
+    const user = userEvent.setup();
+    render(<DishEditor kind="RECIPE" />);
+
+    await user.click(screen.getByRole("button", { name: "Add section" }));
+    await user.click(screen.getByRole("button", { name: "Finish section" }));
+    expect(
+      screen.getByRole("heading", { name: /Section 1/ }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Remove section 1" }));
+    expect(
+      screen.queryByRole("heading", { name: /Section 1/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  // §6: editing an existing Section is the same reversible modal session —
+  // Finish commits the edits into the parent editor state; reopening shows
+  // them.
+  it("commits an edited existing Section's changes on Finish", async () => {
+    const user = userEvent.setup();
+    render(<DishEditor kind="RECIPE" dish={existingDish} />);
+
+    await user.click(screen.getByRole("button", { name: "Edit Section 1" }));
+    await user.type(screen.getByLabelText("Section name"), "Sauce");
+    await user.click(screen.getByRole("button", { name: "Finish section" }));
+
+    expect(
+      screen.getByRole("heading", { name: "Section 1 — Sauce" }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Edit Sauce" }));
+    expect(screen.getByLabelText("Section name")).toHaveValue("Sauce");
+  });
+
+  // §6: Cancel restores the exact snapshot from modal-open time — name,
+  // Ingredient edits, everything — with no partial edits left behind.
+  it("reverts an edited existing Section's changes on Cancel", async () => {
+    const user = userEvent.setup();
+    render(<DishEditor kind="RECIPE" dish={existingDish} />);
+
+    await user.click(screen.getByRole("button", { name: "Edit Section 1" }));
+    await user.type(screen.getByLabelText("Section name"), "Sauce");
+    const ingredientName = screen.getByLabelText("Ingredient name");
+    await user.clear(ingredientName);
+    await user.type(ingredientName, "Kosher salt");
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    // Unnamed default Section (§9.1) — heading reads "Section 1" alone.
+    expect(
+      screen.getByRole("heading", { name: "Section 1" }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Edit Section 1" }));
+    expect(screen.getByLabelText("Section name")).toHaveValue("");
+    expect(screen.getByLabelText("Ingredient name")).toHaveValue("Salt");
+  });
+
+  // §6: the X and Escape are both treated as Cancel, the same as the
+  // explicit Cancel button.
+  it("treats Escape the same as Cancel", async () => {
+    const user = userEvent.setup();
+    render(<DishEditor kind="RECIPE" dish={existingDish} />);
+
+    await user.click(screen.getByRole("button", { name: "Edit Section 1" }));
+    await user.type(screen.getByLabelText("Section name"), "Sauce");
+    await user.keyboard("{Escape}");
+
+    expect(
+      screen.getByRole("heading", { name: "Section 1" }),
+    ).toBeInTheDocument();
   });
 
   // Reordering itself is now drag-and-drop (dnd-kit), not a Move up/down
@@ -232,34 +327,84 @@ describe("DishEditor Sections", () => {
     const user = userEvent.setup();
     render(<DishEditor kind="RECIPE" />);
 
+    await user.click(screen.getByRole("button", { name: "Add section" }));
     await user.type(screen.getByLabelText("Section name"), "Sauce");
+    await user.click(screen.getByRole("button", { name: "Finish section" }));
 
     expect(
       screen.getByRole("button", { name: "Drag to reorder Sauce" }),
     ).toBeInTheDocument();
   });
 
-  it("collapses a Section into a summary and expands it again", async () => {
-    const user = userEvent.setup();
-    render(<DishEditor kind="RECIPE" />);
+  // Recipe/Part editor regression coverage: "Section N" numbering must
+  // derive from the current position-sorted order among top-level Sections
+  // only (skipping top-level linked Parts), not from `sections`' own
+  // fieldArray/authoring index — a drag reorder only ever updates each
+  // item's `position` (see `dish-editor.tsx`'s `handleTopLevelDragEnd`),
+  // it never reshuffles the underlying fieldArray, so the stale-index bug
+  // is fully reproducible from initial props alone (as if reopening the
+  // editor after a save that persisted a reordered position sequence).
+  it("numbers Sections by current position among top-level items, not by fieldArray order", async () => {
+    const dishWithInterleavedOrder: typeof existingDish = {
+      ...existingDish,
+      values: {
+        ...existingDish.values,
+        sections: [
+          {
+            lineageId: "section-zebra",
+            name: "Zebra section",
+            guidanceNote: null,
+            position: 2,
+            ingredients: [],
+            instructions: [],
+            partLinks: [],
+          },
+          {
+            lineageId: "section-apple",
+            name: "Apple section",
+            guidanceNote: null,
+            position: 0,
+            ingredients: [],
+            instructions: [],
+            partLinks: [],
+          },
+        ],
+        partLinks: [
+          {
+            lineageId: "link-1",
+            targetDishId: "part-1",
+            targetDishVersionId: "part-1-v1",
+            position: 1,
+            multiplier: 1,
+          },
+        ],
+      },
+    };
 
-    await user.type(screen.getByLabelText("Section name"), "Sauce");
-    await user.click(screen.getByRole("button", { name: "Collapse Sauce" }));
+    render(<DishEditor kind="RECIPE" dish={dishWithInterleavedOrder} />);
 
-    expect(screen.queryByLabelText("Section name")).not.toBeInTheDocument();
-    expect(screen.getByText(/Sauce/)).toBeInTheDocument();
-
-    // Slice 6A browser-review correction pass: a collapsed Section shows a
-    // pencil "Edit …" action, not the chevron "Expand …" used elsewhere.
-    await user.click(screen.getByRole("button", { name: "Edit Sauce" }));
-    expect(screen.getByLabelText("Section name")).toBeInTheDocument();
+    // Position order is Apple section (0), linked Part (1), Zebra section
+    // (2) — Apple renders first and must read "Section 1", Zebra renders
+    // last and must read "Section 2", even though Zebra is first in the
+    // authored `sections` array.
+    expect(
+      await screen.findByRole("heading", { name: "Section 1 — Apple section" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Section 2 — Zebra section" }),
+    ).toBeInTheDocument();
   });
 });
 
 describe("DishEditor Ingredients", () => {
+  // §7: Ingredients are authored inside a Section's own modal session now,
+  // not directly on the parent page — every test below opens a Section
+  // first (via "Add section") to reach its "Add ingredient" control.
   it("adds and removes an Ingredient", async () => {
     const user = userEvent.setup();
     render(<DishEditor kind="RECIPE" />);
+
+    await user.click(screen.getByRole("button", { name: "Add section" }));
 
     const nameField = () => screen.queryAllByLabelText("Ingredient name");
 
@@ -280,6 +425,7 @@ describe("DishEditor Ingredients", () => {
     const user = userEvent.setup();
     render(<DishEditor kind="RECIPE" />);
 
+    await user.click(screen.getByRole("button", { name: "Add section" }));
     await user.click(screen.getByRole("button", { name: "Add ingredient" }));
     await user.type(screen.getByLabelText("Ingredient name"), "Salt");
 
@@ -292,6 +438,7 @@ describe("DishEditor Ingredients", () => {
     const user = userEvent.setup();
     render(<DishEditor kind="RECIPE" />);
 
+    await user.click(screen.getByRole("button", { name: "Add section" }));
     await user.click(screen.getByRole("button", { name: "Add ingredient" }));
     expect(screen.getByLabelText("Quantity")).toBeInTheDocument();
 
@@ -307,6 +454,7 @@ describe("DishEditor Ingredients", () => {
     const user = userEvent.setup();
     render(<DishEditor kind="RECIPE" />);
 
+    await user.click(screen.getByRole("button", { name: "Add section" }));
     await user.click(screen.getByRole("button", { name: "Add ingredient" }));
     await user.click(screen.getByLabelText("Amount"));
     await user.click(await screen.findByRole("option", { name: "Range" }));
@@ -331,6 +479,7 @@ describe("DishEditor Ingredients", () => {
     const user = userEvent.setup();
     render(<DishEditor kind="RECIPE" />);
 
+    await user.click(screen.getByRole("button", { name: "Add section" }));
     await user.click(screen.getByRole("button", { name: "Add ingredient" }));
     await user.click(screen.getByLabelText("Amount"));
     await user.click(await screen.findByRole("option", { name: "To taste" }));
@@ -345,6 +494,7 @@ describe("DishEditor Ingredients", () => {
     const user = userEvent.setup();
     render(<DishEditor kind="RECIPE" />);
 
+    await user.click(screen.getByRole("button", { name: "Add section" }));
     await user.click(screen.getByRole("button", { name: "Add ingredient" }));
     await user.click(screen.getByLabelText("Amount"));
     await user.click(await screen.findByRole("option", { name: "Free text" }));
@@ -356,9 +506,13 @@ describe("DishEditor Ingredients", () => {
 });
 
 describe("DishEditor Instructions", () => {
+  // §7: same relocation as Ingredients above — Instructions are authored
+  // inside a Section's own modal session, reached via "Add section".
   it("adds and removes an Instruction", async () => {
     const user = userEvent.setup();
     render(<DishEditor kind="RECIPE" />);
+
+    await user.click(screen.getByRole("button", { name: "Add section" }));
 
     expect(screen.queryByLabelText("Instruction 1")).not.toBeInTheDocument();
 
@@ -378,6 +532,7 @@ describe("DishEditor Instructions", () => {
     const user = userEvent.setup();
     render(<DishEditor kind="RECIPE" />);
 
+    await user.click(screen.getByRole("button", { name: "Add section" }));
     await user.click(screen.getByRole("button", { name: "Add instruction" }));
 
     expect(
@@ -432,11 +587,12 @@ describe("DishEditor substitute handling", () => {
     render(<DishEditor kind="RECIPE" />);
 
     await user.type(screen.getByLabelText("Recipe title"), "Ginger Bowl");
+    await user.click(screen.getByRole("button", { name: "Add section" }));
     await user.click(screen.getByRole("button", { name: "Add ingredient" }));
     await user.type(screen.getByLabelText("Ingredient name"), "Salt");
     await user.click(screen.getByRole("button", { name: "Add substitute" }));
-
-    // Leave the substitute name blank, then save.
+    // Leave the substitute name blank, commit the Section, then save.
+    await user.click(screen.getByRole("button", { name: "Finish section" }));
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(mockedCreateDish).toHaveBeenCalledTimes(1);
@@ -449,10 +605,12 @@ describe("DishEditor substitute handling", () => {
     render(<DishEditor kind="RECIPE" />);
 
     await user.type(screen.getByLabelText("Recipe title"), "Ginger Bowl");
+    await user.click(screen.getByRole("button", { name: "Add section" }));
     await user.click(screen.getByRole("button", { name: "Add ingredient" }));
     await user.type(screen.getByLabelText("Ingredient name"), "Soy sauce");
     await user.click(screen.getByRole("button", { name: "Add substitute" }));
     await user.type(screen.getByLabelText("Substitute name"), "Honey");
+    await user.click(screen.getByRole("button", { name: "Finish section" }));
 
     await user.click(screen.getByRole("button", { name: "Save" }));
 
@@ -463,11 +621,18 @@ describe("DishEditor substitute handling", () => {
     });
   });
 
-  it("blocks save and shows a field-level error for a partially completed substitute", async () => {
+  // Section-local validation: a partial substitute is fully determinable
+  // from the Section being edited alone, so it's caught at "Finish
+  // section" — inside the modal's own form instance, where the offending
+  // IngredientFields row is still mounted and the field-level error can
+  // render right next to it (see `section-editor-dialog.tsx`'s
+  // `handleFinish`).
+  it("blocks Finish section and shows a field-level error for a partially completed substitute, until it's fixed", async () => {
     const user = userEvent.setup();
     render(<DishEditor kind="RECIPE" />);
 
     await user.type(screen.getByLabelText("Recipe title"), "Ginger Bowl");
+    await user.click(screen.getByRole("button", { name: "Add section" }));
     await user.click(screen.getByRole("button", { name: "Add ingredient" }));
     await user.type(screen.getByLabelText("Ingredient name"), "Soy sauce");
     await user.click(screen.getByRole("button", { name: "Add substitute" }));
@@ -475,12 +640,75 @@ describe("DishEditor substitute handling", () => {
     // Fill in the substitute's unit but leave its name blank.
     const substituteGroup = screen.getByRole("group", { name: "Substitute" });
     await user.type(within(substituteGroup).getByLabelText("Unit"), "tbsp");
+    await user.click(screen.getByRole("button", { name: "Finish section" }));
+
+    // The modal stays open — Finish neither committed nor closed it — with
+    // the field-level error visible right in the Substitute group, and the
+    // user's edits (including the Section name field's presence) intact.
+    expect(
+      await within(substituteGroup).findByText(
+        "Enter a substitute name, or remove the substitute.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Section name")).toBeInTheDocument();
+
+    // Fixing the substitute name lets Finish succeed normally.
+    await user.type(
+      within(substituteGroup).getByLabelText("Substitute name"),
+      "Honey",
+    );
+    await user.click(screen.getByRole("button", { name: "Finish section" }));
+    expect(screen.queryByLabelText("Section name")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(mockedCreateDish).toHaveBeenCalledTimes(1);
+    const [, submitted] = mockedCreateDish.mock.calls[0];
+    expect(submitted.sections[0].ingredients[0].substitute).toMatchObject({
+      name: "Honey",
+    });
+  });
+
+  // Defensive backstop (deliberately redundant with the Finish-time check
+  // above): a partial substitute that reaches the parent form without ever
+  // going through the Section modal — e.g. seeded from imported/malformed
+  // state via `initialValues`, the same prop the paste-and-review importer
+  // uses to pre-fill this editor — must still block final Save.
+  it("defensively blocks final Save when a partial substitute reaches the parent form directly, bypassing the Section modal", async () => {
+    const user = userEvent.setup();
+    render(
+      <DishEditor
+        kind="RECIPE"
+        initialValues={{
+          ...existingDish.values,
+          sections: [
+            {
+              ...existingDish.values.sections[0],
+              ingredients: [
+                {
+                  ...existingDish.values.sections[0].ingredients[0],
+                  substitute: {
+                    name: "",
+                    quantity: null,
+                    quantityEnd: null,
+                    isApproximate: false,
+                    unit: "tbsp",
+                    displayText: null,
+                    preparationNote: null,
+                  },
+                },
+              ],
+            },
+          ],
+        }}
+      />,
+    );
 
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(
       await screen.findByText(
-        "Enter a substitute name, or remove the substitute.",
+        "Fix the highlighted substitute before saving — enter a name, or remove it.",
       ),
     ).toBeInTheDocument();
     expect(mockedCreateDish).not.toHaveBeenCalled();
@@ -519,6 +747,9 @@ describe("DishEditor minor/major version choice", () => {
     const nameInput = screen.getByLabelText("Ingredient name");
     await user.clear(nameInput);
     await user.type(nameInput, "Kosher salt");
+    // The Section modal is a transactional editing session — its edits only
+    // reach the parent form (and become visible/saveable) once Finished.
+    await user.click(screen.getByRole("button", { name: "Finish section" }));
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(
@@ -544,6 +775,7 @@ describe("DishEditor minor/major version choice", () => {
     const nameInput = screen.getByLabelText("Ingredient name");
     await user.clear(nameInput);
     await user.type(nameInput, "Kosher salt");
+    await user.click(screen.getByRole("button", { name: "Finish section" }));
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     await screen.findByText("How should this change be saved?");

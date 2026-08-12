@@ -89,15 +89,18 @@ test.describe("Paste-and-review import", () => {
     await expect(page.getByLabel("Recipe title")).toHaveValue(title);
 
     // Correct the one field the deterministic parser couldn't confidently
-    // place — the long unstructured line landed in "Needs review" as its
-    // own instruction row; rewrite it as a real, short cooking note.
-    const needsReviewText = page
-      .getByRole("textbox", {
-        name: /Instruction/,
-        exact: false,
-      })
-      .last();
-    await needsReviewText.fill("A family favorite.");
+    // place — the long unstructured line landed in its own "Needs review"
+    // Section as a single instruction row; opening that Section's modal is
+    // required to edit it, same as any other Section. Rewrite it as a real,
+    // short cooking note, then commit it back via "Finish section".
+    await page.getByRole("button", { name: "Edit Needs review" }).click();
+    const needsReviewDialog = page.getByRole("dialog");
+    await needsReviewDialog
+      .getByRole("textbox", { name: /Instruction/, exact: false })
+      .fill("A family favorite.");
+    await needsReviewDialog
+      .getByRole("button", { name: "Finish section" })
+      .click();
 
     await page.getByRole("button", { name: "Save", exact: true }).click();
 

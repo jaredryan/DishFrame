@@ -87,13 +87,17 @@ test.describe("Recipes: create, view, edit, archive, restore, duplicate, delete"
     await expect(page).toHaveURL(/\/recipes\/new/);
 
     await page.getByLabel("Recipe title").fill(title);
-    await page.getByRole("button", { name: "Add ingredient" }).click();
-    await page.getByLabel("Ingredient name").fill("Ginger");
+
+    await page.getByRole("button", { name: "Add section", exact: true }).click();
+    const createDialog = page.getByRole("dialog");
+    await createDialog.getByRole("button", { name: "Add ingredient" }).click();
+    await createDialog.getByLabel("Ingredient name").fill("Ginger");
 
     // A substitute clicked open and then left entirely blank must not
     // block creation (Gate 2 remediation — this is the exact bug this
     // pass fixed: a fully-unused substitute used to fail Zod validation).
-    await page.getByRole("button", { name: "Add substitute" }).click();
+    await createDialog.getByRole("button", { name: "Add substitute" }).click();
+    await createDialog.getByRole("button", { name: "Finish section" }).click();
 
     // exact: true — a Section's "Save as reusable Part" trigger (Slice 6)
     // also has an accessible name containing "Save", which Playwright's
@@ -114,13 +118,16 @@ test.describe("Recipes: create, view, edit, archive, restore, duplicate, delete"
 
     // Slice 6 correction pass §4: a Section loaded from an already-saved
     // Dish now defaults to its view-first (collapsed) presentation — the
-    // explicit Edit toggle must be clicked before its editable fields
-    // (including "Add instruction") appear.
+    // explicit Edit toggle opens it in the Section modal, where "Finish
+    // section" commits the edit back into this page before the page-level
+    // Save persists the whole Recipe.
     await page.getByRole("button", { name: "Edit Section 1" }).click();
-    await page.getByRole("button", { name: "Add instruction" }).click();
-    await page
+    const editDialog = page.getByRole("dialog");
+    await editDialog.getByRole("button", { name: "Add instruction" }).click();
+    await editDialog
       .getByRole("textbox", { name: "Instruction 1" })
       .fill("Grate the ginger.");
+    await editDialog.getByRole("button", { name: "Finish section" }).click();
     await page.getByRole("button", { name: "Save", exact: true }).click();
 
     await expect(
@@ -217,26 +224,36 @@ test.describe("Recipes: create, view, edit, archive, restore, duplicate, delete"
 
     await page.goto("/recipes/new");
     await page.getByLabel("Recipe title").fill(title);
-    await page.getByRole("button", { name: "Add ingredient" }).click();
 
-    await page.getByLabel("Ingredient name").fill("Vegetable broth");
-    await page.getByLabel("Quantity", { exact: true }).fill("1 1/2");
-    await page.getByLabel("Amount", { exact: true }).click();
+    await page.getByRole("button", { name: "Add section", exact: true }).click();
+    const createDialog = page.getByRole("dialog");
+    await createDialog.getByRole("button", { name: "Add ingredient" }).click();
+
+    await createDialog.getByLabel("Ingredient name").fill("Vegetable broth");
+    await createDialog.getByLabel("Quantity", { exact: true }).fill("1 1/2");
+    await createDialog.getByLabel("Amount", { exact: true }).click();
     await page.getByRole("option", { name: "Range" }).click();
-    await page.getByLabel("To", { exact: true }).fill("2");
-    await page.getByLabel("Unit", { exact: true }).fill("cup");
-    await page.getByRole("checkbox", { name: "Approximate" }).check();
-    await page.getByRole("checkbox", { name: "Optional" }).check();
-    await page.getByLabel("Preparation note", { exact: true }).fill("warmed");
+    await createDialog.getByLabel("To", { exact: true }).fill("2");
+    await createDialog.getByLabel("Unit", { exact: true }).fill("cup");
+    await createDialog.getByRole("checkbox", { name: "Approximate" }).check();
+    await createDialog.getByRole("checkbox", { name: "Optional" }).check();
+    await createDialog
+      .getByLabel("Preparation note", { exact: true })
+      .fill("warmed");
 
     // A complete substitute (Gate 2 remediation: substitutes now use the
     // same explicit amount-entry pattern) must persist and display.
-    await page.getByRole("button", { name: "Add substitute" }).click();
-    await page.getByLabel("Substitute name").fill("Chicken broth");
+    await createDialog.getByRole("button", { name: "Add substitute" }).click();
+    await createDialog.getByLabel("Substitute name").fill("Chicken broth");
+    await createDialog.getByRole("button", { name: "Finish section" }).click();
 
     // exact: true — see the "golden path" test above for why.
     await page.getByRole("button", { name: "Save", exact: true }).click();
-    await expect(page).toHaveURL(/\/recipes\/[^/]+$/);
+    // (?!new$) — plain [^/]+ also matches the literal "new", so this can
+    // pass while still on /recipes/new (before the save navigation lands),
+    // letting the dishUrl capture below grab the wrong URL. Same fix
+    // already used in home-dashboard.spec.ts and print.spec.ts.
+    await expect(page).toHaveURL(/\/recipes\/(?!new$)[^/]+$/);
     // "1 1/2" parses to the decimal 1.5, formatted plainly on the detail
     // page (fraction *display* is Slice 5 scaling/formatting scope, not
     // Slice 3) — approximate + range + unit + optional all show together.
@@ -253,9 +270,11 @@ test.describe("Recipes: create, view, edit, archive, restore, duplicate, delete"
     await page.getByRole("link", { name: "Edit" }).click();
     // Slice 6 correction pass §4: see the golden path test above.
     await page.getByRole("button", { name: "Edit Section 1" }).click();
-    const nameInput = page.getByLabel("Ingredient name");
+    const editDialog = page.getByRole("dialog");
+    const nameInput = editDialog.getByLabel("Ingredient name");
     await nameInput.fill("");
     await nameInput.fill("Roasted vegetable broth");
+    await editDialog.getByRole("button", { name: "Finish section" }).click();
     await page.getByRole("button", { name: "Save", exact: true }).click();
 
     await expect(

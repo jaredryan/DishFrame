@@ -81,8 +81,17 @@ test.describe("Recipe library: search, filters, and active-filter chips", () => 
     // Stage is a Radix Select (combobox), not a native <select>.
     await page.getByRole("combobox", { name: /stage/i }).click();
     await page.getByRole("option", { name: "Active" }).click();
-    await page.getByRole("button", { name: "Add ingredient" }).click();
-    await page.getByLabel("Ingredient name").fill("Rice noodles");
+
+    await page.getByRole("button", { name: "Add section", exact: true }).click();
+    const matchSectionDialog = page.getByRole("dialog");
+    await matchSectionDialog
+      .getByRole("button", { name: "Add ingredient" })
+      .click();
+    await matchSectionDialog.getByLabel("Ingredient name").fill("Rice noodles");
+    await matchSectionDialog
+      .getByRole("button", { name: "Finish section" })
+      .click();
+
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect(page).toHaveURL(/\/recipes\/[^/]+$/);
 
@@ -95,8 +104,17 @@ test.describe("Recipe library: search, filters, and active-filter chips", () => 
     await page.goto("/recipes/new");
     await page.getByLabel("Recipe title").fill(otherTitle);
     await page.getByLabel("Cuisine").fill("Thai");
-    await page.getByRole("button", { name: "Add ingredient" }).click();
-    await page.getByLabel("Ingredient name").fill("Coconut milk");
+
+    await page.getByRole("button", { name: "Add section", exact: true }).click();
+    const otherSectionDialog = page.getByRole("dialog");
+    await otherSectionDialog
+      .getByRole("button", { name: "Add ingredient" })
+      .click();
+    await otherSectionDialog.getByLabel("Ingredient name").fill("Coconut milk");
+    await otherSectionDialog
+      .getByRole("button", { name: "Finish section" })
+      .click();
+
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect(page).toHaveURL(/\/recipes\/[^/]+$/);
 

@@ -88,14 +88,21 @@ test.describe("Cooking: setup, start, edit active plan, end early", () => {
     // pattern below for /cook/[sessionId]).
     await page.getByLabel("Recipe title").fill(title, { timeout: 15_000 });
 
-    await page.getByLabel("Section name").fill("Prep");
-    await page.getByRole("button", { name: "Add ingredient" }).click();
-    await page.getByLabel("Ingredient name").fill("Ginger");
+    // Each Section is authored in its own modal session (opened by "Add
+    // section", committed by "Finish section") — one at a time, so the same
+    // dialog locator can be reused for both.
+    await page.getByRole("button", { name: "Add section", exact: true }).click();
+    const sectionDialog = page.getByRole("dialog");
+    await sectionDialog.getByLabel("Section name").fill("Prep");
+    await sectionDialog.getByRole("button", { name: "Add ingredient" }).click();
+    await sectionDialog.getByLabel("Ingredient name").fill("Ginger");
+    await sectionDialog.getByRole("button", { name: "Finish section" }).click();
 
-    await page.getByRole("button", { name: "Add section" }).click();
-    await page.getByLabel("Section name").nth(1).fill("Sear");
-    await page.getByRole("button", { name: "Add ingredient" }).nth(1).click();
-    await page.getByLabel("Ingredient name").nth(1).fill("Soy sauce");
+    await page.getByRole("button", { name: "Add section", exact: true }).click();
+    await sectionDialog.getByLabel("Section name").fill("Sear");
+    await sectionDialog.getByRole("button", { name: "Add ingredient" }).click();
+    await sectionDialog.getByLabel("Ingredient name").fill("Soy sauce");
+    await sectionDialog.getByRole("button", { name: "Finish section" }).click();
 
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect(page).toHaveURL(/\/recipes\/[^/]+$/);

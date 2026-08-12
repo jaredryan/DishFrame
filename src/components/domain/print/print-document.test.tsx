@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react";
 import { PrintDocument } from "@/components/domain/print/print-document";
 import type {
   PublicShareContent,
+  PublicSection,
   PublicPartLinkNode,
 } from "@/lib/sharing/public-dto";
 
@@ -32,10 +33,23 @@ function baseContent(
   };
 }
 
+function section(overrides: Partial<PublicSection> = {}): PublicSection {
+  return {
+    position: 0,
+    name: null,
+    guidanceNote: null,
+    ingredients: [],
+    instructions: [],
+    partLinks: [],
+    ...overrides,
+  };
+}
+
 function partLink(
   overrides: Partial<PublicPartLinkNode> = {},
 ): PublicPartLinkNode {
   return {
+    position: 0,
     title: "Nuoc Cham",
     versionLabel: "V1.0",
     multiplier: 1,
@@ -72,9 +86,9 @@ describe("PrintDocument", () => {
       <PrintDocument
         content={baseContent({
           sections: [
-            {
+            section({
+              position: 0,
               name: "Broth",
-              guidanceNote: null,
               ingredients: [
                 {
                   name: "Ginger",
@@ -97,15 +111,12 @@ describe("PrintDocument", () => {
                 },
               ],
               instructions: [{ text: "Simmer the broth." }],
-              partLinks: [],
-            },
-            {
+            }),
+            section({
+              position: 1,
               name: "Toppings",
-              guidanceNote: null,
-              ingredients: [],
               instructions: [{ text: "Add toppings." }],
-              partLinks: [],
-            },
+            }),
           ],
         })}
         kindLabel="Recipe"
@@ -132,15 +143,7 @@ describe("PrintDocument", () => {
           topLevelPartLinks: [
             partLink({
               title: "Wrapper Part",
-              sections: [
-                {
-                  name: null,
-                  guidanceNote: null,
-                  ingredients: [],
-                  instructions: [],
-                  partLinks: [],
-                },
-              ],
+              sections: [section()],
               partLinks: [partLink({ title: "Nested Part" })],
             }),
           ],
@@ -153,6 +156,70 @@ describe("PrintDocument", () => {
     expect(screen.getByText("Wrapper Part")).toBeInTheDocument();
     expect(screen.getByText("Nested Part")).toBeInTheDocument();
     expect(screen.getAllByText("Part")).toHaveLength(2);
+  });
+
+  // Regression coverage: Sections and top-level linked Parts share one
+  // interleaved persisted `position` sequence (schema.prisma's
+  // `Section.position` comment) — this must render in exactly that saved
+  // order, not all Sections followed by all top-level Parts.
+  it("interleaves Sections and top-level linked Parts by persisted position", () => {
+    render(
+      <PrintDocument
+        content={baseContent({
+          sections: [
+            section({ position: 2, name: "Second section" }),
+            section({ position: 0, name: "First section" }),
+          ],
+          topLevelPartLinks: [partLink({ position: 1, title: "Middle part" })],
+        })}
+        kindLabel="Recipe"
+        imageSrc={imageSrc}
+      />,
+    );
+
+    const headingTexts = screen
+      .getAllByRole("heading")
+      .map((h) => h.textContent ?? "");
+    const firstIndex = headingTexts.findIndex((t) =>
+      t.includes("First section"),
+    );
+    const middleIndex = headingTexts.findIndex((t) =>
+      t.includes("Middle part"),
+    );
+    const secondIndex = headingTexts.findIndex((t) =>
+      t.includes("Second section"),
+    );
+    expect(firstIndex).toBeGreaterThanOrEqual(0);
+    expect(firstIndex).toBeLessThan(middleIndex);
+    expect(middleIndex).toBeLessThan(secondIndex);
+  });
+
+  it("interleaves a linked Part's own Sections and nested linked Parts by position too", () => {
+    render(
+      <PrintDocument
+        content={baseContent({
+          topLevelPartLinks: [
+            partLink({
+              title: "Wrapper Part",
+              sections: [section({ position: 1, name: "Wrapper section" })],
+              partLinks: [partLink({ position: 0, title: "Inner part" })],
+            }),
+          ],
+        })}
+        kindLabel="Recipe"
+        imageSrc={imageSrc}
+      />,
+    );
+
+    const headingTexts = screen
+      .getAllByRole("heading")
+      .map((h) => h.textContent ?? "");
+    const innerIndex = headingTexts.findIndex((t) => t.includes("Inner part"));
+    const wrapperSectionIndex = headingTexts.findIndex((t) =>
+      t.includes("Wrapper section"),
+    );
+    expect(innerIndex).toBeGreaterThanOrEqual(0);
+    expect(innerIndex).toBeLessThan(wrapperSectionIndex);
   });
 
   it("shows nutrition only when present", () => {
