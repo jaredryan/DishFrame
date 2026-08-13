@@ -16,14 +16,8 @@ export function printCatalog(input: {
   crossAccountShareLinkCopy: { dishId: string; dishKind: string } | null;
   directShares: {
     label: string;
-    dishTitle: string;
-    direction: "primary-to-counterparty" | "counterparty-to-primary";
-    status: string;
-  }[];
-  directShareCollections: {
-    label: string;
     recipientLookup: string;
-    recipeTitles: string[];
+    itemTitles: string[];
     status: string;
   }[];
 }): void {
@@ -104,18 +98,12 @@ export function printCatalog(input: {
       ? `  Accepted ShareLink copy in primary's library: [QA] Counterparty Pasta Night (dish ${input.crossAccountShareLinkCopy.dishId}, ${input.crossAccountShareLinkCopy.dishKind})`
       : "  Accepted ShareLink copy in primary's library: MISSING — saveSharedCopy did not return a usable copy.",
     "",
-    "Direct Shares (open /share on the primary QA account for Sent/Received):",
+    "Direct Shares (open /share on the primary QA account for Sent/Received — every send is a DirectShareCollection envelope, one or more Recipes/Parts):",
     ...input.directShares.map(
       (share) =>
-        `  ${share.label} (${share.direction}) — ${share.dishTitle} [${share.status}]`,
+        `  ${share.label} — to ${share.recipientLookup}: ${share.itemTitles.join(", ")} [${share.status}]`,
     ),
     "  Plus one PENDING direct share auto-CANCELED by deleting its source Dish (source-deletion cancellation, not listed above since the source Dish no longer exists).",
-    "",
-    "Direct Share Collections (Slice 22 — /share's Sent/Received Recipe collections sections):",
-    ...input.directShareCollections.map(
-      (collection) =>
-        `  ${collection.label} — to ${collection.recipientLookup}: ${collection.recipeTitles.join(", ")} [${collection.status}]`,
-    ),
     "",
     "See this script's own qa-seed/*.ts modules for the full fixture coverage.",
     "",

@@ -9,17 +9,18 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: mockRefresh }),
 }));
 
-const mockCancelDirectShare = vi.fn();
 const mockCancelCollection = vi.fn();
 vi.mock("@/lib/sharing/actions", () => ({
-  cancelDirectShare: (...args: unknown[]) => mockCancelDirectShare(...args),
   cancelDirectShareCollection: (...args: unknown[]) =>
     mockCancelCollection(...args),
 }));
 
+// A one-item Send — view-model.ts's `buildSentItems` always collapses these
+// into `kind: "single"` (matching how Received already worked), using the
+// parent collection's own id as the cancel target.
 const SINGLE: SentItemView = {
   kind: "single",
-  id: "share-1",
+  id: "col-1",
   dishKind: "RECIPE",
   dishTitleSnapshot: "Ramen",
   recipientName: "Alex",
@@ -32,7 +33,7 @@ const SINGLE: SentItemView = {
 
 const GROUP: SentItemView = {
   kind: "group",
-  id: "col-1",
+  id: "col-2",
   recipientName: "Jordan",
   recipientLookup: "jordan@example.invalid",
   hasJoined: false,
@@ -44,35 +45,23 @@ const GROUP: SentItemView = {
   ],
 };
 
-const ONE_RECIPE_GROUP: SentItemView = {
-  kind: "group",
-  id: "col-2",
-  recipientName: "Sam",
-  recipientLookup: "sam@example.invalid",
-  hasJoined: true,
-  note: null,
-  createdAt: "2026-01-03T00:00:00.000Z",
-  children: [{ id: "c3", dishTitleSnapshot: "Ramen", status: "PENDING" }],
-};
-
 describe("DirectShareSentList", () => {
   beforeEach(() => {
     mockRefresh.mockClear();
-    mockCancelDirectShare.mockReset();
     mockCancelCollection.mockReset();
   });
 
-  it("renders a single item as a normal card and cancels via cancelDirectShare", async () => {
+  it("renders a single item as a normal card and cancels via its one-item collection", async () => {
     const user = userEvent.setup();
-    mockCancelDirectShare.mockResolvedValue({ status: "success" });
+    mockCancelCollection.mockResolvedValue({ status: "success" });
     render(<DirectShareSentList items={[SINGLE]} />);
 
     expect(screen.getByText("Ramen")).toBeInTheDocument();
     expect(screen.getByText(/To Alex/)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(mockCancelDirectShare).toHaveBeenCalledWith({
-      directShareId: "share-1",
+    expect(mockCancelCollection).toHaveBeenCalledWith({
+      collectionId: "col-1",
     });
   });
 
@@ -88,10 +77,10 @@ describe("DirectShareSentList", () => {
     render(<DirectShareSentList items={[GROUP]} />);
 
     expect(screen.getByText("Jordan")).toBeInTheDocument();
-    expect(screen.getByText(/2 recipes/)).toBeInTheDocument();
+    expect(screen.getByText(/2 items/)).toBeInTheDocument();
     expect(screen.queryByText("Tacos")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Show recipes" }));
+    await user.click(screen.getByRole("button", { name: "Show items" }));
     expect(screen.getByText("Tacos")).toBeInTheDocument();
     expect(screen.getByText("Chili")).toBeInTheDocument();
   });
@@ -103,22 +92,8 @@ describe("DirectShareSentList", () => {
 
     await user.click(screen.getByRole("button", { name: "Cancel pending" }));
     expect(mockCancelCollection).toHaveBeenCalledWith({
-      collectionId: "col-1",
+      collectionId: "col-2",
     });
-  });
-
-  it("keeps the Show recipes control for a one-recipe collection", async () => {
-    const user = userEvent.setup();
-    render(<DirectShareSentList items={[ONE_RECIPE_GROUP]} />);
-
-    expect(screen.getByText("Sam")).toBeInTheDocument();
-    expect(screen.getByText(/1 recipe(?!s)/)).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Show recipes" }),
-    ).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Show recipes" }));
-    expect(screen.getByText("Ramen")).toBeInTheDocument();
   });
 
   it("shows an empty-state message when nothing has been sent", () => {

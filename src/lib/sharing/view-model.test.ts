@@ -5,31 +5,9 @@ import {
   shareLinkLifecycle,
 } from "./view-model";
 import type {
-  SentDirectShareSummary,
-  ReceivedDirectShareSummary,
-} from "./service";
-import type {
   SentDirectShareCollectionSummary,
   ReceivedDirectShareCollectionSummary,
 } from "./collections";
-
-function sentShare(
-  overrides: Partial<SentDirectShareSummary> = {},
-): SentDirectShareSummary {
-  return {
-    id: "share-1",
-    dishId: "dish-1",
-    dishKind: "RECIPE",
-    dishTitleSnapshot: "Ramen",
-    recipientName: "Alex",
-    recipientLookup: "alex@example.invalid",
-    hasJoined: true,
-    note: null,
-    status: "PENDING",
-    createdAt: new Date("2026-01-01T00:00:00Z"),
-    ...overrides,
-  };
-}
 
 function sentCollection(
   overrides: Partial<SentDirectShareCollectionSummary> = {},
@@ -51,23 +29,6 @@ function sentCollection(
         createdDishId: null,
       },
     ],
-    ...overrides,
-  };
-}
-
-function receivedShare(
-  overrides: Partial<ReceivedDirectShareSummary> = {},
-): ReceivedDirectShareSummary {
-  return {
-    id: "rshare-1",
-    dishId: "dish-1",
-    dishKind: "RECIPE",
-    dishTitleSnapshot: "Ramen",
-    senderName: "Alex",
-    note: null,
-    status: "PENDING",
-    createdAt: new Date("2026-01-01T00:00:00Z"),
-    createdDishId: null,
     ...overrides,
   };
 }
@@ -95,75 +56,55 @@ function receivedCollection(
 }
 
 describe("buildSentItems", () => {
-  it("sorts merged legacy sends and collections newest first", () => {
-    const items = buildSentItems(
-      [sentShare({ id: "s1", createdAt: new Date("2026-01-01T00:00:00Z") })],
-      [
-        sentCollection({
-          id: "c1",
-          createdAt: new Date("2026-01-03T00:00:00Z"),
-          children: [
-            {
-              id: "c1-child",
-              dishId: "d",
-              dishKind: "RECIPE",
-              dishTitleSnapshot: "Tacos",
-              status: "PENDING",
-              createdDishId: null,
-            },
-            {
-              id: "c1-child-2",
-              dishId: "d2",
-              dishKind: "RECIPE",
-              dishTitleSnapshot: "Chili",
-              status: "PENDING",
-              createdDishId: null,
-            },
-          ],
-        }),
-      ],
-    );
-    expect(items.map((item) => item.id)).toEqual(["c1", "s1"]);
+  it("sorts collections newest first", () => {
+    const items = buildSentItems([
+      sentCollection({
+        id: "c-old",
+        createdAt: new Date("2026-01-01T00:00:00Z"),
+      }),
+      sentCollection({
+        id: "c-new",
+        createdAt: new Date("2026-01-03T00:00:00Z"),
+      }),
+    ]);
+    expect(items.map((item) => item.id)).toEqual(["c-new", "c-old"]);
   });
 
-  it("renders a one-item collection as a group, preserving the Show recipes control", () => {
-    const items = buildSentItems([], [sentCollection()]);
+  it("collapses a one-item collection into a single item, keyed by the collection id", () => {
+    const items = buildSentItems([sentCollection()]);
     expect(items).toHaveLength(1);
-    expect(items[0].kind).toBe("group");
-    if (items[0].kind === "group") {
-      expect(items[0].id).toBe("col-1");
-      expect(items[0].children).toMatchObject([
-        { id: "child-1", dishTitleSnapshot: "Soup", status: "PENDING" },
-      ]);
-    }
+    expect(items[0]).toMatchObject({
+      kind: "single",
+      id: "col-1",
+      dishKind: "RECIPE",
+      dishTitleSnapshot: "Soup",
+      hasJoined: false,
+    });
   });
 
   it("renders a multi-item collection as a group with its children", () => {
-    const items = buildSentItems(
-      [],
-      [
-        sentCollection({
-          children: [
-            {
-              id: "c1",
-              dishId: "d1",
-              dishKind: "RECIPE",
-              dishTitleSnapshot: "Tacos",
-              status: "PENDING",
-              createdDishId: null,
-            },
-            {
-              id: "c2",
-              dishId: "d2",
-              dishKind: "RECIPE",
-              dishTitleSnapshot: "Chili",
-              status: "ACCEPTED",
-              createdDishId: "dish-copy",
-            },
-          ],
-        }),
-      ],
-    );
+    const items = buildSentItems([
+      sentCollection({
+        children: [
+          {
+            id: "c1",
+            dishId: "d1",
+            dishKind: "RECIPE",
+            dishTitleSnapshot: "Tacos",
+            status: "PENDING",
+            createdDishId: null,
+          },
+          {
+            id: "c2",
+            dishId: "d2",
+            dishKind: "PART",
+            dishTitleSnapshot: "Chili",
+            status: "ACCEPTED",
+            createdDishId: "dish-copy",
+          },
+        ],
+      }),
+    ]);
     expect(items).toHaveLength(1);
     expect(items[0].kind).toBe("group");
     if (items[0].kind === "group") {
@@ -174,32 +115,24 @@ describe("buildSentItems", () => {
       ]);
     }
   });
-
-  it("preserves a legacy single send as-is, including hasJoined", () => {
-    const items = buildSentItems([sentShare({ hasJoined: false })], []);
-    expect(items[0]).toMatchObject({ kind: "single", hasJoined: false });
-  });
 });
 
 describe("buildReceivedItems", () => {
   it("renders a one-item collection as a single item carrying createdDishId", () => {
-    const items = buildReceivedItems(
-      [],
-      [
-        receivedCollection({
-          children: [
-            {
-              id: "rc1",
-              dishId: "d1",
-              dishKind: "RECIPE",
-              dishTitleSnapshot: "Soup",
-              status: "ACCEPTED",
-              createdDishId: "copy-1",
-            },
-          ],
-        }),
-      ],
-    );
+    const items = buildReceivedItems([
+      receivedCollection({
+        children: [
+          {
+            id: "rc1",
+            dishId: "d1",
+            dishKind: "RECIPE",
+            dishTitleSnapshot: "Soup",
+            status: "ACCEPTED",
+            createdDishId: "copy-1",
+          },
+        ],
+      }),
+    ]);
     expect(items[0]).toMatchObject({
       kind: "single",
       id: "rc1",
@@ -209,52 +142,55 @@ describe("buildReceivedItems", () => {
   });
 
   it("keeps a multi-item collection grouped with per-child statuses", () => {
-    const items = buildReceivedItems(
-      [],
-      [
-        receivedCollection({
-          children: [
-            {
-              id: "rc1",
-              dishId: "d1",
-              dishKind: "RECIPE",
-              dishTitleSnapshot: "Soup",
-              status: "PENDING",
-              createdDishId: null,
-            },
-            {
-              id: "rc2",
-              dishId: "d2",
-              dishKind: "RECIPE",
-              dishTitleSnapshot: "Salad",
-              status: "DECLINED",
-              createdDishId: null,
-            },
-          ],
-        }),
-      ],
-    );
+    const items = buildReceivedItems([
+      receivedCollection({
+        children: [
+          {
+            id: "rc1",
+            dishId: "d1",
+            dishKind: "RECIPE",
+            dishTitleSnapshot: "Soup",
+            status: "PENDING",
+            createdDishId: null,
+          },
+          {
+            id: "rc2",
+            dishId: "d2",
+            dishKind: "PART",
+            dishTitleSnapshot: "Salad",
+            status: "DECLINED",
+            createdDishId: null,
+          },
+        ],
+      }),
+    ]);
     expect(items[0].kind).toBe("group");
   });
 
-  it("sorts merged received items newest first regardless of source", () => {
-    const items = buildReceivedItems(
-      [
-        receivedShare({
-          id: "r1",
-          createdAt: new Date("2026-01-05T00:00:00Z"),
-        }),
-      ],
-      [
-        receivedCollection({
-          id: "rc-old",
-          createdAt: new Date("2026-01-01T00:00:00Z"),
-        }),
-      ],
-    );
-    // The lone-child collection collapses to a "single" item keyed by the
+  it("sorts merged received items newest first", () => {
+    const items = buildReceivedItems([
+      receivedCollection({
+        id: "rc-old",
+        createdAt: new Date("2026-01-01T00:00:00Z"),
+      }),
+      receivedCollection({
+        id: "rc-new",
+        createdAt: new Date("2026-01-05T00:00:00Z"),
+        children: [
+          {
+            id: "rchild-new",
+            dishId: "dish-3",
+            dishKind: "RECIPE",
+            dishTitleSnapshot: "Bowl",
+            status: "PENDING",
+            createdDishId: null,
+          },
+        ],
+      }),
+    ]);
+    // A lone-child collection collapses to a "single" item keyed by the
     // child's own id, not the collection id.
-    expect(items.map((item) => item.id)).toEqual(["r1", "rchild-1"]);
+    expect(items.map((item) => item.id)).toEqual(["rchild-new", "rchild-1"]);
   });
 });
 

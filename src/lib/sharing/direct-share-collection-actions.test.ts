@@ -19,7 +19,7 @@ const mockCancelCollection = vi.fn();
 const mockGetDetail = vi.fn();
 const mockFinalize = vi.fn();
 vi.mock("@/lib/sharing/collections", () => ({
-  listShareableRecipesForSender: (...args: unknown[]) =>
+  listShareableItemsForSender: (...args: unknown[]) =>
     mockListShareable(...args),
   sendDirectShareCollection: (...args: unknown[]) =>
     mockSendCollection(...args),
@@ -47,9 +47,9 @@ describe("sharing/actions.ts Slice 22 auth boundary", () => {
     mockRequireUserId.mockRejectedValue(NOT_SIGNED_IN);
   });
 
-  it("rejects an unauthenticated shareable-recipes list without calling the service", async () => {
-    const { listShareableRecipesForSender } = await importActions();
-    const result = await listShareableRecipesForSender();
+  it("rejects an unauthenticated shareable-items list without calling the service", async () => {
+    const { listShareableItemsForSender } = await importActions();
+    const result = await listShareableItemsForSender();
     expect(result).toEqual({ status: "error", message: NOT_SIGNED_IN.message });
     expect(mockListShareable).not.toHaveBeenCalled();
   });

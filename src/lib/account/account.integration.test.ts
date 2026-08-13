@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db/prisma";
 import { createTestUser, deleteTestUser } from "@/test/factories";
 import * as dishService from "@/lib/dishes/service";
 import * as sharingService from "@/lib/sharing/service";
+import { sendDirectShareCollection } from "@/lib/sharing/collections";
 import { deleteAccount, revokeAuthSession } from "@/lib/account/service";
 import { deleteImageAssetIfOrphaned } from "@/lib/images/service";
 import { AuthorizationError, NotFoundError } from "@/lib/errors";
@@ -54,6 +55,26 @@ function content(overrides: Partial<DishContentInput> = {}): DishContentInput {
   };
 }
 
+/** Every Send is now a one-or-more-item `DirectShareCollection` envelope
+ * (`sharing/collections.ts`'s `sendDirectShareCollection`) — this wraps that
+ * as a one-item send and returns the single child's own `directShareId`, so
+ * these account-deletion tests (which only need one plain pending share)
+ * don't need their own collection-shaped assertions. */
+async function sendItem(
+  senderId: string,
+  input: { dishId: string; recipientEmail: string },
+): Promise<{ directShareId: string }> {
+  const { collectionId } = await sendDirectShareCollection(senderId, {
+    recipientEmail: input.recipientEmail,
+    dishIds: [input.dishId],
+    note: null,
+  });
+  const child = await prisma.directShare.findFirstOrThrow({
+    where: { collectionId, dishId: input.dishId },
+  });
+  return { directShareId: child.id };
+}
+
 describe("deleteAccount", () => {
   let ownerId: string | undefined;
   let otherUserId: string | undefined;
@@ -85,7 +106,7 @@ describe("deleteAccount", () => {
       mode: "CURRENT",
       showCreatorName: false,
     });
-    const { directShareId } = await sharingService.sendDirectShare(ownerId, {
+    const { directShareId } = await sendItem(ownerId, {
       dishId,
       recipientEmail: recipient.email,
     });
@@ -138,7 +159,7 @@ describe("deleteAccount", () => {
     otherUserId = recipient.id;
 
     const dishId = await dishService.createDish(ownerId, "RECIPE", content());
-    const { directShareId } = await sharingService.sendDirectShare(ownerId, {
+    const { directShareId } = await sendItem(ownerId, {
       dishId,
       recipientEmail: recipient.email,
     });
@@ -313,7 +334,7 @@ describe("deleteAccount — pending DirectShares received by the deleted account
     const versionId = (
       await prisma.dish.findUniqueOrThrow({ where: { id: dishId } })
     ).currentVersionId!;
-    const { directShareId } = await sharingService.sendDirectShare(sender.id, {
+    const { directShareId } = await sendItem(sender.id, {
       dishId,
       recipientEmail: recipient.email,
     });
@@ -370,7 +391,7 @@ describe("deleteAccount — pending DirectShares received by the deleted account
     userIds.push(sender.id, recipient.id);
 
     const dishId = await dishService.createDish(sender.id, "RECIPE", content());
-    const { directShareId } = await sharingService.sendDirectShare(sender.id, {
+    const { directShareId } = await sendItem(sender.id, {
       dishId,
       recipientEmail: recipient.email,
     });
@@ -396,15 +417,14 @@ describe("deleteAccount — pending DirectShares received by the deleted account
     userIds.push(sender.id, pendingRecipient.id, acceptedRecipient.id);
 
     const dishId = await dishService.createDish(sender.id, "RECIPE", content());
-    await sharingService.sendDirectShare(sender.id, {
+    await sendItem(sender.id, {
       dishId,
       recipientEmail: pendingRecipient.email,
     });
-    const { directShareId: acceptedShareId } =
-      await sharingService.sendDirectShare(sender.id, {
-        dishId,
-        recipientEmail: acceptedRecipient.email,
-      });
+    const { directShareId: acceptedShareId } = await sendItem(sender.id, {
+      dishId,
+      recipientEmail: acceptedRecipient.email,
+    });
     const accepted = await sharingService.acceptDirectShare(
       acceptedRecipient.id,
       acceptedShareId,

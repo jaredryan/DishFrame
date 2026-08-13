@@ -10,8 +10,6 @@ import {
   shareLinkIdSchema,
   updateShareLinkSchema,
   saveSharedCopySchema,
-  lookupDirectShareRecipientSchema,
-  sendDirectShareSchema,
   directShareIdSchema,
   sendDirectShareCollectionSchema,
   directShareCollectionIdSchema,
@@ -145,60 +143,11 @@ export async function saveSharedCopy(
 }
 
 // ============================================================================
-// Slice 17: Direct account-to-account sharing.
+// Direct account-to-account sharing. Every Send now goes through
+// `sendDirectShareCollection` below — there is no separate single-item send
+// action, and no recipient-lookup action (the sender is never shown whether
+// the entered email belongs to an existing account).
 // ============================================================================
-
-export type LookupRecipientActionState =
-  | { status: "success"; recipient: { id: string; name: string } | null }
-  | { status: "error"; message: string };
-
-export async function lookupDirectShareRecipient(
-  values: unknown,
-): Promise<LookupRecipientActionState> {
-  try {
-    const userId = await requireUserId();
-    const { email } = lookupDirectShareRecipientSchema.parse(values);
-    const recipient = await sharingService.lookupDirectShareRecipient(
-      userId,
-      email,
-    );
-    return { status: "success", recipient };
-  } catch (error) {
-    return { status: "error", message: toActionErrorMessage(error) };
-  }
-}
-
-export type SendDirectShareActionState =
-  | { status: "success"; directShareId: string }
-  | { status: "error"; message: string };
-
-export async function sendDirectShare(
-  values: unknown,
-): Promise<SendDirectShareActionState> {
-  try {
-    const userId = await requireUserId();
-    const input = sendDirectShareSchema.parse(values);
-    const result = await sharingService.sendDirectShare(userId, input);
-    revalidatePath(SHARE_MANAGEMENT_PATH);
-    return { status: "success", ...result };
-  } catch (error) {
-    return { status: "error", message: toActionErrorMessage(error) };
-  }
-}
-
-export async function cancelDirectShare(
-  values: unknown,
-): Promise<ShareActionState> {
-  try {
-    const userId = await requireUserId();
-    const { directShareId } = directShareIdSchema.parse(values);
-    await sharingService.cancelDirectShare(userId, directShareId);
-    revalidatePath(SHARE_MANAGEMENT_PATH);
-    return { status: "success" };
-  } catch (error) {
-    return { status: "error", message: toActionErrorMessage(error) };
-  }
-}
 
 export type DeclineDirectShareActionState =
   | { status: "success"; outcome: "declined" | "not_actionable" }
@@ -278,19 +227,19 @@ export async function getDirectSharePreview(
 }
 
 // ============================================================================
-// Slice 22: unified single-/multi-Recipe direct sharing.
+// The unified Send flow: any mix of Recipes and Parts, one item or many, in
+// a single canonical DirectShareCollection envelope.
 // ============================================================================
 
-export type ShareableRecipesActionState =
-  | { status: "success"; recipes: collectionsService.ShareableRecipeSummary[] }
+export type ShareableItemsActionState =
+  | { status: "success"; items: collectionsService.ShareableItemSummary[] }
   | { status: "error"; message: string };
 
-export async function listShareableRecipesForSender(): Promise<ShareableRecipesActionState> {
+export async function listShareableItemsForSender(): Promise<ShareableItemsActionState> {
   try {
     const userId = await requireUserId();
-    const recipes =
-      await collectionsService.listShareableRecipesForSender(userId);
-    return { status: "success", recipes };
+    const items = await collectionsService.listShareableItemsForSender(userId);
+    return { status: "success", items };
   } catch (error) {
     return { status: "error", message: toActionErrorMessage(error) };
   }

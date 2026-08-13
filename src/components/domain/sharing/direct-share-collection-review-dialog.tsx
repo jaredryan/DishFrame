@@ -21,10 +21,10 @@ import {
 import type { DirectShareCollectionDetail } from "@/lib/sharing/collections";
 
 /**
- * PRODUCT_SPEC.md's Slice 22 recipient review flow: Accept all, select a
- * subset (unselected Recipes are declined as part of the same final
+ * The recipient review flow for a multi-item Send: Accept all, select a
+ * subset (unselected items are declined as part of the same final
  * action — made explicit in the button copy so this is never ambiguous),
- * or Decline all. Defaults every pending Recipe to selected so the common
+ * or Decline all. Defaults every pending item to selected so the common
  * "accept everything" action is one click.
  */
 export function DirectShareCollectionReviewDialog({
@@ -119,7 +119,7 @@ export function DirectShareCollectionReviewDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Review shared Recipes</DialogTitle>
+          <DialogTitle>Review shared items</DialogTitle>
           <DialogDescription>
             {detail
               ? `From ${detail.senderName}${detail.note ? ` — "${detail.note}"` : ""}`

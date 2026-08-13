@@ -1,31 +1,18 @@
 import type { DishKindValue } from "@/lib/dishes/schema";
 import type { DirectShareStatusValue } from "@/lib/sharing/schema";
 import type {
-  SentDirectShareSummary,
-  ReceivedDirectShareSummary,
-} from "@/lib/sharing/service";
-import type {
   SentDirectShareCollectionSummary,
   ReceivedDirectShareCollectionSummary,
 } from "@/lib/sharing/collections";
 
 /**
- * Merges the legacy/single `DirectShare` rows with `DirectShareCollection`
- * rows into the single "Sent"/"Received" mental model the redesigned
- * Sharing page presents — the user never needs to know which underlying
- * shape a given item is.
- *
- * `buildSentItems` always renders a `DirectShareCollection` (a Recipe
- * collection send) as a `"group"`, even with a single child — the "Show
- * recipes" disclosure is the one visible signal that an item is
- * collection-backed rather than a true individual Recipe/Part send, so it
- * must survive regardless of child count. Only ungrouped `DirectShare` rows
- * (true individual sends) render as `"single"`.
- *
- * `buildReceivedItems` still collapses a one-item collection into a
- * `"single"` view using the child's own `DirectShare` id directly
- * (accept/decline/preview all operate on any `DirectShare` id regardless of
- * whether it belongs to a collection).
+ * Every Send is a `DirectShareCollection`, one or more items — this collapses
+ * a one-item collection into a `"single"` view (no unnecessary "Show items"
+ * disclosure for the common case) and leaves a multi-item collection as a
+ * `"group"`. Sent and Received both collapse identically now that there is
+ * no separate ungrouped send shape to distinguish. Accept/decline/preview
+ * act on the child's own `DirectShare` id regardless of collection size;
+ * cancelling a collapsed single item cancels its one-item collection.
  */
 
 function sortByCreatedAtDesc<T extends { createdAt: string }>(items: T[]): T[] {
@@ -67,38 +54,42 @@ export type SentGroupItem = {
 export type SentItemView = SentSingleItem | SentGroupItem;
 
 export function buildSentItems(
-  shares: SentDirectShareSummary[],
   collections: SentDirectShareCollectionSummary[],
 ): SentItemView[] {
-  const singles: SentItemView[] = shares.map((share) => ({
-    kind: "single",
-    id: share.id,
-    dishKind: share.dishKind,
-    dishTitleSnapshot: share.dishTitleSnapshot,
-    recipientName: share.recipientName,
-    recipientLookup: share.recipientLookup,
-    hasJoined: share.hasJoined,
-    note: share.note,
-    status: share.status,
-    createdAt: share.createdAt.toISOString(),
-  }));
+  const items: SentItemView[] = collections.map((collection) => {
+    const createdAt = collection.createdAt.toISOString();
+    if (collection.children.length === 1) {
+      const child = collection.children[0];
+      return {
+        kind: "single",
+        id: collection.id,
+        dishKind: child.dishKind,
+        dishTitleSnapshot: child.dishTitleSnapshot,
+        recipientName: collection.recipientName,
+        recipientLookup: collection.recipientLookup,
+        hasJoined: collection.hasJoined,
+        note: collection.note,
+        status: child.status,
+        createdAt,
+      };
+    }
+    return {
+      kind: "group",
+      id: collection.id,
+      recipientName: collection.recipientName,
+      recipientLookup: collection.recipientLookup,
+      hasJoined: collection.hasJoined,
+      note: collection.note,
+      createdAt,
+      children: collection.children.map((child) => ({
+        id: child.id,
+        dishTitleSnapshot: child.dishTitleSnapshot,
+        status: child.status,
+      })),
+    };
+  });
 
-  const fromCollections: SentItemView[] = collections.map((collection) => ({
-    kind: "group",
-    id: collection.id,
-    recipientName: collection.recipientName,
-    recipientLookup: collection.recipientLookup,
-    hasJoined: collection.hasJoined,
-    note: collection.note,
-    createdAt: collection.createdAt.toISOString(),
-    children: collection.children.map((child) => ({
-      id: child.id,
-      dishTitleSnapshot: child.dishTitleSnapshot,
-      status: child.status,
-    })),
-  }));
-
-  return sortByCreatedAtDesc([...singles, ...fromCollections]);
+  return sortByCreatedAtDesc(items);
 }
 
 export type ReceivedShareChild = {
@@ -133,22 +124,9 @@ export type ReceivedGroupItem = {
 export type ReceivedItemView = ReceivedSingleItem | ReceivedGroupItem;
 
 export function buildReceivedItems(
-  shares: ReceivedDirectShareSummary[],
   collections: ReceivedDirectShareCollectionSummary[],
 ): ReceivedItemView[] {
-  const singles: ReceivedItemView[] = shares.map((share) => ({
-    kind: "single",
-    id: share.id,
-    dishKind: share.dishKind,
-    dishTitleSnapshot: share.dishTitleSnapshot,
-    senderName: share.senderName,
-    note: share.note,
-    status: share.status,
-    createdAt: share.createdAt.toISOString(),
-    createdDishId: share.createdDishId,
-  }));
-
-  const fromCollections: ReceivedItemView[] = collections.map((collection) => {
+  const items: ReceivedItemView[] = collections.map((collection) => {
     const createdAt = collection.createdAt.toISOString();
     if (collection.children.length === 1) {
       const child = collection.children[0];
@@ -180,7 +158,7 @@ export function buildReceivedItems(
     };
   });
 
-  return sortByCreatedAtDesc([...singles, ...fromCollections]);
+  return sortByCreatedAtDesc(items);
 }
 
 export type ShareLinkLifecycle = "active" | "disabled" | "expired";

@@ -5,10 +5,7 @@ import { useRouter } from "next/navigation";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  cancelDirectShare,
-  cancelDirectShareCollection,
-} from "@/lib/sharing/actions";
+import { cancelDirectShareCollection } from "@/lib/sharing/actions";
 import type { DirectShareStatusValue } from "@/lib/sharing/schema";
 import type { SentItemView, SentShareChild } from "@/lib/sharing/view-model";
 
@@ -50,7 +47,9 @@ function SentSingleCard({
   function handleCancel() {
     setError(null);
     startTransition(async () => {
-      const result = await cancelDirectShare({ directShareId: item.id });
+      const result = await cancelDirectShareCollection({
+        collectionId: item.id,
+      });
       if (result.status === "success") {
         router.refresh();
       } else {
@@ -129,7 +128,7 @@ function SentGroupCard({
         <NotJoinedBadge hasJoined={item.hasJoined} />
       </div>
       <p className="text-muted-foreground text-sm">
-        {item.children.length} recipe{item.children.length === 1 ? "" : "s"} ·{" "}
+        {item.children.length} item{item.children.length === 1 ? "" : "s"} ·{" "}
         {formatDate(item.createdAt)}
       </p>
       <p className="text-muted-foreground text-sm">
@@ -152,7 +151,7 @@ function SentGroupCard({
           ) : (
             <ChevronDown aria-hidden="true" />
           )}
-          {expanded ? "Hide recipes" : "Show recipes"}
+          {expanded ? "Hide items" : "Show items"}
         </Button>
         {hasPending && (
           <Button

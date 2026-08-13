@@ -66,7 +66,9 @@ test.describe("Session Review: rate, edit, delete, evidence survives", () => {
     await page.goto("/recipes/new");
     await page.getByLabel("Recipe title").fill(title);
 
-    await page.getByRole("button", { name: "Add section", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Add section", exact: true })
+      .click();
     const sectionDialog = page.getByRole("dialog");
     await sectionDialog.getByLabel("Section name").fill("Prep");
     await sectionDialog.getByRole("button", { name: "Add ingredient" }).click();

@@ -17,20 +17,20 @@ import {
   deserializeShareGraph,
 } from "@/lib/sharing/graph";
 import {
-  DIRECT_SHARE_COLLECTION_MAX_RECIPES,
+  DIRECT_SHARE_MAX_ITEMS,
   type SendDirectShareCollectionInput,
 } from "@/lib/sharing/schema";
 import type { DirectShareStatusValue } from "@/lib/sharing/schema";
 
 // ============================================================================
-// Slice 22: unified single-/multi-Recipe direct sharing, plus pending
-// invitations for a not-yet-registered recipient. Builds directly on Slice
-// 17's `DirectShare` (one row per shared Recipe, unchanged) grouped under a
-// new `DirectShareCollection` parent — reuses `buildShareGraph` +
-// `createIndependentCopyFromGraph` exactly as Slice 16/17 do, never a second
-// copy architecture. See schema.prisma's own doc comments on both models for
-// the full design rationale (why `recipientId` stays synced onto every
-// child, why the new partial unique index is keyed by email).
+// Send-unification pass: one canonical Send flow for any mix of Recipes and
+// Parts, plus pending invitations for a not-yet-registered recipient. One
+// `DirectShare` row per shared item, grouped under a `DirectShareCollection`
+// parent — reuses `buildShareGraph` + `createIndependentCopyFromGraph`
+// exactly as Slice 16/17 do, never a second copy architecture. See
+// schema.prisma's own doc comments on both models for the full design
+// rationale (why `recipientId` stays synced onto every child, why the
+// partial unique index is keyed by email).
 // ============================================================================
 
 function isUniqueConstraintViolation(error: unknown): boolean {
@@ -41,10 +41,11 @@ function isUniqueConstraintViolation(error: unknown): boolean {
 }
 
 const DUPLICATE_PENDING_COLLECTION_MESSAGE =
-  "One or more selected Recipes already have a pending share to that person.";
+  "One or more selected items already have a pending share to that person.";
 
-export type ShareableRecipeSummary = {
+export type ShareableItemSummary = {
   id: string;
+  kind: DishKindValue;
   title: string;
   stage: StageValue;
   archivedAt: string | null;
@@ -53,20 +54,22 @@ export type ShareableRecipeSummary = {
 
 /**
  * PRODUCT_SPEC.md §85 extension: the minimal-field list the unified send
- * flow's Recipe selector renders — title, image, lifecycle/stage, and
+ * flow's item selector renders — kind, title, image, lifecycle/stage, and
  * (via the `currentVersionId: { not: null }` filter) current-Version
- * existence. Deliberately not `dishes/queries.ts`'s `dishCardSelect` or
- * `queryDishLibrary` — those resolve tags/Flavor profiles/ratings/last-
- * cooked data the selector never renders, which would load real content
- * weight this slice's product decision explicitly says to avoid.
+ * existence, across both Recipes and Parts. Deliberately not
+ * `dishes/queries.ts`'s `dishCardSelect` or `queryDishLibrary` — those
+ * resolve tags/Flavor profiles/ratings/last-cooked data the selector never
+ * renders, which would load real content weight this flow's product
+ * decision explicitly says to avoid.
  */
-export async function listShareableRecipesForSender(
+export async function listShareableItemsForSender(
   ownerId: string,
-): Promise<ShareableRecipeSummary[]> {
+): Promise<ShareableItemSummary[]> {
   const rows = await prisma.dish.findMany({
-    where: { ownerId, kind: "RECIPE", currentVersionId: { not: null } },
+    where: { ownerId, currentVersionId: { not: null } },
     select: {
       id: true,
+      kind: true,
       currentTitle: true,
       stage: true,
       archivedAt: true,
@@ -76,6 +79,7 @@ export async function listShareableRecipesForSender(
   });
   return rows.map((row) => ({
     id: row.id,
+    kind: row.kind,
     title: row.currentTitle ?? "Untitled",
     stage: row.stage,
     archivedAt: row.archivedAt?.toISOString() ?? null,
@@ -88,9 +92,9 @@ export async function sendDirectShareCollection(
   input: SendDirectShareCollectionInput,
 ): Promise<{ collectionId: string }> {
   const dishIds = [...new Set(input.dishIds)];
-  if (dishIds.length > DIRECT_SHARE_COLLECTION_MAX_RECIPES) {
+  if (dishIds.length > DIRECT_SHARE_MAX_ITEMS) {
     throw new ValidationError(
-      `You can send at most ${DIRECT_SHARE_COLLECTION_MAX_RECIPES} Recipes at once.`,
+      `You can send at most ${DIRECT_SHARE_MAX_ITEMS} items at once.`,
     );
   }
 
@@ -105,18 +109,18 @@ export async function sendDirectShareCollection(
   }
 
   const dishes = await prisma.dish.findMany({
-    where: { id: { in: dishIds }, ownerId: senderId, kind: "RECIPE" },
+    where: { id: { in: dishIds }, ownerId: senderId },
     select: { id: true, currentVersionId: true, currentTitle: true },
   });
   if (dishes.length !== dishIds.length) {
     throw new NotFoundError(
-      "One or more selected Recipes are not available to share.",
+      "One or more selected items are not available to share.",
     );
   }
   for (const dish of dishes) {
     if (!dish.currentVersionId) {
       throw new NotFoundError(
-        "One or more selected Recipes have no saved content to share yet.",
+        "One or more selected items have no saved content to share yet.",
       );
     }
   }
@@ -127,7 +131,6 @@ export async function sendDirectShareCollection(
       dishId: { in: dishIds },
       recipientLookup: recipientEmail,
       status: "PENDING",
-      collectionId: { not: null },
     },
     select: { id: true },
   });
@@ -142,7 +145,7 @@ export async function sendDirectShareCollection(
 
   // Freeze every selected graph now, outside the transaction (pure reads) —
   // the exact content Preview/Accept will use, matching Slice 17's frozen-
-  // delivery guarantee per Recipe.
+  // delivery guarantee per item.
   const frozenChildren = await Promise.all(
     dishes.map(async (dish) => {
       const graph = await buildShareGraph(dish.id, dish.currentVersionId!);
@@ -326,7 +329,7 @@ export type FinalizeDirectShareCollectionResult = {
  * copied (reusing `createIndependentCopyFromGraph` inside this same shared
  * transaction — Gate 7's copy engine, not a reimplementation); every other
  * still-PENDING child is declined as part of this same action
- * (PRODUCT_SPEC.md's explicit "unselected Recipes are declined" rule).
+ * (PRODUCT_SPEC.md's explicit "unselected items are declined" rule).
  * "Accept all" passes every pending id; "Decline all" passes none.
  *
  * Safe against retries/concurrency: each child's transition is a

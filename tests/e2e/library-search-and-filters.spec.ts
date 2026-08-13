@@ -82,7 +82,9 @@ test.describe("Recipe library: search, filters, and active-filter chips", () => 
     await page.getByRole("combobox", { name: /stage/i }).click();
     await page.getByRole("option", { name: "Active" }).click();
 
-    await page.getByRole("button", { name: "Add section", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Add section", exact: true })
+      .click();
     const matchSectionDialog = page.getByRole("dialog");
     await matchSectionDialog
       .getByRole("button", { name: "Add ingredient" })
@@ -105,7 +107,9 @@ test.describe("Recipe library: search, filters, and active-filter chips", () => 
     await page.getByLabel("Recipe title").fill(otherTitle);
     await page.getByLabel("Cuisine").fill("Thai");
 
-    await page.getByRole("button", { name: "Add section", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Add section", exact: true })
+      .click();
     const otherSectionDialog = page.getByRole("dialog");
     await otherSectionDialog
       .getByRole("button", { name: "Add ingredient" })

@@ -1,11 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth/session";
-import {
-  listOwnedShareLinks,
-  listSentDirectShares,
-  listReceivedDirectShares,
-} from "@/lib/sharing/service";
+import { listOwnedShareLinks } from "@/lib/sharing/service";
 import {
   listSentDirectShareCollections,
   listReceivedDirectShareCollections,
@@ -16,7 +12,7 @@ import { buildSentItems, buildReceivedItems } from "@/lib/sharing/view-model";
 import { ShareLinkList } from "@/components/domain/sharing/share-link-list";
 import { DirectShareSentList } from "@/components/domain/sharing/direct-share-sent-list";
 import { DirectShareReceivedList } from "@/components/domain/sharing/direct-share-received-list";
-import { SendRecipesButton } from "@/components/domain/sharing/send-recipes-button";
+import { SendButton } from "@/components/domain/sharing/send-button";
 import { Badge } from "@/components/ui/badge";
 import { CoachMark } from "@/components/onboarding/coach-mark";
 
@@ -38,22 +34,14 @@ export default async function SharePage() {
   // read.
   await reconcilePendingDirectShareCollectionsForViewer(session.user.id);
 
-  const [
-    shareLinks,
-    sentShares,
-    receivedShares,
-    sentCollections,
-    receivedCollections,
-  ] = await Promise.all([
+  const [shareLinks, sentCollections, receivedCollections] = await Promise.all([
     listOwnedShareLinks(session.user.id),
-    listSentDirectShares(session.user.id),
-    listReceivedDirectShares(session.user.id),
     listSentDirectShareCollections(session.user.id),
     listReceivedDirectShareCollections(session.user.id),
   ]);
 
-  const sentItems = buildSentItems(sentShares, sentCollections);
-  const receivedItems = buildReceivedItems(receivedShares, receivedCollections);
+  const sentItems = buildSentItems(sentCollections);
+  const receivedItems = buildReceivedItems(receivedCollections);
 
   const pendingReceivedCount = receivedItems.reduce((sum, item) => {
     if (item.kind === "single") {
@@ -76,7 +64,7 @@ export default async function SharePage() {
             create public links anyone can view without an account.
           </p>
         </div>
-        <SendRecipesButton />
+        <SendButton />
       </div>
 
       <CoachMark guideKey="sharing-intro" title="Direct sends and public links">

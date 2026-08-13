@@ -69,14 +69,18 @@ test.describe("Cooking Mode: unit switching, progress, and simultaneous timers",
     // Each Section is authored in its own modal session (opened by "Add
     // section", committed by "Finish section") — one at a time, so the same
     // dialog locator can be reused for both.
-    await page.getByRole("button", { name: "Add section", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Add section", exact: true })
+      .click();
     const sectionDialog = page.getByRole("dialog");
     await sectionDialog.getByLabel("Section name").fill("Prep");
     await sectionDialog.getByRole("button", { name: "Add ingredient" }).click();
     await sectionDialog.getByLabel("Ingredient name").fill("Ginger");
     await sectionDialog.getByRole("button", { name: "Finish section" }).click();
 
-    await page.getByRole("button", { name: "Add section", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Add section", exact: true })
+      .click();
     await sectionDialog.getByLabel("Section name").fill("Sear");
     await sectionDialog.getByRole("button", { name: "Add ingredient" }).click();
     await sectionDialog.getByLabel("Ingredient name").fill("Soy sauce");

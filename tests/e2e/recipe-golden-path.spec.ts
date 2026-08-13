@@ -88,7 +88,9 @@ test.describe("Recipes: create, view, edit, archive, restore, duplicate, delete"
 
     await page.getByLabel("Recipe title").fill(title);
 
-    await page.getByRole("button", { name: "Add section", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Add section", exact: true })
+      .click();
     const createDialog = page.getByRole("dialog");
     await createDialog.getByRole("button", { name: "Add ingredient" }).click();
     await createDialog.getByLabel("Ingredient name").fill("Ginger");
@@ -225,7 +227,9 @@ test.describe("Recipes: create, view, edit, archive, restore, duplicate, delete"
     await page.goto("/recipes/new");
     await page.getByLabel("Recipe title").fill(title);
 
-    await page.getByRole("button", { name: "Add section", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Add section", exact: true })
+      .click();
     const createDialog = page.getByRole("dialog");
     await createDialog.getByRole("button", { name: "Add ingredient" }).click();
 

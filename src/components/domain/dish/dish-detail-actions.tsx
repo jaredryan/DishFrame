@@ -60,7 +60,6 @@ import {
 } from "@/lib/dishes/schema";
 import { PartUsageResolutionDialog } from "@/components/domain/dish/part-usage-resolution-dialog";
 import { ShareDialog } from "@/components/domain/sharing/share-dialog";
-import { DirectShareDialog } from "@/components/domain/sharing/direct-share-dialog";
 import { DirectShareCollectionDialog } from "@/components/domain/sharing/direct-share-collection-dialog";
 import { versionLabel } from "@/lib/dishes/version-note";
 
@@ -235,10 +234,10 @@ export function DishDetailActions({
               <Copy /> Duplicate
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setOpenDialog("share")}>
-              <Share2 /> Share
+              <Share2 /> Publish
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setOpenDialog("send")}>
-              <Send /> Send to user
+              <Send /> Send
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setOpenDialog("export")}>
               <Download /> Export
@@ -349,9 +348,7 @@ export function DishDetailActions({
           <DialogHeader>
             <DialogTitle>Duplicate this {label}?</DialogTitle>
             <DialogDescription>
-              Creates a separate {label} starting from this one&apos;s current
-              content, at V1.0. Its own Version history, Cooking Sessions, and
-              ratings start empty.
+              {`Creates a separate ${label} starting from this one's current content, at V1.0. Its own Version history, Cooking Sessions, and ratings start empty.`}
             </DialogDescription>
           </DialogHeader>
           {error && (
@@ -374,7 +371,7 @@ export function DishDetailActions({
         open={openDialog === "export"}
         onOpenChange={(open) => !open && close()}
       >
-        <DialogContent>
+        <DialogContent className="sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>Export this {label}</DialogTitle>
             <DialogDescription>
@@ -526,20 +523,12 @@ export function DishDetailActions({
         kind={kind}
       />
 
-      {kind === "PART" ? (
-        <DirectShareDialog
-          open={openDialog === "send"}
-          onOpenChange={(open) => !open && close()}
-          dishId={dishId}
-          kind={kind}
-        />
-      ) : (
-        <DirectShareCollectionDialog
-          open={openDialog === "send"}
-          onOpenChange={(open) => !open && close()}
-          preselectedDishId={dishId}
-        />
-      )}
+      <DirectShareCollectionDialog
+        open={openDialog === "send"}
+        onOpenChange={(open) => !open && close()}
+        preselectedDishId={dishId}
+        preselectedDishKind={kind}
+      />
     </>
   );
 }

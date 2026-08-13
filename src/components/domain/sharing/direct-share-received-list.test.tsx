@@ -138,7 +138,7 @@ describe("DirectShareReceivedList", () => {
     expect(screen.getByRole("button", { name: "Review" })).toBeInTheDocument();
     expect(screen.queryByText("Tacos")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Show recipes" }));
+    await user.click(screen.getByRole("button", { name: "Show items" }));
     expect(screen.getByText("Tacos")).toBeInTheDocument();
     expect(screen.getByText("Chili")).toBeInTheDocument();
     expect(

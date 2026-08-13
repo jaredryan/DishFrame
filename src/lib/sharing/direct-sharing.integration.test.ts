@@ -1,23 +1,21 @@
 import { randomUUID } from "node:crypto";
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { prisma } from "@/lib/db/prisma";
-import { Prisma } from "@/generated/prisma/client";
 import { createTestUser, deleteTestUser } from "@/test/factories";
 import * as dishService from "@/lib/dishes/service";
 import { deleteDish } from "@/lib/dishes/service";
 import { deleteImageAssetIfOrphaned } from "@/lib/images/service";
 import type { DishContentInput } from "@/lib/dishes/schema";
-import { NotFoundError, AuthorizationError, ConflictError } from "@/lib/errors";
+import { NotFoundError, AuthorizationError } from "@/lib/errors";
 import {
-  lookupDirectShareRecipient,
-  sendDirectShare,
-  cancelDirectShare,
+  sendDirectShareCollection,
+  cancelDirectShareCollection,
+} from "@/lib/sharing/collections";
+import {
   declineDirectShare,
   acceptDirectShare,
   getDirectSharePreview,
   isImageAssetVisibleViaDirectShare,
-  listSentDirectShares,
-  listReceivedDirectShares,
 } from "@/lib/sharing/service";
 
 // deleteDish's Blob-cleanup compensating step (Arch §D.2a/§I) makes a real
@@ -69,6 +67,30 @@ async function currentVersionId(dishId: string): Promise<string> {
   return dish.currentVersionId!;
 }
 
+/**
+ * Every Send is now a one-or-more-item `DirectShareCollection` envelope
+ * (`sharing/collections.ts`'s `sendDirectShareCollection` — see its own
+ * module doc comment) — this wraps that as a one-item send and returns the
+ * single child's own `directShareId`, so the per-child
+ * accept/decline/preview/image-auth tests below (which predate the
+ * unification but test behavior that's still per-child, not per-collection)
+ * don't need to change shape.
+ */
+async function sendItem(
+  senderId: string,
+  input: { dishId: string; recipientEmail: string; note: string | null },
+): Promise<{ directShareId: string; collectionId: string }> {
+  const { collectionId } = await sendDirectShareCollection(senderId, {
+    recipientEmail: input.recipientEmail,
+    dishIds: [input.dishId],
+    note: input.note,
+  });
+  const child = await prisma.directShare.findFirstOrThrow({
+    where: { collectionId, dishId: input.dishId },
+  });
+  return { directShareId: child.id, collectionId };
+}
+
 function expectAccepted(
   result: Awaited<ReturnType<typeof acceptDirectShare>>,
 ): {
@@ -81,7 +103,7 @@ function expectAccepted(
   return result;
 }
 
-describe("direct account-to-account sharing (Slice 17)", () => {
+describe("direct account-to-account sharing", () => {
   let userIds: string[] = [];
 
   afterEach(async () => {
@@ -97,284 +119,7 @@ describe("direct account-to-account sharing (Slice 17)", () => {
     return user;
   }
 
-  describe("lookupDirectShareRecipient", () => {
-    it("finds an account by exact, case-insensitive email match", async () => {
-      const requester = await newUser();
-      const target = await newUser({
-        email: `Target-${randomUUID()}@Example.Invalid`,
-      });
-
-      const found = await lookupDirectShareRecipient(
-        requester.id,
-        target.email.toLowerCase(),
-      );
-      expect(found).toEqual({ id: target.id, name: target.name });
-    });
-
-    it("excludes the requester's own account", async () => {
-      const requester = await newUser();
-      const found = await lookupDirectShareRecipient(
-        requester.id,
-        requester.email,
-      );
-      expect(found).toBeNull();
-    });
-
-    it("returns null for an email with no matching account", async () => {
-      const requester = await newUser();
-      const found = await lookupDirectShareRecipient(
-        requester.id,
-        `nobody-${randomUUID()}@example.invalid`,
-      );
-      expect(found).toBeNull();
-    });
-
-    it("exposes only id and name — never email, image, or account fields", async () => {
-      const requester = await newUser();
-      const target = await newUser();
-      const found = await lookupDirectShareRecipient(
-        requester.id,
-        target.email,
-      );
-      expect(Object.keys(found ?? {}).sort()).toEqual(["id", "name"]);
-    });
-  });
-
-  describe("sendDirectShare", () => {
-    it("creates a pending DirectShare pinned to the current Version, with the sender's note preserved", async () => {
-      const sender = await newUser();
-      const recipient = await newUser();
-      const dishId = await dishService.createDish(
-        sender.id,
-        "RECIPE",
-        content({ title: "Ramen" }),
-      );
-      const versionId = await currentVersionId(dishId);
-
-      const { directShareId } = await sendDirectShare(sender.id, {
-        dishId,
-        recipientEmail: recipient.email,
-        note: "Try this one!",
-      });
-
-      const share = await prisma.directShare.findUniqueOrThrow({
-        where: { id: directShareId },
-      });
-      expect(share.status).toBe("PENDING");
-      expect(share.senderId).toBe(sender.id);
-      expect(share.recipientId).toBe(recipient.id);
-      expect(share.dishId).toBe(dishId);
-      expect(share.dishVersionId).toBe(versionId);
-      expect(share.dishTitleSnapshot).toBe("Ramen");
-      expect(share.note).toBe("Try this one!");
-    });
-
-    it("works for a Part, not only a Recipe", async () => {
-      const sender = await newUser();
-      const recipient = await newUser();
-      const dishId = await dishService.createDish(
-        sender.id,
-        "PART",
-        content({ title: "Chili Oil" }),
-      );
-
-      const { directShareId } = await sendDirectShare(sender.id, {
-        dishId,
-        recipientEmail: recipient.email,
-        note: null,
-      });
-      const share = await prisma.directShare.findUniqueOrThrow({
-        where: { id: directShareId },
-      });
-      expect(share.note).toBeNull();
-    });
-
-    it("rejects sending an item the sender does not own", async () => {
-      const owner = await newUser();
-      const nonOwner = await newUser();
-      const recipient = await newUser();
-      const dishId = await dishService.createDish(
-        owner.id,
-        "RECIPE",
-        content(),
-      );
-
-      await expect(
-        sendDirectShare(nonOwner.id, {
-          dishId,
-          recipientEmail: recipient.email,
-          note: null,
-        }),
-      ).rejects.toThrow(NotFoundError);
-    });
-
-    it("rejects sending to an email with no DishFrame account", async () => {
-      const sender = await newUser();
-      const dishId = await dishService.createDish(
-        sender.id,
-        "RECIPE",
-        content(),
-      );
-      await expect(
-        sendDirectShare(sender.id, {
-          dishId,
-          recipientEmail: `nobody-${randomUUID()}@example.invalid`,
-          note: null,
-        }),
-      ).rejects.toThrow(NotFoundError);
-    });
-
-    it("rejects sharing to yourself", async () => {
-      const sender = await newUser();
-      const dishId = await dishService.createDish(
-        sender.id,
-        "RECIPE",
-        content(),
-      );
-      await expect(
-        sendDirectShare(sender.id, {
-          dishId,
-          recipientEmail: sender.email,
-          note: null,
-        }),
-      ).rejects.toThrow();
-    });
-
-    it("rejects a duplicate pending send for the same sender/recipient/item", async () => {
-      const sender = await newUser();
-      const recipient = await newUser();
-      const dishId = await dishService.createDish(
-        sender.id,
-        "RECIPE",
-        content(),
-      );
-
-      await sendDirectShare(sender.id, {
-        dishId,
-        recipientEmail: recipient.email,
-        note: null,
-      });
-      await expect(
-        sendDirectShare(sender.id, {
-          dishId,
-          recipientEmail: recipient.email,
-          note: null,
-        }),
-      ).rejects.toThrow();
-    });
-
-    it("two genuinely concurrent sends to the same sender/recipient/source produce exactly one pending delivery", async () => {
-      const sender = await newUser();
-      const recipient = await newUser();
-      const dishId = await dishService.createDish(
-        sender.id,
-        "RECIPE",
-        content(),
-      );
-      const input = { dishId, recipientEmail: recipient.email, note: null };
-
-      // The DB-backed `one_pending_direct_share_per_sender_recipient_dish`
-      // partial unique index is what actually closes this race — the
-      // application-level pre-check alone cannot, since both calls can pass
-      // it before either commits.
-      const results = await Promise.allSettled([
-        sendDirectShare(sender.id, input),
-        sendDirectShare(sender.id, input),
-      ]);
-
-      const fulfilled = results.filter(
-        (r): r is PromiseFulfilledResult<{ directShareId: string }> =>
-          r.status === "fulfilled",
-      );
-      const rejected = results.filter(
-        (r): r is PromiseRejectedResult => r.status === "rejected",
-      );
-      // Both calls resolve safely and predictably — one succeeds, the other
-      // gets the same deterministic duplicate-pending error a non-concurrent
-      // duplicate would, never a raw database error.
-      expect(fulfilled).toHaveLength(1);
-      expect(rejected).toHaveLength(1);
-      expect(rejected[0].reason).toBeInstanceOf(ConflictError);
-
-      const pendingRows = await prisma.directShare.findMany({
-        where: {
-          senderId: sender.id,
-          recipientId: recipient.id,
-          dishId,
-          status: "PENDING",
-        },
-      });
-      expect(pendingRows).toHaveLength(1);
-      expect(pendingRows[0].id).toBe(fulfilled[0].value.directShareId);
-
-      const received = await listReceivedDirectShares(recipient.id);
-      expect(received).toHaveLength(1);
-
-      const copy = expectAccepted(
-        await acceptDirectShare(recipient.id, pendingRows[0].id),
-      );
-      expect(
-        await prisma.dish.count({ where: { ownerId: recipient.id } }),
-      ).toBe(1);
-      expect(copy.dishKind).toBe("RECIPE");
-
-      // The row is now terminal (ACCEPTED) — a fresh send of the same
-      // stable item to the same recipient is allowed again.
-      const resend = await sendDirectShare(sender.id, input);
-      expect(resend.directShareId).not.toBe(pendingRows[0].id);
-    });
-
-    it("rethrows a simulated unrelated unique violation rather than mislabeling it as duplicate-pending", async () => {
-      const sender = await newUser();
-      const recipient = await newUser();
-      const dishId = await dishService.createDish(
-        sender.id,
-        "RECIPE",
-        content(),
-      );
-
-      // Shaped like a real P2002 (same code, same driver-adapter meta
-      // envelope this codebase's Prisma version actually produces — see
-      // `isDuplicatePendingDirectShareViolation`), but for a different
-      // constraint entirely — proves the classifier doesn't blanket-treat
-      // every P2002 from this operation as the duplicate-pending index.
-      const unrelatedError = new Prisma.PrismaClientKnownRequestError(
-        "Unique constraint failed on the fields: (`email`)",
-        {
-          code: "P2002",
-          clientVersion: "test",
-          meta: {
-            modelName: "User",
-            driverAdapterError: {
-              name: "DriverAdapterError",
-              cause: {
-                originalCode: "23505",
-                originalMessage:
-                  'duplicate key value violates unique constraint "users_email_key"',
-                kind: "UniqueConstraintViolation",
-                constraint: { fields: ["email"] },
-              },
-            },
-          },
-        },
-      );
-      const spy = vi
-        .spyOn(prisma.directShare, "create")
-        .mockRejectedValueOnce(unrelatedError);
-
-      await expect(
-        sendDirectShare(sender.id, {
-          dishId,
-          recipientEmail: recipient.email,
-          note: null,
-        }),
-      ).rejects.toBe(unrelatedError);
-
-      spy.mockRestore();
-    });
-  });
-
-  describe("cancelDirectShare", () => {
+  describe("cancelDirectShareCollection (single-item send)", () => {
     it("lets the sender cancel a pending share, after which it can no longer be accepted or declined", async () => {
       const sender = await newUser();
       const recipient = await newUser();
@@ -383,13 +128,13 @@ describe("direct account-to-account sharing (Slice 17)", () => {
         "RECIPE",
         content(),
       );
-      const { directShareId } = await sendDirectShare(sender.id, {
+      const { directShareId, collectionId } = await sendItem(sender.id, {
         dishId,
         recipientEmail: recipient.email,
         note: null,
       });
 
-      await cancelDirectShare(sender.id, directShareId);
+      await cancelDirectShareCollection(sender.id, collectionId);
 
       const share = await prisma.directShare.findUniqueOrThrow({
         where: { id: directShareId },
@@ -420,14 +165,14 @@ describe("direct account-to-account sharing (Slice 17)", () => {
         "RECIPE",
         content(),
       );
-      const { directShareId } = await sendDirectShare(sender.id, {
+      const { directShareId, collectionId } = await sendItem(sender.id, {
         dishId,
         recipientEmail: recipient.email,
         note: null,
       });
 
       await expect(
-        cancelDirectShare(outsider.id, directShareId),
+        cancelDirectShareCollection(outsider.id, collectionId),
       ).rejects.toThrow(NotFoundError);
       const share = await prisma.directShare.findUniqueOrThrow({
         where: { id: directShareId },
@@ -443,14 +188,14 @@ describe("direct account-to-account sharing (Slice 17)", () => {
         "RECIPE",
         content(),
       );
-      const { directShareId } = await sendDirectShare(sender.id, {
+      const { directShareId, collectionId } = await sendItem(sender.id, {
         dishId,
         recipientEmail: recipient.email,
         note: null,
       });
 
-      await cancelDirectShare(sender.id, directShareId);
-      await cancelDirectShare(sender.id, directShareId); // repeated — must not throw
+      await cancelDirectShareCollection(sender.id, collectionId);
+      await cancelDirectShareCollection(sender.id, collectionId); // repeated — must not throw
       const share = await prisma.directShare.findUniqueOrThrow({
         where: { id: directShareId },
       });
@@ -467,7 +212,7 @@ describe("direct account-to-account sharing (Slice 17)", () => {
         "RECIPE",
         content(),
       );
-      const { directShareId } = await sendDirectShare(sender.id, {
+      const { directShareId } = await sendItem(sender.id, {
         dishId,
         recipientEmail: recipient.email,
         note: null,
@@ -491,7 +236,7 @@ describe("direct account-to-account sharing (Slice 17)", () => {
         "RECIPE",
         content(),
       );
-      const { directShareId } = await sendDirectShare(sender.id, {
+      const { directShareId } = await sendItem(sender.id, {
         dishId,
         recipientEmail: recipient.email,
         note: null,
@@ -510,7 +255,7 @@ describe("direct account-to-account sharing (Slice 17)", () => {
         "RECIPE",
         content(),
       );
-      const { directShareId } = await sendDirectShare(sender.id, {
+      const { directShareId } = await sendItem(sender.id, {
         dishId,
         recipientEmail: recipient.email,
         note: null,
@@ -531,7 +276,7 @@ describe("direct account-to-account sharing (Slice 17)", () => {
         "RECIPE",
         content({ title: "Ramen" }),
       );
-      const { directShareId } = await sendDirectShare(sender.id, {
+      const { directShareId } = await sendItem(sender.id, {
         dishId,
         recipientEmail: recipient.email,
         note: null,
@@ -566,7 +311,7 @@ describe("direct account-to-account sharing (Slice 17)", () => {
         "RECIPE",
         content(),
       );
-      const { directShareId } = await sendDirectShare(sender.id, {
+      const { directShareId } = await sendItem(sender.id, {
         dishId,
         recipientEmail: recipient.email,
         note: null,
@@ -648,7 +393,7 @@ describe("direct account-to-account sharing (Slice 17)", () => {
         }),
       );
 
-      const { directShareId } = await sendDirectShare(sender.id, {
+      const { directShareId } = await sendItem(sender.id, {
         dishId: recipeId,
         recipientEmail: recipient.email,
         note: null,
@@ -704,7 +449,7 @@ describe("direct account-to-account sharing (Slice 17)", () => {
       // Send while the live Part link is still current — this freezes the
       // Part's content into the delivery's own graph, independent of the
       // live source rows from this point on.
-      const { directShareId } = await sendDirectShare(sender.id, {
+      const { directShareId } = await sendItem(sender.id, {
         dishId: recipeId,
         recipientEmail: recipient.email,
         note: null,
@@ -829,7 +574,7 @@ describe("direct account-to-account sharing (Slice 17)", () => {
       // Send now — the Recipe's current Version still live-links to
       // Wrapper's pinned Version, which already carries the MATERIALIZED
       // occurrence; the frozen graph captures it as-is.
-      const { directShareId } = await sendDirectShare(sender.id, {
+      const { directShareId } = await sendItem(sender.id, {
         dishId: recipeId,
         recipientEmail: recipient.email,
         note: null,
@@ -886,7 +631,7 @@ describe("direct account-to-account sharing (Slice 17)", () => {
         "RECIPE",
         content({ imageAssetId: asset.id }),
       );
-      const { directShareId } = await sendDirectShare(sender.id, {
+      const { directShareId } = await sendItem(sender.id, {
         dishId,
         recipientEmail: recipient.email,
         note: null,
@@ -913,7 +658,7 @@ describe("direct account-to-account sharing (Slice 17)", () => {
         content({ title: "Original" }),
       );
       const baseVersionId = await currentVersionId(dishId);
-      const { directShareId } = await sendDirectShare(sender.id, {
+      const { directShareId } = await sendItem(sender.id, {
         dishId,
         recipientEmail: recipient.email,
         note: null,
@@ -944,7 +689,7 @@ describe("direct account-to-account sharing (Slice 17)", () => {
         "RECIPE",
         content(),
       );
-      const { directShareId } = await sendDirectShare(sender.id, {
+      const { directShareId } = await sendItem(sender.id, {
         dishId,
         recipientEmail: recipient.email,
         note: null,
@@ -972,7 +717,7 @@ describe("direct account-to-account sharing (Slice 17)", () => {
         "RECIPE",
         content(),
       );
-      const { directShareId } = await sendDirectShare(sender.id, {
+      const { directShareId } = await sendItem(sender.id, {
         dishId,
         recipientEmail: recipient.email,
         note: null,
@@ -1001,7 +746,7 @@ describe("direct account-to-account sharing (Slice 17)", () => {
         content({ title: "Original Title" }),
       );
       const baseVersionId = await currentVersionId(dishId);
-      const { directShareId } = await sendDirectShare(sender.id, {
+      const { directShareId } = await sendItem(sender.id, {
         dishId,
         recipientEmail: recipient.email,
         note: null,
@@ -1029,7 +774,7 @@ describe("direct account-to-account sharing (Slice 17)", () => {
         content({ title: "Ramen", description: "Original description" }),
       );
       const baseVersionId = await currentVersionId(dishId);
-      const { directShareId } = await sendDirectShare(sender.id, {
+      const { directShareId } = await sendItem(sender.id, {
         dishId,
         recipientEmail: recipient.email,
         note: null,
@@ -1074,7 +819,7 @@ describe("direct account-to-account sharing (Slice 17)", () => {
         content({ title: "Ramen", imageAssetId: originalAsset.id }),
       );
       const baseVersionId = await currentVersionId(dishId);
-      const { directShareId } = await sendDirectShare(sender.id, {
+      const { directShareId } = await sendItem(sender.id, {
         dishId,
         recipientEmail: recipient.email,
         note: null,
@@ -1132,7 +877,7 @@ describe("direct account-to-account sharing (Slice 17)", () => {
           ],
         }),
       );
-      const { directShareId } = await sendDirectShare(sender.id, {
+      const { directShareId } = await sendItem(sender.id, {
         dishId: recipeId,
         recipientEmail: recipient.email,
         note: null,
@@ -1162,7 +907,7 @@ describe("direct account-to-account sharing (Slice 17)", () => {
         content({ title: "Original" }),
       );
       const baseVersionId = await currentVersionId(dishId);
-      const { directShareId } = await sendDirectShare(sender.id, {
+      const { directShareId } = await sendItem(sender.id, {
         dishId,
         recipientEmail: recipient.email,
         note: null,
@@ -1208,7 +953,7 @@ describe("direct account-to-account sharing (Slice 17)", () => {
         content({ imageAssetId: originalAsset.id }),
       );
       const baseVersionId = await currentVersionId(dishId);
-      await sendDirectShare(sender.id, {
+      await sendItem(sender.id, {
         dishId,
         recipientEmail: recipient.email,
         note: null,
@@ -1248,7 +993,7 @@ describe("direct account-to-account sharing (Slice 17)", () => {
         content({ imageAssetId: originalAsset.id }),
       );
       const baseVersionId = await currentVersionId(dishId);
-      const { directShareId } = await sendDirectShare(sender.id, {
+      const { collectionId } = await sendItem(sender.id, {
         dishId,
         recipientEmail: recipient.email,
         note: null,
@@ -1268,7 +1013,7 @@ describe("direct account-to-account sharing (Slice 17)", () => {
         await prisma.imageAsset.findUnique({ where: { id: originalAsset.id } }),
       ).not.toBeNull();
 
-      await cancelDirectShare(sender.id, directShareId);
+      await cancelDirectShareCollection(sender.id, collectionId);
 
       // Simulates the next legitimate cleanup opportunity for this asset —
       // no other protected reference remains once the delivery is cancelled.
@@ -1295,7 +1040,7 @@ describe("direct account-to-account sharing (Slice 17)", () => {
         "RECIPE",
         content({ imageAssetId: asset.id }),
       );
-      const { directShareId } = await sendDirectShare(sender.id, {
+      const { directShareId } = await sendItem(sender.id, {
         dishId,
         recipientEmail: recipient.email,
         note: null,
@@ -1321,7 +1066,7 @@ describe("direct account-to-account sharing (Slice 17)", () => {
         "RECIPE",
         content(),
       );
-      const { directShareId } = await sendDirectShare(sender.id, {
+      const { directShareId } = await sendItem(sender.id, {
         dishId,
         recipientEmail: recipient.email,
         note: null,
@@ -1347,7 +1092,7 @@ describe("direct account-to-account sharing (Slice 17)", () => {
         "RECIPE",
         content({ title: "Ramen" }),
       );
-      const { directShareId } = await sendDirectShare(sender.id, {
+      const { directShareId } = await sendItem(sender.id, {
         dishId,
         recipientEmail: recipient.email,
         note: null,
@@ -1375,7 +1120,7 @@ describe("direct account-to-account sharing (Slice 17)", () => {
         "RECIPE",
         content({ title: "Ramen" }),
       );
-      const { directShareId } = await sendDirectShare(sender.id, {
+      const { directShareId } = await sendItem(sender.id, {
         dishId,
         recipientEmail: recipient.email,
         note: "Enjoy",
@@ -1413,12 +1158,12 @@ describe("direct account-to-account sharing (Slice 17)", () => {
         "RECIPE",
         content({ title: "Ramen", imageAssetId: asset.id }),
       );
-      const { directShareId } = await sendDirectShare(sender.id, {
+      const { directShareId, collectionId } = await sendItem(sender.id, {
         dishId,
         recipientEmail: recipient.email,
         note: null,
       });
-      return { asset, dishId, directShareId };
+      return { asset, dishId, directShareId, collectionId };
     }
 
     it.each([
@@ -1436,8 +1181,13 @@ describe("direct account-to-account sharing (Slice 17)", () => {
       ],
       [
         "CANCELED",
-        async (s: { id: string }, _r: { id: string }, id: string) => {
-          await cancelDirectShare(s.id, id);
+        async (
+          s: { id: string },
+          _r: { id: string },
+          _id: string,
+          collectionId: string,
+        ) => {
+          await cancelDirectShareCollection(s.id, collectionId);
         },
       ],
     ] as const)(
@@ -1445,9 +1195,12 @@ describe("direct account-to-account sharing (Slice 17)", () => {
       async (_label, transition) => {
         const sender = await newUser();
         const recipient = await newUser();
-        const { asset, directShareId } = await sendWithImage(sender, recipient);
+        const { asset, directShareId, collectionId } = await sendWithImage(
+          sender,
+          recipient,
+        );
 
-        await transition(sender, recipient, directShareId);
+        await transition(sender, recipient, directShareId, collectionId);
 
         await expect(
           getDirectSharePreview(recipient.id, directShareId),
@@ -1561,44 +1314,6 @@ describe("direct account-to-account sharing (Slice 17)", () => {
     });
   });
 
-  describe("listSentDirectShares / listReceivedDirectShares", () => {
-    it("shows the /share page's Sent and Received rows with the expected fields", async () => {
-      const sender = await newUser();
-      const recipient = await newUser();
-      const dishId = await dishService.createDish(
-        sender.id,
-        "RECIPE",
-        content({ title: "Ramen" }),
-      );
-      await sendDirectShare(sender.id, {
-        dishId,
-        recipientEmail: recipient.email,
-        note: "Enjoy",
-      });
-
-      const sent = await listSentDirectShares(sender.id);
-      expect(sent).toHaveLength(1);
-      expect(sent[0]).toMatchObject({
-        dishKind: "RECIPE",
-        dishTitleSnapshot: "Ramen",
-        recipientName: recipient.name,
-        note: "Enjoy",
-        status: "PENDING",
-      });
-
-      const received = await listReceivedDirectShares(recipient.id);
-      expect(received).toHaveLength(1);
-      expect(received[0]).toMatchObject({
-        dishKind: "RECIPE",
-        dishTitleSnapshot: "Ramen",
-        senderName: sender.name,
-        note: "Enjoy",
-        status: "PENDING",
-        createdDishId: null,
-      });
-    });
-  });
-
   describe("isImageAssetVisibleViaDirectShare", () => {
     it("authorizes the sender and intended recipient, not an unrelated user, and not once the source is deleted", async () => {
       const sender = await newUser();
@@ -1615,7 +1330,7 @@ describe("direct account-to-account sharing (Slice 17)", () => {
         "RECIPE",
         content({ imageAssetId: asset.id }),
       );
-      const { directShareId } = await sendDirectShare(sender.id, {
+      const { directShareId } = await sendItem(sender.id, {
         dishId,
         recipientEmail: recipient.email,
         note: null,

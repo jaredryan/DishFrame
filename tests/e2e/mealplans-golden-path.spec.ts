@@ -68,7 +68,9 @@ test.describe("Meal Plans: build, sync grocery list, edit, complete", () => {
     await page.getByLabel("Yield amount").fill("4");
     await page.getByLabel("Yield unit").fill("servings");
 
-    await page.getByRole("button", { name: "Add section", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Add section", exact: true })
+      .click();
     const sectionDialog = page.getByRole("dialog");
     await sectionDialog.getByRole("button", { name: "Add ingredient" }).click();
     await sectionDialog.getByLabel("Ingredient name").fill("Rice");

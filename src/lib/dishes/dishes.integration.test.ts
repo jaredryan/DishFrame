@@ -1965,6 +1965,12 @@ describe("dishes service", () => {
           dishTitleSnapshot: "Ginger Soy Bowl",
         },
       });
+      const directShareCollection = await prisma.directShareCollection.create({
+        data: {
+          senderId: userId,
+          recipientLookup: "someone@example.invalid",
+        },
+      });
       const directShare = await prisma.directShare.create({
         data: {
           senderId: userId,
@@ -1975,6 +1981,7 @@ describe("dishes service", () => {
           ).currentVersionId,
           dishTitleSnapshot: "Ginger Soy Bowl",
           status: "PENDING",
+          collectionId: directShareCollection.id,
         },
       });
 

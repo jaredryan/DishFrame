@@ -22,7 +22,7 @@ import {
   isImageAssetVisibleViaDirectShare,
   acceptDirectShare,
 } from "@/lib/sharing/service";
-import { DIRECT_SHARE_COLLECTION_MAX_RECIPES } from "@/lib/sharing/schema";
+import { DIRECT_SHARE_MAX_ITEMS } from "@/lib/sharing/schema";
 
 // Several tests below permanently delete a source or copied Dish — same
 // Blob-cleanup mock direct-sharing.integration.test.ts already uses.
@@ -140,7 +140,7 @@ describe("sendDirectShareCollection", () => {
       const { collectionId } = await sendDirectShareCollection(sender.id, {
         recipientEmail: recipient.email,
         dishIds: [dishA, dishB],
-        note: null,
+        note: "Try both of these",
       });
 
       const detail = await getDirectShareCollectionDetail(
@@ -153,6 +153,91 @@ describe("sendDirectShareCollection", () => {
         "Recipe B",
       ]);
       expect(detail.children.every((c) => c.status === "PENDING")).toBe(true);
+      expect(detail.note).toBe("Try both of these");
+
+      // One Send note on the envelope, surfaced identically through every
+      // child's own preview -- never duplicated per item.
+      const previews = await Promise.all(
+        detail.children.map((c) => getDirectSharePreview(recipient.id, c.id)),
+      );
+      expect(previews.every((p) => p.note === "Try both of these")).toBe(true);
+    });
+  });
+
+  it("sends a Part through the same collection flow as a Recipe", async () => {
+    const sender = await newUser();
+    const recipient = await newUser();
+    await withCleanup([sender.id, recipient.id], async () => {
+      const partId = await dishService.createDish(
+        sender.id,
+        "PART",
+        content({ title: "Shared Part" }),
+      );
+
+      const { collectionId } = await sendDirectShareCollection(sender.id, {
+        recipientEmail: recipient.email,
+        dishIds: [partId],
+        note: null,
+      });
+
+      const detail = await getDirectShareCollectionDetail(
+        sender.id,
+        collectionId,
+      );
+      expect(detail.children).toHaveLength(1);
+      expect(detail.children[0].dishKind).toBe("PART");
+      expect(detail.children[0].dishTitleSnapshot).toBe("Shared Part");
+    });
+  });
+
+  it("sends a mixed Recipe + Part collection in a single envelope", async () => {
+    const sender = await newUser();
+    const recipient = await newUser();
+    await withCleanup([sender.id, recipient.id], async () => {
+      const recipeId = await dishService.createDish(
+        sender.id,
+        "RECIPE",
+        content({ title: "Mixed Recipe" }),
+      );
+      const partId = await dishService.createDish(
+        sender.id,
+        "PART",
+        content({ title: "Mixed Part" }),
+      );
+
+      const { collectionId } = await sendDirectShareCollection(sender.id, {
+        recipientEmail: recipient.email,
+        dishIds: [recipeId, partId],
+        note: null,
+      });
+
+      const detail = await getDirectShareCollectionDetail(
+        recipient.id,
+        collectionId,
+      );
+      expect(detail.children).toHaveLength(2);
+      const kinds = detail.children.map((c) => c.dishKind).sort();
+      expect(kinds).toEqual(["PART", "RECIPE"]);
+
+      const result = await finalizeDirectShareCollectionDecision(
+        recipient.id,
+        collectionId,
+        detail.children.map((c) => c.id),
+      );
+      expect(result.accepted).toHaveLength(2);
+      const copiedKinds = (
+        await Promise.all(
+          result.accepted.map((a) =>
+            prisma.dish.findUniqueOrThrow({
+              where: { id: a.dishId },
+              select: { kind: true },
+            }),
+          ),
+        )
+      )
+        .map((d) => d.kind)
+        .sort();
+      expect(copiedKinds).toEqual(["PART", "RECIPE"]);
     });
   });
 
@@ -276,6 +361,48 @@ describe("sendDirectShareCollection", () => {
           note: null,
         }),
       ).rejects.toThrow(ConflictError);
+    });
+  });
+
+  it("two genuinely concurrent sends of the same item to the same sender/recipient produce exactly one pending collection", async () => {
+    const sender = await newUser();
+    const recipient = await newUser();
+    await withCleanup([sender.id, recipient.id], async () => {
+      const dishId = await dishService.createDish(
+        sender.id,
+        "RECIPE",
+        content({ title: "Race Target" }),
+      );
+      const input = {
+        recipientEmail: recipient.email,
+        dishIds: [dishId],
+        note: null,
+      };
+
+      // The DB-backed `one_pending_direct_share_per_sender_dish_recipient_email`
+      // partial unique index is what actually closes this race — the
+      // application-level pre-check alone cannot, since both calls can pass
+      // it before either commits.
+      const results = await Promise.allSettled([
+        sendDirectShareCollection(sender.id, input),
+        sendDirectShareCollection(sender.id, input),
+      ]);
+
+      const fulfilled = results.filter(
+        (r): r is PromiseFulfilledResult<{ collectionId: string }> =>
+          r.status === "fulfilled",
+      );
+      const rejected = results.filter(
+        (r): r is PromiseRejectedResult => r.status === "rejected",
+      );
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+      expect(rejected[0].reason).toBeInstanceOf(ConflictError);
+
+      const pendingRows = await prisma.directShare.findMany({
+        where: { senderId: sender.id, dishId, status: "PENDING" },
+      });
+      expect(pendingRows).toHaveLength(1);
     });
   });
 
@@ -891,7 +1018,7 @@ describe("50/51-Recipe collection boundary", () => {
     const recipient = await newUser();
     await withCleanup([sender.id, recipient.id], async () => {
       const dishIds = await Promise.all(
-        Array.from({ length: DIRECT_SHARE_COLLECTION_MAX_RECIPES }, (_, i) =>
+        Array.from({ length: DIRECT_SHARE_MAX_ITEMS }, (_, i) =>
           dishService.createDish(
             sender.id,
             "RECIPE",
@@ -915,7 +1042,7 @@ describe("50/51-Recipe collection boundary", () => {
         recipient.id,
         collectionId,
       );
-      expect(detail.children).toHaveLength(DIRECT_SHARE_COLLECTION_MAX_RECIPES);
+      expect(detail.children).toHaveLength(DIRECT_SHARE_MAX_ITEMS);
       expect(detail.children.every((c) => c.status === "PENDING")).toBe(true);
 
       const allIds = detail.children.map((c) => c.id);
@@ -924,13 +1051,13 @@ describe("50/51-Recipe collection boundary", () => {
         collectionId,
         allIds,
       );
-      expect(result.accepted).toHaveLength(DIRECT_SHARE_COLLECTION_MAX_RECIPES);
+      expect(result.accepted).toHaveLength(DIRECT_SHARE_MAX_ITEMS);
       expect(result.declined).toHaveLength(0);
 
       const copyCount = await prisma.dish.count({
         where: { ownerId: recipient.id },
       });
-      expect(copyCount).toBe(DIRECT_SHARE_COLLECTION_MAX_RECIPES);
+      expect(copyCount).toBe(DIRECT_SHARE_MAX_ITEMS);
 
       // Retry (e.g. a resubmitted review action) must not create any
       // further copies — every child is already ACCEPTED.
@@ -945,7 +1072,7 @@ describe("50/51-Recipe collection boundary", () => {
       const copyCountAfterRetry = await prisma.dish.count({
         where: { ownerId: recipient.id },
       });
-      expect(copyCountAfterRetry).toBe(DIRECT_SHARE_COLLECTION_MAX_RECIPES);
+      expect(copyCountAfterRetry).toBe(DIRECT_SHARE_MAX_ITEMS);
     });
   }, 60_000);
 
@@ -954,14 +1081,12 @@ describe("50/51-Recipe collection boundary", () => {
     const recipient = await newUser();
     await withCleanup([sender.id, recipient.id], async () => {
       const dishIds = await Promise.all(
-        Array.from(
-          { length: DIRECT_SHARE_COLLECTION_MAX_RECIPES + 1 },
-          (_, i) =>
-            dishService.createDish(
-              sender.id,
-              "RECIPE",
-              content({ title: `Over Boundary Recipe ${i}` }),
-            ),
+        Array.from({ length: DIRECT_SHARE_MAX_ITEMS + 1 }, (_, i) =>
+          dishService.createDish(
+            sender.id,
+            "RECIPE",
+            content({ title: `Over Boundary Recipe ${i}` }),
+          ),
         ),
       );
 

@@ -39,40 +39,21 @@ export const saveSharedCopySchema = z.object({
   token: z.string().min(1),
 });
 
-// Slice 17: exact-email-only, per the recipient-lookup privacy boundary —
-// never a partial/prefix query, which would let a
-// sender enumerate accounts by typing a few characters at a time.
-export const lookupDirectShareRecipientSchema = z.object({
-  email: z
-    .string()
-    .trim()
-    .toLowerCase()
-    .pipe(z.email("Enter a valid email address.")),
-});
-
-export const sendDirectShareSchema = z.object({
-  dishId: z.string().min(1),
-  recipientEmail: z
-    .string()
-    .trim()
-    .toLowerCase()
-    .pipe(z.email("Enter a valid email address.")),
-  note: z.string().trim().max(1000).nullable().optional(),
-});
-export type SendDirectShareInput = z.infer<typeof sendDirectShareSchema>;
-
 export const directShareIdSchema = z.object({
   directShareId: z.string().min(1),
 });
 
 // ============================================================================
-// Slice 22: unified single-/multi-Recipe direct sharing.
+// Send-unification pass: one canonical Send flow for any mix of Recipes and
+// Parts, to an existing DishFrame account or a not-yet-registered email
+// alike. The sender is never shown whether the entered email belongs to an
+// existing account.
 // ============================================================================
 
 // PRODUCT_SPEC.md's "reasonable server-enforced batch maximum, preferably
-// 50 Recipes" — enforced here (schema) and again defensively in
+// 50 items" — enforced here (schema) and again defensively in
 // `sharing/collections.ts` (never only client-side).
-export const DIRECT_SHARE_COLLECTION_MAX_RECIPES = 50;
+export const DIRECT_SHARE_MAX_ITEMS = 50;
 
 export const sendDirectShareCollectionSchema = z.object({
   recipientEmail: z
@@ -82,10 +63,10 @@ export const sendDirectShareCollectionSchema = z.object({
     .pipe(z.email("Enter a valid email address.")),
   dishIds: z
     .array(z.string().min(1))
-    .min(1, "Select at least one Recipe.")
+    .min(1, "Select at least one item.")
     .max(
-      DIRECT_SHARE_COLLECTION_MAX_RECIPES,
-      `You can send at most ${DIRECT_SHARE_COLLECTION_MAX_RECIPES} Recipes at once.`,
+      DIRECT_SHARE_MAX_ITEMS,
+      `You can send at most ${DIRECT_SHARE_MAX_ITEMS} items at once.`,
     ),
   note: z.string().trim().max(1000).nullable().optional(),
 });
@@ -101,7 +82,7 @@ export const finalizeDirectShareCollectionSchema = z.object({
   collectionId: z.string().min(1),
   // The exact set of pending child DirectShare ids to accept; every other
   // still-pending child in the collection is declined as part of this same
-  // action (PRODUCT_SPEC.md: "unselected Recipes are declined as part of
+  // action (PRODUCT_SPEC.md: "unselected items are declined as part of
   // the explicit final action"). An empty array is a valid "Decline all".
   acceptedShareIds: z.array(z.string().min(1)),
 });

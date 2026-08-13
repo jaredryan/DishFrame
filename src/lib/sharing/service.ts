@@ -1,11 +1,6 @@
 import "server-only";
 import { prisma } from "@/lib/db/prisma";
-import {
-  NotFoundError,
-  ConflictError,
-  ValidationError,
-  AuthorizationError,
-} from "@/lib/errors";
+import { NotFoundError, ConflictError, AuthorizationError } from "@/lib/errors";
 import { getOwnedDishOrThrow } from "@/lib/dishes/queries";
 import { createIndependentCopyFromGraph } from "@/lib/dishes/service";
 import type { DishKindValue } from "@/lib/dishes/schema";
@@ -18,7 +13,6 @@ import {
 import {
   buildShareGraph,
   collectGraphImageAssetIds,
-  serializeShareGraph,
   deserializeShareGraph,
 } from "@/lib/sharing/graph";
 import {
@@ -29,7 +23,6 @@ import {
 import type {
   CreateShareLinkInput,
   UpdateShareLinkInput,
-  SendDirectShareInput,
   DirectShareStatusValue,
 } from "@/lib/sharing/schema";
 import { Prisma } from "@/generated/prisma/client";
@@ -47,29 +40,6 @@ function isUniqueConstraintViolation(error: unknown): boolean {
   return (
     error instanceof Prisma.PrismaClientKnownRequestError &&
     error.code === "P2002"
-  );
-}
-
-const PENDING_DIRECT_SHARE_INDEX_NAME =
-  "one_pending_direct_share_per_sender_recipient_dish";
-
-/**
- * Hardening pass: maps a P2002 to the duplicate-pending `ConflictError`
- * only when it's actually this partial index, not any P2002 `create`
- * could raise. Prisma exposes no `meta.target` for a hand-authored index
- * (verified against this codebase's Prisma/driver-adapter version) — the
- * name only survives in the raw Postgres message, so that's the signal
- * used here (a narrowly justified fallback, not a documented Prisma API).
- */
-function isDuplicatePendingDirectShareViolation(error: unknown): boolean {
-  if (!isUniqueConstraintViolation(error)) return false;
-  const meta = (error as Prisma.PrismaClientKnownRequestError).meta as
-    | { driverAdapterError?: { cause?: { originalMessage?: unknown } } }
-    | undefined;
-  const originalMessage = meta?.driverAdapterError?.cause?.originalMessage;
-  return (
-    typeof originalMessage === "string" &&
-    originalMessage.includes(PENDING_DIRECT_SHARE_INDEX_NAME)
   );
 }
 
@@ -448,17 +418,18 @@ export async function saveSharedCopy(
 }
 
 // ============================================================================
-// Slice 17: Direct account-to-account sharing.
-// Gate 7 §2.4/§2.10: reuses the exact same `buildShareGraph` +
-// `createIndependentCopyFromGraph` engine Slice 16 built — no second copy
-// architecture.
+// Direct account-to-account sharing. Gate 7 §2.4/§2.10: reuses the exact
+// same `buildShareGraph` + `createIndependentCopyFromGraph` engine Slice 16
+// built — no second copy architecture.
 //
-// Correction pass: a `DirectShare` is a genuinely frozen delivery, not a
-// pinned-Version pointer re-read live. `sendDirectShare` resolves the
-// complete shareable content graph exactly once and stores it
-// (`DirectShare.frozenGraph`, `graph.ts`'s `serializeShareGraph`) — Preview
-// and Accept both consume that stored graph, never `buildShareGraph` against
-// the live `dishId`/`dishVersionId` again. This closes a real gap the
+// A `DirectShare` is a genuinely frozen delivery, not a pinned-Version
+// pointer re-read live — `sharing/collections.ts`'s `sendDirectShareCollection`
+// (every Send's single creation path — see its own module doc comment)
+// resolves the complete shareable content graph exactly once per item and
+// stores it (`DirectShare.frozenGraph`, `graph.ts`'s `serializeShareGraph`);
+// the functions below, which act on one already-created `DirectShare` child
+// at a time, consume that stored graph — never `buildShareGraph` against the
+// live `dishId`/`dishVersionId` again. This closes a real gap the
 // pinned-Version-only design left open: DishFrame permits several
 // Version-owned fields (description, image, yield, prep/cook time,
 // difficulty, nutrition — PRODUCT_SPEC.md §13.2a's "no new Version" mutable-
@@ -468,125 +439,6 @@ export async function saveSharedCopy(
 // and the existing deletion-cancellation match
 // (`revokeSharesAndCancelPendingShares`) — no longer for content resolution.
 // ============================================================================
-
-/**
- * PRODUCT_SPEC.md §85's "exact recipient lookup mechanism belongs in
- * implementation and privacy review" — settled here: exact, normalized
- * email match only (never a partial/prefix query), authenticated callers
- * only, at most one result (email is unique), and only the minimum fields
- * needed to identify the intended recipient (`id`/`name` — never
- * `emailVerified`, `image`, `createdAt`, or any other profile/account
- * field). The caller's own account is excluded so self-share never even
- * offers a match.
- */
-export async function lookupDirectShareRecipient(
-  requesterId: string,
-  email: string,
-): Promise<{ id: string; name: string } | null> {
-  return prisma.user.findFirst({
-    where: {
-      email: { equals: email, mode: "insensitive" },
-      id: { not: requesterId },
-    },
-    select: { id: true, name: true },
-  });
-}
-
-const DUPLICATE_PENDING_MESSAGE =
-  "You already have a pending share of this item to that person.";
-
-/**
- * Correction pass: the friendly pre-check below stays (fast, clear message
- * for the ordinary non-concurrent case), but the actual "at most one" rule
- * is now also enforced at the database boundary —
- * `one_pending_direct_share_per_sender_recipient_dish`, a partial unique
- * index over `(senderId, recipientId, dishId) WHERE status = 'PENDING'`
- * (migration `20260805010000_slice17_correction_frozen_delivery`). Two
- * genuinely concurrent sends can both pass the pre-check's `findFirst`
- * before either commits; the index then lets exactly one `directShare.create`
- * succeed and rejects the other with a `P2002` violation, caught below and
- * mapped to the same deterministic duplicate-pending error rather than a raw
- * database error reaching the caller.
- */
-export async function sendDirectShare(
-  senderId: string,
-  input: SendDirectShareInput,
-): Promise<{ directShareId: string }> {
-  const dish = await getOwnedDishOrThrow(senderId, input.dishId);
-  if (!dish.currentVersionId) {
-    throw new NotFoundError("This item has no saved content to share yet.");
-  }
-
-  const recipient = await prisma.user.findFirst({
-    where: { email: { equals: input.recipientEmail, mode: "insensitive" } },
-    select: { id: true },
-  });
-  if (!recipient) {
-    throw new NotFoundError("No DishFrame account found for that email.");
-  }
-  if (recipient.id === senderId) {
-    throw new ValidationError("You can't send a share to yourself.");
-  }
-
-  const existingPending = await prisma.directShare.findFirst({
-    where: {
-      senderId,
-      recipientId: recipient.id,
-      dishId: dish.id,
-      status: "PENDING",
-    },
-    select: { id: true },
-  });
-  if (existingPending) {
-    throw new ConflictError(DUPLICATE_PENDING_MESSAGE);
-  }
-
-  // Freeze the complete shareable content graph now — this is the exact
-  // content Preview and Accept will use, regardless of any later edit to
-  // the source (material, in-place metadata, or nested Part).
-  const graph = await buildShareGraph(dish.id, dish.currentVersionId);
-  const frozenGraph = serializeShareGraph(graph);
-  const frozenImageAssetIds = collectGraphImageAssetIds(graph);
-
-  try {
-    const directShare = await prisma.directShare.create({
-      data: {
-        senderId,
-        recipientId: recipient.id,
-        recipientLookup: input.recipientEmail,
-        dishId: dish.id,
-        dishVersionId: dish.currentVersionId,
-        dishTitleSnapshot: dish.currentTitle ?? "Untitled",
-        note: input.note && input.note.length > 0 ? input.note : null,
-        frozenGraph: frozenGraph as unknown as Prisma.InputJsonValue,
-        frozenImageAssetIds,
-      },
-    });
-    return { directShareId: directShare.id };
-  } catch (error) {
-    if (isDuplicatePendingDirectShareViolation(error)) {
-      throw new ConflictError(DUPLICATE_PENDING_MESSAGE);
-    }
-    throw error;
-  }
-}
-
-/** Cancelling an already-terminal share is a safe no-op — never overwrites
- * ACCEPTED/DECLINED back to CANCELED. */
-export async function cancelDirectShare(
-  senderId: string,
-  directShareId: string,
-): Promise<void> {
-  const share = await prisma.directShare.findFirst({
-    where: { id: directShareId, senderId },
-  });
-  if (!share) throw new NotFoundError("Direct share not found.");
-  if (share.status !== "PENDING") return;
-  await prisma.directShare.updateMany({
-    where: { id: directShareId, senderId, status: "PENDING" },
-    data: { status: "CANCELED" },
-  });
-}
 
 export type DeclineDirectShareResult =
   | { outcome: "declined" }
@@ -699,88 +551,6 @@ async function resolveAcceptedDirectShare(
   return { outcome: "accepted", dishId: createdDishId, dishKind: dish.kind };
 }
 
-export type SentDirectShareSummary = {
-  id: string;
-  dishId: string | null;
-  dishKind: DishKindValue | null;
-  dishTitleSnapshot: string;
-  recipientName: string | null;
-  recipientLookup: string;
-  hasJoined: boolean;
-  note: string | null;
-  status: DirectShareStatusValue;
-  createdAt: Date;
-};
-
-export async function listSentDirectShares(
-  senderId: string,
-): Promise<SentDirectShareSummary[]> {
-  // Slice 22: excludes grouped Recipe-collection children (`collectionId`
-  // set) — those are listed separately by
-  // `sharing/collections.ts`'s `listSentDirectShareCollections`. This list
-  // stays scoped to ungrouped rows: ordinary Part sends (unaffected by this
-  // slice) and any pre-Slice-22 Recipe sends.
-  const rows = await prisma.directShare.findMany({
-    where: { senderId, collectionId: null },
-    orderBy: { createdAt: "desc" },
-    include: {
-      recipient: { select: { name: true } },
-      dishVersion: { select: { dish: { select: { kind: true } } } },
-    },
-  });
-  return rows.map((row) => ({
-    id: row.id,
-    dishId: row.dishId,
-    dishKind: row.dishVersion?.dish.kind ?? null,
-    dishTitleSnapshot: row.dishTitleSnapshot,
-    recipientName: row.recipient?.name ?? null,
-    recipientLookup: row.recipientLookup,
-    hasJoined: row.recipientId !== null,
-    note: row.note,
-    status: row.status,
-    createdAt: row.createdAt,
-  }));
-}
-
-export type ReceivedDirectShareSummary = {
-  id: string;
-  dishId: string | null;
-  dishKind: DishKindValue | null;
-  dishTitleSnapshot: string;
-  senderName: string;
-  note: string | null;
-  status: DirectShareStatusValue;
-  createdAt: Date;
-  createdDishId: string | null;
-};
-
-export async function listReceivedDirectShares(
-  recipientId: string,
-): Promise<ReceivedDirectShareSummary[]> {
-  // Slice 22: same `collectionId: null` scoping as listSentDirectShares
-  // above — grouped children are listed separately.
-  const rows = await prisma.directShare.findMany({
-    where: { recipientId, collectionId: null },
-    orderBy: { createdAt: "desc" },
-    include: {
-      sender: { select: { name: true } },
-      dishVersion: { select: { dish: { select: { kind: true } } } },
-      createdDish: { select: { kind: true } },
-    },
-  });
-  return rows.map((row) => ({
-    id: row.id,
-    dishId: row.dishId,
-    dishKind: row.dishVersion?.dish.kind ?? row.createdDish?.kind ?? null,
-    dishTitleSnapshot: row.dishTitleSnapshot,
-    senderName: row.sender.name,
-    note: row.note,
-    status: row.status,
-    createdAt: row.createdAt,
-    createdDishId: row.createdDishId,
-  }));
-}
-
 export type DirectSharePreview = {
   content: PublicShareContent;
   senderName: string;
@@ -806,7 +576,10 @@ export async function getDirectSharePreview(
 ): Promise<DirectSharePreview> {
   const share = await prisma.directShare.findUnique({
     where: { id: directShareId },
-    include: { sender: { select: { name: true } } },
+    include: {
+      sender: { select: { name: true } },
+      collection: { select: { note: true } },
+    },
   });
   if (!share) throw new NotFoundError("Direct share not found.");
   if (share.senderId !== requesterId && share.recipientId !== requesterId) {
@@ -827,7 +600,7 @@ export async function getDirectSharePreview(
   return {
     content,
     senderName: share.sender.name,
-    note: share.note,
+    note: share.collection.note,
     status: share.status,
   };
 }

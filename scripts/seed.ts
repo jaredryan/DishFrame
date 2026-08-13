@@ -71,7 +71,6 @@ async function main() {
     buildCrossAccountShareLinkCopy,
     buildDirectShareFixtures,
     buildSourceDeletionCancellationFixture,
-    buildDirectShareCollectionFixtures,
   } = await import("./qa-seed/sharing");
   const { markAllOnboardingGuidesCompleted } =
     await import("./qa-seed/onboarding");
@@ -270,27 +269,17 @@ async function main() {
   );
   const directShares = await buildDirectShareFixtures(
     sharingServices,
+    resolveSeedOwner,
+    initializeNewUser,
     owner.id,
     owner.email,
     counterparty.id,
     counterparty.email,
-    {
-      ricesidedishDishId: recipes.ricesidedish.dishId,
-      saladDishId: recipes.salad.dishId,
-      sauceDishId: parts.sauce.dishId,
-      ricebowlDishId: recipes.ricebowl.dishId,
-      pastaDishId: counterpartyContent.pastaDishId,
-    },
+    counterpartyContent.pastaDishId,
   );
   await buildSourceDeletionCancellationFixture(
     sharingServices,
     owner.id,
-    counterparty.email,
-  );
-  const directShareCollections = await buildDirectShareCollectionFixtures(
-    sharingServices,
-    owner.id,
-    counterparty.id,
     counterparty.email,
   );
 
@@ -315,7 +304,6 @@ async function main() {
     shareLinks,
     crossAccountShareLinkCopy,
     directShares,
-    directShareCollections,
   });
 
   await prisma.$disconnect();

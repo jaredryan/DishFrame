@@ -191,7 +191,7 @@ function ReceivedGroupCard({
         </Badge>
       </div>
       <p className="text-muted-foreground text-sm">
-        {item.children.length} recipe{item.children.length === 1 ? "" : "s"} ·{" "}
+        {item.children.length} item{item.children.length === 1 ? "" : "s"} ·{" "}
         {formatDate(item.createdAt)}
       </p>
       {item.note && <p className="text-sm italic">&ldquo;{item.note}&rdquo;</p>}
@@ -208,7 +208,7 @@ function ReceivedGroupCard({
           ) : (
             <ChevronDown aria-hidden="true" />
           )}
-          {expanded ? "Hide recipes" : "Show recipes"}
+          {expanded ? "Hide items" : "Show items"}
         </Button>
         {pendingCount > 0 && (
           <Button

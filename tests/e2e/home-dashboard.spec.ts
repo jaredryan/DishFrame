@@ -221,7 +221,9 @@ test.describe("Home dashboard: populated data", () => {
     await page.getByLabel("Yield amount").fill("4");
     await page.getByLabel("Yield unit").fill("servings");
 
-    await page.getByRole("button", { name: "Add section", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Add section", exact: true })
+      .click();
     const recipeSectionDialog = page.getByRole("dialog");
     await recipeSectionDialog
       .getByRole("button", { name: "Add ingredient" })
@@ -244,7 +246,9 @@ test.describe("Home dashboard: populated data", () => {
     await page.getByLabel("Part title").fill(partTitle, { timeout: 15_000 });
     // A Dish must have at least one ingredient/instruction/linked Part to
     // save (§8.3's minimum-content rule, shared by Recipes and Parts).
-    await page.getByRole("button", { name: "Add section", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Add section", exact: true })
+      .click();
     const partSectionDialog = page.getByRole("dialog");
     await partSectionDialog
       .getByRole("button", { name: "Add ingredient" })

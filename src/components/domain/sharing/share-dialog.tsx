@@ -81,13 +81,13 @@ export function ShareDialog({
     setCopied(true);
   }
 
-  const label = kind === "PART" ? "Part" : "Recipe";
+  const label = kind === "PART" ? "part" : "recipe";
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && close()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Share this {label}</DialogTitle>
+          <DialogTitle>{`Publish this ${label}`}</DialogTitle>
           <DialogDescription>
             Anyone with the link can view a read-only page — no DishFrame
             account required. Saving a copy does require signing in.
@@ -112,14 +112,14 @@ export function ShareDialog({
                 value={mode}
                 onValueChange={(value) => setMode(value as ShareLinkModeValue)}
               >
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="FIXED_SNAPSHOT">
                     Share this Version (fixed)
                   </SelectItem>
-                  <SelectItem value="CURRENT">Keep link current</SelectItem>
+                  <SelectItem value="CURRENT">Share latest version</SelectItem>
                 </SelectContent>
               </Select>
             </div>
