@@ -5,6 +5,7 @@ import * as dishService from "@/lib/dishes/service";
 import * as cookingService from "@/lib/cooking/service";
 import {
   getOwnedDishVersionOrThrow,
+  getOwnedSessionOrThrow,
   buildCookableUnits,
   computeChecklistItemConflict,
 } from "@/lib/cooking/queries";
@@ -659,6 +660,84 @@ describe("cooking mode — Slice 8", () => {
     });
     expect(updated.checkedAt).toBeNull();
     expect(updated.checkedQuantity).toBeNull();
+  });
+
+  it("keeps checklist items in stable creation order regardless of check state", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+    const recipeId = await dishService.createDish(
+      userId,
+      "RECIPE",
+      recipeContent({
+        sections: [
+          {
+            name: "Prep",
+            guidanceNote: null,
+            position: 0,
+            ingredients: [
+              {
+                name: "Rice",
+                quantity: 2,
+                quantityEnd: null,
+                isApproximate: false,
+                unit: "cups",
+                displayText: null,
+                preparationNote: null,
+                isOptional: false,
+                substitute: null,
+              },
+              {
+                name: "Water",
+                quantity: 3,
+                quantityEnd: null,
+                isApproximate: false,
+                unit: "cups",
+                displayText: null,
+                preparationNote: null,
+                isOptional: false,
+                substitute: null,
+              },
+            ],
+            instructions: [
+              { text: "Boil water." },
+              { text: "Add rice." },
+              { text: "Simmer." },
+            ],
+            partLinks: [],
+          },
+        ],
+      }),
+    );
+    const recipeVersionId = await currentVersionId(recipeId);
+    const units = await unitsFor(userId, recipeId);
+    const sectionUnit = units.find((u) => u.kind === "SECTION")!;
+
+    const created = await cookingService.startCookingSession(userId, {
+      dishId: recipeId,
+      dishVersionId: recipeVersionId,
+      units: [{ unitKey: sectionUnit.unitKey }],
+    });
+
+    const before = await getOwnedSessionOrThrow(userId, created.id);
+    const originalOrder = before.units[0].checklistItems.map((i) => i.id);
+    expect(originalOrder).toHaveLength(5);
+
+    // Check every item out of natural order, then uncheck one from the
+    // middle — none of this should perturb the row order on refetch.
+    for (const id of [...originalOrder].reverse()) {
+      await cookingService.toggleChecklistItem(userId, created.id, id, true);
+    }
+    await cookingService.toggleChecklistItem(
+      userId,
+      created.id,
+      originalOrder[1],
+      false,
+    );
+
+    const after = await getOwnedSessionOrThrow(userId, created.id);
+    expect(after.units[0].checklistItems.map((i) => i.id)).toEqual(
+      originalOrder,
+    );
   });
 
   it("completes a unit without requiring every item checked, and reversal only clears completion", async () => {

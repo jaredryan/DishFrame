@@ -85,7 +85,10 @@ export const getOwnedSessionOrThrow = cache(
       include: {
         units: {
           orderBy: { position: "asc" },
-          include: { checklistItems: true, timers: true },
+          include: {
+            checklistItems: { orderBy: { id: "asc" } },
+            timers: true,
+          },
         },
       },
     });

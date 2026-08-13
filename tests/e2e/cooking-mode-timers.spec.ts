@@ -93,40 +93,75 @@ test.describe("Cooking Mode: unit switching, progress, and simultaneous timers",
     await page.getByRole("button", { name: "Start cooking" }).click();
     await expect(page).toHaveURL(/\/cook\/[^/]+$/, { timeout: 15_000 });
 
-    // --- Focused on "Prep" first: check its one ingredient, start a timer ---
+    // Desktop redesign: every active timer's controls live in the
+    // persistent right-hand timer rail, regardless of which Section is
+    // selected — that's what "simultaneously accessible" now means, in
+    // place of the old horizontal timer strip.
+    const timerRail = page.getByRole("complementary", {
+      name: /active timers/i,
+    });
+    // Mobile's single-column layout stays in the DOM (just `lg:hidden`)
+    // alongside the desktop three-zone layout. Unlike `getByRole`,
+    // `getByLabel` isn't filtered by the accessibility tree, so once the
+    // desktop's "Start timer" action opens an AddTimerForm, mobile's own
+    // (hidden) copy — mounted on the same selected unit — also matches.
+    // Scope to <main>, the desktop layout's unique landmark.
+    const main = page.getByRole("main");
+
+    // --- Desktop opens on the Recipe overview by default (refinement pass
+    // item 1); switch to "Prep" first via the nav — scoped to the nav
+    // landmark since the Recipe overview's own Sections list at the bottom
+    // also has a same-named button — check its one ingredient, start a
+    // timer via the elevated "Start timer" action in the Section header ---
+    const cookingNav = page.getByRole("navigation", {
+      name: /cooking navigation/i,
+    });
+    await cookingNav.getByRole("button", { name: /Prep/ }).click();
     await expect(page.getByRole("heading", { name: "Prep" })).toBeVisible();
     await page.getByRole("checkbox").check();
 
-    await page.getByRole("button", { name: "Start a timer" }).click();
-    await page.getByLabel("Name").fill("Rice");
-    await page.getByLabel("Minutes").fill("10");
-    await page.getByRole("button", { name: "Start timer" }).click();
-    await expect(page.getByRole("button", { name: /Rice/ })).toBeVisible();
+    await page
+      .getByRole("button", { name: "Start timer", exact: true })
+      .click();
+    await main.getByLabel("Name").fill("Rice");
+    await main.getByLabel("Minutes").fill("10");
+    // The header's own "Start timer" trigger disables itself while this
+    // form is open, so `.last()` unambiguously targets the form's submit.
+    await page
+      .getByRole("button", { name: "Start timer", exact: true })
+      .last()
+      .click();
+    await expect(timerRail.getByText(/Rice/)).toBeVisible();
 
-    // --- Switch to "Sear" in one tap: check its ingredient, start its own
-    // simultaneous timer ---
-    await page.getByRole("button", { name: /Sear/ }).click();
+    // --- Switch to "Sear" in one click via the left nav: check its
+    // ingredient, start its own simultaneous timer ---
+    await cookingNav.getByRole("button", { name: /Sear/ }).click();
     await expect(page.getByRole("heading", { name: "Sear" })).toBeVisible();
     await page.getByRole("checkbox").check();
 
-    await page.getByRole("button", { name: "Start a timer" }).click();
-    await page.getByLabel("Name").fill("Sauce");
-    await page.getByLabel("Minutes").fill("5");
-    await page.getByRole("button", { name: "Start timer" }).click();
+    await page
+      .getByRole("button", { name: "Start timer", exact: true })
+      .click();
+    await main.getByLabel("Name").fill("Sauce");
+    await main.getByLabel("Minutes").fill("5");
+    await page
+      .getByRole("button", { name: "Start timer", exact: true })
+      .last()
+      .click();
 
-    // Both timers are simultaneously accessible from the persistent strip,
-    // regardless of which unit is currently focused.
-    await expect(page.getByRole("button", { name: /Rice/ })).toBeVisible();
-    await expect(page.getByRole("button", { name: /Sauce/ })).toBeVisible();
+    // Both timers are simultaneously visible and controllable in the rail,
+    // regardless of which Section is currently selected.
+    await expect(timerRail.getByText(/Rice/)).toBeVisible();
+    await expect(timerRail.getByText(/Sauce/)).toBeVisible();
 
     // --- Refresh: both timers' target end times and both checkoffs persist ---
     await page.reload();
-    await expect(page.getByRole("button", { name: /Rice/ })).toBeVisible();
-    await expect(page.getByRole("button", { name: /Sauce/ })).toBeVisible();
+    await expect(timerRail.getByText(/Rice/)).toBeVisible();
+    await expect(timerRail.getByText(/Sauce/)).toBeVisible();
 
     await expect(page.getByRole("heading", { name: "Sear" })).toBeVisible();
     await expect(page.getByRole("checkbox")).toBeChecked();
-    await page.getByRole("button", { name: /Prep/ }).click();
+    await cookingNav.getByRole("button", { name: /Prep/ }).click();
     await expect(page.getByRole("checkbox")).toBeChecked();
   });
 });

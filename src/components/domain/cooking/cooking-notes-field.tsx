@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { NotebookPen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { updateCookingNotes } from "@/lib/reviews/actions";
@@ -43,10 +42,7 @@ export function CookingNotesField({
 
   return (
     <section className="flex flex-col gap-2">
-      <h2 className="text-muted-foreground flex items-center gap-1.5 text-xs font-medium tracking-wide uppercase">
-        <NotebookPen className="size-3.5" aria-hidden="true" />
-        Cooking notes
-      </h2>
+      <h2 className="font-heading text-lg font-medium">Cooking Notes</h2>
       <Textarea
         value={value}
         onChange={(e) => {
@@ -55,7 +51,7 @@ export function CookingNotesField({
         }}
         placeholder="Used larger chicken breasts. Rice finished before the vegetables…"
         rows={3}
-        className="text-sm"
+        className="bg-card dark:bg-card text-sm"
       />
       <div className="flex items-center gap-2">
         <Button

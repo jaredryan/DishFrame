@@ -85,15 +85,29 @@ test.describe("Session Review: rate, edit, delete, evidence survives", () => {
     await expect(page).toHaveURL(/\/cook\/[^/]+$/, { timeout: 15_000 });
     const sessionId = page.url().match(/\/cook\/([^/]+)/)![1];
 
-    // --- Cooking notes are editable during cooking, and check off progress
-    // so there's real evidence to preserve ---
-    await page.locator("textarea").fill("Used a bigger knife.");
+    // --- Cooking notes live on the Recipe overview, which is where desktop
+    // opens by default (refinement pass item 1) — editable during cooking ---
+    // Mobile's layout stays in the DOM (`lg:hidden`) alongside desktop's, so
+    // a bare CSS-selector locator like `locator("textarea")` — unfiltered by
+    // the accessibility tree, unlike `getByRole` — matches both copies.
+    // Scope to <main>, the desktop layout's unique landmark.
+    const main = page.getByRole("main");
+    await main.locator("textarea").fill("Used a bigger knife.");
     await page.getByRole("button", { name: "Save notes" }).click();
     await expect(page.getByText("Saved.")).toBeVisible();
+
+    // --- Check off progress in the one Section, so there's real evidence
+    // to preserve. Scoped to the nav landmark — the Recipe overview's own
+    // Sections list at the bottom also has a same-named button. ---
+    const cookingNav = page.getByRole("navigation", {
+      name: /cooking navigation/i,
+    });
+    await cookingNav.getByRole("button", { name: /Prep/ }).click();
     await page.getByRole("checkbox").check();
+    await page.getByRole("button", { name: title, exact: true }).click();
 
     // --- Finish the session → redirected straight to the Review ---
-    await page.getByRole("button", { name: "End" }).click();
+    await page.getByRole("button", { name: "End Cooking" }).click();
     await page
       .getByRole("dialog")
       .getByRole("button", { name: "Finish session" })
@@ -151,7 +165,8 @@ test.describe("Session Review: rate, edit, delete, evidence survives", () => {
     await expect(page).toHaveURL(`/cook/${sessionId}`);
 
     // --- Cooking Session evidence and Cooking notes survive the deletion ---
-    await expect(page.locator("textarea")).toHaveValue("Used a bigger knife.");
+    await expect(main.locator("textarea")).toHaveValue("Used a bigger knife.");
+    await cookingNav.getByRole("button", { name: /Prep/ }).click();
     await expect(page.getByRole("checkbox")).toBeChecked();
   });
 });

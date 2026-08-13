@@ -134,7 +134,7 @@ test.describe("Cooking: setup, start, edit active plan, end early", () => {
     await expect(page.getByText("Sear", { exact: true })).toBeVisible();
 
     // --- Start cooking: a real Cooking Session is created, landing in the
-    // dedicated Cooking Mode surface focused on the first unit ---
+    // dedicated Cooking Mode surface ---
     await page.getByRole("button", { name: "Start cooking" }).click();
     // Generous timeout, not the default: this is the first navigation to
     // /cook/[sessionId] in the whole suite, so it pays Turbopack's one-time
@@ -142,13 +142,40 @@ test.describe("Cooking: setup, start, edit active plan, end early", () => {
     // network round trip — a known cause of slowness, not a hang.
     await expect(page).toHaveURL(/\/cook\/[^/]+$/, { timeout: 15_000 });
     const sessionId = page.url().match(/\/cook\/([^/]+)/)![1];
-    await expect(page.getByRole("heading", { name: "Prep" })).toBeVisible();
-    await expect(page.getByText("Ginger")).toBeVisible();
 
-    // --- Switch focus to the other unit in one tap ---
-    await page.getByRole("button", { name: /Sear/ }).click();
+    // --- Desktop opens on the Recipe overview by default (refinement pass
+    // item 1) — session-level actions are visible immediately ---
+    await expect(page.getByRole("heading", { name: title })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Manage plan" }),
+    ).toBeVisible();
+
+    // Mobile's single-column layout stays in the DOM (just `lg:hidden`)
+    // alongside the desktop three-zone layout, so plain-text locators like
+    // `getByText` — which, unlike `getByRole`, aren't filtered by the
+    // accessibility tree — can match both copies. Scope to <main>, the
+    // desktop layout's unique landmark, to disambiguate.
+    const main = page.getByRole("main");
+
+    // --- Switch to "Prep" via the left nav. Scoped to the nav landmark —
+    // the Recipe overview's own Sections list at the bottom also has a
+    // same-named button, so an unscoped locator would be ambiguous. ---
+    const cookingNav = page.getByRole("navigation", {
+      name: /cooking navigation/i,
+    });
+    await cookingNav.getByRole("button", { name: /Prep/ }).click();
+    await expect(page.getByRole("heading", { name: "Prep" })).toBeVisible();
+    await expect(main.getByText("Ginger")).toBeVisible();
+
+    // --- Switch focus to the other Section in one click, via the desktop
+    // left nav rail (replaces the old horizontal Section strip) ---
+    await cookingNav.getByRole("button", { name: /Sear/ }).click();
     await expect(page.getByRole("heading", { name: "Sear" })).toBeVisible();
-    await expect(page.getByText("Soy sauce")).toBeVisible();
+    await expect(main.getByText("Soy sauce")).toBeVisible();
+
+    // --- Session management (Manage plan, End Cooking) lives behind the
+    // "Recipe" nav destination on desktop ---
+    await page.getByRole("button", { name: title, exact: true }).click();
 
     // --- Edit the active plan via the Manage-plan sheet: remove "Prep",
     // confirm it moves to Removed, then restore it ---
@@ -163,10 +190,10 @@ test.describe("Cooking: setup, start, edit active plan, end early", () => {
     ).not.toBeVisible();
     await page.getByRole("button", { name: "Done" }).click();
 
-    // --- End early: redirected to the optional Review (§30.2); "Not now"
-    // returns to the session with partial progress preserved and state
-    // updated ---
-    await page.getByRole("button", { name: "End" }).click();
+    // --- End Cooking: redesigned modal offers four outcomes; "End early"
+    // redirects to the optional Review (§30.2) — "Not now" returns to the
+    // session with partial progress preserved and state updated ---
+    await page.getByRole("button", { name: "End Cooking" }).click();
     await page
       .getByRole("dialog")
       .getByRole("button", { name: "End early" })
@@ -174,7 +201,9 @@ test.describe("Cooking: setup, start, edit active plan, end early", () => {
     await expect(page).toHaveURL(`/cook/${sessionId}/review`);
     await page.getByRole("link", { name: "Not now" }).click();
     await expect(page).toHaveURL(`/cook/${sessionId}`);
-    await expect(page.getByText("Ended early")).toBeVisible();
-    await expect(page.getByRole("button", { name: "End" })).not.toBeVisible();
+    await expect(main.getByText("Ended early")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "End Cooking" }),
+    ).not.toBeVisible();
   });
 });
