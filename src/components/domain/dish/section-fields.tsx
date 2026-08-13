@@ -1,5 +1,3 @@
-"use client";
-
 import * as React from "react";
 import { Copy } from "lucide-react";
 import { useFieldArray, useFormContext, useWatch } from "react-hook-form";

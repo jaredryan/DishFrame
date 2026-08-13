@@ -1,5 +1,3 @@
-"use client";
-
 import * as React from "react";
 import { Link2, RotateCcw, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";

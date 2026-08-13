@@ -198,12 +198,15 @@ pnpm build               # production build
 pnpm start               # run the production build
 pnpm lint                # eslint
 pnpm typecheck           # tsc --noEmit
+pnpm diagnostics         # Next.js TS language-service plugin diagnostics
+                          # (client/server boundary, serializable props, etc.)
+                          # — not covered by tsc or eslint; see scripts/next-diagnostics.ts
 pnpm test:frontend       # vitest (unit/component)
 pnpm test:watch          # vitest, watch mode
 pnpm test:e2e            # playwright (starts its own dev server)
 pnpm format              # prettier --write
 pnpm format:check        # prettier --check
-pnpm check               # format + lint + typecheck + build
+pnpm check               # format + lint + typecheck + diagnostics + build
 pnpm db:generate         # generate the Prisma client
 pnpm db:migrate          # create/apply a migration in development
 pnpm db:deploy           # apply pending migrations only (CI)

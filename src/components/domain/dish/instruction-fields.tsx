@@ -1,5 +1,3 @@
-"use client";
-
 import { Trash2 } from "lucide-react";
 import { useFormContext } from "react-hook-form";
 import { useSortable } from "@dnd-kit/sortable";

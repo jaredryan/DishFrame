@@ -1,5 +1,3 @@
-"use client";
-
 import * as React from "react";
 import { PackagePlus } from "lucide-react";
 import { useFormContext } from "react-hook-form";

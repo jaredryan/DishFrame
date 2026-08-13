@@ -1,5 +1,3 @@
-"use client";
-
 import { X } from "lucide-react";
 import { useFormContext } from "react-hook-form";
 import { Checkbox } from "@/components/ui/checkbox";

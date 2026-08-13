@@ -1,5 +1,3 @@
-"use client";
-
 import { Check, ChevronDown, ChevronUp, RotateCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";

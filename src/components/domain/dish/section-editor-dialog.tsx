@@ -1,5 +1,3 @@
-"use client";
-
 import * as React from "react";
 import { Plus, XIcon } from "lucide-react";
 import {

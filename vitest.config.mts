@@ -26,7 +26,11 @@ export default defineConfig({
     // under full-suite load, not due to any defect in the tests.
     testTimeout: 15000,
     setupFiles: ["./src/test/setup.ts"],
-    include: ["src/**/*.test.{ts,tsx}", "*.test.{ts,tsx}"],
+    include: [
+      "src/**/*.test.{ts,tsx}",
+      "*.test.{ts,tsx}",
+      "scripts/**/*.test.{ts,tsx}",
+    ],
     // Integration tests hit a real disposable Postgres and run separately
     // via vitest.integration.config.mts (`pnpm test:integration`).
     exclude: ["tests/e2e/**", "src/**/*.integration.test.ts"],

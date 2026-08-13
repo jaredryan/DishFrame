@@ -1,5 +1,3 @@
-"use client";
-
 import * as React from "react";
 import type { FormEvent } from "react";
 import { Search, ScanLine } from "lucide-react";
