@@ -3,9 +3,18 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Check, Circle, Pencil, Sparkles, Trash2 } from "lucide-react";
+import {
+  Check,
+  CheckCircle2,
+  Eye,
+  Pencil,
+  RotateCcw,
+  Save,
+  Trash2,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -33,6 +42,7 @@ import { STAGE_LABEL } from "@/components/domain/dish/stage-badge";
 import {
   restorableStageValues,
   type RestorableStageValue,
+  type StageValue,
 } from "@/lib/dishes/schema";
 
 export type SessionContextUnit = {
@@ -50,12 +60,50 @@ type ExistingReview = {
   actualAmountQuantity: number | null;
   actualAmountUnit: string | null;
   reviewAdjustedDurationSeconds: number | null;
+  // Post-cook review redesign — the reviewer's own previously saved "This
+  // session included" selection. Only present once a Review row already
+  // exists; a brand new Review has no saved selection yet to reopen.
+  includedUnitIds: string[];
 } | null;
 
-type StageSuggestion = {
-  targetStage: RestorableStageValue;
-  message: string;
-} | null;
+/**
+ * Small self-contained toast — no app-wide toast system exists yet
+ * (post-cook review redesign item 4). Fixed-position and independent of
+ * document flow so it never shifts the success screen's own layout, and
+ * auto-dismisses so no lingering state needs manual clearing.
+ */
+type ToastState = { kind: "success" | "error"; message: string } | null;
+
+function useToast() {
+  const [toast, setToast] = React.useState<ToastState>(null);
+  React.useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 4000);
+    return () => clearTimeout(timer);
+  }, [toast]);
+  return [toast, setToast] as const;
+}
+
+function ReviewToast({ toast }: { toast: ToastState }) {
+  if (!toast) return null;
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="fixed inset-x-0 bottom-6 z-50 flex justify-center px-4"
+    >
+      <div
+        className={`rounded-lg px-4 py-2 text-sm font-medium shadow-lg ${
+          toast.kind === "success"
+            ? "bg-success text-success-foreground"
+            : "bg-destructive text-destructive-foreground"
+        }`}
+      >
+        {toast.message}
+      </div>
+    </div>
+  );
+}
 
 function formatMinutes(seconds: number | null): string {
   if (seconds == null) return "";
@@ -80,7 +128,7 @@ export function SessionReviewForm({
   existingReview,
   existingRatings,
   rawElapsedSeconds,
-  stageSuggestion,
+  currentStage,
 }: {
   sessionId: string;
   dishId: string;
@@ -96,7 +144,9 @@ export function SessionReviewForm({
   existingReview: ExistingReview;
   existingRatings: Array<{ tasterId: string; value: number }>;
   rawElapsedSeconds: number | null;
-  stageSuggestion: StageSuggestion;
+  // The stage-editor's neutral default (item 4 of the post-cook review
+  // refinement pass) — the Dish's actual current Stage, not a suggestion.
+  currentStage: StageValue | null;
 }) {
   const router = useRouter();
   const basePath = dishBasePath(dishKind === "PART" ? "PART" : "RECIPE");
@@ -130,21 +180,53 @@ export function SessionReviewForm({
     Object.fromEntries(existingRatings.map((r) => [r.tasterId, r.value])),
   );
 
+  // "This session included" real multi-select checkboxes (post-cook review
+  // redesign item 1). Prefilled from the previously saved review selection
+  // when reopening an existing Review; otherwise from the session's own
+  // recorded completion state — either way, only the initial default: the
+  // reviewer can freely check/uncheck from here, and that final selection
+  // (not the session's own checklist data) is what gets persisted.
+  const [includedUnitIds, setIncludedUnitIds] = React.useState<Set<string>>(
+    () =>
+      new Set(
+        existingReview
+          ? existingReview.includedUnitIds
+          : contextUnits.filter((u) => u.completed).map((u) => u.id),
+      ),
+  );
+
   const [isPending, startTransition] = React.useTransition();
   const [error, setError] = React.useState<string | null>(null);
   const [justSaved, setJustSaved] = React.useState(false);
   const [deleteOpen, setDeleteOpen] = React.useState(false);
   const [isDeleting, startDeleteTransition] = React.useTransition();
+  const defaultStage: RestorableStageValue =
+    currentStage != null &&
+    (restorableStageValues as readonly string[]).includes(currentStage)
+      ? (currentStage as RestorableStageValue)
+      : "EXPERIMENTAL";
   const [changingStage, setChangingStage] = React.useState(false);
+  // Draft dropdown choice, kept separate from the actually-persisted Stage
+  // (`persistedStage`) so changing the dropdown can never retroactively
+  // change what a success toast reports (post-cook review refinement pass
+  // item 4's save-state bug fix).
   const [selectedStage, setSelectedStage] =
-    React.useState<RestorableStageValue>(
-      stageSuggestion?.targetStage ?? "EXPERIMENTAL",
-    );
-  const [stageSaved, setStageSaved] = React.useState(false);
-  const [suggestionDismissed, setSuggestionDismissed] = React.useState(false);
+    React.useState<RestorableStageValue>(defaultStage);
+  const [persistedStage, setPersistedStage] =
+    React.useState<RestorableStageValue>(defaultStage);
+  const [toast, setToast] = useToast();
 
   const hasExistingReview =
     existingReview != null || existingRatings.length > 0;
+
+  function toggleIncludedUnit(unitId: string, checked: boolean) {
+    setIncludedUnitIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(unitId);
+      else next.delete(unitId);
+      return next;
+    });
+  }
 
   function handleSave() {
     setError(null);
@@ -170,6 +252,7 @@ export function SessionReviewForm({
             ? Math.round(minutes * 60)
             : null,
         ratings,
+        includedUnitIds: [...includedUnitIds],
       });
       if (result.status === "error") {
         setError(result.message);
@@ -195,6 +278,11 @@ export function SessionReviewForm({
     });
   }
 
+  function handleOpenStageEditor() {
+    setSelectedStage(persistedStage);
+    setChangingStage(true);
+  }
+
   function handleConfirmStage(stage: RestorableStageValue) {
     startTransition(async () => {
       const result = await updateDishStage(
@@ -202,19 +290,34 @@ export function SessionReviewForm({
         { dishId, stage },
       );
       if (result.status === "error") {
-        setError(result.message ?? null);
+        setToast({
+          kind: "error",
+          message: result.message ?? "Could not update stage.",
+        });
         return;
       }
-      setStageSaved(true);
+      // `stage` is the value this exact call confirmed, closed over at call
+      // time — never re-read from `selectedStage`, which the reviewer is
+      // free to keep changing while this request is in flight.
+      setPersistedStage(stage);
       setChangingStage(false);
-      setSuggestionDismissed(true);
+      setToast({
+        kind: "success",
+        message: `Stage updated to ${STAGE_LABEL[stage]}.`,
+      });
     });
   }
 
+  function handleCancelStage() {
+    setSelectedStage(persistedStage);
+    setChangingStage(false);
+  }
+
   if (justSaved) {
+    const lowerLabel = label.toLowerCase();
     return (
-      <div className="flex flex-col gap-6">
-        <div className="flex flex-col items-center gap-2 py-6 text-center">
+      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-8 text-center">
+        <div className="flex flex-col items-center gap-2">
           <div className="bg-brand-green/10 text-brand-green flex size-12 items-center justify-center rounded-full">
             <Check className="size-6" aria-hidden="true" />
           </div>
@@ -224,55 +327,25 @@ export function SessionReviewForm({
           <p className="text-muted-foreground text-sm">
             Your notes and ratings for {dishTitle} are saved.
           </p>
+          <p className="text-muted-foreground text-sm">
+            Depending on how it went, you can update this {lowerLabel}&apos;s
+            stage here.
+          </p>
         </div>
 
-        {stageSuggestion && !suggestionDismissed && !stageSaved && (
-          <div className="border-brand-violet/30 bg-brand-violet/5 flex flex-col gap-2 rounded-lg border p-3">
-            <p className="text-foreground flex items-start gap-1.5 text-sm">
-              <Sparkles
-                className="text-brand-violet mt-0.5 size-4 shrink-0"
-                aria-hidden="true"
-              />
-              {stageSuggestion.message}
-            </p>
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                disabled={isPending}
-                onClick={() => handleConfirmStage(stageSuggestion.targetStage)}
-              >
-                Move to {STAGE_LABEL[stageSuggestion.targetStage]}
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setSuggestionDismissed(true)}
-              >
-                Not now
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {stageSaved && (
-          <p className="text-muted-foreground text-center text-sm">
-            Stage updated to {STAGE_LABEL[selectedStage]}.
-          </p>
-        )}
-
-        {changingStage && (
-          <div className="border-border flex flex-col gap-2 rounded-lg border p-3">
-            <Label htmlFor="change-stage-select" className="text-sm">
-              Change Stage
-            </Label>
-            <div className="flex gap-2">
+        <div className="flex w-full flex-col gap-2">
+          {changingStage ? (
+            <div className="border-border flex flex-col gap-2 rounded-lg border p-3 text-left">
+              <Label htmlFor="change-stage-select" className="text-sm">
+                {label} stage
+              </Label>
               <Select
                 value={selectedStage}
                 onValueChange={(v) =>
                   setSelectedStage(v as RestorableStageValue)
                 }
               >
-                <SelectTrigger id="change-stage-select" className="flex-1">
+                <SelectTrigger id="change-stage-select" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -283,41 +356,56 @@ export function SessionReviewForm({
                   ))}
                 </SelectContent>
               </Select>
-              <Button
-                size="sm"
-                disabled={isPending}
-                onClick={() => handleConfirmStage(selectedStage)}
-              >
-                Save
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={handleCancelStage}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  className="flex-1"
+                  disabled={isPending}
+                  onClick={() => handleConfirmStage(selectedStage)}
+                >
+                  Save
+                </Button>
+              </div>
             </div>
-          </div>
-        )}
-
-        {error && (
-          <p role="alert" className="text-destructive-text text-center text-sm">
-            {error}
-          </p>
-        )}
-
-        <div className="flex flex-col gap-2">
-          <Button asChild variant="outline">
-            <Link
-              href={`${basePath}/${dishId}/edit?versionId=${dishVersionId}&sessionId=${sessionId}`}
-            >
-              <Pencil className="size-4" aria-hidden="true" />
-              Edit {label}
-            </Link>
-          </Button>
-          {!changingStage && (
-            <Button variant="outline" onClick={() => setChangingStage(true)}>
-              Change Stage
+          ) : (
+            <Button variant="outline" onClick={handleOpenStageEditor}>
+              <RotateCcw className="size-4" aria-hidden="true" />
+              Change {lowerLabel} stage
             </Button>
           )}
+
+          <div className="flex gap-2">
+            <Button asChild variant="outline" className="flex-1">
+              <Link href={`${basePath}/${dishId}`}>
+                <Eye className="size-4" aria-hidden="true" />
+                View {lowerLabel}
+              </Link>
+            </Button>
+            <Button asChild variant="outline" className="flex-1">
+              <Link
+                href={`${basePath}/${dishId}/edit?versionId=${dishVersionId}&sessionId=${sessionId}`}
+              >
+                <Pencil className="size-4" aria-hidden="true" />
+                Edit {lowerLabel}
+              </Link>
+            </Button>
+          </div>
+
           <Button asChild>
-            <Link href={`${basePath}/${dishId}`}>Done</Link>
+            <Link href={`${basePath}/${dishId}/history`}>
+              <CheckCircle2 className="size-4" aria-hidden="true" />
+              Done
+            </Link>
           </Button>
         </div>
+
+        <ReviewToast toast={toast} />
       </div>
     );
   }
@@ -342,27 +430,31 @@ export function SessionReviewForm({
       </CoachMark>
 
       {contextUnits.length > 0 && (
-        <div className="border-border bg-muted/30 flex flex-col gap-1 rounded-lg border p-3 text-sm">
+        <div className="border-border bg-muted/30 flex flex-col gap-2 rounded-lg border p-3 text-sm">
           <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
             This session included
           </p>
-          <ul className="flex flex-col gap-1">
-            {contextUnits.map((unit) => (
-              <li
-                key={unit.id}
-                className={`flex items-center gap-2 ${unit.completed ? "text-foreground" : "text-muted-foreground"}`}
-              >
-                {unit.completed ? (
-                  <Check
-                    className="text-brand-green size-4 shrink-0"
-                    aria-hidden="true"
+          <ul className="flex flex-col gap-2">
+            {contextUnits.map((unit) => {
+              const checkboxId = `included-unit-${unit.id}`;
+              return (
+                <li key={unit.id} className="flex items-center gap-2">
+                  <Checkbox
+                    id={checkboxId}
+                    checked={includedUnitIds.has(unit.id)}
+                    onCheckedChange={(checked) =>
+                      toggleIncludedUnit(unit.id, checked === true)
+                    }
                   />
-                ) : (
-                  <Circle className="size-4 shrink-0" aria-hidden="true" />
-                )}
-                {unit.label}
-              </li>
-            ))}
+                  <Label
+                    htmlFor={checkboxId}
+                    className="text-foreground text-sm font-normal"
+                  >
+                    {unit.label}
+                  </Label>
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}
@@ -467,7 +559,8 @@ export function SessionReviewForm({
 
       <div className="flex flex-col gap-2">
         <Button onClick={handleSave} disabled={isPending}>
-          {isPending ? "Saving…" : "Save Review"}
+          <Save className="size-4" aria-hidden="true" />
+          {isPending ? "Saving…" : "Save review"}
         </Button>
         <div className="flex gap-2">
           <Button

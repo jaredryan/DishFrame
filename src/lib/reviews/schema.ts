@@ -23,6 +23,10 @@ export const saveSessionReviewSchema = z.object({
   actualAmountUnit: z.string().trim().max(60).nullable(),
   reviewAdjustedDurationSeconds: z.number().int().min(0).nullable(),
   ratings: z.array(reviewRatingInputSchema),
+  // Post-cook review redesign — the reviewer's own final "This session
+  // included" selection (real checkboxes, not the session's own completion
+  // state). Re-validated server-side against the session's own active units.
+  includedUnitIds: z.array(z.string()),
 });
 export type SaveSessionReviewInput = z.infer<typeof saveSessionReviewSchema>;
 

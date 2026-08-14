@@ -244,9 +244,18 @@ export function CookingModeShell({
   });
   const hasRunningTimer = allTimers.some((t) => t.state === "RUNNING");
 
+  // Refinement pass item 1: an explicit End-cooking outcome (Leave & resume
+  // later / End early / Finish session) already asked the user what they
+  // want — set right before those programmatic navigations so the browser's
+  // own leave warning doesn't also fire. Departures DishFrame can't
+  // replace with its own modal (refresh, closing the tab, browser back/
+  // forward, a typed URL) still hit the listener below untouched.
+  const skipLeaveWarningRef = React.useRef(false);
+
   React.useEffect(() => {
     if (!isActive || !hasRunningTimer) return;
     function handleBeforeUnload(e: BeforeUnloadEvent) {
+      if (skipLeaveWarningRef.current) return;
       e.preventDefault();
     }
     window.addEventListener("beforeunload", handleBeforeUnload);
@@ -326,7 +335,7 @@ export function CookingModeShell({
       // Any checklist toggle still debouncing must land before the session
       // leaves IN_PROGRESS — the server rejects checklist writes against an
       // inactive session, so ending first would silently drop a check made
-      // just before "End Cooking".
+      // just before "End cooking".
       await checklistState.flush();
       const result = await endCookingSession({ sessionId, outcome });
       setConfirmingEnd(false);
@@ -336,6 +345,7 @@ export function CookingModeShell({
         // PRODUCT_SPEC.md §33.1/§42 "Ending": both outcomes offer an
         // optional Review — the Review page's own "Not now" is what
         // actually satisfies "creates no empty Review," not this redirect.
+        skipLeaveWarningRef.current = true;
         router.push(`/cook/${sessionId}/review`);
       }
     });
@@ -345,6 +355,7 @@ export function CookingModeShell({
    * leave Cooking Mode without ending the still-active session. */
   function handleLeaveAndResume() {
     setConfirmingEnd(false);
+    skipLeaveWarningRef.current = true;
     router.push("/cook");
   }
 
@@ -558,7 +569,7 @@ export function CookingModeShell({
                 disabled={isPending}
               >
                 <CircleStop className="size-4" aria-hidden="true" />
-                End Cooking
+                End cooking
               </Button>
             </div>
           )}

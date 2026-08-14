@@ -423,7 +423,7 @@ function RecipePanel({
           </Button>
           <Button size="sm" onClick={onRequestEnd}>
             <CircleStop className="size-4" aria-hidden="true" />
-            End Cooking
+            End cooking
           </Button>
         </div>
       )}

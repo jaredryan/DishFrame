@@ -235,18 +235,29 @@ export function CompletedCookSessionCard({
 export function CookSessionsView({
   active,
   completed,
+  emptyStateDishTitle,
 }: {
   active: SessionRowData[];
   completed: CompletedSessionRowData[];
+  // Set when this view is scoped to one Dish's own history (Recipe detail's
+  // "Cooking history" action) — swaps in a scope-aware empty state instead
+  // of the generic "start your first session" copy.
+  emptyStateDishTitle?: string;
 }) {
   if (active.length === 0 && completed.length === 0) {
     return (
       <div className="text-muted-foreground flex flex-col items-center gap-2 py-16 text-center text-sm">
         <ChefHat className="size-8" aria-hidden="true" />
         <p>
-          Open a Recipe or Part and choose{" "}
-          <span className="text-foreground font-medium">Cook</span> to start
-          your first Cooking Session.
+          {emptyStateDishTitle ? (
+            <>No Cooking Sessions for {emptyStateDishTitle} yet.</>
+          ) : (
+            <>
+              Open a Recipe or Part and choose{" "}
+              <span className="text-foreground font-medium">Cook</span> to
+              start your first Cooking Session.
+            </>
+          )}
         </p>
       </div>
     );

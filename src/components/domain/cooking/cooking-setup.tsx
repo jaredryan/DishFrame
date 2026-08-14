@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDown, ChevronUp, Plus, Trash2 } from "lucide-react";
+import { ChefHat, ChevronDown, ChevronUp, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   ContentCard,
@@ -309,6 +309,7 @@ export function CookingSetup({
           onClick={handleStart}
           disabled={isPending || includedKeys.length === 0}
         >
+          <ChefHat className="size-4" aria-hidden="true" />
           {isPending ? "Starting…" : "Start cooking"}
         </Button>
         <Button variant="outline" asChild>

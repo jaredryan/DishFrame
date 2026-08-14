@@ -8,6 +8,7 @@ import {
   getOwnedSessionOrThrow,
   buildCookableUnits,
   computeChecklistItemConflict,
+  listSessionsForOwner,
 } from "@/lib/cooking/queries";
 import { decimalToNumber } from "@/lib/dishes/format";
 import { getDishScopedVersionContentOrThrow } from "@/lib/dishes/queries";
@@ -545,6 +546,48 @@ describe("cooking session service", () => {
       where: { id: finished.id },
     });
     expect(stillCompleted.state).toBe("COMPLETED");
+  });
+
+  it("listSessionsForOwner scopes both active and recently-ended sessions to a single Dish when a dishId is given", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+    const { recipeId, recipeVersionId, sectionUnit } =
+      await setUpRecipeWithPart(userId);
+
+    const otherRecipeId = await dishService.createDish(
+      userId,
+      "RECIPE",
+      recipeContent({ title: "Other Bowl" }),
+    );
+    const otherVersionId = await currentVersionId(otherRecipeId);
+    const otherUnits = await unitsFor(userId, otherRecipeId);
+    const otherSectionUnit = otherUnits.find((u) => u.kind === "SECTION")!;
+
+    const finished = await cookingService.startCookingSession(userId, {
+      dishId: recipeId,
+      dishVersionId: recipeVersionId,
+      units: [{ unitKey: sectionUnit.unitKey }],
+    });
+    await cookingService.endCookingSession(userId, finished.id, "COMPLETED");
+
+    const stillActive = await cookingService.startCookingSession(userId, {
+      dishId: otherRecipeId,
+      dishVersionId: otherVersionId,
+      units: [{ unitKey: otherSectionUnit.unitKey }],
+    });
+
+    const scoped = await listSessionsForOwner(userId, { dishId: recipeId });
+    expect(scoped.active).toHaveLength(0);
+    expect(scoped.recentEnded.map((s) => s.id)).toEqual([finished.id]);
+
+    const unscoped = await listSessionsForOwner(userId);
+    const unscopedIds = [
+      ...unscoped.active.map((s) => s.id),
+      ...unscoped.recentEnded.map((s) => s.id),
+    ];
+    expect(unscopedIds).toEqual(
+      expect.arrayContaining([finished.id, stillActive.id]),
+    );
   });
 
   it("rejects a non-owner for every session mutation", async () => {

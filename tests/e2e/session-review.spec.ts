@@ -107,7 +107,7 @@ test.describe("Session Review: rate, edit, delete, evidence survives", () => {
     await page.getByRole("button", { name: title, exact: true }).click();
 
     // --- Finish the session → redirected straight to the Review ---
-    await page.getByRole("button", { name: "End Cooking" }).click();
+    await page.getByRole("button", { name: "End cooking" }).click();
     await page
       .getByRole("dialog")
       .getByRole("button", { name: "Finish session" })
@@ -119,15 +119,15 @@ test.describe("Session Review: rate, edit, delete, evidence survives", () => {
 
     // --- Save a rating-only Review (5 stars for "You") ---
     await page.getByRole("radio", { name: "5 stars" }).click();
-    await page.getByRole("button", { name: "Save Review" }).click();
+    await page.getByRole("button", { name: "Save review" }).click();
     await expect(
       page.getByRole("heading", { name: "Review saved" }),
     ).toBeVisible();
 
-    // --- Edit Recipe opens the shared editor pinned to the exact cooked
+    // --- Edit recipe opens the shared editor pinned to the exact cooked
     // Version, with session evidence quickly accessible without losing
     // unsaved edits (§39.4/§39.5) ---
-    await page.getByRole("link", { name: "Edit Recipe" }).click();
+    await page.getByRole("link", { name: "Edit recipe" }).click();
     await expect(page).toHaveURL(
       new RegExp(
         `/recipes/[^/]+/edit\\?versionId=[^&]+&sessionId=${sessionId}$`,
@@ -150,7 +150,7 @@ test.describe("Session Review: rate, edit, delete, evidence survives", () => {
     // --- Edit the Review: change the rating to 3 stars ---
     await page.goto(`/cook/${sessionId}/review`);
     await page.getByRole("radio", { name: "3 stars" }).click();
-    await page.getByRole("button", { name: "Save Review" }).click();
+    await page.getByRole("button", { name: "Save review" }).click();
     await expect(
       page.getByRole("heading", { name: "Review saved" }),
     ).toBeVisible();

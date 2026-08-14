@@ -35,7 +35,7 @@ export function StarRatingInput({
           aria-checked={value === star}
           aria-label={`${star} star${star === 1 ? "" : "s"}`}
           disabled={disabled}
-          className="flex min-h-11 min-w-9 items-center justify-center disabled:opacity-50"
+          className="flex min-h-11 min-w-9 cursor-pointer items-center justify-center disabled:opacity-50"
           onMouseEnter={() => setHovered(star)}
           onFocus={() => setHovered(star)}
           onBlur={() => setHovered(null)}

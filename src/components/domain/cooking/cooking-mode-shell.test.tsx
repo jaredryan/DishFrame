@@ -203,7 +203,7 @@ describe("CookingModeShell — desktop navigation", () => {
       within(main).getByRole("heading", { name: "Test Bowl" }),
     ).toBeInTheDocument();
     expect(
-      within(main).getByRole("button", { name: "End Cooking" }),
+      within(main).getByRole("button", { name: "End cooking" }),
     ).toBeInTheDocument();
 
     // The Recipe overview also lists Sections at the bottom, as another
@@ -752,13 +752,13 @@ describe("CookingModeShell — scaling dialogs (retargeted to the desktop tree)"
   });
 });
 
-describe("CookingModeShell — End Cooking", () => {
+describe("CookingModeShell — End cooking", () => {
   it("offers four outcomes, and 'Keep cooking' dismisses without ending the session", async () => {
     const user = userEvent.setup();
     render(<CookingModeShell {...baseProps} units={[unit({})]} />);
 
     await user.click(
-      within(desktopMain()).getByRole("button", { name: "End Cooking" }),
+      within(desktopMain()).getByRole("button", { name: "End cooking" }),
     );
 
     const dialog = screen.getByRole("dialog", { name: /end cooking\?/i });
@@ -787,7 +787,7 @@ describe("CookingModeShell — End Cooking", () => {
     render(<CookingModeShell {...baseProps} units={[unit({})]} />);
 
     await user.click(
-      within(desktopMain()).getByRole("button", { name: "End Cooking" }),
+      within(desktopMain()).getByRole("button", { name: "End cooking" }),
     );
     await user.click(
       screen.getByRole("button", { name: "Leave & resume later" }),
@@ -802,7 +802,7 @@ describe("CookingModeShell — End Cooking", () => {
     render(<CookingModeShell {...baseProps} units={[unit({})]} />);
 
     await user.click(
-      within(desktopMain()).getByRole("button", { name: "End Cooking" }),
+      within(desktopMain()).getByRole("button", { name: "End cooking" }),
     );
     await user.click(screen.getByRole("button", { name: "End early" }));
 
@@ -819,7 +819,7 @@ describe("CookingModeShell — End Cooking", () => {
     render(<CookingModeShell {...baseProps} units={[unit({})]} />);
 
     await user.click(
-      within(desktopMain()).getByRole("button", { name: "End Cooking" }),
+      within(desktopMain()).getByRole("button", { name: "End cooking" }),
     );
     await user.click(screen.getByRole("button", { name: "Finish session" }));
 
@@ -829,6 +829,101 @@ describe("CookingModeShell — End Cooking", () => {
         outcome: "COMPLETED",
       }),
     );
+  });
+});
+
+describe("CookingModeShell — leave-page warning bypass", () => {
+  /**
+   * Refinement pass item 1: the browser's own beforeunload confirmation is
+   * the fallback for departures DishFrame can't replace with its own modal
+   * (refresh, closing the tab, browser back/forward, a typed URL) — it
+   * should still fire on its own. But an explicit End-cooking outcome
+   * already asked the user what they want, so that specific programmatic
+   * navigation must not also trigger it.
+   */
+  function runningTimerUnits(): CookingModeUnit[] {
+    return [
+      unit({
+        timers: [
+          {
+            id: "timer-1",
+            name: "Rice",
+            durationSeconds: 600,
+            targetEndAt: new Date(Date.now() + 600_000).toISOString(),
+            remainingSeconds: 600,
+            state: "RUNNING",
+          },
+        ],
+      }),
+    ];
+  }
+
+  function dispatchBeforeUnload(): boolean {
+    const event = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
+  }
+
+  it("still shows the browser leave warning while a timer runs and no explicit End-cooking outcome has been chosen", () => {
+    render(<CookingModeShell {...baseProps} units={runningTimerUnits()} />);
+    expect(dispatchBeforeUnload()).toBe(true);
+  });
+
+  it("bypasses the browser leave warning after 'Leave & resume later'", async () => {
+    const user = userEvent.setup();
+    render(<CookingModeShell {...baseProps} units={runningTimerUnits()} />);
+
+    await user.click(
+      within(desktopMain()).getByRole("button", { name: "End cooking" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Leave & resume later" }),
+    );
+
+    expect(dispatchBeforeUnload()).toBe(false);
+  });
+
+  it("bypasses the browser leave warning after 'End early'", async () => {
+    const user = userEvent.setup();
+    render(<CookingModeShell {...baseProps} units={runningTimerUnits()} />);
+
+    await user.click(
+      within(desktopMain()).getByRole("button", { name: "End cooking" }),
+    );
+    await user.click(screen.getByRole("button", { name: "End early" }));
+
+    await waitFor(() => expect(mockedEndCookingSession).toHaveBeenCalled());
+    expect(dispatchBeforeUnload()).toBe(false);
+  });
+
+  it("bypasses the browser leave warning after 'Finish session'", async () => {
+    const user = userEvent.setup();
+    render(<CookingModeShell {...baseProps} units={runningTimerUnits()} />);
+
+    await user.click(
+      within(desktopMain()).getByRole("button", { name: "End cooking" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Finish session" }));
+
+    await waitFor(() => expect(mockedEndCookingSession).toHaveBeenCalled());
+    expect(dispatchBeforeUnload()).toBe(false);
+  });
+
+  it("does not bypass the warning when ending the session fails", async () => {
+    mockedEndCookingSession.mockResolvedValueOnce({
+      status: "error",
+      message: "Could not end this session.",
+    });
+    const user = userEvent.setup();
+    render(<CookingModeShell {...baseProps} units={runningTimerUnits()} />);
+
+    await user.click(
+      within(desktopMain()).getByRole("button", { name: "End cooking" }),
+    );
+    await user.click(screen.getByRole("button", { name: "End early" }));
+
+    await waitFor(() => expect(mockedEndCookingSession).toHaveBeenCalled());
+    expect(dispatchBeforeUnload()).toBe(true);
   });
 });
 

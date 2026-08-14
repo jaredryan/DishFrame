@@ -173,7 +173,7 @@ test.describe("Cooking: setup, start, edit active plan, end early", () => {
     await expect(page.getByRole("heading", { name: "Sear" })).toBeVisible();
     await expect(main.getByText("Soy sauce")).toBeVisible();
 
-    // --- Session management (Manage plan, End Cooking) lives behind the
+    // --- Session management (Manage plan, End cooking) lives behind the
     // "Recipe" nav destination on desktop ---
     await page.getByRole("button", { name: title, exact: true }).click();
 
@@ -190,10 +190,10 @@ test.describe("Cooking: setup, start, edit active plan, end early", () => {
     ).not.toBeVisible();
     await page.getByRole("button", { name: "Done" }).click();
 
-    // --- End Cooking: redesigned modal offers four outcomes; "End early"
+    // --- End cooking: redesigned modal offers four outcomes; "End early"
     // redirects to the optional Review (§30.2) — "Not now" returns to the
     // session with partial progress preserved and state updated ---
-    await page.getByRole("button", { name: "End Cooking" }).click();
+    await page.getByRole("button", { name: "End cooking" }).click();
     await page
       .getByRole("dialog")
       .getByRole("button", { name: "End early" })
@@ -203,7 +203,7 @@ test.describe("Cooking: setup, start, edit active plan, end early", () => {
     await expect(page).toHaveURL(`/cook/${sessionId}`);
     await expect(main.getByText("Ended early")).toBeVisible();
     await expect(
-      page.getByRole("button", { name: "End Cooking" }),
+      page.getByRole("button", { name: "End cooking" }),
     ).not.toBeVisible();
   });
 });

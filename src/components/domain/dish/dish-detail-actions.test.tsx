@@ -35,6 +35,46 @@ async function openExportDialog() {
   return user;
 }
 
+describe("DishDetailActions overflow menu — Cooking history", () => {
+  it("links a Recipe's 'Cooking history' action to its own dedicated history page", async () => {
+    const user = userEvent.setup();
+    render(
+      <DishDetailActions
+        dishId="dish1"
+        kind="RECIPE"
+        stage="ACTIVE"
+        currentVersionId="v2"
+        versions={versions}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+
+    const link = await screen.findByRole("menuitem", {
+      name: "Cooking history",
+    });
+    expect(link).toHaveAttribute("href", "/recipes/dish1/history");
+  });
+
+  it("also offers a Part's own 'Cooking history' action, distinct from its composition-based history", async () => {
+    const user = userEvent.setup();
+    render(
+      <DishDetailActions
+        dishId="part1"
+        kind="PART"
+        stage="ACTIVE"
+        currentVersionId="v2"
+        versions={versions}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+
+    const link = await screen.findByRole("menuitem", {
+      name: "Cooking history",
+    });
+    expect(link).toHaveAttribute("href", "/parts/part1/history");
+  });
+});
+
 // Each privacy-tier row renders its own "Download" link with an identical
 // accessible name (no shared aria-label with the tier heading) — the
 // dialog always renders them Standard, Detailed, Full private history, in

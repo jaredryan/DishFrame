@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   Archive,
+  ChefHat,
   Copy,
   Download,
   GitCompareArrows,
@@ -228,6 +229,11 @@ export function DishDetailActions({
             <DropdownMenuItem asChild>
               <Link href={`${basePath}/${dishId}/compare`}>
                 <GitCompareArrows /> Compare versions
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href={`${basePath}/${dishId}/history`}>
+                <ChefHat /> Cooking history
               </Link>
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setOpenDialog("duplicate")}>

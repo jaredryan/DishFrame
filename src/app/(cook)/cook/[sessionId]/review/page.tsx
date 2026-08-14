@@ -6,8 +6,6 @@ import {
   getOwnedSessionForReview,
   listReviewTasterOptions,
 } from "@/lib/reviews/queries";
-import { countFinishedSessionsForDish } from "@/lib/cooking/queries";
-import { getStageSuggestion } from "@/lib/dishes/stage-suggestions";
 import { decimalToNumber } from "@/lib/dishes/format";
 import {
   SessionReviewForm,
@@ -59,12 +57,6 @@ export default async function SessionReviewPage({
     session.user.id,
     sessionId,
   );
-  const finishedSessionCount = dish
-    ? await countFinishedSessionsForDish(dish.id)
-    : 0;
-  const stageSuggestion = dish
-    ? getStageSuggestion(dish.stage, finishedSessionCount)
-    : null;
 
   const contextUnits: SessionContextUnit[] = cookingSession.units
     .filter((u) => !u.removedAt)
@@ -102,12 +94,13 @@ export default async function SessionReviewPage({
                 actualAmountUnit: cookingSession.review.actualAmountUnit,
                 reviewAdjustedDurationSeconds:
                   cookingSession.review.reviewAdjustedDurationSeconds,
+                includedUnitIds: cookingSession.review.includedUnitIds,
               }
             : null
         }
         existingRatings={existingRatings}
         rawElapsedSeconds={cookingSession.rawElapsedSeconds}
-        stageSuggestion={stageSuggestion}
+        currentStage={dish?.stage ?? null}
       />
     </div>
   );

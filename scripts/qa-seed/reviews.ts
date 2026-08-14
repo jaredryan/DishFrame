@@ -20,6 +20,7 @@ function reviewInput(
     actualAmountUnit: null,
     reviewAdjustedDurationSeconds: null,
     ratings: [],
+    includedUnitIds: [],
     ...overrides,
   };
 }

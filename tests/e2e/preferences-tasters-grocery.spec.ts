@@ -133,7 +133,15 @@ test.describe("Settings: Preferences, Grocery Categories, and Tasters", () => {
 
     // --- Preferences: change a setting and confirm it persists ---
     await page.getByLabel("Measurement system").click();
-    await page.getByRole("option", { name: "Metric" }).click();
+    // Synchronize on the Server Action's own POST, same as every other
+    // mutation in this file — otherwise this assertion races the round
+    // trip and can time out on a loaded dev server even though nothing is
+    // actually broken (see the generous-timeout comments elsewhere in this
+    // file for the same underlying cause).
+    await clickAndWaitForServerAction(
+      page,
+      page.getByRole("option", { name: "Metric" }),
+    );
     // `getByRole("status")` alone is ambiguous on this page: dnd-kit's
     // `DndContext` (mounted by GroceryCategoryManager below) renders its
     // own hidden `role="status"` live region for drag announcements, so a
@@ -357,9 +365,18 @@ test.describe("Settings: Preferences, Grocery Categories, and Tasters", () => {
     // owner Tooltip hovers above: this waits on real render/hydration work
     // on a Next dev server under load, not a fixed local delay, and can
     // lag past the 5s default without anything actually being broken.
-    await expect(page.getByText("Archived")).toBeVisible({ timeout: 15_000 });
+    // Exact match: the archive success feedback banner renders "Archived."
+    // (from the server action's message) in the same commit as the row's
+    // "Archived" badge, so a substring match here is ambiguous by
+    // construction, not just occasionally flaky — same class of bug as the
+    // dnd-kit live-region note above.
+    await expect(
+      page.getByText("Archived", { exact: true }),
+    ).toBeVisible({ timeout: 15_000 });
     await page.reload();
-    await expect(page.getByText("Archived")).toBeVisible({ timeout: 15_000 });
+    await expect(
+      page.getByText("Archived", { exact: true }),
+    ).toBeVisible({ timeout: 15_000 });
 
     await clickAndWaitForServerAction(
       page,

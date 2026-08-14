@@ -14,14 +14,36 @@ import type { SaveSessionReviewInput } from "@/lib/reviews/schema";
  * touches.
  */
 
-function hasMeaningfulContent(input: SaveSessionReviewInput): boolean {
+/** The same "completed at session end" default the Review page itself
+ * prefills checkboxes from — used here only to detect whether the
+ * reviewer's submitted selection is a deliberate deviation worth saving on
+ * its own. */
+function defaultIncludedUnitIds(
+  units: Array<{ id: string; removedAt: Date | null; completedAt: Date | null }>,
+): string[] {
+  return units
+    .filter((u) => !u.removedAt && u.completedAt != null)
+    .map((u) => u.id);
+}
+
+function sameUnitIdSet(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const bSet = new Set(b);
+  return a.every((id) => bSet.has(id));
+}
+
+function hasMeaningfulContent(
+  input: SaveSessionReviewInput,
+  defaultUnitIds: string[],
+): boolean {
   return (
     !!input.whatWentWell ||
     !!input.whatDidNotGoWell ||
     !!input.anythingElse ||
     input.actualAmountQuantity != null ||
     input.reviewAdjustedDurationSeconds != null ||
-    input.ratings.length > 0
+    input.ratings.length > 0 ||
+    !sameUnitIdSet(input.includedUnitIds, defaultUnitIds)
   );
 }
 
@@ -49,7 +71,18 @@ export async function saveSessionReview(
     );
   }
 
-  if (!hasMeaningfulContent(input)) {
+  // Never trust client-supplied unit ids past this session's own active
+  // units — silently drops anything else rather than erroring, matching
+  // this module's general "re-derive server-side" posture.
+  const validUnitIds = new Set(
+    session.units.filter((u) => !u.removedAt).map((u) => u.id),
+  );
+  const includedUnitIds = input.includedUnitIds.filter((id) =>
+    validUnitIds.has(id),
+  );
+  const defaultUnitIds = defaultIncludedUnitIds(session.units);
+
+  if (!hasMeaningfulContent(input, defaultUnitIds)) {
     await clearReviewAndRatings(input.sessionId);
     return { deleted: true };
   }
@@ -98,6 +131,7 @@ export async function saveSessionReview(
         actualAmountQuantity: input.actualAmountQuantity,
         actualAmountUnit: input.actualAmountUnit,
         reviewAdjustedDurationSeconds: input.reviewAdjustedDurationSeconds,
+        includedUnitIds,
       },
       update: {
         whatWentWell: input.whatWentWell,
@@ -106,6 +140,7 @@ export async function saveSessionReview(
         actualAmountQuantity: input.actualAmountQuantity,
         actualAmountUnit: input.actualAmountUnit,
         reviewAdjustedDurationSeconds: input.reviewAdjustedDurationSeconds,
+        includedUnitIds,
       },
     });
 

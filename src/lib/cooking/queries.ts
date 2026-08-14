@@ -127,11 +127,18 @@ export function findActiveSessionForDish(ownerId: string, dishId: string) {
 const RECENT_ENDED_SESSION_LIMIT = 10;
 
 // PRODUCT_SPEC.md §26.6 — `/cook` index: active sessions plus a bounded
-// window of recently-ended ones.
-export async function listSessionsForOwner(ownerId: string) {
+// window of recently-ended ones. An optional `dishId` scopes both lists to
+// one Recipe/Part's own history (Recipe detail's "Cooking history" action) —
+// scoped, the recently-ended window is uncapped, since a single Dish's own
+// history is never as large as the cross-Dish feed this cap exists for.
+export async function listSessionsForOwner(
+  ownerId: string,
+  options?: { dishId?: string },
+) {
+  const dishId = options?.dishId;
   const [active, recentEnded] = await Promise.all([
     prisma.cookingSession.findMany({
-      where: { ownerId, state: "IN_PROGRESS" },
+      where: { ownerId, state: "IN_PROGRESS", ...(dishId ? { dishId } : {}) },
       orderBy: { updatedAt: "desc" },
       select: {
         id: true,
@@ -142,9 +149,13 @@ export async function listSessionsForOwner(ownerId: string) {
       },
     }),
     prisma.cookingSession.findMany({
-      where: { ownerId, state: { in: ["COMPLETED", "ENDED_EARLY"] } },
+      where: {
+        ownerId,
+        state: { in: ["COMPLETED", "ENDED_EARLY"] },
+        ...(dishId ? { dishId } : {}),
+      },
       orderBy: { endedAt: "desc" },
-      take: RECENT_ENDED_SESSION_LIMIT,
+      ...(dishId ? {} : { take: RECENT_ENDED_SESSION_LIMIT }),
       select: {
         id: true,
         dishId: true,
@@ -748,14 +759,6 @@ export async function getPartCookingHistory(
   }
 
   return events.sort((a, b) => b.endedAt.getTime() - a.endedAt.getTime());
-}
-
-/** PRODUCT_SPEC.md §40.3: "meaningful use" evidence behind a Stage
- * suggestion — every session that reached an outcome, Ended-early included. */
-export function countFinishedSessionsForDish(dishId: string) {
-  return prisma.cookingSession.count({
-    where: { dishId, state: { in: ["COMPLETED", "ENDED_EARLY"] } },
-  });
 }
 
 const QUANTITY_CONFLICT_TOLERANCE = 0.01;

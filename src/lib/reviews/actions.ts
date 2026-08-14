@@ -30,6 +30,7 @@ export async function saveSessionReview(values: {
   actualAmountUnit: string | null;
   reviewAdjustedDurationSeconds: number | null;
   ratings: Array<{ tasterId: string; value: number }>;
+  includedUnitIds: string[];
 }): Promise<SaveSessionReviewActionState> {
   try {
     const userId = await requireUserId();

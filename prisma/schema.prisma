@@ -703,6 +703,14 @@ model SessionReview {
   actualAmountQuantity          Decimal? @db.Decimal(12, 3)
   actualAmountUnit              String?
   reviewAdjustedDurationSeconds Int?
+  // Post-cook review redesign — the reviewer's own retrospective "This
+  // session included" selection, distinct from (and never rewriting)
+  // CookingSessionUnit.completedAt. `[]` is a deliberate saved choice
+  // (every unit unchecked); a review row that has never had this field
+  // written distinguishes itself only by not existing yet at all — the
+  // Session Review page recomputes a fresh default from the session's own
+  // completion state until the first save creates this row.
+  includedUnitIds               String[] @default([])
   createdAt                     DateTime @default(now())
   updatedAt                     DateTime @updatedAt
 

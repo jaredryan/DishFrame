@@ -14,7 +14,6 @@ import {
   getSessionEvidenceForEditor,
 } from "@/lib/reviews/queries";
 import { getLastCookedAt, getPartCookingHistory } from "@/lib/cooking/queries";
-import { getStageSuggestion } from "@/lib/dishes/stage-suggestions";
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import type { DishContentInput } from "@/lib/dishes/schema";
 import type { SaveSessionReviewInput } from "@/lib/reviews/schema";
@@ -231,6 +230,7 @@ describe("reviews and ratings", () => {
       actualAmountUnit: null,
       reviewAdjustedDurationSeconds: null,
       ratings: [],
+      includedUnitIds: [],
       ...overrides,
     };
   }
@@ -1396,16 +1396,5 @@ describe("reviews and ratings", () => {
     expect(
       await getSessionEvidenceForEditor(otherUserId, session.id),
     ).toBeNull();
-  });
-});
-
-describe("Stage suggestions", () => {
-  it("suggests the next Stage only after at least one finished session, and never past Active", () => {
-    expect(getStageSuggestion("IDEA", 0)).toBeNull();
-    expect(getStageSuggestion("IDEA", 1)?.targetStage).toBe("EXPERIMENTAL");
-    expect(getStageSuggestion("EXPERIMENTAL", 1)?.targetStage).toBe("PROVEN");
-    expect(getStageSuggestion("PROVEN", 1)?.targetStage).toBe("ACTIVE");
-    expect(getStageSuggestion("ACTIVE", 10)).toBeNull();
-    expect(getStageSuggestion("ARCHIVED", 10)).toBeNull();
   });
 });
