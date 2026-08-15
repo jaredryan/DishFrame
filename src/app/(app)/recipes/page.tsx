@@ -4,6 +4,7 @@ import { NotebookPen } from "lucide-react";
 import { redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth/session";
 import { Button } from "@/components/ui/button";
+import { AppPageLayout } from "@/components/app/app-page-layout";
 import { DishLibraryView } from "@/components/domain/dish/dish-library-view";
 import { parseLibrarySearchParams } from "@/lib/dishes/library-filters";
 
@@ -24,18 +25,11 @@ export default async function RecipesPage({
   const filters = parseLibrarySearchParams(await searchParams);
 
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="font-heading text-foreground text-2xl font-semibold">
-            Recipes
-          </h1>
-          <p className="text-muted-foreground mt-2 max-w-xl">
-            Every recipe you organize in DishFrame lives here, built from
-            sections you write or reuse.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
+    <AppPageLayout
+      title="Recipes"
+      description="Every recipe you organize in DishFrame lives here, built from sections you write or reuse."
+      action={
+        <>
           <Button asChild variant="outline">
             <Link href="/recipes/import">Import</Link>
           </Button>
@@ -44,14 +38,14 @@ export default async function RecipesPage({
               <NotebookPen /> Create recipe
             </Link>
           </Button>
-        </div>
-      </div>
-
+        </>
+      }
+    >
       <DishLibraryView
         ownerId={session.user.id}
         kind="RECIPE"
         filters={filters}
       />
-    </div>
+    </AppPageLayout>
   );
 }

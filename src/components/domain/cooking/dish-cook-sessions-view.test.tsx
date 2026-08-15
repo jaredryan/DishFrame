@@ -88,7 +88,9 @@ describe("DishActiveSessionCard", () => {
       ),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(new RegExp(timeFormatter.format(activeSession.startedAt))),
+      screen.getByText(
+        new RegExp(timeFormatter.format(activeSession.startedAt)),
+      ),
     ).toBeInTheDocument();
     expect(screen.getByText(/min elapsed/)).toBeInTheDocument();
   });

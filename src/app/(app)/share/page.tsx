@@ -15,6 +15,7 @@ import { DirectShareReceivedList } from "@/components/domain/sharing/direct-shar
 import { ShareMenuButton } from "@/components/domain/sharing/share-menu-button";
 import { Badge } from "@/components/ui/badge";
 import { CoachMark } from "@/components/onboarding/coach-mark";
+import { AppPageLayout } from "@/components/app/app-page-layout";
 
 export const metadata: Metadata = {
   title: "Sharing",
@@ -53,20 +54,13 @@ export default async function SharePage() {
   }, 0);
 
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="font-heading text-foreground text-2xl font-semibold">
-            Sharing
-          </h1>
-          <p className="text-muted-foreground mt-2">
-            Exchange recipes and parts directly with other DishFrame users, or
-            create public links anyone can view without an account.
-          </p>
-        </div>
-        <ShareMenuButton />
-      </div>
-
+    <AppPageLayout
+      title="Sharing"
+      description="Exchange recipes and parts directly with other DishFrame users, or create public links anyone can view without an account."
+      descriptionClassName="text-muted-foreground mt-2"
+      action={<ShareMenuButton />}
+      width="narrow"
+    >
       <CoachMark guideKey="sharing-intro" title="Direct sends and public links">
         <strong className="text-foreground">Sending directly</strong> goes to
         one specific DishFrame account, who can accept or decline. A{" "}
@@ -108,6 +102,6 @@ export default async function SharePage() {
           }))}
         />
       </section>
-    </div>
+    </AppPageLayout>
   );
 }

@@ -9,6 +9,7 @@ import {
 } from "@/components/domain/mealplans/new-meal-plan-form";
 import { MealPlanListView } from "@/components/domain/mealplans/meal-plan-list-view";
 import { CoachMark } from "@/components/onboarding/coach-mark";
+import { AppPageLayout } from "@/components/app/app-page-layout";
 
 export const metadata: Metadata = { title: "Meal Plans" };
 
@@ -20,22 +21,11 @@ export default async function MealPlansPage() {
 
   return (
     <MealPlanCreateProvider>
-      <div className="mx-auto flex max-w-5xl flex-col gap-6">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="font-heading text-foreground text-2xl font-semibold">
-              Meal Plans
-            </h1>
-            <p className="text-muted-foreground mt-2 max-w-xl">
-              Build a date-range plan from your Recipes and Parts, then generate
-              a grocery list that stays in sync while you shop.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <MealPlanCreateTrigger />
-          </div>
-        </div>
-
+      <AppPageLayout
+        title="Meal Plans"
+        description="Build a date-range plan from your Recipes and Parts, then generate a grocery list that stays in sync while you shop."
+        action={<MealPlanCreateTrigger />}
+      >
         <CoachMark guideKey="meal-plans-intro" title="Meal Plans">
           A Meal Plan is a batch of planned meals across a date range, each
           pointing at an exact Recipe/Part Version. Add entries below, then
@@ -47,7 +37,7 @@ export default async function MealPlansPage() {
         <MealPlanCreatePanel />
 
         <MealPlanListView active={active} completed={completed} />
-      </div>
+      </AppPageLayout>
     </MealPlanCreateProvider>
   );
 }

@@ -10,7 +10,6 @@ import {
   Eye,
   Trash2,
 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
@@ -21,7 +20,6 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { TooltipIconButton } from "@/components/domain/dish/reorder-buttons";
-import { DishKindBadge } from "@/components/domain/dish/dish-kind-badge";
 import { formatRelativeAge } from "@/lib/format/relative-time";
 import { endCookingSession, deleteCookingSession } from "@/lib/cooking/actions";
 import {
@@ -92,9 +90,7 @@ export function ActiveCookSessionCard({
           {session.dishTitle}
         </p>
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          {session.dishKind && <DishKindBadge kind={session.dishKind} />}
-          <Badge
-            variant="outline"
+          <StaticPill
             className={
               isStale(session.startedAt)
                 ? "border-orange-500/40 text-orange-600 dark:text-orange-400"
@@ -103,7 +99,11 @@ export function ActiveCookSessionCard({
           >
             <Clock className="size-3" aria-hidden="true" />
             {formatRelativeAge(session.startedAt)}
-          </Badge>
+          </StaticPill>
+          <StaticPill>
+            <Clock className="size-3" aria-hidden="true" />
+            {formatElapsedLabel(session.startedAt)}
+          </StaticPill>
         </div>
         {error && (
           <p role="alert" className="text-destructive-text mt-1 text-xs">
@@ -196,7 +196,7 @@ export function CookActiveSessionCard({
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <StaticPill>
               <Clock className="size-3.5" aria-hidden="true" />
-              Started {formatRelativeAge(session.startedAt)}
+              {formatRelativeAge(session.startedAt)}
             </StaticPill>
             <StaticPill>
               <Clock className="size-3.5" aria-hidden="true" />
@@ -428,7 +428,7 @@ export function CookSessionsView({
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
+    <div className="grid gap-6 xl:grid-cols-2 xl:items-start">
       <section className="flex flex-col gap-3">
         <h2 className="text-muted-foreground text-sm font-medium tracking-wide uppercase">
           Active

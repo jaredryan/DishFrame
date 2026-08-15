@@ -12,6 +12,7 @@ import {
 } from "@/components/domain/grocery/grocery-source-picker";
 import { GroceryListRows } from "@/components/domain/grocery/grocery-list-rows";
 import { CoachMark } from "@/components/onboarding/coach-mark";
+import { AppPageLayout } from "@/components/app/app-page-layout";
 
 export const metadata: Metadata = { title: "Grocery lists" };
 
@@ -26,22 +27,13 @@ export default async function GroceryListsPage() {
 
   return (
     <GrocerySourcePickerProvider>
-      <div className="mx-auto flex max-w-5xl flex-col gap-6">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="font-heading text-foreground text-2xl font-semibold">
-              Grocery lists
-            </h1>
-            <p className="text-muted-foreground mt-2 max-w-xl">
-              Generate a shopping list from your Recipes and Parts, combine
-              equivalent items, and check them off as you shop.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <GrocerySourcePickerTrigger hasCandidates={candidates.length > 0} />
-          </div>
-        </div>
-
+      <AppPageLayout
+        title="Grocery lists"
+        description="Generate a shopping list from your Recipes and Parts, combine equivalent items, and check them off as you shop."
+        action={
+          <GrocerySourcePickerTrigger hasCandidates={candidates.length > 0} />
+        }
+      >
         <CoachMark guideKey="grocery-lists-intro" title="Grocery Lists">
           Generate a list from one or more Recipes/Parts, or from a Meal Plan.
           Equivalent items combine automatically, and checking items off here
@@ -51,7 +43,7 @@ export default async function GroceryListsPage() {
         <GrocerySourcePickerPanel candidates={candidates} />
 
         <GroceryListRows active={active} completed={completed} />
-      </div>
+      </AppPageLayout>
     </GrocerySourcePickerProvider>
   );
 }

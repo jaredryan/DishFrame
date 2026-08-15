@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { ReplayableGuideList } from "@/components/onboarding/replayable-guide-list";
 import { ContactForm } from "@/components/marketing/contact-form";
+import { AppPageLayout } from "@/components/app/app-page-layout";
 
 export const metadata: Metadata = {
   title: "Help",
@@ -112,19 +113,12 @@ const JUMP_LINKS = [
 
 export default function HelpPage() {
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-6">
-      <div>
-        <h1 className="font-heading text-foreground text-2xl font-semibold">
-          Help
-        </h1>
-        <p className="text-muted-foreground mt-2">
-          DishFrame is a framework for organizing, cooking, and improving the
-          dishes you make. It keeps recipes organized into sections, lets you
-          reuse preparations across recipes, and remembers what you learn each
-          time you cook.
-        </p>
-      </div>
-
+    <AppPageLayout
+      title="Help"
+      description="DishFrame is a framework for organizing, cooking, and improving the dishes you make. It keeps recipes organized into sections, lets you reuse preparations across recipes, and remembers what you learn each time you cook."
+      descriptionClassName="text-muted-foreground mt-2"
+      width="narrow"
+    >
       <div>
         <h2 className="font-heading text-foreground text-lg font-semibold">
           Jump to
@@ -204,6 +198,6 @@ export default function HelpPage() {
         </p>
         <ContactForm />
       </div>
-    </div>
+    </AppPageLayout>
   );
 }

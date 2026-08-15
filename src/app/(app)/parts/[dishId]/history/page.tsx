@@ -7,6 +7,7 @@ import { NotFoundError } from "@/lib/errors";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
 import { DishCookSessionsView } from "@/components/domain/cooking/dish-cook-sessions-view";
+import { AppPageLayout } from "@/components/app/app-page-layout";
 
 export async function generateMetadata({
   params,
@@ -62,29 +63,24 @@ export default async function PartCookingHistoryPage({
   );
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6">
-      <Breadcrumbs
-        items={[
-          { label: "Parts", href: basePath },
-          { label: displayTitle, href: `${basePath}/${dish.id}` },
-          { label: "Cooking history" },
-        ]}
-      />
-
-      <div>
-        <h1 className="font-heading text-foreground text-2xl font-semibold">
-          Cooking history
-        </h1>
-        <p className="text-muted-foreground mt-2 max-w-xl">
-          Every Cooking Session for {displayTitle}, newest first.
-        </p>
-      </div>
-
+    <AppPageLayout
+      beforeHeader={
+        <Breadcrumbs
+          items={[
+            { label: "Parts", href: basePath },
+            { label: displayTitle, href: `${basePath}/${dish.id}` },
+            { label: "Cooking history" },
+          ]}
+        />
+      }
+      title="Cooking history"
+      description={`Every Cooking Session for ${displayTitle}, newest first.`}
+    >
       <DishCookSessionsView
         active={active}
         completed={completed}
         emptyStateDishTitle={displayTitle}
       />
-    </div>
+    </AppPageLayout>
   );
 }

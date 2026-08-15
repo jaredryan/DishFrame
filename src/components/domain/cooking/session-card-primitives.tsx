@@ -1,13 +1,15 @@
 import * as React from "react";
 import { ChevronDown, Star } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 /**
  * Shared collapsed/expanded trigger for a Cooking Session card's Ratings/
  * Notes disclosures (dish-specific Cooking history redesign, reused by the
- * general `/cook` cards) — a "subtle selected/open visual state" plus a
- * rotating chevron. `disabled` renders the same chevron treatment,
- * non-interactively, for the "No ratings" state.
+ * general `/cook` cards) — built on the app's standard `Badge` chip so
+ * height/text color match every other chip, plus a rotating chevron and a
+ * "subtle selected/open visual state". `disabled` renders the same chevron
+ * treatment, non-interactively, for the "No ratings" state.
  */
 export function DisclosurePill({
   children,
@@ -21,45 +23,58 @@ export function DisclosurePill({
   disabled?: boolean;
 }) {
   return (
-    <button
-      type="button"
-      disabled={disabled}
-      aria-expanded={disabled ? undefined : open}
-      onClick={onClick}
+    <Badge
+      asChild
+      variant="outline"
       className={cn(
-        "border-border inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+        "gap-1 transition-colors",
         disabled
-          ? "text-muted-foreground cursor-default"
+          ? "text-muted-foreground"
           : cn(
               "cursor-pointer",
               open
                 ? "bg-accent text-accent-foreground border-accent"
-                : "text-foreground hover:bg-muted",
+                : "hover:bg-muted",
             ),
       )}
     >
-      {children}
-      <ChevronDown
-        className={cn(
-          "size-3.5 transition-transform",
-          !disabled && open && "rotate-180",
-        )}
-        aria-hidden="true"
-      />
-    </button>
+      <button
+        type="button"
+        disabled={disabled}
+        aria-expanded={disabled ? undefined : open}
+        onClick={onClick}
+        className={disabled ? "cursor-default" : undefined}
+      >
+        {children}
+        <ChevronDown
+          className={cn(
+            "size-3.5 transition-transform",
+            !disabled && open && "rotate-180",
+          )}
+          aria-hidden="true"
+        />
+      </button>
+    </Badge>
   );
 }
 
 /**
- * Noninteractive pill matching `DisclosurePill`'s size/padding/border
- * treatment but with no chevron — used for the elapsed/relative-time chips,
- * which aren't disclosures.
+ * Noninteractive chip matching `DisclosurePill`'s size/border treatment but
+ * with no chevron — used for the elapsed/relative-time chips, which aren't
+ * disclosures. A thin wrapper over the app's standard `Badge` so these stay
+ * visually identical to every other chip in the app.
  */
-export function StaticPill({ children }: { children: React.ReactNode }) {
+export function StaticPill({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
   return (
-    <span className="border-border text-muted-foreground inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium">
+    <Badge variant="outline" className={className}>
       {children}
-    </span>
+    </Badge>
   );
 }
 
@@ -178,16 +193,15 @@ export function RatingsBreakdown({
   );
 }
 
-/** Non-live "N min elapsed" / "N hr M min elapsed" label — same computation
- * shared by the dish-scoped and general `/cook` Active cards. */
+/** Non-live "N min elapsed" (under 1 hour) / "N hour(s) elapsed" (1 hour or
+ * more, rounded to the nearest whole hour) label — same computation shared
+ * by the dish-scoped and general `/cook` Active cards. */
 export function formatElapsedLabel(startedAt: Date): string {
   const totalMinutes = Math.max(
     0,
     Math.floor((Date.now() - startedAt.getTime()) / 60000),
   );
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  return hours > 0
-    ? `${hours} hr ${minutes} min elapsed`
-    : `${minutes} min elapsed`;
+  if (totalMinutes < 60) return `${totalMinutes} min elapsed`;
+  const hours = Math.round(totalMinutes / 60);
+  return `${hours} hour${hours === 1 ? "" : "s"} elapsed`;
 }

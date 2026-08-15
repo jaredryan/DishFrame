@@ -9,7 +9,6 @@ import {
   RotateCcw,
   Trash2,
 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -95,7 +94,6 @@ export function MealPlanCard({
           {plan.title}
         </p>
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          {isCompleted && <Badge variant="outline">Completed</Badge>}
           <span className="text-muted-foreground text-xs">
             {formatRange(plan.startDate, plan.endDate)} · {plan._count.entries}{" "}
             entr{plan._count.entries === 1 ? "y" : "ies"}

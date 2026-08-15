@@ -13,6 +13,7 @@ import { listTasters } from "@/lib/tasters/queries";
 import { listFlavorProfileValues } from "@/lib/flavor-profiles/queries";
 import { listTagsWithUsageCount } from "@/lib/tags/queries";
 import { prisma } from "@/lib/db/prisma";
+import { AppPageLayout } from "@/components/app/app-page-layout";
 
 export const metadata: Metadata = {
   title: "Settings",
@@ -52,16 +53,12 @@ export default async function SettingsPage() {
     ]);
 
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-6">
-      <div>
-        <h1 className="font-heading text-foreground text-2xl font-semibold">
-          Settings
-        </h1>
-        <p className="text-muted-foreground mt-2">
-          How DishFrame behaves for your account.
-        </p>
-      </div>
-
+    <AppPageLayout
+      title="Settings"
+      description="How DishFrame behaves for your account."
+      descriptionClassName="text-muted-foreground mt-2"
+      width="narrow"
+    >
       <section className="flex flex-col gap-4">
         <h2 className="text-foreground text-lg font-semibold">Appearance</h2>
         <div className="border-border bg-card flex items-center justify-between gap-4 rounded-xl border p-5">
@@ -149,6 +146,6 @@ export default async function SettingsPage() {
           <GroceryCategoryManager initialCategories={groceryCategories} />
         </div>
       </section>
-    </div>
+    </AppPageLayout>
   );
 }
