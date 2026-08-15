@@ -11,98 +11,54 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { ShareItemSelector } from "@/components/domain/sharing/share-item-selector";
-import {
-  listShareableItemsForSender,
-  sendDirectShareCollection,
-} from "@/lib/sharing/actions";
-import { DIRECT_SHARE_MAX_ITEMS } from "@/lib/sharing/schema";
-import type { ShareableItemSummary } from "@/lib/sharing/collections";
+import { sendDirectShareCollection } from "@/lib/sharing/actions";
+import type { DishKindValue } from "@/lib/dishes/schema";
 
 type Step = "compose" | "review" | "sent";
 
 /**
- * PRODUCT_SPEC.md §85 extension: the generalized Send flow — any mix of
- * Recipes and Parts, one item or many, to an existing DishFrame account or
- * a not-yet-registered email alike, the sender never shown which case
- * applies. This is the `/share` page's "Share → Send" entry point only —
- * nothing is preselected. A Recipe/Part detail page's own "Send" opens
- * `DirectShareSingleItemDialog` instead, locked to that one item (design
- * pass: the old preselect-into-this-selector behavior didn't actually
- * express "send this specific item").
+ * Contextual "Send" from a Recipe/Part detail page: sends this specific
+ * item only. No searchable item selector — the current dish is the only
+ * item in the collection, never editable to add others. Still uses the
+ * same `DirectShareCollection`/`sendDirectShareCollection` backend as the
+ * generalized `/share` Send flow (`DirectShareCollectionDialog`), just
+ * with exactly one child item.
  */
-export function DirectShareCollectionDialog({
+export function DirectShareSingleItemDialog({
   open,
   onOpenChange,
+  dishId,
+  dishKind,
+  dishTitle,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  dishId: string;
+  dishKind: DishKindValue;
+  dishTitle: string;
 }) {
   const [step, setStep] = React.useState<Step>("compose");
   const [email, setEmail] = React.useState("");
-  const [items, setItems] = React.useState<ShareableItemSummary[] | null>(null);
-  const [itemsError, setItemsError] = React.useState<string | null>(null);
-  const [search, setSearch] = React.useState("");
-  const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const [note, setNote] = React.useState("");
   const [sendError, setSendError] = React.useState<string | null>(null);
   const [isPending, startTransition] = React.useTransition();
-
-  const loadedRef = React.useRef(false);
-
-  React.useEffect(() => {
-    if (!open) {
-      loadedRef.current = false;
-      return;
-    }
-    if (loadedRef.current) return;
-    loadedRef.current = true;
-    startTransition(async () => {
-      const result = await listShareableItemsForSender();
-      if (result.status === "error") {
-        setItemsError(result.message);
-        return;
-      }
-      setItems(result.items);
-    });
-  }, [open]);
 
   function close() {
     onOpenChange(false);
     setStep("compose");
     setEmail("");
-    setItems(null);
-    setItemsError(null);
-    setSearch("");
-    setSelected(new Set());
     setNote("");
     setSendError(null);
   }
 
-  const canReview = /\S+@\S+\.\S+/.test(email.trim()) && selected.size > 0;
-
-  function toggleSelected(id: string) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  function selectAll() {
-    if (!items) return;
-    setSelected(
-      new Set(items.slice(0, DIRECT_SHARE_MAX_ITEMS).map((item) => item.id)),
-    );
-  }
+  const canReview = /\S+@\S+\.\S+/.test(email.trim());
 
   function handleSend() {
     setSendError(null);
     startTransition(async () => {
       const result = await sendDirectShareCollection({
         recipientEmail: email,
-        dishIds: [...selected],
+        dishIds: [dishId],
         note: note.trim().length > 0 ? note.trim() : null,
       });
       if (result.status === "error") {
@@ -113,22 +69,24 @@ export function DirectShareCollectionDialog({
     });
   }
 
+  const label = dishKind === "PART" ? "part" : "recipe";
+  const title = `Send this ${label}`;
+
   return (
     <Dialog open={open} onOpenChange={(next) => !next && close()}>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Send</DialogTitle>
+          <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
             {step === "sent"
               ? "Sent."
-              : "Choose who to send to and which items to include, then review before sending."}
+              : "Choose who to send it to, then review before sending."}
           </DialogDescription>
         </DialogHeader>
 
         {step === "sent" ? (
           <p className="text-sm">
-            Sent {selected.size} item{selected.size === 1 ? "" : "s"} to{" "}
-            {email.trim()}.
+            Sent &ldquo;{dishTitle}&rdquo; to {email.trim()}.
           </p>
         ) : step === "review" ? (
           <div className="space-y-4">
@@ -136,9 +94,7 @@ export function DirectShareCollectionDialog({
               <p>
                 Sending to <span className="font-medium">{email.trim()}</span>
               </p>
-              <p className="mt-1">
-                {selected.size} item{selected.size === 1 ? "" : "s"} selected
-              </p>
+              <p className="mt-1">&ldquo;{dishTitle}&rdquo;</p>
             </div>
             {note.trim().length > 0 && (
               <p className="text-sm italic">&ldquo;{note.trim()}&rdquo;</p>
@@ -151,12 +107,14 @@ export function DirectShareCollectionDialog({
           </div>
         ) : (
           <div className="space-y-4">
+            <div className="border-border bg-muted rounded-md border px-3 py-2 text-sm">
+              {dishTitle}
+            </div>
+
             <div className="space-y-2">
-              <Label htmlFor="collection-share-email">
-                Recipient&apos;s email
-              </Label>
+              <Label htmlFor="single-share-email">Recipient&apos;s email</Label>
               <Input
-                id="collection-share-email"
+                id="single-share-email"
                 type="email"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
@@ -168,21 +126,10 @@ export function DirectShareCollectionDialog({
               </p>
             </div>
 
-            <ShareItemSelector
-              items={items}
-              itemsError={itemsError}
-              search={search}
-              onSearchChange={setSearch}
-              selected={selected}
-              onToggle={toggleSelected}
-              onSelectAll={selectAll}
-              maxItems={DIRECT_SHARE_MAX_ITEMS}
-            />
-
             <div className="space-y-2">
-              <Label htmlFor="collection-share-note">Note (optional)</Label>
+              <Label htmlFor="single-share-note">Note (optional)</Label>
               <Textarea
-                id="collection-share-note"
+                id="single-share-note"
                 value={note}
                 onChange={(event) => setNote(event.target.value)}
                 maxLength={1000}

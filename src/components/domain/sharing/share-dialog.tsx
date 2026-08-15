@@ -115,7 +115,7 @@ export function ShareDialog({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="FIXED_SNAPSHOT">
-                    Share this Version (fixed)
+                    Share current version (fixed)
                   </SelectItem>
                   <SelectItem value="CURRENT">Share latest version</SelectItem>
                 </SelectContent>

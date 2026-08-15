@@ -57,15 +57,14 @@ export default async function AppLayout({
   return (
     <OnboardingProvider initialState={onboardingState}>
       <div className="flex min-h-screen">
-        <SidebarNav />
-        <div className="flex flex-1 flex-col">
+        <SidebarNav user={accountUser} />
+        <div className="flex min-w-0 flex-1 flex-col">
           <MobileTopbar>
             <AccountMenu user={accountUser} />
           </MobileTopbar>
-          <header className="border-border hidden items-center justify-end border-b px-6 py-3 md:flex">
-            <AccountMenu user={accountUser} />
-          </header>
-          <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">{children}</main>
+          <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">
+            {children}
+          </main>
         </div>
       </div>
       <InitialIntro

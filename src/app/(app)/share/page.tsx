@@ -12,7 +12,7 @@ import { buildSentItems, buildReceivedItems } from "@/lib/sharing/view-model";
 import { ShareLinkList } from "@/components/domain/sharing/share-link-list";
 import { DirectShareSentList } from "@/components/domain/sharing/direct-share-sent-list";
 import { DirectShareReceivedList } from "@/components/domain/sharing/direct-share-received-list";
-import { SendButton } from "@/components/domain/sharing/send-button";
+import { ShareMenuButton } from "@/components/domain/sharing/share-menu-button";
 import { Badge } from "@/components/ui/badge";
 import { CoachMark } from "@/components/onboarding/coach-mark";
 
@@ -53,7 +53,7 @@ export default async function SharePage() {
   }, 0);
 
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-6">
+    <div className="mx-auto flex max-w-5xl flex-col gap-6">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="font-heading text-foreground text-2xl font-semibold">
@@ -64,7 +64,7 @@ export default async function SharePage() {
             create public links anyone can view without an account.
           </p>
         </div>
-        <SendButton />
+        <ShareMenuButton />
       </div>
 
       <CoachMark guideKey="sharing-intro" title="Direct sends and public links">

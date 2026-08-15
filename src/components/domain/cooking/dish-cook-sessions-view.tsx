@@ -10,7 +10,6 @@ import {
   Eye,
   Trash2,
 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
@@ -21,8 +20,6 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { TooltipIconButton } from "@/components/domain/dish/reorder-buttons";
-import { DishKindBadge } from "@/components/domain/dish/dish-kind-badge";
-import { formatRelativeAge } from "@/lib/format/relative-time";
 import { endCookingSession, deleteCookingSession } from "@/lib/cooking/actions";
 import {
   DisclosureDetail,
@@ -33,136 +30,35 @@ import {
   StaticPill,
   formatElapsedLabel,
 } from "@/components/domain/cooking/session-card-primitives";
-import type { DishKindValue } from "@/lib/dishes/schema";
 import type {
-  CrossDishActiveSessionData,
-  CrossDishCompletedSessionData,
+  DishActiveSessionData,
+  DishCompletedSessionData,
 } from "@/lib/cooking/queries";
 
-const STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000;
+const dateFormatter = new Intl.DateTimeFormat("en-US", {
+  month: "long",
+  day: "numeric",
+  year: "numeric",
+});
+const timeFormatter = new Intl.DateTimeFormat("en-US", {
+  hour: "numeric",
+  minute: "2-digit",
+});
 
-function isStale(startedAt: Date): boolean {
-  return Date.now() - startedAt.getTime() > STALE_THRESHOLD_MS;
-}
-
-export type SessionRowData = {
-  id: string;
-  dishTitle: string;
-  dishKind: DishKindValue | null;
-  startedAt: Date;
-};
-
-/**
- * Active Cooking Session row shared by the Home dashboard's "Continue
- * cooking" section — a compact badge-only presentation, distinct from the
- * `/cook` page's own richer `CookActiveSessionCard` below (Cooking session
- * cards + navigation/profile follow-up item 2). Play is the only way to
- * resume; no row-level click-through.
- */
-export function ActiveCookSessionCard({
-  session,
-}: {
-  session: SessionRowData;
-}) {
-  const router = useRouter();
-  const [isPending, startTransition] = React.useTransition();
-  const [error, setError] = React.useState<string | null>(null);
-  const [endOpen, setEndOpen] = React.useState(false);
-
-  function confirmEnd() {
-    setError(null);
-    startTransition(async () => {
-      const result = await endCookingSession({
-        sessionId: session.id,
-        outcome: "COMPLETED",
-      });
-      setEndOpen(false);
-      if (result.status === "success") {
-        router.refresh();
-      } else {
-        setError(result.message ?? "Could not end this session.");
-      }
-    });
-  }
-
-  return (
-    <li className="border-border bg-card flex items-center justify-between gap-3 rounded-lg border px-4 py-3">
-      <div className="min-w-0">
-        <p className="text-foreground truncate text-sm font-medium">
-          {session.dishTitle}
-        </p>
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          {session.dishKind && <DishKindBadge kind={session.dishKind} />}
-          <Badge
-            variant="outline"
-            className={
-              isStale(session.startedAt)
-                ? "border-orange-500/40 text-orange-600 dark:text-orange-400"
-                : undefined
-            }
-          >
-            <Clock className="size-3" aria-hidden="true" />
-            {formatRelativeAge(session.startedAt)}
-          </Badge>
-        </div>
-        {error && (
-          <p role="alert" className="text-destructive-text mt-1 text-xs">
-            {error}
-          </p>
-        )}
-      </div>
-      <div className="flex shrink-0 items-center gap-1">
-        <TooltipIconButton
-          label={`Resume ${session.dishTitle}`}
-          tooltip="Resume"
-          icon={CirclePlay}
-          onClick={() => router.push(`/cook/${session.id}`)}
-        />
-        <TooltipIconButton
-          label={`End ${session.dishTitle}`}
-          tooltip="End session"
-          icon={CircleStop}
-          onClick={() => setEndOpen(true)}
-        />
-      </div>
-
-      <Dialog open={endOpen} onOpenChange={setEndOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>End &ldquo;{session.dishTitle}&rdquo;?</DialogTitle>
-            <DialogDescription>
-              This marks the session Completed and moves it to your Completed
-              history. Its checked-off progress and timers stay recorded — this
-              can&apos;t be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEndOpen(false)}>
-              Cancel
-            </Button>
-            <Button disabled={isPending} onClick={confirmEnd}>
-              End session
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </li>
-  );
+function formatAbsoluteTimestamp(date: Date): string {
+  return `${dateFormatter.format(date)} · ${timeFormatter.format(date)}`;
 }
 
 /**
- * `/cook` page's own Active session card — cross-dish, so the Recipe/Part
- * name is the title (Cooking session cards + navigation/profile follow-up
- * item 2). Below it, a compact control row: relative "Started" time,
- * noninteractive elapsed-time chip, and a Notes disclosure reusing the same
- * dish-scoped Active Notes content (current Sections/Parts being cooked plus
- * Cooking notes — no post-review fields or Ratings, since the session is
- * still in progress).
+ * Active session card for a Recipe/Part's own scoped Cooking history page
+ * — a session-start timestamp title, Resume/End actions, and a
+ * noninteractive elapsed-time chip alongside a Notes disclosure (no
+ * Ratings disclosure yet, since an active session has no saved review).
  */
-export function CookActiveSessionCard({
+export function DishActiveSessionCard({
   session,
 }: {
-  session: CrossDishActiveSessionData;
+  session: DishActiveSessionData;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = React.useTransition();
@@ -191,13 +87,9 @@ export function CookActiveSessionCard({
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0 flex-1">
           <p className="text-foreground truncate text-sm font-medium">
-            {session.dishTitle}
+            Started {formatAbsoluteTimestamp(session.startedAt)}
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <StaticPill>
-              <Clock className="size-3.5" aria-hidden="true" />
-              Started {formatRelativeAge(session.startedAt)}
-            </StaticPill>
             <StaticPill>
               <Clock className="size-3.5" aria-hidden="true" />
               {formatElapsedLabel(session.startedAt)}
@@ -212,13 +104,13 @@ export function CookActiveSessionCard({
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <TooltipIconButton
-            label={`Resume ${session.dishTitle}`}
+            label="Resume this session"
             tooltip="Resume"
             icon={CirclePlay}
             onClick={() => router.push(`/cook/${session.id}`)}
           />
           <TooltipIconButton
-            label={`End ${session.dishTitle}`}
+            label="End this session"
             tooltip="End session"
             icon={CircleStop}
             onClick={() => setEndOpen(true)}
@@ -244,7 +136,7 @@ export function CookActiveSessionCard({
       <Dialog open={endOpen} onOpenChange={setEndOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>End &ldquo;{session.dishTitle}&rdquo;?</DialogTitle>
+            <DialogTitle>End this Cooking Session?</DialogTitle>
             <DialogDescription>
               This marks the session Completed and moves it to your Completed
               history. Its checked-off progress and timers stay recorded — this
@@ -266,16 +158,15 @@ export function CookActiveSessionCard({
 }
 
 /**
- * `/cook` page's own Completed session card — cross-dish title, View/Delete
- * actions, and a relative-time chip in place of the dish-scoped page's
- * absolute timestamp (Cooking session cards + navigation/profile follow-up
- * item 2). Ratings/Notes disclosures reuse the exact dish-scoped behavior:
- * independently expandable, same open-state styling and chevron.
+ * Completed session card for a Recipe/Part's own scoped Cooking history
+ * page — an absolute timestamp title, View/Delete actions, and
+ * independently-expandable Ratings/Notes disclosures (dish-specific
+ * Cooking history redesign).
  */
-export function CookCompletedSessionCard({
+export function DishCompletedSessionCard({
   session,
 }: {
-  session: CrossDishCompletedSessionData;
+  session: DishCompletedSessionData;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = React.useTransition();
@@ -302,13 +193,9 @@ export function CookCompletedSessionCard({
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0 flex-1">
           <p className="text-foreground truncate text-sm font-medium">
-            {session.dishTitle}
+            {formatAbsoluteTimestamp(session.endedAt ?? session.startedAt)}
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <StaticPill>
-              <Clock className="size-3.5" aria-hidden="true" />
-              {formatRelativeAge(session.endedAt ?? session.startedAt)}
-            </StaticPill>
             <RatingsSummaryPill
               ratings={session.ratings}
               open={ratingsOpen}
@@ -324,13 +211,13 @@ export function CookCompletedSessionCard({
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <TooltipIconButton
-            label={`View ${session.dishTitle}`}
+            label="View this session"
             tooltip="View"
             icon={Eye}
             onClick={() => router.push(`/cook/${session.id}`)}
           />
           <TooltipIconButton
-            label={`Delete ${session.dishTitle}`}
+            label="Delete this session"
             tooltip="Delete session"
             icon={Trash2}
             onClick={() => setDeleteOpen(true)}
@@ -369,7 +256,7 @@ export function CookCompletedSessionCard({
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete &ldquo;{session.dishTitle}&rdquo;?</DialogTitle>
+            <DialogTitle>Delete this Cooking Session?</DialogTitle>
             <DialogDescription>
               This permanently discards the session record, including its
               cooking history. This can&apos;t be undone.
@@ -394,35 +281,25 @@ export function CookCompletedSessionCard({
 }
 
 /**
- * Cook page — Active/Completed columns, each row a Card above.
+ * Recipe/Part-scoped Cooking history page — Active/Completed sections kept
+ * (PRODUCT_SPEC.md §41.5), but with cards tailored to a single already-known
+ * dish rather than the generic `/cook` feed's cross-dish presentation
+ * (`CookSessionsView`).
  */
-export function CookSessionsView({
+export function DishCookSessionsView({
   active,
   completed,
   emptyStateDishTitle,
 }: {
-  active: CrossDishActiveSessionData[];
-  completed: CrossDishCompletedSessionData[];
-  // Set when this view is scoped to one Dish's own history (Recipe detail's
-  // "Cooking history" action) — swaps in a scope-aware empty state instead
-  // of the generic "start your first session" copy.
-  emptyStateDishTitle?: string;
+  active: DishActiveSessionData[];
+  completed: DishCompletedSessionData[];
+  emptyStateDishTitle: string;
 }) {
   if (active.length === 0 && completed.length === 0) {
     return (
       <div className="text-muted-foreground flex flex-col items-center gap-2 py-16 text-center text-sm">
         <ChefHat className="size-8" aria-hidden="true" />
-        <p>
-          {emptyStateDishTitle ? (
-            <>No Cooking Sessions for {emptyStateDishTitle} yet.</>
-          ) : (
-            <>
-              Open a Recipe or Part and choose{" "}
-              <span className="text-foreground font-medium">Cook</span> to start
-              your first Cooking Session.
-            </>
-          )}
-        </p>
+        <p>No Cooking Sessions for {emptyStateDishTitle} yet.</p>
       </div>
     );
   }
@@ -440,7 +317,7 @@ export function CookSessionsView({
         ) : (
           <ul className="flex flex-col gap-2">
             {active.map((s) => (
-              <CookActiveSessionCard key={s.id} session={s} />
+              <DishActiveSessionCard key={s.id} session={s} />
             ))}
           </ul>
         )}
@@ -457,7 +334,7 @@ export function CookSessionsView({
         ) : (
           <ul className="flex flex-col gap-2">
             {completed.map((s) => (
-              <CookCompletedSessionCard key={s.id} session={s} />
+              <DishCompletedSessionCard key={s.id} session={s} />
             ))}
           </ul>
         )}

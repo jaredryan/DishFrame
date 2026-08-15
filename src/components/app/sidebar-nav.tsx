@@ -4,9 +4,16 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Wordmark } from "@/components/branding/wordmark";
 import { APP_NAV_ITEMS } from "@/components/app/nav-items";
+import { AccountMenu } from "@/components/app/account-menu";
 import { cn } from "@/lib/utils";
 
-export function SidebarNav() {
+type AccountUser = {
+  name: string;
+  email: string;
+  image?: string | null;
+};
+
+export function SidebarNav({ user }: { user: AccountUser }) {
   const pathname = usePathname();
 
   return (
@@ -35,6 +42,10 @@ export function SidebarNav() {
           );
         })}
       </nav>
+      <div className="mt-auto flex flex-col gap-2 pt-4">
+        <div className="border-sidebar-border border-t" />
+        <AccountMenu user={user} variant="sidebar" />
+      </div>
     </aside>
   );
 }

@@ -61,7 +61,7 @@ import {
 } from "@/lib/dishes/schema";
 import { PartUsageResolutionDialog } from "@/components/domain/dish/part-usage-resolution-dialog";
 import { ShareDialog } from "@/components/domain/sharing/share-dialog";
-import { DirectShareCollectionDialog } from "@/components/domain/sharing/direct-share-collection-dialog";
+import { DirectShareSingleItemDialog } from "@/components/domain/sharing/direct-share-single-item-dialog";
 import { versionLabel } from "@/lib/dishes/version-note";
 
 const ALL_VERSIONS_VALUE = "__ALL__";
@@ -91,12 +91,15 @@ type DialogKind =
 
 export function DishDetailActions({
   dishId,
+  dishTitle,
   kind,
   stage,
   currentVersionId,
   versions,
 }: {
   dishId: string;
+  // The contextual single-item Send dialog shows this locked item's title.
+  dishTitle: string;
   kind: DishKindValue;
   stage: StageValue;
   // Design remediation pass: Version history now opens from this overflow
@@ -529,11 +532,12 @@ export function DishDetailActions({
         kind={kind}
       />
 
-      <DirectShareCollectionDialog
+      <DirectShareSingleItemDialog
         open={openDialog === "send"}
         onOpenChange={(open) => !open && close()}
-        preselectedDishId={dishId}
-        preselectedDishKind={kind}
+        dishId={dishId}
+        dishKind={kind}
+        dishTitle={dishTitle}
       />
     </>
   );

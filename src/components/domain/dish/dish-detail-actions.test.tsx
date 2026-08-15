@@ -24,6 +24,7 @@ async function openExportDialog() {
   render(
     <DishDetailActions
       dishId="dish1"
+      dishTitle="Test Recipe"
       kind="RECIPE"
       stage="ACTIVE"
       currentVersionId="v2"
@@ -35,12 +36,71 @@ async function openExportDialog() {
   return user;
 }
 
+describe("DishDetailActions — contextual sharing stays single-item", () => {
+  it("Send opens a dialog locked to this item, with no searchable item selector", async () => {
+    const user = userEvent.setup();
+    render(
+      <DishDetailActions
+        dishId="dish1"
+        dishTitle="Grandma's Chili"
+        kind="RECIPE"
+        stage="ACTIVE"
+        currentVersionId="v2"
+        versions={versions}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Send" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Send this recipe" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Grandma's Chili")).toBeInTheDocument();
+    expect(
+      screen.queryByPlaceholderText("Search your items…"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Select all" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("Publish stays single-item, offering the fixed/latest version wording", async () => {
+    const user = userEvent.setup();
+    render(
+      <DishDetailActions
+        dishId="dish1"
+        dishTitle="Grandma's Chili"
+        kind="RECIPE"
+        stage="ACTIVE"
+        currentVersionId="v2"
+        versions={versions}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Publish" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Publish this recipe" }),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("combobox"));
+    expect(
+      await screen.findByRole("option", {
+        name: "Share current version (fixed)",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("option", { name: "Share latest version" }),
+    ).toBeInTheDocument();
+  });
+});
+
 describe("DishDetailActions overflow menu — Cooking history", () => {
   it("links a Recipe's 'Cooking history' action to its own dedicated history page", async () => {
     const user = userEvent.setup();
     render(
       <DishDetailActions
         dishId="dish1"
+        dishTitle="Test Recipe"
         kind="RECIPE"
         stage="ACTIVE"
         currentVersionId="v2"
@@ -60,6 +120,7 @@ describe("DishDetailActions overflow menu — Cooking history", () => {
     render(
       <DishDetailActions
         dishId="part1"
+        dishTitle="Test Part"
         kind="PART"
         stage="ACTIVE"
         currentVersionId="v2"

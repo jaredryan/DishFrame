@@ -2,11 +2,11 @@ import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth/session";
 import { getOwnedDishOrThrow } from "@/lib/dishes/queries";
-import { listSessionsForOwner } from "@/lib/cooking/queries";
+import { listDishSessionHistory } from "@/lib/cooking/queries";
 import { NotFoundError } from "@/lib/errors";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
-import { CookSessionsView } from "@/components/domain/cooking/cook-sessions-view";
+import { DishCookSessionsView } from "@/components/domain/cooking/dish-cook-sessions-view";
 
 export async function generateMetadata({
   params,
@@ -27,9 +27,9 @@ export async function generateMetadata({
 /**
  * PRODUCT_SPEC.md §41.5 — one Recipe's own complete cooking history: every
  * ended Cooking Session, newest first, with no cutoff/cap (unlike the
- * global `/cook` page's bounded recent-history window). Reuses
- * `listSessionsForOwner`'s existing `dishId` scope and `CookSessionsView`
- * rather than a second session model/list UI.
+ * global `/cook` page's bounded recent-history window). Uses
+ * `listDishSessionHistory`/`DishCookSessionsView` — this dish-scoped page's
+ * own richer cards, not the generic `/cook` feed's presentation.
  */
 export default async function RecipeCookingHistoryPage({
   params,
@@ -52,9 +52,9 @@ export default async function RecipeCookingHistoryPage({
   const basePath = dishBasePath("RECIPE");
   const displayTitle = dish.currentTitle ?? "Untitled recipe";
 
-  const { active, recentEnded } = await listSessionsForOwner(
+  const { active, completed } = await listDishSessionHistory(
     session.user.id,
-    { dishId: dish.id },
+    dish.id,
   );
 
   return (
@@ -76,12 +76,9 @@ export default async function RecipeCookingHistoryPage({
         </p>
       </div>
 
-      <CookSessionsView
+      <DishCookSessionsView
         active={active}
-        completed={recentEnded.map((s) => ({
-          ...s,
-          state: s.state as "COMPLETED" | "ENDED_EARLY",
-        }))}
+        completed={completed}
         emptyStateDishTitle={displayTitle}
       />
     </div>

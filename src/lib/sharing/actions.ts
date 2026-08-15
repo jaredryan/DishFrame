@@ -14,6 +14,7 @@ import {
   sendDirectShareCollectionSchema,
   directShareCollectionIdSchema,
   finalizeDirectShareCollectionSchema,
+  publishDishesSchema,
 } from "@/lib/sharing/schema";
 import type { DishKindValue } from "@/lib/dishes/schema";
 
@@ -49,6 +50,54 @@ export async function createShareLink(
     const result = await sharingService.createShareLink(userId, input);
     revalidatePath(SHARE_MANAGEMENT_PATH);
     return { status: "success", ...result };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export type PublishDishesResultItem =
+  | {
+      dishId: string;
+      status: "success";
+      dishKind: DishKindValue;
+      title: string;
+      url: string;
+    }
+  | { dishId: string; status: "error"; message: string };
+
+export type PublishDishesActionState =
+  | { status: "success"; results: PublishDishesResultItem[] }
+  | { status: "error"; message: string };
+
+/**
+ * `/share`'s generalized bulk Publish entry point (Share → Publish). One
+ * shared settings payload, applied per selected item — see
+ * `sharingService.publishDishes` for why each item resolves independently
+ * rather than the whole batch failing together.
+ */
+export async function publishDishes(
+  values: unknown,
+): Promise<PublishDishesActionState> {
+  try {
+    const userId = await requireUserId();
+    const input = publishDishesSchema.parse(values);
+    const results = await sharingService.publishDishes(userId, {
+      ...input,
+      expiresAt: input.expiresAt ?? null,
+    });
+    revalidatePath(SHARE_MANAGEMENT_PATH);
+    return {
+      status: "success",
+      results: results.map((result) =>
+        result.status === "success"
+          ? result
+          : {
+              dishId: result.dishId,
+              status: "error",
+              message: toActionErrorMessage(result.error),
+            },
+      ),
+    };
   } catch (error) {
     return { status: "error", message: toActionErrorMessage(error) };
   }

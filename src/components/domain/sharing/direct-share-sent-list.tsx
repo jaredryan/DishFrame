@@ -61,13 +61,15 @@ function SentSingleCard({
   return (
     <li className="border-border bg-card space-y-2 rounded-lg border p-4">
       <div className="flex items-center justify-between gap-2">
-        <p className="font-medium">{item.dishTitleSnapshot}</p>
+        <p className="min-w-0 font-medium break-words">
+          {item.dishTitleSnapshot}
+        </p>
         <Badge variant={item.status === "PENDING" ? "outline" : "secondary"}>
           {STATUS_LABEL[item.status]}
         </Badge>
       </div>
       <div className="text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-        <span>
+        <span className="min-w-0 break-words">
           To {item.recipientName ?? item.recipientLookup} ·{" "}
           {formatDate(item.createdAt)}
         </span>
@@ -122,12 +124,12 @@ function SentGroupCard({
   return (
     <li className="border-border bg-card space-y-2 rounded-lg border p-4">
       <div className="flex items-center justify-between gap-2">
-        <p className="font-medium">
+        <p className="min-w-0 font-medium break-words">
           {item.recipientName ?? item.recipientLookup}
         </p>
         <NotJoinedBadge hasJoined={item.hasJoined} />
       </div>
-      <p className="text-muted-foreground text-sm">
+      <p className="text-muted-foreground text-sm break-words">
         {item.children.length} item{item.children.length === 1 ? "" : "s"} ·{" "}
         {formatDate(item.createdAt)}
       </p>
@@ -173,7 +175,9 @@ function SentGroupCard({
               key={child.id}
               className="flex items-center justify-between gap-2 border-b p-2 text-sm last:border-b-0"
             >
-              <span>{child.dishTitleSnapshot}</span>
+              <span className="min-w-0 break-words">
+                {child.dishTitleSnapshot}
+              </span>
               <Badge
                 variant={child.status === "PENDING" ? "outline" : "secondary"}
               >

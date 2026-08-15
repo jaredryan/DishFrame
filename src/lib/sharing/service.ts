@@ -117,6 +117,59 @@ export async function createShareLink(
   return { shareLinkId: shareLink.id, url: buildShareToken(tokenId) };
 }
 
+export type PublishDishesResultItem =
+  | {
+      dishId: string;
+      status: "success";
+      dishKind: DishKindValue;
+      title: string;
+      url: string;
+    }
+  | { dishId: string; status: "error"; error: unknown };
+
+/**
+ * `/share` generalized bulk Publish: creates one independent public
+ * ShareLink per selected item by calling the same `createShareLink` the
+ * contextual single-item Publish action uses — never a new collection-link
+ * concept (PRODUCT_SPEC.md extension). Each item resolves and fails
+ * independently so one item's error (already deleted, no saved content
+ * yet, etc.) never aborts or silently drops the rest of the batch — the
+ * caller gets a clear per-item result to render.
+ */
+export async function publishDishes(
+  ownerId: string,
+  input: {
+    dishIds: string[];
+    mode: CreateShareLinkInput["mode"];
+    showCreatorName: boolean;
+    expiresAt: Date | null;
+  },
+): Promise<PublishDishesResultItem[]> {
+  const dishIds = [...new Set(input.dishIds)];
+  return Promise.all(
+    dishIds.map(async (dishId): Promise<PublishDishesResultItem> => {
+      try {
+        const dish = await getOwnedDishOrThrow(ownerId, dishId);
+        const created = await createShareLink(ownerId, {
+          dishId,
+          mode: input.mode,
+          showCreatorName: input.showCreatorName,
+          expiresAt: input.expiresAt,
+        });
+        return {
+          dishId,
+          status: "success",
+          dishKind: dish.kind,
+          title: dish.currentTitle ?? "Untitled",
+          url: created.url,
+        };
+      } catch (error) {
+        return { dishId, status: "error", error };
+      }
+    }),
+  );
+}
+
 async function getOwnedShareLinkOrThrow(ownerId: string, shareLinkId: string) {
   const shareLink = await prisma.shareLink.findFirst({
     where: { id: shareLinkId, ownerId },

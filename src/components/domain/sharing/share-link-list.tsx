@@ -93,8 +93,10 @@ function ShareLinkRow({ link }: { link: ShareLinkSummary }) {
   return (
     <li className="border-border bg-card space-y-2 rounded-lg border p-4">
       <div className="flex items-center justify-between gap-2">
-        <p className="font-medium">{link.dishTitleSnapshot}</p>
-        <div className="flex gap-1">
+        <p className="min-w-0 font-medium break-words">
+          {link.dishTitleSnapshot}
+        </p>
+        <div className="flex shrink-0 gap-1">
           <Badge variant="outline">{MODE_LABEL[link.mode]}</Badge>
           {lifecycle === "disabled" && (
             <Badge variant="secondary">Disabled</Badge>
@@ -110,7 +112,7 @@ function ShareLinkRow({ link }: { link: ShareLinkSummary }) {
 
       {lifecycle === "active" && (
         <div className="border-border bg-muted flex items-center gap-2 rounded-md border px-3 py-2">
-          <code className="flex-1 truncate text-sm">{url}</code>
+          <code className="min-w-0 flex-1 truncate text-sm">{url}</code>
           <Button
             variant="outline"
             size="icon"

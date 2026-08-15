@@ -13,6 +13,7 @@ import type {
   VersionSectionRow,
   VersionPartLinkRow,
 } from "@/lib/dishes/mappers";
+import type { DishKindValue } from "@/lib/dishes/schema";
 
 /**
  * Cooking Setup/Session queries (PRODUCT_SPEC.md §21-27, Gate 4). Ownership
@@ -126,26 +127,50 @@ export function findActiveSessionForDish(ownerId: string, dishId: string) {
 
 const RECENT_ENDED_SESSION_LIMIT = 10;
 
+export type CrossDishActiveSessionData = DishActiveSessionData & {
+  dishId: string;
+  dishTitle: string;
+  dishKind: DishKindValue | null;
+};
+
+export type CrossDishCompletedSessionData = DishCompletedSessionData & {
+  dishId: string;
+  dishTitle: string;
+  dishKind: DishKindValue | null;
+};
+
 // PRODUCT_SPEC.md §26.6 — `/cook` index: active sessions plus a bounded
 // window of recently-ended ones. An optional `dishId` scopes both lists to
 // one Recipe/Part's own history (Recipe detail's "Cooking history" action) —
 // scoped, the recently-ended window is uncapped, since a single Dish's own
 // history is never as large as the cross-Dish feed this cap exists for.
+// Selects the same richer per-session fields as `listDishSessionHistory`
+// (unit labels, Review, Ratings) so the general `/cook` cards can reuse the
+// dish-scoped Notes/Ratings disclosures (Cooking session cards +
+// navigation/profile follow-up item 2) — plus each row's own dish
+// title/kind, which the dish-scoped page already knows from its own route.
 export async function listSessionsForOwner(
   ownerId: string,
   options?: { dishId?: string },
-) {
+): Promise<{
+  active: CrossDishActiveSessionData[];
+  recentEnded: CrossDishCompletedSessionData[];
+}> {
   const dishId = options?.dishId;
-  const [active, recentEnded] = await Promise.all([
+  const [activeRows, completedRows] = await Promise.all([
     prisma.cookingSession.findMany({
       where: { ownerId, state: "IN_PROGRESS", ...(dishId ? { dishId } : {}) },
       orderBy: { updatedAt: "desc" },
       select: {
         id: true,
         dishId: true,
-        state: true,
         startedAt: true,
-        updatedAt: true,
+        cookingNotes: true,
+        units: {
+          where: { removedAt: null },
+          orderBy: { position: "asc" },
+          select: { label: true },
+        },
       },
     }),
     prisma.cookingSession.findMany({
@@ -162,12 +187,32 @@ export async function listSessionsForOwner(
         state: true,
         startedAt: true,
         endedAt: true,
+        cookingNotes: true,
+        units: {
+          where: { removedAt: null },
+          orderBy: { position: "asc" },
+          select: { id: true, label: true, completedAt: true },
+        },
+        review: {
+          select: {
+            whatWentWell: true,
+            whatDidNotGoWell: true,
+            anythingElse: true,
+            includedUnitIds: true,
+          },
+        },
+        ratings: {
+          select: {
+            value: true,
+            taster: { select: { id: true, name: true, isOwner: true } },
+          },
+        },
       },
     }),
   ]);
 
   const dishIds = [
-    ...new Set([...active, ...recentEnded].map((s) => s.dishId)),
+    ...new Set([...activeRows, ...completedRows].map((s) => s.dishId)),
   ];
   const dishes = dishIds.length
     ? await prisma.dish.findMany({
@@ -177,14 +222,171 @@ export async function listSessionsForOwner(
     : [];
   const dishById = new Map(dishes.map((d) => [d.id, d]));
 
-  const withDish = <T extends { dishId: string }>(rows: T[]) =>
-    rows.map((row) => ({
-      ...row,
-      dishTitle: dishById.get(row.dishId)?.currentTitle ?? "Deleted item",
-      dishKind: dishById.get(row.dishId)?.kind ?? null,
-    }));
+  const active: CrossDishActiveSessionData[] = activeRows.map((s) => ({
+    id: s.id,
+    startedAt: s.startedAt,
+    unitLabels: s.units.map((u) => u.label),
+    cookingNotes: s.cookingNotes,
+    dishId: s.dishId,
+    dishTitle: dishById.get(s.dishId)?.currentTitle ?? "Deleted item",
+    dishKind: dishById.get(s.dishId)?.kind ?? null,
+  }));
 
-  return { active: withDish(active), recentEnded: withDish(recentEnded) };
+  const recentEnded: CrossDishCompletedSessionData[] = completedRows.map(
+    (s) => {
+      const includedIds = s.review
+        ? s.review.includedUnitIds
+        : s.units.filter((u) => u.completedAt != null).map((u) => u.id);
+      const includedSet = new Set(includedIds);
+      const includedUnitLabels = s.units
+        .filter((u) => includedSet.has(u.id))
+        .map((u) => u.label);
+      return {
+        id: s.id,
+        state: s.state as "COMPLETED" | "ENDED_EARLY",
+        startedAt: s.startedAt,
+        endedAt: s.endedAt,
+        isFullRecipe: s.units.every((u) => includedSet.has(u.id)),
+        includedUnitLabels,
+        cookingNotes: s.cookingNotes,
+        whatWentWell: s.review?.whatWentWell ?? null,
+        whatDidNotGoWell: s.review?.whatDidNotGoWell ?? null,
+        anythingElse: s.review?.anythingElse ?? null,
+        ratings: s.ratings.map((r) => ({
+          tasterId: r.taster.id,
+          tasterName: r.taster.name,
+          isOwner: r.taster.isOwner,
+          value: r.value,
+        })),
+        dishId: s.dishId,
+        dishTitle: dishById.get(s.dishId)?.currentTitle ?? "Deleted item",
+        dishKind: dishById.get(s.dishId)?.kind ?? null,
+      };
+    },
+  );
+
+  return { active, recentEnded };
+}
+
+export type DishActiveSessionData = {
+  id: string;
+  startedAt: Date;
+  unitLabels: string[];
+  cookingNotes: string | null;
+};
+
+export type DishCompletedSessionData = {
+  id: string;
+  state: "COMPLETED" | "ENDED_EARLY";
+  startedAt: Date;
+  endedAt: Date | null;
+  isFullRecipe: boolean;
+  includedUnitLabels: string[];
+  cookingNotes: string | null;
+  whatWentWell: string | null;
+  whatDidNotGoWell: string | null;
+  anythingElse: string | null;
+  ratings: Array<{
+    tasterId: string;
+    tasterName: string;
+    isOwner: boolean;
+    value: number;
+  }>;
+};
+
+/**
+ * The Recipe/Part-scoped "Cooking history" page's own richer read —
+ * `listSessionsForOwner` stays the generic /cook feed's shape; this adds
+ * what the dish-specific card redesign needs: each unit's label (to render
+ * "Cooked: [names]" / present-tense "Cooking: [names]"), the saved Review's
+ * `includedUnitIds` (falling back to the session's own completion state,
+ * same default `SessionReviewForm` seeds itself with, when no Review row
+ * exists yet), and the per-session Rating breakdown by Taster.
+ */
+export async function listDishSessionHistory(ownerId: string, dishId: string) {
+  const [activeRows, completedRows] = await Promise.all([
+    prisma.cookingSession.findMany({
+      where: { ownerId, dishId, state: "IN_PROGRESS" },
+      orderBy: { updatedAt: "desc" },
+      select: {
+        id: true,
+        startedAt: true,
+        cookingNotes: true,
+        units: {
+          where: { removedAt: null },
+          orderBy: { position: "asc" },
+          select: { label: true },
+        },
+      },
+    }),
+    prisma.cookingSession.findMany({
+      where: { ownerId, dishId, state: { in: ["COMPLETED", "ENDED_EARLY"] } },
+      orderBy: { endedAt: "desc" },
+      select: {
+        id: true,
+        state: true,
+        startedAt: true,
+        endedAt: true,
+        cookingNotes: true,
+        units: {
+          where: { removedAt: null },
+          orderBy: { position: "asc" },
+          select: { id: true, label: true, completedAt: true },
+        },
+        review: {
+          select: {
+            whatWentWell: true,
+            whatDidNotGoWell: true,
+            anythingElse: true,
+            includedUnitIds: true,
+          },
+        },
+        ratings: {
+          select: {
+            value: true,
+            taster: { select: { id: true, name: true, isOwner: true } },
+          },
+        },
+      },
+    }),
+  ]);
+
+  const active: DishActiveSessionData[] = activeRows.map((s) => ({
+    id: s.id,
+    startedAt: s.startedAt,
+    unitLabels: s.units.map((u) => u.label),
+    cookingNotes: s.cookingNotes,
+  }));
+
+  const completed: DishCompletedSessionData[] = completedRows.map((s) => {
+    const includedIds = s.review
+      ? s.review.includedUnitIds
+      : s.units.filter((u) => u.completedAt != null).map((u) => u.id);
+    const includedSet = new Set(includedIds);
+    const includedUnitLabels = s.units
+      .filter((u) => includedSet.has(u.id))
+      .map((u) => u.label);
+    return {
+      id: s.id,
+      state: s.state as "COMPLETED" | "ENDED_EARLY",
+      startedAt: s.startedAt,
+      endedAt: s.endedAt,
+      isFullRecipe: s.units.every((u) => includedSet.has(u.id)),
+      includedUnitLabels,
+      cookingNotes: s.cookingNotes,
+      whatWentWell: s.review?.whatWentWell ?? null,
+      whatDidNotGoWell: s.review?.whatDidNotGoWell ?? null,
+      anythingElse: s.review?.anythingElse ?? null,
+      ratings: s.ratings.map((r) => ({
+        tasterId: r.taster.id,
+        tasterName: r.taster.name,
+        isOwner: r.taster.isOwner,
+        value: r.value,
+      })),
+    };
+  });
+
+  return { active, completed };
 }
 
 // Unscaled, authored values a checklist item needs to compute its eventual

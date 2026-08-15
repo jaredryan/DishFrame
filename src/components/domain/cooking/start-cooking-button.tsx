@@ -188,7 +188,7 @@ export function StartCookingButton({
                 </Button>
               </div>
             ) : (
-              <div className="flex max-h-72 flex-col gap-1 overflow-y-auto">
+              <div className="-m-px flex max-h-72 flex-col gap-1 overflow-y-auto p-px">
                 {filtered.length === 0 && (
                   <p className="text-muted-foreground py-6 text-center text-sm">
                     {(items ?? []).length === 0

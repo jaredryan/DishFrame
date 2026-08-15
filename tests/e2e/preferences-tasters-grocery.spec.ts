@@ -370,13 +370,13 @@ test.describe("Settings: Preferences, Grocery Categories, and Tasters", () => {
     // "Archived" badge, so a substring match here is ambiguous by
     // construction, not just occasionally flaky — same class of bug as the
     // dnd-kit live-region note above.
-    await expect(
-      page.getByText("Archived", { exact: true }),
-    ).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText("Archived", { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
     await page.reload();
-    await expect(
-      page.getByText("Archived", { exact: true }),
-    ).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText("Archived", { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
 
     await clickAndWaitForServerAction(
       page,

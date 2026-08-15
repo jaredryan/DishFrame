@@ -252,6 +252,7 @@ export async function DishDetailView({
         <FavoriteToggle dishId={dish.id} kind={kind} isFavorite={isFavorite} />
         <DishDetailActions
           dishId={dish.id}
+          dishTitle={displayTitle}
           kind={kind}
           stage={dish.stage}
           currentVersionId={version.id}

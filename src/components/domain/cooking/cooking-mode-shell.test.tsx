@@ -793,7 +793,7 @@ describe("CookingModeShell — End cooking", () => {
       screen.getByRole("button", { name: "Leave & resume later" }),
     );
 
-    expect(push).toHaveBeenCalledWith("/cook");
+    expect(push).toHaveBeenCalledWith("/recipes/dish-1/history");
     expect(mockedEndCookingSession).not.toHaveBeenCalled();
   });
 

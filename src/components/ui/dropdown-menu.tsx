@@ -7,9 +7,21 @@ import { cn } from "@/lib/utils";
 import { CheckIcon, ChevronRightIcon } from "lucide-react";
 
 function DropdownMenu({
+  // Radix defaults `modal` to true, which sets `pointer-events: none` on the
+  // rest of the document while open — that broke hover styling on every
+  // underlying control (not just this menu's own trigger) while any
+  // DishFrame dropdown was open. Non-modal by default; callers can still
+  // pass `modal` explicitly to opt back in.
+  modal = false,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) {
-  return <DropdownMenuPrimitive.Root data-slot="dropdown-menu" {...props} />;
+  return (
+    <DropdownMenuPrimitive.Root
+      data-slot="dropdown-menu"
+      modal={modal}
+      {...props}
+    />
+  );
 }
 
 function DropdownMenuPortal({

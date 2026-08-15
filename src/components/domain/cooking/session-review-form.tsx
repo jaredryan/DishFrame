@@ -7,8 +7,8 @@ import {
   Check,
   CheckCircle2,
   Eye,
+  NotebookPen,
   Pencil,
-  RotateCcw,
   Save,
   Trash2,
 } from "lucide-react";
@@ -316,7 +316,7 @@ export function SessionReviewForm({
   if (justSaved) {
     const lowerLabel = label.toLowerCase();
     return (
-      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-8 text-center">
+      <div className="bg-background flex flex-1 flex-col items-center justify-center gap-8 text-center">
         <div className="flex flex-col items-center gap-2">
           <div className="bg-brand-green/10 text-brand-green flex size-12 items-center justify-center rounded-full">
             <Check className="size-6" aria-hidden="true" />
@@ -375,7 +375,7 @@ export function SessionReviewForm({
             </div>
           ) : (
             <Button variant="outline" onClick={handleOpenStageEditor}>
-              <RotateCcw className="size-4" aria-hidden="true" />
+              <NotebookPen className="size-4" aria-hidden="true" />
               Change {lowerLabel} stage
             </Button>
           )}
@@ -448,7 +448,7 @@ export function SessionReviewForm({
                   />
                   <Label
                     htmlFor={checkboxId}
-                    className="text-foreground text-sm font-normal"
+                    className="text-foreground cursor-pointer text-sm font-normal"
                   >
                     {unit.label}
                   </Label>

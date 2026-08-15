@@ -21,7 +21,7 @@ export default async function MealPlansPage() {
   return (
     <MealPlanCreateProvider>
       <div className="mx-auto flex max-w-5xl flex-col gap-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="font-heading text-foreground text-2xl font-semibold">
               Meal Plans
@@ -31,7 +31,9 @@ export default async function MealPlansPage() {
               a grocery list that stays in sync while you shop.
             </p>
           </div>
-          <MealPlanCreateTrigger />
+          <div className="flex items-center gap-2">
+            <MealPlanCreateTrigger />
+          </div>
         </div>
 
         <CoachMark guideKey="meal-plans-intro" title="Meal Plans">

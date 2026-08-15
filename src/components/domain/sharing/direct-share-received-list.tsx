@@ -100,12 +100,14 @@ function ReceivedSingleCard({
   return (
     <li className="border-border bg-card space-y-2 rounded-lg border p-4">
       <div className="flex items-center justify-between gap-2">
-        <p className="font-medium">{item.dishTitleSnapshot}</p>
+        <p className="min-w-0 font-medium break-words">
+          {item.dishTitleSnapshot}
+        </p>
         <Badge variant={item.status === "PENDING" ? "outline" : "secondary"}>
           {STATUS_LABEL[item.status]}
         </Badge>
       </div>
-      <p className="text-muted-foreground text-sm">
+      <p className="text-muted-foreground text-sm break-words">
         From {item.senderName} · {formatDate(item.createdAt)}
       </p>
       {item.note && <p className="text-sm italic">&ldquo;{item.note}&rdquo;</p>}
@@ -185,12 +187,12 @@ function ReceivedGroupCard({
   return (
     <li className="border-border bg-card space-y-2 rounded-lg border p-4">
       <div className="flex items-center justify-between gap-2">
-        <p className="font-medium">{item.senderName}</p>
+        <p className="min-w-0 font-medium break-words">{item.senderName}</p>
         <Badge variant={pendingCount > 0 ? "outline" : "secondary"}>
           {pendingCount > 0 ? `${pendingCount} pending` : "Resolved"}
         </Badge>
       </div>
-      <p className="text-muted-foreground text-sm">
+      <p className="text-muted-foreground text-sm break-words">
         {item.children.length} item{item.children.length === 1 ? "" : "s"} ·{" "}
         {formatDate(item.createdAt)}
       </p>
@@ -228,8 +230,10 @@ function ReceivedGroupCard({
               key={child.id}
               className="flex items-center justify-between gap-2 border-b p-2 text-sm last:border-b-0"
             >
-              <span>{child.dishTitleSnapshot}</span>
-              <div className="flex items-center gap-2">
+              <span className="min-w-0 break-words">
+                {child.dishTitleSnapshot}
+              </span>
+              <div className="flex shrink-0 items-center gap-2">
                 {child.status === "ACCEPTED" &&
                   child.createdDishId &&
                   child.dishKind && (

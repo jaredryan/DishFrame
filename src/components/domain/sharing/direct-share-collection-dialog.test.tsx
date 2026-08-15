@@ -49,22 +49,7 @@ describe("DirectShareCollectionDialog", () => {
     });
   });
 
-  it("preselects the current item when launched from a detail page", async () => {
-    render(
-      <DirectShareCollectionDialog
-        open
-        onOpenChange={() => {}}
-        preselectedDishId="r1"
-      />,
-    );
-
-    await waitFor(() =>
-      expect(screen.getByLabelText("Select Recipe One")).toBeChecked(),
-    );
-    expect(screen.getByLabelText("Select Recipe Two")).not.toBeChecked();
-  });
-
-  it("starts with nothing selected when launched from /share", async () => {
+  it("is the generalized flow: `/share`'s Send opens with nothing preselected", async () => {
     render(<DirectShareCollectionDialog open onOpenChange={() => {}} />);
 
     await waitFor(() =>
@@ -73,6 +58,7 @@ describe("DirectShareCollectionDialog", () => {
     expect(screen.getByLabelText("Select Recipe One")).not.toBeChecked();
     expect(screen.getByLabelText("Select Recipe Two")).not.toBeChecked();
     expect(screen.getByLabelText("Select Part One")).not.toBeChecked();
+    expect(screen.getByText("Send")).toBeInTheDocument();
   });
 
   it("Select all checks every loaded item (Recipes and Parts alike), and individual rows can be deselected", async () => {
@@ -126,28 +112,5 @@ describe("DirectShareCollectionDialog", () => {
     expect(
       screen.getByText("person@example.invalid", { selector: "span" }),
     ).toBeInTheDocument();
-  });
-
-  it("titles the dialog by the preselected item's kind, and generically otherwise", async () => {
-    const { rerender } = render(
-      <DirectShareCollectionDialog
-        open
-        onOpenChange={() => {}}
-        preselectedDishKind="RECIPE"
-      />,
-    );
-    expect(screen.getByText("Send this recipe")).toBeInTheDocument();
-
-    rerender(
-      <DirectShareCollectionDialog
-        open
-        onOpenChange={() => {}}
-        preselectedDishKind="PART"
-      />,
-    );
-    expect(screen.getByText("Send this part")).toBeInTheDocument();
-
-    rerender(<DirectShareCollectionDialog open onOpenChange={() => {}} />);
-    expect(screen.getByText("Send")).toBeInTheDocument();
   });
 });

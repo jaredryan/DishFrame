@@ -1,14 +1,18 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { prisma } from "@/lib/db/prisma";
 import { createTestUser, deleteTestUser } from "@/test/factories";
+import { initializeNewUser } from "@/lib/account/init";
 import * as dishService from "@/lib/dishes/service";
 import * as cookingService from "@/lib/cooking/service";
+import * as reviewService from "@/lib/reviews/service";
+import * as tasterService from "@/lib/tasters/service";
 import {
   getOwnedDishVersionOrThrow,
   getOwnedSessionOrThrow,
   buildCookableUnits,
   computeChecklistItemConflict,
   listSessionsForOwner,
+  listDishSessionHistory,
 } from "@/lib/cooking/queries";
 import { decimalToNumber } from "@/lib/dishes/format";
 import { getDishScopedVersionContentOrThrow } from "@/lib/dishes/queries";
@@ -588,6 +592,110 @@ describe("cooking session service", () => {
     expect(unscopedIds).toEqual(
       expect.arrayContaining([finished.id, stillActive.id]),
     );
+  });
+
+  it("listDishSessionHistory reports unit labels, review-driven inclusion (Full recipe vs. a partial Cooked: list), and per-Taster ratings", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+    await initializeNewUser(userId);
+    const owner = await prisma.taster.findFirstOrThrow({
+      where: { ownerId: userId, isOwner: true },
+    });
+    const mom = await tasterService.createTaster(userId, "Mom");
+    const { recipeId, recipeVersionId, sectionUnit, partUnit } =
+      await setUpRecipeWithPart(userId);
+    const bothUnits = [
+      { unitKey: sectionUnit.unitKey },
+      { unitKey: partUnit.unitKey },
+    ];
+
+    // Full-recipe completed session: both units included, two ratings.
+    const fullSession = await cookingService.startCookingSession(userId, {
+      dishId: recipeId,
+      dishVersionId: recipeVersionId,
+      units: bothUnits,
+    });
+    await cookingService.endCookingSession(userId, fullSession.id, "COMPLETED");
+    const fullUnits = (await getOwnedSessionOrThrow(userId, fullSession.id))
+      .units;
+    await reviewService.saveSessionReview(userId, {
+      sessionId: fullSession.id,
+      whatWentWell: "Great texture",
+      whatDidNotGoWell: null,
+      anythingElse: null,
+      actualAmountQuantity: null,
+      actualAmountUnit: null,
+      reviewAdjustedDurationSeconds: null,
+      ratings: [
+        { tasterId: owner.id, value: 5 },
+        { tasterId: mom.id, value: 4 },
+      ],
+      includedUnitIds: fullUnits.map((u) => u.id),
+    });
+
+    // Partial completed session: only the Section unit included.
+    const partialSession = await cookingService.startCookingSession(userId, {
+      dishId: recipeId,
+      dishVersionId: recipeVersionId,
+      units: bothUnits,
+    });
+    await cookingService.endCookingSession(
+      userId,
+      partialSession.id,
+      "ENDED_EARLY",
+    );
+    const partialUnits = (
+      await getOwnedSessionOrThrow(userId, partialSession.id)
+    ).units;
+    const partialSectionUnit = partialUnits.find(
+      (u) => u.sourceSectionLineageId != null,
+    )!;
+    await reviewService.saveSessionReview(userId, {
+      sessionId: partialSession.id,
+      whatWentWell: null,
+      whatDidNotGoWell: "Sauce split",
+      anythingElse: null,
+      actualAmountQuantity: null,
+      actualAmountUnit: null,
+      reviewAdjustedDurationSeconds: null,
+      ratings: [],
+      includedUnitIds: [partialSectionUnit.id],
+    });
+
+    // Active session, still in progress, with its own Cooking notes.
+    const activeSession = await cookingService.startCookingSession(userId, {
+      dishId: recipeId,
+      dishVersionId: recipeVersionId,
+      units: bothUnits,
+    });
+    await reviewService.updateCookingNotes(
+      userId,
+      activeSession.id,
+      "Simmering now.",
+    );
+
+    const { active, completed } = await listDishSessionHistory(
+      userId,
+      recipeId,
+    );
+
+    expect(active.map((s) => s.id)).toEqual([activeSession.id]);
+    expect(active[0]!.unitLabels.sort()).toEqual(["Prep", "Sauce"]);
+    expect(active[0]!.cookingNotes).toBe("Simmering now.");
+
+    const full = completed.find((s) => s.id === fullSession.id)!;
+    expect(full.isFullRecipe).toBe(true);
+    expect(full.includedUnitLabels.sort()).toEqual(["Prep", "Sauce"]);
+    expect(full.whatWentWell).toBe("Great texture");
+    expect(full.ratings).toHaveLength(2);
+    expect(full.ratings.find((r) => r.isOwner)!.value).toBe(5);
+    expect(full.ratings.find((r) => !r.isOwner)!.tasterName).toBe("Mom");
+
+    const partial = completed.find((s) => s.id === partialSession.id)!;
+    expect(partial.isFullRecipe).toBe(false);
+    expect(partial.includedUnitLabels).toEqual(["Prep"]);
+    expect(partial.whatDidNotGoWell).toBe("Sauce split");
+    expect(partial.ratings).toHaveLength(0);
   });
 
   it("rejects a non-owner for every session mutation", async () => {

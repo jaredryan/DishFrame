@@ -74,6 +74,29 @@ export type SendDirectShareCollectionInput = z.infer<
   typeof sendDirectShareCollectionSchema
 >;
 
+// ============================================================================
+// `/share` generalized bulk Publish: one shared settings payload, applied to
+// several selected Recipes/Parts to create one independent public ShareLink
+// per item (never a new collection-link concept — reuses `createShareLink`
+// per item, same as the contextual single-item Publish action).
+// ============================================================================
+
+export const PUBLISH_MAX_ITEMS = 50;
+
+export const publishDishesSchema = z.object({
+  dishIds: z
+    .array(z.string().min(1))
+    .min(1, "Select at least one item.")
+    .max(
+      PUBLISH_MAX_ITEMS,
+      `You can publish at most ${PUBLISH_MAX_ITEMS} items at once.`,
+    ),
+  mode: z.enum(shareLinkModeValues).default("FIXED_SNAPSHOT"),
+  showCreatorName: z.boolean().default(false),
+  expiresAt: z.coerce.date().nullable().optional(),
+});
+export type PublishDishesInput = z.infer<typeof publishDishesSchema>;
+
 export const directShareCollectionIdSchema = z.object({
   collectionId: z.string().min(1),
 });

@@ -352,11 +352,17 @@ export function CookingModeShell({
   }
 
   /** "Leave & resume later" — the prior dedicated Exit action's semantics:
-   * leave Cooking Mode without ending the still-active session. */
+   * leave Cooking Mode without ending the still-active session. Routes to
+   * this Dish's own Cooking history page rather than the generic `/cook`
+   * feed — that page intentionally includes Active sessions, so the
+   * still-active session surfaces there naturally. Falls back to `/cook`
+   * only if the source Dish's kind is somehow unknown. */
   function handleLeaveAndResume() {
     setConfirmingEnd(false);
     skipLeaveWarningRef.current = true;
-    router.push("/cook");
+    router.push(
+      dishKind ? `${dishBasePath(dishKind)}/${dishId}/history` : "/cook",
+    );
   }
 
   /** Persists the selected destination in the URL (?unit=) via

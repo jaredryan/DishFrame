@@ -2,11 +2,11 @@ import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth/session";
 import { getOwnedDishOrThrow } from "@/lib/dishes/queries";
-import { listSessionsForOwner } from "@/lib/cooking/queries";
+import { listDishSessionHistory } from "@/lib/cooking/queries";
 import { NotFoundError } from "@/lib/errors";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
-import { CookSessionsView } from "@/components/domain/cooking/cook-sessions-view";
+import { DishCookSessionsView } from "@/components/domain/cooking/dish-cook-sessions-view";
 
 export async function generateMetadata({
   params,
@@ -31,8 +31,9 @@ export async function generateMetadata({
  * Part's own composition/version history and the read-only "cooking
  * history" badge on its detail page (both cover how the Part is *used*
  * inside other Recipes/Parts) — this page is standalone sessions cooking
- * the Part itself, reusing `listSessionsForOwner`'s existing `dishId`
- * scope and `CookSessionsView` rather than a second session model/list UI.
+ * the Part itself, using `listDishSessionHistory`/`DishCookSessionsView` —
+ * this dish-scoped page's own richer cards, not the generic `/cook` feed's
+ * presentation.
  */
 export default async function PartCookingHistoryPage({
   params,
@@ -55,9 +56,9 @@ export default async function PartCookingHistoryPage({
   const basePath = dishBasePath("PART");
   const displayTitle = dish.currentTitle ?? "Untitled part";
 
-  const { active, recentEnded } = await listSessionsForOwner(
+  const { active, completed } = await listDishSessionHistory(
     session.user.id,
-    { dishId: dish.id },
+    dish.id,
   );
 
   return (
@@ -79,12 +80,9 @@ export default async function PartCookingHistoryPage({
         </p>
       </div>
 
-      <CookSessionsView
+      <DishCookSessionsView
         active={active}
-        completed={recentEnded.map((s) => ({
-          ...s,
-          state: s.state as "COMPLETED" | "ENDED_EARLY",
-        }))}
+        completed={completed}
         emptyStateDishTitle={displayTitle}
       />
     </div>

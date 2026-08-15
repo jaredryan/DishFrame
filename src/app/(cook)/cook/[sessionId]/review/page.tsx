@@ -72,7 +72,7 @@ export default async function SessionReviewPage({
   }));
 
   return (
-    <div className="mx-auto flex max-w-lg flex-col gap-6 px-4 py-6">
+    <div className="bg-background mx-auto flex min-h-dvh max-w-lg flex-col gap-6 px-4 py-6">
       <SessionReviewForm
         sessionId={sessionId}
         dishId={dish?.id ?? cookingSession.dishId}

@@ -19,7 +19,11 @@ import type { SaveSessionReviewInput } from "@/lib/reviews/schema";
  * reviewer's submitted selection is a deliberate deviation worth saving on
  * its own. */
 function defaultIncludedUnitIds(
-  units: Array<{ id: string; removedAt: Date | null; completedAt: Date | null }>,
+  units: Array<{
+    id: string;
+    removedAt: Date | null;
+    completedAt: Date | null;
+  }>,
 ): string[] {
   return units
     .filter((u) => !u.removedAt && u.completedAt != null)

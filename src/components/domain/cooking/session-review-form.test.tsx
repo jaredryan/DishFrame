@@ -194,9 +194,10 @@ describe("SessionReviewForm — post-review success screen", () => {
     expect(
       screen.getByRole("button", { name: "Change part stage" }),
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole("link", { name: "Done" }),
-    ).toHaveAttribute("href", "/parts/part-1/history");
+    expect(screen.getByRole("link", { name: "Done" })).toHaveAttribute(
+      "href",
+      "/parts/part-1/history",
+    );
   });
 
   it("Cancel discards the open Stage editor without saving; Save persists it, collapses back, and shows a success toast for the actually-saved value", async () => {
