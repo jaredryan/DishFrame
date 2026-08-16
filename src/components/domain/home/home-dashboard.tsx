@@ -162,7 +162,7 @@ export function HomeDashboard({
         icon={CalendarRange}
         action={
           <Button size="sm" asChild>
-            <Link href="/meal-plans">
+            <Link href="/meal-plans/new">
               <CalendarDays />
               Plan meals
             </Link>

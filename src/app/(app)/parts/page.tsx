@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Layers } from "lucide-react";
+import { Import, Layers } from "lucide-react";
 import { redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth/session";
 import { Button } from "@/components/ui/button";
@@ -32,7 +32,9 @@ export default async function PartsPage({
       action={
         <>
           <Button asChild variant="outline">
-            <Link href="/parts/import">Import</Link>
+            <Link href="/parts/import">
+              <Import /> Import
+            </Link>
           </Button>
           <Button asChild>
             <Link href="/parts/new">

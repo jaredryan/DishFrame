@@ -18,17 +18,10 @@ import {
 } from "@/lib/grocery/list-service";
 import {
   getOwnedMealPlanOrThrow,
-  listRecommendationCandidates,
-  countRecipeRecommendationEligibility,
   type OwnedMealPlan,
   type OwnedMealPlanEntry,
 } from "@/lib/mealplans/queries";
 import type { EntryStatusValue } from "@/lib/mealplans/schema";
-import {
-  rankMealPlanRecommendations,
-  type Recommendation,
-  type RecommendationFilters,
-} from "@/lib/mealplans/recommendations";
 
 /**
  * Meal Plan domain functions (BUILD_PLAN.md Slice 15,
@@ -580,28 +573,6 @@ export async function startSessionFromEntry(
   });
 
   return session;
-}
-
-// ---------------------------------------------------------------------------
-// Recommendations (§80)
-// ---------------------------------------------------------------------------
-
-export async function getRecommendations(
-  ownerId: string,
-  filters: RecommendationFilters = {},
-): Promise<{
-  recommendations: Recommendation[];
-  totalRecipeCount: number;
-  eligibleRecipeCount: number;
-}> {
-  const [candidates, eligibility] = await Promise.all([
-    listRecommendationCandidates(ownerId),
-    countRecipeRecommendationEligibility(ownerId),
-  ]);
-  return {
-    recommendations: rankMealPlanRecommendations(candidates, filters),
-    ...eligibility,
-  };
 }
 
 // ---------------------------------------------------------------------------

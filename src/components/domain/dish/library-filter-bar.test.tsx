@@ -21,6 +21,7 @@ function baseFilters(overrides: Partial<LibraryFilters> = {}): LibraryFilters {
     flavorProfileValueIds: [],
     rating: null,
     sort: "RECENTLY_UPDATED",
+    sortDirection: "desc",
     sortIsExplicit: false,
     ...overrides,
   };
@@ -111,9 +112,22 @@ describe("LibraryFilterBar (URL/query-state)", () => {
     renderBar();
 
     await user.click(screen.getByRole("combobox", { name: "Sort" }));
-    await user.click(screen.getByRole("option", { name: "Highest rated" }));
+    await user.click(screen.getByRole("option", { name: "Rating" }));
 
-    expect(push).toHaveBeenCalledWith("/recipes?sort=highest-rated");
+    expect(push).toHaveBeenCalledWith("/recipes?sort=rating");
+  });
+
+  it("selecting the already-active Sort property again reverses its direction", async () => {
+    const user = userEvent.setup();
+    renderBar();
+
+    await user.click(screen.getByRole("combobox", { name: "Sort" }));
+    await user.click(screen.getByRole("option", { name: "Recently updated" }));
+
+    // Recently updated is already active at its "desc" default — picking it
+    // again reverses to "asc" rather than doing nothing, and (being a
+    // genuine ordering change) still round-trips as explicit.
+    expect(push).toHaveBeenCalledWith("/recipes?sort=recently-updated&dir=asc");
   });
 
   it("explicitly selecting the default Sort still writes it to the URL (Slice 10 correction)", async () => {
@@ -142,7 +156,12 @@ describe("LibraryFilterBar (URL/query-state)", () => {
 
   it("Clear all resets every filter but keeps the selected Sort", async () => {
     const user = userEvent.setup();
-    renderBar({ search: "curry", stages: ["ACTIVE"], sort: "ALPHABETICAL" });
+    renderBar({
+      search: "curry",
+      stages: ["ACTIVE"],
+      sort: "ALPHABETICAL",
+      sortDirection: "asc",
+    });
 
     await user.click(screen.getByRole("button", { name: "Clear all" }));
 

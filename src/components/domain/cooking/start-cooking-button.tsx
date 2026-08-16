@@ -13,7 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { PickerResultRow } from "@/components/domain/dish/picker-result-row";
+import { SelectableDishRow } from "@/components/domain/dish/selectable-dish-row";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
 import { listCookablePickerItems } from "@/lib/cooking/actions";
 import type { CookablePickerItem } from "@/lib/dishes/queries";
@@ -126,7 +126,7 @@ export function StartCookingButton({
           }
         }}
       >
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>What will you cook?</DialogTitle>
             <DialogDescription>
@@ -199,11 +199,20 @@ export function StartCookingButton({
                   </p>
                 )}
                 {filtered.map((item) => (
-                  <PickerResultRow
+                  <SelectableDishRow
                     key={item.id}
-                    title={item.currentTitle ?? "Untitled"}
-                    kind={item.kind}
-                    tags={item.tags}
+                    item={{
+                      id: item.id,
+                      kind: item.kind,
+                      title: item.currentTitle ?? "Untitled",
+                      versionLabel: item.versionLabel,
+                      stage: item.stage,
+                      cuisine: item.cuisine,
+                      imageAssetId: item.imageAssetId,
+                      tagNames: item.tags,
+                      rating: item.rating,
+                    }}
+                    selectionControl="radio"
                     selected={selected?.id === item.id}
                     onSelect={() => setSelected(item)}
                   />

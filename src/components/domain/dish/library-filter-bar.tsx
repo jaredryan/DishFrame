@@ -2,17 +2,9 @@
 
 import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronDown, Search, X } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -20,9 +12,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { FilterPopover } from "@/components/domain/dish/filter-popover";
+import {
+  SortSelect,
+  type SortSelectOption,
+} from "@/components/domain/dish/sort-select";
 import { STAGE_LABEL } from "@/components/domain/dish/stage-badge";
 import {
   DISPLAY_VIEW_PARAM,
+  defaultLibrarySortDirection,
   isDefaultLibraryFilters,
   libraryFiltersToSearchParams,
   librarySortValues,
@@ -30,6 +28,7 @@ import {
   type LibraryFilters,
   type LibrarySortValue,
   type RatingFilterValue,
+  type SortDirectionValue,
 } from "@/lib/dishes/library-filters";
 import { stageValues, type StageValue } from "@/lib/dishes/schema";
 
@@ -37,12 +36,17 @@ const SORT_LABEL: Record<LibrarySortValue, string> = {
   RECENTLY_UPDATED: "Recently updated",
   RECENTLY_CREATED: "Recently created",
   ALPHABETICAL: "Alphabetical",
-  HIGHEST_RATED: "Highest rated",
-  LOWEST_RATED: "Lowest rated",
+  RATING: "Rating",
   RECENTLY_COOKED: "Recently cooked",
-  LEAST_RECENTLY_COOKED: "Least recently cooked",
-  SHORTEST_DURATION: "Shortest estimated duration",
+  DURATION: "Estimated duration",
 };
+
+const SORT_OPTIONS: SortSelectOption<LibrarySortValue>[] =
+  librarySortValues.map((value) => ({
+    value,
+    label: SORT_LABEL[value],
+    defaultDirection: defaultLibrarySortDirection(value),
+  }));
 
 const RATING_LABEL: Record<RatingFilterValue, string> = {
   UNRATED: "Unrated",
@@ -53,6 +57,11 @@ const RATING_LABEL: Record<RatingFilterValue, string> = {
 
 export type TagFilterOption = { id: string; displayName: string };
 export type FlavorProfileFilterOption = { id: string; displayName: string };
+
+const STAGE_OPTIONS = stageValues.map((stage) => ({
+  value: stage,
+  label: STAGE_LABEL[stage],
+}));
 
 /**
  * PRODUCT_SPEC.md §43-50 — search box, filter chips (Stage/tags/cuisine/
@@ -125,7 +134,8 @@ export function LibraryFilterBar({
     navigate({ ...filters, search: searchValue.trim() });
   }
 
-  function toggleStage(stage: StageValue) {
+  function toggleStage(value: string) {
+    const stage = value as StageValue;
     const stages = filters.stages.includes(stage)
       ? filters.stages.filter((s) => s !== stage)
       : [...filters.stages, stage];
@@ -160,14 +170,19 @@ export function LibraryFilterBar({
     });
   }
 
-  function setSort(value: string) {
+  function setSort(next: {
+    property: LibrarySortValue;
+    direction: SortDirectionValue;
+  }) {
     // Slice 10 correction: any explicit dropdown pick is explicit — even
     // one that happens to match the default value — since it changes
     // ordering behavior while a search is active (relevance tier is
-    // bypassed entirely once a Sort is explicit).
+    // bypassed entirely once a Sort is explicit). Reversing direction is
+    // just as explicit a choice as picking a different property.
     navigate({
       ...filters,
-      sort: value as LibrarySortValue,
+      sort: next.property,
+      sortDirection: next.direction,
       sortIsExplicit: true,
     });
   }
@@ -181,6 +196,7 @@ export function LibraryFilterBar({
       flavorProfileValueIds: [],
       rating: null,
       sort: filters.sort,
+      sortDirection: filters.sortDirection,
       sortIsExplicit: filters.sortIsExplicit,
     });
   }
@@ -237,14 +253,10 @@ export function LibraryFilterBar({
 
   const hasActiveFilters = !isDefaultLibraryFilters(filters);
 
-  // Every dropdown/menu trigger in this group (Stage/Tags/Cuisine/Flavor
-  // profiles) shares this exact class list, so they read as one consistent
-  // family of menu triggers rather than a mix of chips and buttons.
-  const menuTriggerClass = "gap-1.5";
-
-  // Rating/Sort use shadcn's Select, whose default trigger (font size/
-  // weight, border/background color, corner radius) drifts from the
-  // Button-based triggers above — this brings the two into one family.
+  // Rating uses shadcn's Select, whose default trigger (font size/weight,
+  // border/background color, corner radius) drifts from the Button-based
+  // popover triggers above — this brings the two into one family, and also
+  // matches SortSelect's own trigger.
   const selectTriggerMatchClass =
     "gap-1 rounded-[min(var(--radius-md),12px)] data-[size=sm]:rounded-[min(var(--radius-md),12px)] border-border bg-background px-2.5 text-[0.8rem] font-medium hover:bg-muted hover:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50";
 
@@ -268,135 +280,45 @@ export function LibraryFilterBar({
         </form>
 
         <div className="flex flex-wrap items-center gap-2">
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button variant="outline" size="sm" className={menuTriggerClass}>
-                Stage
-                <ChevronDown
-                  className="text-muted-foreground size-3.5"
-                  aria-hidden="true"
-                />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-56 max-w-none" align="start">
-              <div className="flex flex-col gap-1.5">
-                {stageValues.map((stage) => (
-                  <Label
-                    key={stage}
-                    className="flex cursor-pointer items-center gap-2 text-sm font-normal"
-                  >
-                    <Checkbox
-                      checked={filters.stages.includes(stage)}
-                      onCheckedChange={() => toggleStage(stage)}
-                    />
-                    {STAGE_LABEL[stage]}
-                  </Label>
-                ))}
-              </div>
-            </PopoverContent>
-          </Popover>
+          <FilterPopover
+            label="Stage"
+            options={STAGE_OPTIONS}
+            selected={filters.stages}
+            onToggleAction={toggleStage}
+          />
 
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button variant="outline" size="sm" className={menuTriggerClass}>
-                Tags
-                <ChevronDown
-                  className="text-muted-foreground size-3.5"
-                  aria-hidden="true"
-                />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-56 max-w-none" align="start">
-              {tagOptions.length === 0 ? (
-                <p className="text-muted-foreground text-xs">No tags yet.</p>
-              ) : (
-                <div className="flex max-h-56 flex-col gap-1.5 overflow-y-auto">
-                  {tagOptions.map((tag) => (
-                    <Label
-                      key={tag.id}
-                      className="flex cursor-pointer items-center gap-2 text-sm font-normal"
-                    >
-                      <Checkbox
-                        checked={filters.tagIds.includes(tag.id)}
-                        onCheckedChange={() => toggleTag(tag.id)}
-                      />
-                      {tag.displayName}
-                    </Label>
-                  ))}
-                </div>
-              )}
-            </PopoverContent>
-          </Popover>
+          <FilterPopover
+            label="Tags"
+            options={tagOptions.map((tag) => ({
+              value: tag.id,
+              label: tag.displayName,
+            }))}
+            selected={filters.tagIds}
+            onToggleAction={toggleTag}
+            emptyMessage="No tags yet."
+          />
 
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button variant="outline" size="sm" className={menuTriggerClass}>
-                Cuisine
-                <ChevronDown
-                  className="text-muted-foreground size-3.5"
-                  aria-hidden="true"
-                />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-56 max-w-none" align="start">
-              {cuisineOptions.length === 0 ? (
-                <p className="text-muted-foreground text-xs">
-                  No cuisines used yet.
-                </p>
-              ) : (
-                <div className="flex max-h-56 flex-col gap-1.5 overflow-y-auto">
-                  {cuisineOptions.map((cuisine) => (
-                    <Label
-                      key={cuisine}
-                      className="flex cursor-pointer items-center gap-2 text-sm font-normal"
-                    >
-                      <Checkbox
-                        checked={filters.cuisines.includes(cuisine)}
-                        onCheckedChange={() => toggleCuisine(cuisine)}
-                      />
-                      {cuisine}
-                    </Label>
-                  ))}
-                </div>
-              )}
-            </PopoverContent>
-          </Popover>
+          <FilterPopover
+            label="Cuisine"
+            options={cuisineOptions.map((cuisine) => ({
+              value: cuisine,
+              label: cuisine,
+            }))}
+            selected={filters.cuisines}
+            onToggleAction={toggleCuisine}
+            emptyMessage="No cuisines used yet."
+          />
 
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button variant="outline" size="sm" className={menuTriggerClass}>
-                Flavor profiles
-                <ChevronDown
-                  className="text-muted-foreground size-3.5"
-                  aria-hidden="true"
-                />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-56 max-w-none" align="start">
-              {flavorProfileOptions.length === 0 ? (
-                <p className="text-muted-foreground text-xs">
-                  No Flavor profiles yet.
-                </p>
-              ) : (
-                <div className="flex max-h-56 flex-col gap-1.5 overflow-y-auto">
-                  {flavorProfileOptions.map((value) => (
-                    <Label
-                      key={value.id}
-                      className="flex cursor-pointer items-center gap-2 text-sm font-normal"
-                    >
-                      <Checkbox
-                        checked={filters.flavorProfileValueIds.includes(
-                          value.id,
-                        )}
-                        onCheckedChange={() => toggleFlavorProfile(value.id)}
-                      />
-                      {value.displayName}
-                    </Label>
-                  ))}
-                </div>
-              )}
-            </PopoverContent>
-          </Popover>
+          <FilterPopover
+            label="Flavor profiles"
+            options={flavorProfileOptions.map((value) => ({
+              value: value.id,
+              label: value.displayName,
+            }))}
+            selected={filters.flavorProfileValueIds}
+            onToggleAction={toggleFlavorProfile}
+            emptyMessage="No Flavor profiles yet."
+          />
 
           <Select value={filters.rating ?? "ANY"} onValueChange={setRating}>
             <SelectTrigger
@@ -456,30 +378,14 @@ export function LibraryFilterBar({
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          <Label
-            htmlFor="library-sort"
-            className="text-muted-foreground text-xs font-normal"
-          >
-            Sort
-          </Label>
-          <Select value={filters.sort} onValueChange={setSort}>
-            <SelectTrigger
-              id="library-sort"
-              size="sm"
-              className={`${selectTriggerMatchClass} w-44`}
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {librarySortValues.map((value) => (
-                <SelectItem key={value} value={value}>
-                  {SORT_LABEL[value]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        <SortSelect
+          id="library-sort"
+          property={filters.sort}
+          direction={filters.sortDirection}
+          options={SORT_OPTIONS}
+          onChangeAction={setSort}
+          triggerClassName={`${selectTriggerMatchClass} w-44`}
+        />
       </div>
     </div>
   );

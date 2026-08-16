@@ -10,7 +10,7 @@ import {
   useForm,
   useWatch,
 } from "react-hook-form";
-import { AlertCircle, Plus } from "lucide-react";
+import { AlertCircle, Import, Plus } from "lucide-react";
 import { DndContext, closestCenter, type DragEndEvent } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -628,7 +628,9 @@ export function DishEditor({
           </h1>
           {importHref && (
             <Button asChild>
-              <Link href={importHref}>Import {kindLabel.toLowerCase()}</Link>
+              <Link href={importHref}>
+                <Import /> Import {kindLabel.toLowerCase()}
+              </Link>
             </Button>
           )}
         </div>

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   CalendarRange,
   CheckCircle2,
-  Pencil,
+  Eye,
   RotateCcw,
   Trash2,
 } from "lucide-react";
@@ -24,6 +24,7 @@ import {
   completeMealPlan,
   reactivateMealPlan,
 } from "@/lib/mealplans/actions";
+import { formatDateOnly } from "@/lib/date";
 
 export type MealPlanRowData = {
   id: string;
@@ -35,15 +36,17 @@ export type MealPlanRowData = {
 };
 
 function formatRange(start: Date, end: Date): string {
-  const fmt = (d: Date) =>
-    d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-  return `${fmt(start)} – ${fmt(end)}`;
+  const options: Intl.DateTimeFormatOptions = {
+    month: "short",
+    day: "numeric",
+  };
+  return `${formatDateOnly(start, options)} – ${formatDateOnly(end, options)}`;
 }
 
 /**
  * Single Meal Plan row, shared by the Meal Plans index (`MealPlanListView`)
  * and the Home dashboard's "Meal plans" section — one card, no row-level
- * click-through; Edit/Complete-or-Reactivate/Delete are the only ways to
+ * click-through; View/Complete-or-Reactivate/Delete are the only ways to
  * act on a row.
  */
 export function MealPlanCard({
@@ -107,9 +110,9 @@ export function MealPlanCard({
       </div>
       <div className="flex shrink-0 items-center gap-1">
         <TooltipIconButton
-          label={`Edit ${plan.title}`}
-          tooltip="Edit"
-          icon={Pencil}
+          label={`View ${plan.title}`}
+          tooltip="View"
+          icon={Eye}
           onClick={() => router.push(`/meal-plans/${plan.id}`)}
         />
         {isCompleted ? (

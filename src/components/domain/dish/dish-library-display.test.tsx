@@ -40,6 +40,7 @@ const defaultFilters: LibraryFilters = {
   flavorProfileValueIds: [],
   rating: null,
   sort: "RECENTLY_UPDATED",
+  sortDirection: "desc",
   sortIsExplicit: false,
 };
 

@@ -17,10 +17,8 @@ import {
   addPlannedMealSchema,
   removePlannedMealSchema,
   generateGroceryListFromMealPlanSchema,
-  recommendationFiltersSchema,
   type ActionState,
 } from "@/lib/mealplans/schema";
-import type { Recommendation } from "@/lib/mealplans/recommendations";
 
 const PLANS_PATH = "/meal-plans";
 const LISTS_PATH = "/grocery-lists";
@@ -333,36 +331,6 @@ export async function generateGroceryListFromMealPlan(values: {
     revalidateMealPlan(mealPlanId);
     revalidateGroceryList(listId);
     return { status: "success", listId };
-  } catch (error) {
-    return { status: "error", message: toActionErrorMessage(error) };
-  }
-}
-
-export type RecommendationsActionState =
-  | {
-      status: "success";
-      recommendations: Recommendation[];
-      totalRecipeCount: number;
-      eligibleRecipeCount: number;
-    }
-  | { status: "error"; message: string };
-
-export async function getMealPlanRecommendations(values: {
-  includeExperimental?: boolean;
-  includeIdea?: boolean;
-  favoritesOnly?: boolean;
-}): Promise<RecommendationsActionState> {
-  try {
-    const userId = await requireUserId();
-    const filters = recommendationFiltersSchema.parse(values);
-    const { recommendations, totalRecipeCount, eligibleRecipeCount } =
-      await mealPlanService.getRecommendations(userId, filters);
-    return {
-      status: "success",
-      recommendations,
-      totalRecipeCount,
-      eligibleRecipeCount,
-    };
   } catch (error) {
     return { status: "error", message: toActionErrorMessage(error) };
   }

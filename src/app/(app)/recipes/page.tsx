@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { NotebookPen } from "lucide-react";
+import { Import, NotebookPen } from "lucide-react";
 import { redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth/session";
 import { Button } from "@/components/ui/button";
@@ -31,7 +31,9 @@ export default async function RecipesPage({
       action={
         <>
           <Button asChild variant="outline">
-            <Link href="/recipes/import">Import</Link>
+            <Link href="/recipes/import">
+              <Import /> Import
+            </Link>
           </Button>
           <Button asChild>
             <Link href="/recipes/new">

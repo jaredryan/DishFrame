@@ -22,6 +22,7 @@ function baseFilters(overrides: Partial<LibraryFilters> = {}): LibraryFilters {
     flavorProfileValueIds: [],
     rating: null,
     sort: "RECENTLY_UPDATED",
+    sortDirection: "desc",
     sortIsExplicit: false,
     ...overrides,
   };
@@ -40,7 +41,7 @@ describe("parseLibrarySearchParams / libraryFiltersToSearchParams", () => {
       cuisine: "Vietnamese,Thai",
       flavor: "fp1",
       rating: "4plus",
-      sort: "highest-rated",
+      sort: "rating",
     });
     expect(filters).toEqual(
       baseFilters({
@@ -50,7 +51,7 @@ describe("parseLibrarySearchParams / libraryFiltersToSearchParams", () => {
         cuisines: ["Vietnamese", "Thai"],
         flavorProfileValueIds: ["fp1"],
         rating: "FOUR_PLUS",
-        sort: "HIGHEST_RATED",
+        sort: "RATING",
         sortIsExplicit: true,
       }),
     );
@@ -93,6 +94,26 @@ describe("parseLibrarySearchParams / libraryFiltersToSearchParams", () => {
     expect(parseLibrarySearchParams(Object.fromEntries(params))).toEqual(
       explicitDefault,
     );
+  });
+
+  it("round-trips a reversed sort direction and omits it when it matches the property's default", () => {
+    const reversed = baseFilters({
+      sort: "ALPHABETICAL",
+      sortDirection: "desc",
+      sortIsExplicit: true,
+    });
+    const params = libraryFiltersToSearchParams(reversed);
+    expect(params.get("dir")).toBe("desc");
+    expect(parseLibrarySearchParams(Object.fromEntries(params))).toEqual(
+      reversed,
+    );
+
+    const natural = baseFilters({
+      sort: "ALPHABETICAL",
+      sortDirection: "asc",
+      sortIsExplicit: true,
+    });
+    expect(libraryFiltersToSearchParams(natural).has("dir")).toBe(false);
   });
 });
 
@@ -330,22 +351,22 @@ describe("compareDishesForSort", () => {
     expect(compareDishesForSort(a, b, "ALPHABETICAL")).toBeLessThan(0);
   });
 
-  it("Highest/Lowest rated: unrated always sorts last, both directions (§48.4)", () => {
+  it("Rating: unrated always sorts last, both directions (§48.4)", () => {
     const rated = dish({ ratingValue: 4.5 });
     const unrated = dish({ ratingValue: null });
     expect(
-      compareDishesForSort(unrated, rated, "HIGHEST_RATED"),
+      compareDishesForSort(unrated, rated, "RATING", "desc"),
     ).toBeGreaterThan(0);
     expect(
-      compareDishesForSort(unrated, rated, "LOWEST_RATED"),
+      compareDishesForSort(unrated, rated, "RATING", "asc"),
     ).toBeGreaterThan(0);
   });
 
-  it("Highest rated orders descending, Lowest rated ascending, among rated items", () => {
+  it("Rating desc orders highest-first, asc orders lowest-first, among rated items", () => {
     const high = dish({ ratingValue: 4.8 });
     const low = dish({ ratingValue: 3.1 });
-    expect(compareDishesForSort(high, low, "HIGHEST_RATED")).toBeLessThan(0);
-    expect(compareDishesForSort(high, low, "LOWEST_RATED")).toBeGreaterThan(0);
+    expect(compareDishesForSort(high, low, "RATING", "desc")).toBeLessThan(0);
+    expect(compareDishesForSort(high, low, "RATING", "asc")).toBeGreaterThan(0);
   });
 
   it("a provisional (~) rating participates numerically between adjacent actual ratings (§48.4 example)", () => {
@@ -355,7 +376,7 @@ describe("compareDishesForSort", () => {
       dish({ currentTitle: "4.1", ratingValue: 4.1 }),
     ];
     const sorted = [...items].sort((a, b) =>
-      compareDishesForSort(a, b, "HIGHEST_RATED"),
+      compareDishesForSort(a, b, "RATING", "desc"),
     );
     expect(sorted.map((d) => d.currentTitle)).toEqual([
       "4.3",
@@ -364,37 +385,40 @@ describe("compareDishesForSort", () => {
     ]);
   });
 
-  it("Recently cooked: never-cooked last (§48.5)", () => {
+  it("Recently cooked desc: never-cooked last (§48.5)", () => {
     const cooked = dish({ lastCookedAt: new Date("2026-01-01") });
     const neverCooked = dish({ lastCookedAt: null });
     expect(
-      compareDishesForSort(neverCooked, cooked, "RECENTLY_COOKED"),
+      compareDishesForSort(neverCooked, cooked, "RECENTLY_COOKED", "desc"),
     ).toBeGreaterThan(0);
   });
 
-  it("Least recently cooked: never-cooked first, then oldest-to-newest (§48.6)", () => {
+  it("Recently cooked asc (least recently cooked): never-cooked first, then oldest-to-newest (§48.6)", () => {
     const neverCooked = dish({ lastCookedAt: null });
     const older = dish({ lastCookedAt: new Date("2025-01-01") });
     const newer = dish({ lastCookedAt: new Date("2026-01-01") });
     expect(
-      compareDishesForSort(neverCooked, older, "LEAST_RECENTLY_COOKED"),
+      compareDishesForSort(neverCooked, older, "RECENTLY_COOKED", "asc"),
     ).toBeLessThan(0);
     expect(
-      compareDishesForSort(older, newer, "LEAST_RECENTLY_COOKED"),
+      compareDishesForSort(older, newer, "RECENTLY_COOKED", "asc"),
     ).toBeLessThan(0);
   });
 
-  it("Shortest duration: no-estimate items last (§48.7)", () => {
+  it("Duration: no-estimate items last, both directions (§48.7)", () => {
     const withEstimate = dish({ durationMinutes: 30 });
     const withoutEstimate = dish({ durationMinutes: null });
     expect(
-      compareDishesForSort(withoutEstimate, withEstimate, "SHORTEST_DURATION"),
+      compareDishesForSort(withoutEstimate, withEstimate, "DURATION", "asc"),
     ).toBeGreaterThan(0);
     const shorter = dish({ durationMinutes: 15 });
     const longer = dish({ durationMinutes: 45 });
     expect(
-      compareDishesForSort(shorter, longer, "SHORTEST_DURATION"),
+      compareDishesForSort(shorter, longer, "DURATION", "asc"),
     ).toBeLessThan(0);
+    expect(
+      compareDishesForSort(shorter, longer, "DURATION", "desc"),
+    ).toBeGreaterThan(0);
   });
 });
 
@@ -448,16 +472,17 @@ describe("compareDishesForLibrary", () => {
   // Slice 10 correction: an explicitly selected Sort must control primary
   // order for every matching Dish while searching — relevance tier only
   // constrains which Dishes match, never how an explicit Sort orders them.
-  it("Highest rated, explicitly selected, overrides relevance tier entirely", () => {
+  it("Rating, explicitly selected, overrides relevance tier entirely", () => {
     const tier4HighRated = item(4, { ratingValue: 4.8 });
     const tier1LowRated = item(1, { ratingValue: 3.0 });
     expect(
       compareDishesForLibrary(
         tier4HighRated,
         tier1LowRated,
-        "HIGHEST_RATED",
+        "RATING",
         true,
         true,
+        "desc",
       ),
     ).toBeLessThan(0);
   });

@@ -3,13 +3,13 @@ import { cache } from "react";
 import { prisma } from "@/lib/db/prisma";
 import { NotFoundError } from "@/lib/errors";
 import { decimalToNumber } from "@/lib/dishes/format";
+import { versionLabel } from "@/lib/dishes/version-note";
 import {
   getPrincipalRatingsForDishes,
   type PrincipalRating,
 } from "@/lib/reviews/queries";
 import { getLastCookedAtForDishes } from "@/lib/cooking/queries";
 import { ratingNumericValue } from "@/lib/dishes/library-filters";
-import type { RecommendationCandidate } from "@/lib/mealplans/recommendations";
 
 /**
  * Meal Plan domain queries (BUILD_PLAN.md Slice 15, ARCHITECTURE_PROPOSAL.md
@@ -73,141 +73,114 @@ export async function listMealPlansForOwner(ownerId: string) {
 
 /**
  * Every owned Recipe/Part with a current Version — the candidate pool for
- * the plan-entry picker (§76.2). Carries the current Version's own authored
- * yield, the same convention `grocery/queries.ts#listGrocerySourceCandidates`
- * already established for target-yield scaling.
+ * the plan-entry picker (§76.2), and (Slice 24 redesign) the base data for
+ * the Add/Edit-meal modal's unified result list: Stage/tags/Favorite/
+ * cuisine/rating feed its filters and chips, and `updatedAt`/`lastCookedAt`/
+ * `ratingValue` its Sort options, all without a further round trip. Carries
+ * the current Version's own authored yield, the same convention
+ * `grocery/queries.ts#listGrocerySourceCandidates` already established for
+ * target-yield scaling.
  */
 export async function listMealPlanEntryCandidates(ownerId: string) {
-  const dishes = await prisma.dish.findMany({
-    where: { ownerId, archivedAt: null, currentVersionId: { not: null } },
-    select: {
-      id: true,
-      kind: true,
-      currentTitle: true,
-      currentVersionId: true,
-      currentVersion: { select: { yieldQuantity: true, yieldUnit: true } },
-    },
-    orderBy: { currentTitle: "asc" },
-  });
+  const [preference, dishes] = await Promise.all([
+    prisma.userPreference.findUnique({
+      where: { userId: ownerId },
+      select: { primaryRatingDisplay: true },
+    }),
+    prisma.dish.findMany({
+      where: { ownerId, archivedAt: null, currentVersionId: { not: null } },
+      select: {
+        id: true,
+        kind: true,
+        stage: true,
+        cuisine: true,
+        currentTitle: true,
+        currentVersionId: true,
+        updatedAt: true,
+        sourceKind: true,
+        sourceAggregateRating: true,
+        sourceRatingCount: true,
+        sourceTitle: true,
+        sourceDishVersionLabel: true,
+        currentVersion: {
+          select: {
+            imageAssetId: true,
+            yieldQuantity: true,
+            yieldUnit: true,
+            majorVersion: true,
+            minorVersion: true,
+          },
+        },
+        tags: {
+          select: {
+            tagId: true,
+            tag: { select: { displayName: true, isFavorite: true } },
+          },
+        },
+        flavorProfiles: {
+          select: { flavorProfileValueId: true },
+        },
+      },
+      orderBy: { currentTitle: "asc" },
+    }),
+  ]);
+
+  const ratings = await getPrincipalRatingsForDishes(
+    dishes.map((dish) => ({
+      id: dish.id,
+      currentVersionId: dish.currentVersionId,
+      sourceKind: dish.sourceKind,
+      sourceAggregateRating: decimalToNumber(dish.sourceAggregateRating),
+      sourceRatingCount: dish.sourceRatingCount,
+      sourceTitle: dish.sourceTitle,
+      sourceDishVersionLabel: dish.sourceDishVersionLabel,
+    })),
+    preference?.primaryRatingDisplay ?? "GROUP_AVERAGE",
+  );
+
+  // `getLastCookedAtForDishes` is scoped to one kind at a time (its Part
+  // branch also walks `CookingSessionPartUsage`, which a mixed-kind call
+  // can't express) — this candidate pool spans both, so it's resolved as
+  // two batched calls and merged rather than N per-Dish round trips.
+  const recipeIds = dishes.filter((d) => d.kind === "RECIPE").map((d) => d.id);
+  const partIds = dishes.filter((d) => d.kind === "PART").map((d) => d.id);
+  const [recipeLastCooked, partLastCooked] = await Promise.all([
+    getLastCookedAtForDishes(ownerId, recipeIds, "RECIPE"),
+    getLastCookedAtForDishes(ownerId, partIds, "PART"),
+  ]);
+  const lastCookedMap = new Map([...recipeLastCooked, ...partLastCooked]);
+
   return dishes.map((dish) => ({
     dishId: dish.id,
     kind: dish.kind,
+    stage: dish.stage,
+    cuisine: dish.cuisine,
     title: dish.currentTitle ?? "Untitled",
     dishVersionId: dish.currentVersionId!,
+    versionLabel: dish.currentVersion
+      ? versionLabel(
+          dish.currentVersion.majorVersion,
+          dish.currentVersion.minorVersion,
+        )
+      : "",
+    imageAssetId: dish.currentVersion?.imageAssetId ?? null,
     yieldQuantity: decimalToNumber(dish.currentVersion?.yieldQuantity ?? null),
     yieldUnit: dish.currentVersion?.yieldUnit ?? null,
+    tagIds: dish.tags.filter((t) => !t.tag.isFavorite).map((t) => t.tagId),
+    tagNames: dish.tags
+      .filter((t) => !t.tag.isFavorite)
+      .map((t) => t.tag.displayName),
+    flavorProfileValueIds: dish.flavorProfiles.map(
+      (f) => f.flavorProfileValueId,
+    ),
+    isFavorite: dish.tags.some((t) => t.tag.isFavorite),
+    ratingValue: ratingNumericValue(
+      ratings.get(dish.id) ?? ({ kind: "none" } as PrincipalRating),
+    ),
+    lastCookedAt: lastCookedMap.get(dish.id) ?? null,
+    updatedAt: dish.updatedAt,
   }));
 }
 export type MealPlanEntryCandidate = Awaited<
   ReturnType<typeof listMealPlanEntryCandidates>
 >[number];
-
-/**
- * Recommendation-eligibility counts (§80) — two cheap counts (not a full
- * candidate load) distinguishing "the account owns no Recipes at all" from
- * "the account owns Recipes, but every one is currently ineligible for
- * recommendations." `eligibleRecipeCount`'s `where` is deliberately the
- * exact same clause `listRecommendationCandidates` below uses (RECIPE,
- * `archivedAt: null`, has a current Version) — not a hand-rewritten
- * equivalent — so the two can't silently drift apart. Archiving a Dish
- * *is* setting its Stage to `ARCHIVED` (`dishes/service.ts#archiveDish`
- * calls `updateDishStage(..., "ARCHIVED", ...)`, which derives
- * `archivedAt` from that Stage via `nextArchivedAt`) — one fact, not two —
- * so `archivedAt: null` alone already excludes Stage-`ARCHIVED` Recipes;
- * `rankMealPlanRecommendations`'s own unconditional `stage !== "ARCHIVED"`
- * filter is just defense-in-depth on the same fact, never reachable as a
- * *further* exclusion once `archivedAt: null` has already applied.
- * Deliberately Recipe-only, unlike `listMealPlanEntryCandidates` above
- * (which also includes Parts and every non-archived Dish, since it feeds
- * the plan-entry picker, not recommendations) — that mixed pool cannot
- * answer either of this function's questions on its own.
- */
-export async function countRecipeRecommendationEligibility(
-  ownerId: string,
-): Promise<{ totalRecipeCount: number; eligibleRecipeCount: number }> {
-  const [totalRecipeCount, eligibleRecipeCount] = await Promise.all([
-    prisma.dish.count({ where: { ownerId, kind: "RECIPE" } }),
-    prisma.dish.count({
-      where: {
-        ownerId,
-        kind: "RECIPE",
-        archivedAt: null,
-        currentVersionId: { not: null },
-      },
-    }),
-  ]);
-  return { totalRecipeCount, eligibleRecipeCount };
-}
-
-/**
- * Recommendation candidates (§80) — owned, non-archived RECIPE Dishes only
- * (§80's priority list and every one of its examples speak exclusively of
- * Recipes; standalone Part-preparation entries are added directly from the
- * picker, not recommended). Batches the same rating/last-cooked lookups
- * `dishes/queries.ts#queryDishLibrary` already uses for the library grid.
- */
-export async function listRecommendationCandidates(
-  ownerId: string,
-): Promise<RecommendationCandidate[]> {
-  const preference = await prisma.userPreference.findUnique({
-    where: { userId: ownerId },
-    select: { primaryRatingDisplay: true },
-  });
-
-  const dishes = await prisma.dish.findMany({
-    where: {
-      ownerId,
-      kind: "RECIPE",
-      archivedAt: null,
-      currentVersionId: { not: null },
-    },
-    select: {
-      id: true,
-      stage: true,
-      currentTitle: true,
-      currentVersionId: true,
-      sourceKind: true,
-      sourceAggregateRating: true,
-      sourceRatingCount: true,
-      sourceTitle: true,
-      sourceDishVersionLabel: true,
-      tags: { select: { tag: { select: { isFavorite: true } } } },
-      flavorProfiles: {
-        select: { flavorProfileValue: { select: { displayName: true } } },
-      },
-    },
-  });
-  if (dishes.length === 0) return [];
-
-  const ratings = await getPrincipalRatingsForDishes(
-    dishes.map((d) => ({
-      id: d.id,
-      currentVersionId: d.currentVersionId,
-      sourceKind: d.sourceKind,
-      sourceAggregateRating: decimalToNumber(d.sourceAggregateRating),
-      sourceRatingCount: d.sourceRatingCount,
-      sourceTitle: d.sourceTitle,
-      sourceDishVersionLabel: d.sourceDishVersionLabel,
-    })),
-    preference?.primaryRatingDisplay ?? "GROUP_AVERAGE",
-  );
-  const lastCookedMap = await getLastCookedAtForDishes(
-    ownerId,
-    dishes.map((d) => d.id),
-    "RECIPE",
-  );
-
-  return dishes.map((dish) => ({
-    dishId: dish.id,
-    title: dish.currentTitle ?? "Untitled",
-    stage: dish.stage,
-    lastCookedAt: lastCookedMap.get(dish.id) ?? null,
-    ratingValue: ratingNumericValue(
-      ratings.get(dish.id) ?? ({ kind: "none" } as PrincipalRating),
-    ),
-    isFavorite: dish.tags.some((t) => t.tag.isFavorite),
-    flavorProfiles: dish.flavorProfiles.map(
-      (f) => f.flavorProfileValue.displayName,
-    ),
-  }));
-}

@@ -61,6 +61,7 @@ function defaultFilters(
     flavorProfileValueIds: [],
     rating: null,
     sort: "RECENTLY_UPDATED",
+    sortDirection: "desc",
     sortIsExplicit: false,
     ...overrides,
   };
@@ -371,7 +372,7 @@ describe("queryDishLibrary (Slice 10)", () => {
     const highestRated = await queryDishLibrary(
       userId,
       "RECIPE",
-      defaultFilters({ sort: "HIGHEST_RATED" }),
+      defaultFilters({ sort: "RATING" }),
       "GROUP_AVERAGE",
     );
     // Unrated always sorts last (§48.4), regardless of direction.

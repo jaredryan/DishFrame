@@ -9,6 +9,12 @@ import {
 } from "@/lib/errors";
 import { normalizeEmail } from "@/lib/auth/email";
 import { createIndependentCopyFromGraph } from "@/lib/dishes/service";
+import { decimalToNumber } from "@/lib/dishes/format";
+import { versionLabel } from "@/lib/dishes/version-note";
+import {
+  getPrincipalRatingsForDishes,
+  type PrincipalRating,
+} from "@/lib/reviews/queries";
 import type { DishKindValue, StageValue } from "@/lib/dishes/schema";
 import {
   buildShareGraph,
@@ -47,43 +53,94 @@ export type ShareableItemSummary = {
   id: string;
   kind: DishKindValue;
   title: string;
+  versionLabel: string;
   stage: StageValue;
+  cuisine: string | null;
   archivedAt: string | null;
   imageAssetId: string | null;
+  tagNames: string[];
+  rating: PrincipalRating;
 };
 
 /**
- * PRODUCT_SPEC.md §85 extension: the minimal-field list the unified send
- * flow's item selector renders — kind, title, image, lifecycle/stage, and
- * (via the `currentVersionId: { not: null }` filter) current-Version
- * existence, across both Recipes and Parts. Deliberately not
- * `dishes/queries.ts`'s `dishCardSelect` or `queryDishLibrary` — those
- * resolve tags/Flavor profiles/ratings/last-cooked data the selector never
- * renders, which would load real content weight this flow's product
- * decision explicitly says to avoid.
+ * PRODUCT_SPEC.md §85 extension: the field list the unified send flow's item
+ * selector renders — kind, title, Version, image, lifecycle/stage, cuisine,
+ * custom tags, and rating, across both Recipes and Parts with a current
+ * Version (via `currentVersionId: { not: null }`). Design pass (rich
+ * selection-row unification): the selector now shares the same row
+ * treatment as the Add/Edit Meal and `/cook` pickers, so this resolves the
+ * same rating/tag data `dishes/queries.ts#queryDishLibrary` does rather than
+ * staying deliberately minimal.
  */
 export async function listShareableItemsForSender(
   ownerId: string,
 ): Promise<ShareableItemSummary[]> {
-  const rows = await prisma.dish.findMany({
-    where: { ownerId, currentVersionId: { not: null } },
-    select: {
-      id: true,
-      kind: true,
-      currentTitle: true,
-      stage: true,
-      archivedAt: true,
-      currentVersion: { select: { imageAssetId: true } },
-    },
-    orderBy: { currentTitle: "asc" },
-  });
+  const [preference, rows] = await Promise.all([
+    prisma.userPreference.findUnique({
+      where: { userId: ownerId },
+      select: { primaryRatingDisplay: true },
+    }),
+    prisma.dish.findMany({
+      where: { ownerId, currentVersionId: { not: null } },
+      select: {
+        id: true,
+        kind: true,
+        currentTitle: true,
+        stage: true,
+        cuisine: true,
+        archivedAt: true,
+        currentVersionId: true,
+        sourceKind: true,
+        sourceAggregateRating: true,
+        sourceRatingCount: true,
+        sourceTitle: true,
+        sourceDishVersionLabel: true,
+        currentVersion: {
+          select: {
+            imageAssetId: true,
+            majorVersion: true,
+            minorVersion: true,
+          },
+        },
+        tags: {
+          select: { tag: { select: { displayName: true, isFavorite: true } } },
+        },
+      },
+      orderBy: { currentTitle: "asc" },
+    }),
+  ]);
+
+  const ratings = await getPrincipalRatingsForDishes(
+    rows.map((row) => ({
+      id: row.id,
+      currentVersionId: row.currentVersionId,
+      sourceKind: row.sourceKind,
+      sourceAggregateRating: decimalToNumber(row.sourceAggregateRating),
+      sourceRatingCount: row.sourceRatingCount,
+      sourceTitle: row.sourceTitle,
+      sourceDishVersionLabel: row.sourceDishVersionLabel,
+    })),
+    preference?.primaryRatingDisplay ?? "GROUP_AVERAGE",
+  );
+
   return rows.map((row) => ({
     id: row.id,
     kind: row.kind,
     title: row.currentTitle ?? "Untitled",
+    versionLabel: row.currentVersion
+      ? versionLabel(
+          row.currentVersion.majorVersion,
+          row.currentVersion.minorVersion,
+        )
+      : "",
     stage: row.stage,
+    cuisine: row.cuisine,
     archivedAt: row.archivedAt?.toISOString() ?? null,
     imageAssetId: row.currentVersion?.imageAssetId ?? null,
+    tagNames: row.tags
+      .filter((t) => !t.tag.isFavorite)
+      .map((t) => t.tag.displayName),
+    rating: ratings.get(row.id) ?? { kind: "none" },
   }));
 }
 

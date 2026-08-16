@@ -1,10 +1,16 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth/session";
-import { getOwnedMealPlanOrThrow } from "@/lib/mealplans/queries";
+import {
+  getOwnedMealPlanOrThrow,
+  listMealPlanEntryCandidates,
+} from "@/lib/mealplans/queries";
+import { listDistinctCuisines } from "@/lib/dishes/queries";
+import { listTags } from "@/lib/tags/queries";
+import { listFlavorProfileValues } from "@/lib/flavor-profiles/queries";
 import { NotFoundError } from "@/lib/errors";
 import { decimalToNumber } from "@/lib/dishes/format";
-import { MealPlanView } from "@/components/domain/mealplans/meal-plan-view";
+import { MealPlanEditor } from "@/components/domain/mealplans/meal-plan-editor";
 import type { MealPlanDetailDto } from "@/lib/mealplans/schema";
 
 export async function generateMetadata({
@@ -17,13 +23,13 @@ export async function generateMetadata({
   const { id } = await params;
   try {
     const mealPlan = await getOwnedMealPlanOrThrow(session.user.id, id);
-    return { title: mealPlan.title };
+    return { title: `${mealPlan.title} — Edit` };
   } catch {
     return {};
   }
 }
 
-export default async function MealPlanViewPage({
+export default async function EditMealPlanPage({
   params,
 }: {
   params: Promise<{ id: string }>;
@@ -40,6 +46,16 @@ export default async function MealPlanViewPage({
     if (error instanceof NotFoundError) notFound();
     throw error;
   }
+
+  const ownerId = session.user.id;
+  const [candidates, tags, recipeCuisines, partCuisines, flavorProfiles] =
+    await Promise.all([
+      listMealPlanEntryCandidates(ownerId),
+      listTags(ownerId),
+      listDistinctCuisines(ownerId, "RECIPE"),
+      listDistinctCuisines(ownerId, "PART"),
+      listFlavorProfileValues(ownerId),
+    ]);
 
   const dto: MealPlanDetailDto = {
     id: mealPlan.id,
@@ -74,5 +90,22 @@ export default async function MealPlanViewPage({
     })),
   };
 
-  return <MealPlanView mealPlan={dto} />;
+  return (
+    <MealPlanEditor
+      mode="edit"
+      mealPlan={dto}
+      candidates={candidates}
+      tagOptions={tags.map((tag) => ({
+        id: tag.id,
+        displayName: tag.displayName,
+      }))}
+      cuisineOptions={[...new Set([...recipeCuisines, ...partCuisines])].sort(
+        (a, b) => a.localeCompare(b),
+      )}
+      flavorProfileOptions={flavorProfiles.map((value) => ({
+        id: value.id,
+        displayName: value.displayName,
+      }))}
+    />
+  );
 }

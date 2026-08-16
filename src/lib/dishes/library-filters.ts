@@ -13,19 +13,38 @@ import type { PrincipalRating } from "@/lib/reviews/queries";
  * examples, independent of the actual Prisma query in dishes/queries.ts.
  */
 
+// A sort is a property plus a direction, not a fixed list of named
+// inverse-pair options — collapsing e.g. "Highest rated"/"Lowest rated" into
+// one RATING property whose direction can be reversed (§48).
 export const librarySortValues = [
   "RECENTLY_UPDATED",
   "RECENTLY_CREATED",
   "ALPHABETICAL",
-  "HIGHEST_RATED",
-  "LOWEST_RATED",
+  "RATING",
   "RECENTLY_COOKED",
-  "LEAST_RECENTLY_COOKED",
-  "SHORTEST_DURATION",
+  "DURATION",
 ] as const;
 export type LibrarySortValue = (typeof librarySortValues)[number];
 
+export const sortDirectionValues = ["asc", "desc"] as const;
+export type SortDirectionValue = (typeof sortDirectionValues)[number];
+
 export const DEFAULT_LIBRARY_SORT: LibrarySortValue = "RECENTLY_UPDATED";
+
+/** Each property's "natural" direction — what it means before the user ever
+ * reverses it (e.g. Recently updated defaults to newest-first, Alphabetical
+ * to A→Z). */
+export function defaultLibrarySortDirection(
+  sort: LibrarySortValue,
+): SortDirectionValue {
+  switch (sort) {
+    case "ALPHABETICAL":
+    case "DURATION":
+      return "asc";
+    default:
+      return "desc";
+  }
+}
 
 export const ratingFilterValues = [
   "UNRATED",
@@ -43,10 +62,12 @@ export type LibraryFilters = {
   flavorProfileValueIds: string[];
   rating: RatingFilterValue | null;
   sort: LibrarySortValue;
+  sortDirection: SortDirectionValue;
   // Slice 10 correction: distinguishes "no sort param in the URL" (relevance
   // ranking wins while searching, §44.5) from "the user explicitly picked
-  // this Sort from the dropdown" (that Sort wins, even if the picked value
-  // happens to equal the default) — see `compareDishesForLibrary`.
+  // this Sort (or reversed its direction) from the dropdown" (that Sort wins,
+  // even if the picked value happens to equal the default) — see
+  // `compareDishesForLibrary`.
   sortIsExplicit: boolean;
 };
 
@@ -59,11 +80,9 @@ const SORT_PARAM_TO_VALUE: Record<string, LibrarySortValue> = {
   "recently-updated": "RECENTLY_UPDATED",
   "recently-created": "RECENTLY_CREATED",
   alphabetical: "ALPHABETICAL",
-  "highest-rated": "HIGHEST_RATED",
-  "lowest-rated": "LOWEST_RATED",
+  rating: "RATING",
   "recently-cooked": "RECENTLY_COOKED",
-  "least-recently-cooked": "LEAST_RECENTLY_COOKED",
-  "shortest-duration": "SHORTEST_DURATION",
+  duration: "DURATION",
 };
 const SORT_VALUE_TO_PARAM: Record<LibrarySortValue, string> =
   Object.fromEntries(
@@ -129,9 +148,18 @@ export function parseLibrarySearchParams(
     ? (RATING_PARAM_TO_VALUE[ratingParam] ?? null)
     : null;
   const sortParam = firstParam(params.sort);
-  const sortIsExplicit = Boolean(sortParam && SORT_PARAM_TO_VALUE[sortParam]);
+  const dirParam = firstParam(params.dir);
+  const sortIsExplicit = Boolean(
+    (sortParam && SORT_PARAM_TO_VALUE[sortParam]) ||
+    dirParam === "asc" ||
+    dirParam === "desc",
+  );
   const sort =
     (sortParam && SORT_PARAM_TO_VALUE[sortParam]) || DEFAULT_LIBRARY_SORT;
+  const sortDirection: SortDirectionValue =
+    dirParam === "asc" || dirParam === "desc"
+      ? dirParam
+      : defaultLibrarySortDirection(sort);
 
   return {
     search,
@@ -141,6 +169,7 @@ export function parseLibrarySearchParams(
     flavorProfileValueIds,
     rating,
     sort,
+    sortDirection,
     sortIsExplicit,
   };
 }
@@ -165,6 +194,9 @@ export function libraryFiltersToSearchParams(
   // `compareDishesForLibrary`).
   if (filters.sortIsExplicit || filters.sort !== DEFAULT_LIBRARY_SORT) {
     params.set("sort", SORT_VALUE_TO_PARAM[filters.sort]);
+  }
+  if (filters.sortDirection !== defaultLibrarySortDirection(filters.sort)) {
+    params.set("dir", filters.sortDirection);
   }
   return params;
 }
@@ -365,41 +397,46 @@ function compareLastCooked(
   return a.getTime() - b.getTime();
 }
 
-function compareDuration(a: number | null, b: number | null): number {
+function compareDuration(
+  a: number | null,
+  b: number | null,
+  direction: SortDirectionValue,
+): number {
   if (a == null && b == null) return 0;
-  if (a == null) return 1;
+  if (a == null) return 1; // no estimate always sorts last, both directions
   if (b == null) return -1;
-  return a - b;
+  return direction === "asc" ? a - b : b - a;
 }
 
 export function compareDishesForSort(
   a: SortableDish,
   b: SortableDish,
   sort: LibrarySortValue,
+  direction: SortDirectionValue = defaultLibrarySortDirection(sort),
 ): number {
   switch (sort) {
     case "RECENTLY_UPDATED":
-      return b.updatedAt.getTime() - a.updatedAt.getTime();
+      return direction === "desc"
+        ? b.updatedAt.getTime() - a.updatedAt.getTime()
+        : a.updatedAt.getTime() - b.updatedAt.getTime();
     case "RECENTLY_CREATED":
-      return b.createdAt.getTime() - a.createdAt.getTime();
-    case "ALPHABETICAL":
-      return (a.currentTitle ?? "").localeCompare(
+      return direction === "desc"
+        ? b.createdAt.getTime() - a.createdAt.getTime()
+        : a.createdAt.getTime() - b.createdAt.getTime();
+    case "ALPHABETICAL": {
+      const cmp = (a.currentTitle ?? "").localeCompare(
         b.currentTitle ?? "",
         undefined,
-        {
-          sensitivity: "base",
-        },
+        { sensitivity: "base" },
       );
-    case "HIGHEST_RATED":
-      return compareRating(a.ratingValue, b.ratingValue, "desc");
-    case "LOWEST_RATED":
-      return compareRating(a.ratingValue, b.ratingValue, "asc");
+      return direction === "asc" ? cmp : -cmp;
+    }
+    case "RATING":
+      return compareRating(a.ratingValue, b.ratingValue, direction);
     case "RECENTLY_COOKED":
-      return compareLastCooked(a.lastCookedAt, b.lastCookedAt, "desc");
-    case "LEAST_RECENTLY_COOKED":
-      return compareLastCooked(a.lastCookedAt, b.lastCookedAt, "asc");
-    case "SHORTEST_DURATION":
-      return compareDuration(a.durationMinutes, b.durationMinutes);
+      return compareLastCooked(a.lastCookedAt, b.lastCookedAt, direction);
+    case "DURATION":
+      return compareDuration(a.durationMinutes, b.durationMinutes, direction);
     default:
       return 0;
   }
@@ -422,11 +459,12 @@ export function compareDishesForLibrary(
   sort: LibrarySortValue,
   searchActive: boolean,
   sortIsExplicit: boolean,
+  direction: SortDirectionValue = defaultLibrarySortDirection(sort),
 ): number {
   if (searchActive && !sortIsExplicit) {
     const tierA = a.searchTier ?? Number.POSITIVE_INFINITY;
     const tierB = b.searchTier ?? Number.POSITIVE_INFINITY;
     if (tierA !== tierB) return tierA - tierB;
   }
-  return compareDishesForSort(a, b, sort);
+  return compareDishesForSort(a, b, sort, direction);
 }

@@ -107,12 +107,6 @@ export const generateGroceryListFromMealPlanSchema = mealPlanIdSchema.extend({
   entryIds: z.array(z.string().min(1)).optional(),
 });
 
-export const recommendationFiltersSchema = z.object({
-  includeExperimental: z.boolean().optional(),
-  includeIdea: z.boolean().optional(),
-  favoritesOnly: z.boolean().optional(),
-});
-
 export type ActionState = {
   status: "idle" | "success" | "error";
   message?: string;

@@ -1,0 +1,1742 @@
+"use client";
+
+import * as React from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import {
+  AlertCircle,
+  CalendarDays,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Search,
+  Soup,
+  Trash2,
+  X,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Field, FieldLabel, FieldError } from "@/components/ui/field";
+import { Breadcrumbs } from "@/components/ui/breadcrumbs";
+import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { DatePickerField } from "@/components/ui/date-picker-field";
+import { TooltipIconButton } from "@/components/domain/dish/reorder-buttons";
+import { STAGE_LABEL } from "@/components/domain/dish/stage-badge";
+import { FilterPopover } from "@/components/domain/dish/filter-popover";
+import {
+  SortSelect,
+  type SortSelectOption,
+} from "@/components/domain/dish/sort-select";
+import {
+  SelectableDishRow,
+  type DishSelectionItem,
+} from "@/components/domain/dish/selectable-dish-row";
+import {
+  createMealPlan,
+  updateMealPlan,
+  addMealPlanEntry,
+  updateMealPlanEntry,
+  removeMealPlanEntry,
+  adoptNewerVersionInEntry,
+  addPlannedMeal,
+  removePlannedMeal,
+} from "@/lib/mealplans/actions";
+import { computeAllocationStatus } from "@/lib/mealplans/allocation";
+import { formatDateOnly, toIsoDateOnly } from "@/lib/date";
+import { useUnsavedChangesGuard } from "@/components/domain/dish/use-unsaved-changes-guard";
+import {
+  matchesRatingFilter,
+  ratingFilterValues,
+  type RatingFilterValue,
+} from "@/lib/dishes/library-filters";
+import type {
+  MealPlanDetailDto,
+  MealPlanEntryDto,
+} from "@/lib/mealplans/schema";
+import type { MealPlanEntryCandidate } from "@/lib/mealplans/queries";
+import type { DishKindValue, StageValue } from "@/lib/dishes/schema";
+import type {
+  TagFilterOption,
+  FlavorProfileFilterOption,
+} from "@/components/domain/dish/library-filter-bar";
+
+/**
+ * Meal Plan create/edit — a single reusable form (Slice 22/23 redesign) for
+ * both `/meal-plans/new` and `/meal-plans/[id]/edit`. A new MealPlan record
+ * is created only by the final Save action at the bottom; in edit mode
+ * nothing about Details or Meals composition (adding/removing/editing a
+ * Meal, adopting a newer Version) reaches the server before that same Save
+ * either — every one of those is a local draft, reconciled against
+ * `mealPlan` and sent as a batch of calls at Save time. The one deliberate
+ * exception (owner decision, out of scope for this pass) is Planned-meal
+ * management inside `EditEntryCard` below — that keeps persisting
+ * immediately exactly as before, pending a separate redesign of that
+ * feature.
+ */
+
+const SECTION_HEADING_CLASS = "font-heading text-lg font-medium";
+
+const STATUS_LABEL: Record<string, string> = {
+  PLANNED: "Planned",
+  IN_PROGRESS: "In progress",
+  COOKED: "Cooked",
+  SKIPPED: "Skipped",
+};
+
+function dateOnly(iso: string): string {
+  return iso.slice(0, 10);
+}
+
+function defaultRange(): { start: string; end: string } {
+  const start = new Date();
+  const end = new Date(start);
+  end.setDate(end.getDate() + 6);
+  return { start: toIsoDateOnly(start), end: toIsoDateOnly(end) };
+}
+
+function formatScale(value: number): string {
+  return String(Math.round(value * 100) / 100);
+}
+
+function yieldChipLabel(quantity: number | null, unit: string | null): string {
+  return quantity != null
+    ? `Makes ${quantity} ${unit ?? ""}`.trim()
+    : "No specified yield";
+}
+
+type ActionResult = { status: string; message?: string };
+type RunAction = (action: () => Promise<ActionResult>) => void;
+
+type DraftEntry = {
+  localId: string;
+  dishId: string;
+  title: string;
+  versionLabel: string;
+  cookDate: string;
+  targetYieldQuantity: number | null;
+  targetYieldUnit: string | null;
+  note: string | null;
+};
+
+type MealValues = {
+  dishId: string | null;
+  cookDate: string;
+  targetYieldQuantity: number | null;
+  targetYieldUnit: string | null;
+  note: string | null;
+};
+
+type MealModalState =
+  | { key: string; mode: "add" }
+  | {
+      key: string;
+      mode: "edit-draft";
+      localId: string;
+      initialValues: MealValues;
+    }
+  | {
+      key: string;
+      mode: "edit-entry";
+      entryId: string;
+      initialValues: MealValues;
+    };
+
+type StoredDraft = {
+  title: string;
+  startDate: string;
+  endDate: string;
+  draftEntries: DraftEntry[];
+  removedEntryIds: string[];
+  versionUpdateEntryIds: string[];
+  entryEdits: Record<string, MealValues>;
+};
+
+// A queued edit for an already-saved entry may also change which Recipe/
+// Part it points to — `updateMealPlanEntry` has no way to repoint an entry,
+// so a dish change is applied at Save time as remove-then-add (a new entry)
+// instead. Everything else about the edit reaches the server as an ordinary
+// `updateMealPlanEntry` patch.
+function mergeEntryEdit(
+  entry: MealPlanEntryDto,
+  edit: MealValues | undefined,
+  candidates: MealPlanEntryCandidate[],
+): MealPlanEntryDto {
+  if (!edit) return entry;
+  const dishChanged = edit.dishId !== entry.dishId;
+  const candidate = dishChanged
+    ? candidates.find((c) => c.dishId === edit.dishId)
+    : null;
+  return {
+    ...entry,
+    dishId: edit.dishId,
+    dishKind: candidate?.kind ?? entry.dishKind,
+    title: candidate?.title ?? entry.title,
+    versionLabel: candidate?.versionLabel ?? entry.versionLabel,
+    cookDate: edit.cookDate,
+    targetYieldQuantity: edit.targetYieldQuantity,
+    targetYieldUnit: edit.targetYieldUnit,
+    note: edit.note,
+  };
+}
+
+export function MealPlanEditor(
+  props: (
+    { mode: "create" } | { mode: "edit"; mealPlan: MealPlanDetailDto }
+  ) & {
+    candidates: MealPlanEntryCandidate[];
+    tagOptions: TagFilterOption[];
+    cuisineOptions: string[];
+    flavorProfileOptions: FlavorProfileFilterOption[];
+  },
+) {
+  const router = useRouter();
+  const mealPlan = props.mode === "edit" ? props.mealPlan : null;
+  const { candidates, tagOptions, cuisineOptions, flavorProfileOptions } =
+    props;
+  const storageKey = mealPlan
+    ? `dishframe:mealplan-draft:edit:${mealPlan.id}`
+    : "dishframe:mealplan-draft:new";
+
+  const initial = mealPlan
+    ? {
+        title: mealPlan.title,
+        start: dateOnly(mealPlan.startDate),
+        end: dateOnly(mealPlan.endDate),
+      }
+    : { title: "This week", ...defaultRange() };
+
+  const [title, setTitle] = React.useState(initial.title);
+  const [startDate, setStartDate] = React.useState(initial.start);
+  const [endDate, setEndDate] = React.useState(initial.end);
+  const [detailsExpanded, setDetailsExpanded] = React.useState(
+    props.mode === "create",
+  );
+  const [detailsError, setDetailsError] = React.useState<string | null>(null);
+  const detailsSnapshotRef = React.useRef({ title, startDate, endDate });
+
+  // Draft-only additions (either mode) plus, in edit mode, queued removals,
+  // edits, and Version-adoptions for already-saved entries — none of these
+  // reach the server until the final Save below.
+  const [draftEntries, setDraftEntries] = React.useState<DraftEntry[]>([]);
+  const [removedEntryIds, setRemovedEntryIds] = React.useState<Set<string>>(
+    new Set(),
+  );
+  const [versionUpdateEntryIds, setVersionUpdateEntryIds] = React.useState<
+    Set<string>
+  >(new Set());
+  const [entryEdits, setEntryEdits] = React.useState<
+    Record<string, MealValues>
+  >({});
+  const [mealModal, setMealModal] = React.useState<MealModalState | null>(null);
+
+  const [entryError, setEntryError] = React.useState<string | null>(null);
+  const [, startTransition] = React.useTransition();
+  const [serverError, setServerError] = React.useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+
+  // Hydrate a locally-stored draft (accidental-refresh recovery) after
+  // mount only — reading localStorage during the initial render would
+  // diverge from the server-rendered HTML and trip a hydration mismatch.
+  const [hydrated, setHydrated] = React.useState(false);
+
+  // One-time post-mount hydration from localStorage (see comment above) —
+  // necessarily setState-in-effect since it must run after the SSR'd
+  // render to avoid a hydration mismatch.
+  /* eslint-disable react-hooks/set-state-in-effect */
+  React.useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      if (raw) {
+        const stored = JSON.parse(raw) as Partial<StoredDraft>;
+        if (typeof stored.title === "string") setTitle(stored.title);
+        if (typeof stored.startDate === "string")
+          setStartDate(stored.startDate);
+        if (typeof stored.endDate === "string") setEndDate(stored.endDate);
+        if (Array.isArray(stored.draftEntries))
+          setDraftEntries(stored.draftEntries);
+        if (Array.isArray(stored.removedEntryIds))
+          setRemovedEntryIds(new Set(stored.removedEntryIds));
+        if (Array.isArray(stored.versionUpdateEntryIds))
+          setVersionUpdateEntryIds(new Set(stored.versionUpdateEntryIds));
+        if (
+          stored.entryEdits &&
+          typeof stored.entryEdits === "object" &&
+          !Array.isArray(stored.entryEdits)
+        )
+          setEntryEdits(stored.entryEdits);
+      }
+    } catch {
+      // Corrupt/incompatible stored draft — ignore, keep defaults.
+    }
+    setHydrated(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
+  React.useEffect(() => {
+    if (!hydrated) return;
+    const stored: StoredDraft = {
+      title,
+      startDate,
+      endDate,
+      draftEntries,
+      removedEntryIds: [...removedEntryIds],
+      versionUpdateEntryIds: [...versionUpdateEntryIds],
+      entryEdits,
+    };
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify(stored));
+    } catch {
+      // Storage unavailable/full — draft simply won't survive a refresh.
+    }
+  }, [
+    hydrated,
+    title,
+    startDate,
+    endDate,
+    draftEntries,
+    removedEntryIds,
+    versionUpdateEntryIds,
+    entryEdits,
+    storageKey,
+  ]);
+
+  function clearDraftStorage() {
+    try {
+      window.localStorage.removeItem(storageKey);
+    } catch {
+      // Nothing to clean up if storage isn't available.
+    }
+  }
+
+  const isDirty =
+    title !== initial.title ||
+    startDate !== initial.start ||
+    endDate !== initial.end ||
+    draftEntries.length > 0 ||
+    removedEntryIds.size > 0 ||
+    versionUpdateEntryIds.size > 0 ||
+    Object.keys(entryEdits).length > 0;
+
+  const guard = useUnsavedChangesGuard(isDirty && !isSubmitting);
+
+  function discardDraftAndLeave() {
+    clearDraftStorage();
+    guard.discardChanges();
+  }
+
+  const runAction: RunAction = (action) => {
+    setEntryError(null);
+    startTransition(async () => {
+      const result = await action();
+      if (result.status !== "success") {
+        setEntryError(result.message ?? "Something went wrong.");
+      } else {
+        router.refresh();
+      }
+    });
+  };
+
+  function openDetails() {
+    detailsSnapshotRef.current = { title, startDate, endDate };
+    setDetailsError(null);
+    setDetailsExpanded(true);
+  }
+
+  function cancelDetails() {
+    const snapshot = detailsSnapshotRef.current;
+    setTitle(snapshot.title);
+    setStartDate(snapshot.startDate);
+    setEndDate(snapshot.endDate);
+    setDetailsError(null);
+    setDetailsExpanded(false);
+  }
+
+  function finishDetails() {
+    if (!title.trim()) {
+      setDetailsError("Enter a title for this Meal Plan.");
+      return;
+    }
+    if (endDate < startDate) {
+      setDetailsError("The end date must be on or after the start date.");
+      return;
+    }
+    setDetailsError(null);
+    setDetailsExpanded(false);
+  }
+
+  function openAddMeal() {
+    setMealModal({ key: crypto.randomUUID(), mode: "add" });
+  }
+
+  function openEditDraft(entry: DraftEntry) {
+    setMealModal({
+      key: crypto.randomUUID(),
+      mode: "edit-draft",
+      localId: entry.localId,
+      initialValues: {
+        dishId: entry.dishId,
+        cookDate: entry.cookDate,
+        targetYieldQuantity: entry.targetYieldQuantity,
+        targetYieldUnit: entry.targetYieldUnit,
+        note: entry.note,
+      },
+    });
+  }
+
+  function openEditEntry(entry: MealPlanEntryDto) {
+    setMealModal({
+      key: crypto.randomUUID(),
+      mode: "edit-entry",
+      entryId: entry.id,
+      initialValues: {
+        dishId: entry.dishId,
+        cookDate: dateOnly(entry.cookDate),
+        targetYieldQuantity: entry.targetYieldQuantity,
+        targetYieldUnit: entry.targetYieldUnit,
+        note: entry.note,
+      },
+    });
+  }
+
+  function handleMealModalSubmit(values: MealValues) {
+    if (!mealModal || !values.dishId) return;
+    const candidate = candidates.find((c) => c.dishId === values.dishId);
+
+    if (mealModal.mode === "add") {
+      setDraftEntries((prev) => [
+        ...prev,
+        {
+          localId: crypto.randomUUID(),
+          dishId: values.dishId!,
+          title: candidate?.title ?? "Untitled",
+          versionLabel: candidate?.versionLabel ?? "",
+          cookDate: values.cookDate,
+          targetYieldQuantity: values.targetYieldQuantity,
+          targetYieldUnit: values.targetYieldUnit,
+          note: values.note,
+        },
+      ]);
+    } else if (mealModal.mode === "edit-draft") {
+      setDraftEntries((prev) =>
+        prev.map((entry) =>
+          entry.localId === mealModal.localId
+            ? {
+                ...entry,
+                dishId: values.dishId!,
+                title: candidate?.title ?? entry.title,
+                versionLabel: candidate?.versionLabel ?? entry.versionLabel,
+                cookDate: values.cookDate,
+                targetYieldQuantity: values.targetYieldQuantity,
+                targetYieldUnit: values.targetYieldUnit,
+                note: values.note,
+              }
+            : entry,
+        ),
+      );
+    } else {
+      setEntryEdits((prev) => ({ ...prev, [mealModal.entryId]: values }));
+    }
+    setMealModal(null);
+  }
+
+  function removeDraft(localId: string) {
+    setDraftEntries((prev) => prev.filter((e) => e.localId !== localId));
+  }
+
+  function queueRemove(entryId: string) {
+    setRemovedEntryIds((prev) => new Set(prev).add(entryId));
+  }
+
+  function queueVersionUpdate(entryId: string) {
+    setVersionUpdateEntryIds((prev) => new Set(prev).add(entryId));
+  }
+
+  async function handleFinalSave() {
+    setServerError(null);
+    if (!title.trim()) {
+      setServerError("Enter a title for this Meal Plan.");
+      setDetailsExpanded(true);
+      return;
+    }
+    if (endDate < startDate) {
+      setServerError("The end date must be on or after the start date.");
+      setDetailsExpanded(true);
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    if (props.mode === "create") {
+      const result = await createMealPlan({ title, startDate, endDate });
+      if (result.status !== "success") {
+        setServerError(result.message ?? "Could not create this Meal Plan.");
+        setIsSubmitting(false);
+        return;
+      }
+      const { mealPlanId } = result;
+      for (const entry of draftEntries) {
+        const entryResult = await addMealPlanEntry({
+          mealPlanId,
+          dishId: entry.dishId,
+          cookDate: entry.cookDate,
+          targetYieldQuantity: entry.targetYieldQuantity,
+          targetYieldUnit: entry.targetYieldUnit,
+          note: entry.note,
+        });
+        if (entryResult.status !== "success") {
+          setServerError(
+            entryResult.message ??
+              "The Meal Plan saved, but one meal could not be added.",
+          );
+        }
+      }
+      clearDraftStorage();
+      router.push(`/meal-plans/${mealPlanId}`);
+      router.refresh();
+      return;
+    }
+
+    if (mealPlan) {
+      const detailsChanged =
+        title !== initial.title ||
+        startDate !== initial.start ||
+        endDate !== initial.end;
+      if (detailsChanged) {
+        const result = await updateMealPlan({
+          mealPlanId: mealPlan.id,
+          title,
+          startDate,
+          endDate,
+        });
+        if (result.status !== "success") {
+          setServerError(result.message ?? "Could not save changes.");
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
+      let hadEntryError = false;
+      for (const entryId of removedEntryIds) {
+        const result = await removeMealPlanEntry({
+          mealPlanId: mealPlan.id,
+          entryId,
+        });
+        if (result.status !== "success") hadEntryError = true;
+      }
+
+      // A queued edit that changed the entry's Recipe/Part is applied as
+      // remove-then-add (`updateMealPlanEntry` can't repoint an entry) —
+      // `replacedEntryIds` lets the Version-adoption loop below skip an
+      // entry that no longer exists by the time it would run.
+      const replacedEntryIds = new Set<string>();
+      for (const [entryId, edit] of Object.entries(entryEdits)) {
+        if (removedEntryIds.has(entryId) || !edit.dishId) continue;
+        const original = mealPlan.entries.find((e) => e.id === entryId);
+        if (!original) continue;
+        if (edit.dishId !== original.dishId) {
+          replacedEntryIds.add(entryId);
+          const removeResult = await removeMealPlanEntry({
+            mealPlanId: mealPlan.id,
+            entryId,
+          });
+          if (removeResult.status !== "success") {
+            hadEntryError = true;
+            continue;
+          }
+          const addResult = await addMealPlanEntry({
+            mealPlanId: mealPlan.id,
+            dishId: edit.dishId,
+            cookDate: edit.cookDate,
+            targetYieldQuantity: edit.targetYieldQuantity,
+            targetYieldUnit: edit.targetYieldUnit,
+            note: edit.note,
+          });
+          if (addResult.status !== "success") hadEntryError = true;
+        } else {
+          const result = await updateMealPlanEntry({
+            mealPlanId: mealPlan.id,
+            entryId,
+            cookDate: new Date(edit.cookDate),
+            targetYieldQuantity: edit.targetYieldQuantity,
+            targetYieldUnit: edit.targetYieldUnit,
+            note: edit.note,
+          });
+          if (result.status !== "success") hadEntryError = true;
+        }
+      }
+
+      for (const entryId of versionUpdateEntryIds) {
+        if (removedEntryIds.has(entryId) || replacedEntryIds.has(entryId))
+          continue;
+        const result = await adoptNewerVersionInEntry({
+          mealPlanId: mealPlan.id,
+          entryId,
+        });
+        if (result.status !== "success") hadEntryError = true;
+      }
+      for (const entry of draftEntries) {
+        const result = await addMealPlanEntry({
+          mealPlanId: mealPlan.id,
+          dishId: entry.dishId,
+          cookDate: entry.cookDate,
+          targetYieldQuantity: entry.targetYieldQuantity,
+          targetYieldUnit: entry.targetYieldUnit,
+          note: entry.note,
+        });
+        if (result.status !== "success") hadEntryError = true;
+      }
+      if (hadEntryError) {
+        setServerError(
+          "The Meal Plan saved, but some meal changes could not be applied.",
+        );
+      }
+
+      clearDraftStorage();
+      router.push(`/meal-plans/${mealPlan.id}`);
+      router.refresh();
+    }
+  }
+
+  const cancelHref = mealPlan ? `/meal-plans/${mealPlan.id}` : "/meal-plans";
+  const heading =
+    props.mode === "create" ? "Create meal plan" : "Edit meal plan";
+  const breadcrumbItems = mealPlan
+    ? [
+        { label: "Meal Plans", href: "/meal-plans" },
+        { label: mealPlan.title, href: `/meal-plans/${mealPlan.id}` },
+        { label: "Edit" },
+      ]
+    : [
+        { label: "Meal Plans", href: "/meal-plans" },
+        { label: "Create meal plan" },
+      ];
+
+  const visibleEntries = mealPlan
+    ? [...mealPlan.entries]
+        .filter((e) => !removedEntryIds.has(e.id))
+        .map((e) => mergeEntryEdit(e, entryEdits[e.id], candidates))
+        .sort((a, b) => a.cookDate.localeCompare(b.cookDate))
+    : [];
+  const hasNoMeals = visibleEntries.length === 0 && draftEntries.length === 0;
+
+  return (
+    <div className="mx-auto flex max-w-3xl flex-col gap-6 pb-24">
+      <Breadcrumbs items={breadcrumbItems} />
+      <h1 className="font-heading text-foreground text-2xl font-semibold">
+        {heading}
+      </h1>
+
+      <div className="flex flex-col gap-4">
+        <h2 className={SECTION_HEADING_CLASS}>Details</h2>
+        {detailsExpanded ? (
+          <div className="border-border bg-card flex flex-col gap-4 rounded-xl border p-4">
+            <Field>
+              <FieldLabel htmlFor="meal-plan-title">Title</FieldLabel>
+              <Input
+                id="meal-plan-title"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                maxLength={120}
+              />
+            </Field>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field>
+                <FieldLabel htmlFor="meal-plan-start">Start date</FieldLabel>
+                <DatePickerField
+                  id="meal-plan-start"
+                  value={startDate}
+                  onChange={setStartDate}
+                  ariaLabel="Start date"
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="meal-plan-end">End date</FieldLabel>
+                <DatePickerField
+                  id="meal-plan-end"
+                  value={endDate}
+                  onChange={setEndDate}
+                  ariaLabel="End date"
+                />
+              </Field>
+            </div>
+            <FieldError>{detailsError}</FieldError>
+            <div className="flex gap-2">
+              <Button type="button" size="sm" onClick={finishDetails}>
+                Finish details
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={cancelDetails}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="border-border bg-card flex items-center justify-between gap-4 rounded-xl border p-4">
+            <div>
+              <p className="text-foreground text-sm font-medium">
+                {title || "Untitled Meal Plan"}
+              </p>
+              <p className="text-muted-foreground text-xs">
+                {formatDateOnly(startDate)} – {formatDateOnly(endDate)}
+              </p>
+            </div>
+            <TooltipIconButton
+              label="Edit details"
+              icon={Pencil}
+              onClick={openDetails}
+            />
+          </div>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-4">
+        <h2 className={SECTION_HEADING_CLASS}>Meals</h2>
+
+        {hasNoMeals ? (
+          <p className="text-muted-foreground text-sm">
+            No meals yet — add one below.
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-3">
+            {visibleEntries.map((entry) => (
+              <EditEntryCard
+                key={entry.id}
+                mealPlanId={mealPlan!.id}
+                entry={entry}
+                runAction={runAction}
+                versionUpdateQueued={versionUpdateEntryIds.has(entry.id)}
+                onQueueRemove={() => queueRemove(entry.id)}
+                onQueueVersionUpdate={() => queueVersionUpdate(entry.id)}
+                onEdit={() => openEditEntry(entry)}
+              />
+            ))}
+            {draftEntries.map((entry) => (
+              <DraftEntryCard
+                key={entry.localId}
+                entry={entry}
+                showDraftBadge={props.mode === "edit"}
+                onRemove={() => removeDraft(entry.localId)}
+                onEdit={() => openEditDraft(entry)}
+              />
+            ))}
+          </ul>
+        )}
+
+        {entryError && (
+          <p role="alert" className="text-destructive-text text-sm">
+            {entryError}
+          </p>
+        )}
+
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" size="sm" onClick={openAddMeal}>
+            <Plus /> Add meal
+          </Button>
+        </div>
+
+        <MealPickerModal
+          key={mealModal?.key ?? "closed"}
+          open={mealModal !== null}
+          mode={mealModal?.mode === "add" || !mealModal ? "add" : "edit"}
+          candidates={candidates}
+          tagOptions={tagOptions}
+          cuisineOptions={cuisineOptions}
+          flavorProfileOptions={flavorProfileOptions}
+          initialValues={
+            mealModal && mealModal.mode !== "add"
+              ? mealModal.initialValues
+              : null
+          }
+          onOpenChange={(next) => {
+            if (!next) setMealModal(null);
+          }}
+          onSubmit={handleMealModalSubmit}
+        />
+      </div>
+
+      <div className="bg-background/95 sticky bottom-0 flex items-center justify-between gap-4 border-t py-4 backdrop-blur-sm">
+        {serverError ? (
+          <p
+            role="alert"
+            className="text-destructive-text flex items-center gap-2 text-sm"
+          >
+            <AlertCircle className="size-4 shrink-0" aria-hidden="true" />
+            <span>{serverError}</span>
+          </p>
+        ) : (
+          <span />
+        )}
+        <div className="flex items-center gap-2">
+          <Button variant="outline" asChild>
+            <Link href={cancelHref}>Cancel</Link>
+          </Button>
+          <Button
+            type="button"
+            onClick={handleFinalSave}
+            disabled={isSubmitting}
+          >
+            {isSubmitting
+              ? "Saving…"
+              : props.mode === "create"
+                ? "Create meal plan"
+                : "Save"}
+          </Button>
+        </div>
+      </div>
+
+      <Dialog
+        open={guard.isPromptOpen}
+        onOpenChange={(open) => !open && guard.keepEditing()}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Discard unsaved changes?</DialogTitle>
+            <DialogDescription>
+              You have unsaved changes to this Meal Plan. If you leave now, they
+              will be lost.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="destructive" onClick={discardDraftAndLeave}>
+              Discard changes
+            </Button>
+            <Button onClick={guard.keepEditing}>Keep editing</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+/**
+ * The chosen-meal card's right-side actions (Slice 24 redesign) — the
+ * standard vertically centered icon-action group, replacing the former
+ * large text-action row.
+ */
+function MealCardActions({
+  showSync,
+  syncQueued,
+  onSync,
+  onEdit,
+  onRemove,
+}: {
+  showSync: boolean;
+  syncQueued: boolean;
+  onSync: () => void;
+  onEdit: () => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="flex shrink-0 items-center gap-1">
+      {showSync && (
+        <TooltipIconButton
+          label="Sync to latest version"
+          tooltip={syncQueued ? "Sync queued" : "Sync to latest version"}
+          icon={RefreshCw}
+          disabled={syncQueued}
+          onClick={onSync}
+        />
+      )}
+      <TooltipIconButton label="Edit meal" icon={Pencil} onClick={onEdit} />
+      <TooltipIconButton
+        label="Remove meal"
+        icon={Trash2}
+        onClick={onRemove}
+        className="text-destructive-text hover:bg-destructive/10 hover:text-destructive-text"
+      />
+    </div>
+  );
+}
+
+function DraftEntryCard({
+  entry,
+  showDraftBadge,
+  onRemove,
+  onEdit,
+}: {
+  entry: DraftEntry;
+  showDraftBadge?: boolean;
+  onRemove: () => void;
+  onEdit: () => void;
+}) {
+  return (
+    <li className="border-border bg-card flex items-center justify-between gap-3 rounded-lg border p-4">
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <p className="text-foreground text-sm font-medium">
+          {entry.title}{" "}
+          <span className="text-muted-foreground font-normal">
+            {entry.versionLabel}
+          </span>
+        </p>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Badge variant="secondary">Planned</Badge>
+          <Badge variant="outline" className="gap-1">
+            <CalendarDays className="size-3" aria-hidden="true" />
+            {formatDateOnly(entry.cookDate)}
+          </Badge>
+          <Badge variant="outline" className="gap-1">
+            <Soup className="size-3" aria-hidden="true" />
+            {yieldChipLabel(entry.targetYieldQuantity, entry.targetYieldUnit)}
+          </Badge>
+          {showDraftBadge && <Badge variant="outline">Not yet saved</Badge>}
+        </div>
+        {entry.note && (
+          <p className="text-muted-foreground text-xs">{entry.note}</p>
+        )}
+      </div>
+      <MealCardActions
+        showSync={false}
+        syncQueued={false}
+        onSync={() => {}}
+        onEdit={onEdit}
+        onRemove={onRemove}
+      />
+    </li>
+  );
+}
+
+/**
+ * A persisted Meal (Slice 24 chosen-meal card redesign) — every lifecycle/
+ * status action (Start cooking, Mark cooked/skipped, Resume session) lives
+ * on the read-only View page instead. Sync/Edit/Remove only queue a draft
+ * change here (applied at the page's own final Save); Planned-meal
+ * management below still persists immediately — left as-is deliberately
+ * (owner decision: that feature gets its own redesign pass separately, out
+ * of scope here).
+ */
+function EditEntryCard({
+  mealPlanId,
+  entry,
+  runAction,
+  versionUpdateQueued,
+  onQueueRemove,
+  onQueueVersionUpdate,
+  onEdit,
+}: {
+  mealPlanId: string;
+  entry: MealPlanEntryDto;
+  runAction: RunAction;
+  versionUpdateQueued: boolean;
+  onQueueRemove: () => void;
+  onQueueVersionUpdate: () => void;
+  onEdit: () => void;
+}) {
+  const [addingMeal, setAddingMeal] = React.useState(false);
+  const allocation = computeAllocationStatus(
+    entry.targetYieldQuantity,
+    entry.plannedMeals,
+  );
+  const statusVariant =
+    entry.status === "COOKED"
+      ? "default"
+      : entry.status === "SKIPPED"
+        ? "outline"
+        : "secondary";
+
+  return (
+    <li className="border-border bg-card flex items-center justify-between gap-3 rounded-lg border p-4">
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <p className="text-foreground text-sm font-medium">
+          {entry.title}{" "}
+          <span className="text-muted-foreground font-normal">
+            {entry.versionLabel}
+          </span>
+        </p>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Badge variant={statusVariant}>
+            {STATUS_LABEL[entry.status] ?? entry.status}
+          </Badge>
+          <Badge variant="outline" className="gap-1">
+            <CalendarDays className="size-3" aria-hidden="true" />
+            {formatDateOnly(entry.cookDate)}
+          </Badge>
+          <Badge variant="outline" className="gap-1">
+            <Soup className="size-3" aria-hidden="true" />
+            {yieldChipLabel(entry.targetYieldQuantity, entry.targetYieldUnit)}
+          </Badge>
+        </div>
+        {entry.dishId == null && (
+          <p className="text-destructive-text text-xs">
+            Source deleted — kept for history.
+          </p>
+        )}
+
+        {/* "+ Planned meal" (unchanged, Slice 24 owner decision — kept as a
+            separate row pending its own redesign pass). */}
+        <div className="flex flex-col gap-1">
+          {entry.plannedMeals.length > 0 && (
+            <ul className="flex flex-col gap-1">
+              {entry.plannedMeals.map((meal) => (
+                <li
+                  key={meal.id}
+                  className="text-muted-foreground flex items-center justify-between gap-2 text-xs"
+                >
+                  <span>
+                    {meal.label} — {meal.servings} serving
+                    {meal.servings === 1 ? "" : "s"} (
+                    {formatDateOnly(meal.date)})
+                  </span>
+                  <button
+                    type="button"
+                    className="cursor-pointer underline"
+                    onClick={() =>
+                      runAction(() =>
+                        removePlannedMeal({
+                          mealPlanId,
+                          entryId: entry.id,
+                          plannedMealId: meal.id,
+                        }),
+                      )
+                    }
+                  >
+                    Remove
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {allocation !== "unknown" && (
+            <Badge
+              variant={allocation === "balanced" ? "outline" : "secondary"}
+              className="w-fit"
+            >
+              {allocation === "under" && "Yield not fully allocated"}
+              {allocation === "over" && "Allocated more than expected yield"}
+              {allocation === "balanced" && "Fully allocated"}
+            </Badge>
+          )}
+          {addingMeal ? (
+            <form
+              className="mt-1 flex flex-wrap items-end gap-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const formData = new FormData(e.currentTarget);
+                const label = String(formData.get("label") ?? "").trim();
+                const date = String(formData.get("date") ?? "");
+                const servings = Number(formData.get("servings") ?? 0);
+                if (label && date && servings > 0) {
+                  runAction(() =>
+                    addPlannedMeal({
+                      mealPlanId,
+                      entryId: entry.id,
+                      label,
+                      date: new Date(date),
+                      servings,
+                    }),
+                  );
+                  setAddingMeal(false);
+                }
+              }}
+            >
+              <Input
+                name="label"
+                placeholder="e.g. Monday lunch"
+                className="h-8 w-40"
+              />
+              <Input
+                name="date"
+                type="date"
+                defaultValue={dateOnly(entry.cookDate)}
+                className="h-8"
+              />
+              <Input
+                name="servings"
+                type="number"
+                step="any"
+                min="0"
+                placeholder="Servings"
+                className="h-8 w-24"
+              />
+              <Button type="submit" size="sm">
+                Add
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => setAddingMeal(false)}
+              >
+                Cancel
+              </Button>
+            </form>
+          ) : (
+            <Button
+              type="button"
+              size="sm"
+              variant="link"
+              className="h-auto w-fit px-0"
+              onClick={() => setAddingMeal(true)}
+            >
+              + Planned meal
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <MealCardActions
+        showSync={entry.dishId != null}
+        syncQueued={versionUpdateQueued}
+        onSync={onQueueVersionUpdate}
+        onEdit={onEdit}
+        onRemove={onQueueRemove}
+      />
+    </li>
+  );
+}
+
+type SortProperty = "recentlyCooked" | "rating" | "dateUpdated";
+type SortDirectionValue = "asc" | "desc";
+
+const MEAL_SORT_OPTIONS: SortSelectOption<SortProperty>[] = [
+  {
+    value: "recentlyCooked",
+    label: "Recently cooked",
+    defaultDirection: "desc",
+  },
+  { value: "rating", label: "Rating", defaultDirection: "desc" },
+  { value: "dateUpdated", label: "Date updated", defaultDirection: "desc" },
+];
+
+// The four Recipe-stage options offered by the modal's filter — Archived
+// dishes are never candidates for a Meal Plan entry at all (excluded at the
+// query level), so there's nothing to filter there.
+const MEAL_PICKER_STAGES: StageValue[] = [
+  "IDEA",
+  "EXPERIMENTAL",
+  "PROVEN",
+  "ACTIVE",
+];
+
+const MEAL_PICKER_KINDS: { value: DishKindValue; label: string }[] = [
+  { value: "RECIPE", label: "Recipe" },
+  { value: "PART", label: "Part" },
+];
+
+const MEAL_PICKER_RATING_LABEL: Record<RatingFilterValue, string> = {
+  UNRATED: "Unrated",
+  THREE_PLUS: "3★ and up",
+  FOUR_PLUS: "4★ and up",
+  FIVE: "5★ only",
+};
+
+function toggledSet<T>(set: Set<T>, value: T): Set<T> {
+  const next = new Set(set);
+  if (next.has(value)) next.delete(value);
+  else next.add(value);
+  return next;
+}
+
+function compareBySortProperty(
+  a: MealPlanEntryCandidate,
+  b: MealPlanEntryCandidate,
+  property: SortProperty,
+): number {
+  if (property === "recentlyCooked") {
+    const aTime = a.lastCookedAt ? a.lastCookedAt.getTime() : -Infinity;
+    const bTime = b.lastCookedAt ? b.lastCookedAt.getTime() : -Infinity;
+    return aTime - bTime;
+  }
+  if (property === "rating") {
+    return (a.ratingValue ?? -1) - (b.ratingValue ?? -1);
+  }
+  return a.updatedAt.getTime() - b.updatedAt.getTime();
+}
+
+function candidateToSelectionItem(
+  candidate: MealPlanEntryCandidate,
+): DishSelectionItem {
+  return {
+    id: candidate.dishId,
+    kind: candidate.kind,
+    title: candidate.title,
+    versionLabel: candidate.versionLabel,
+    stage: candidate.stage,
+    cuisine: candidate.cuisine,
+    imageAssetId: candidate.imageAssetId,
+    tagNames: candidate.tagNames,
+    rating:
+      candidate.ratingValue == null
+        ? { kind: "none" }
+        : { kind: "actual", value: candidate.ratingValue, count: 0 },
+  };
+}
+
+/**
+ * `/meal-plans/new` and `/meal-plans/[id]/edit` share this modal for
+ * adding a Meal and (Slice 24) for editing one already on the draft —
+ * reusing the Add-Section modal's large-modal structure (sticky header,
+ * scrollable middle, sticky footer; `section-editor-dialog.tsx`) since this
+ * modal's content can grow just as tall (a full result list plus filters).
+ * Submitting only ever hands values back to the caller (`MealPlanEditor`),
+ * which decides whether that becomes a new draft entry, an edited draft
+ * entry, or a queued edit on an already-saved one.
+ *
+ * Slice 25 redesign: a compact version of the Recipes/Parts library browser
+ * rather than a separate recommendations system — one candidate list, with
+ * search/filters/sort all acting directly on it (no second "recommended"
+ * list to reconcile). Selecting a row collapses the list down to just that
+ * selection, with the shared rich row's × control in place of its usual
+ * radio.
+ */
+function MealPickerModal({
+  open,
+  mode,
+  candidates,
+  tagOptions,
+  cuisineOptions,
+  flavorProfileOptions,
+  initialValues,
+  onOpenChange,
+  onSubmit,
+}: {
+  open: boolean;
+  mode: "add" | "edit";
+  candidates: MealPlanEntryCandidate[];
+  tagOptions: TagFilterOption[];
+  cuisineOptions: string[];
+  flavorProfileOptions: FlavorProfileFilterOption[];
+  initialValues: MealValues | null;
+  onOpenChange: (open: boolean) => void;
+  onSubmit: (values: MealValues) => void;
+}) {
+  const [cookDate, setCookDate] = React.useState(
+    () => initialValues?.cookDate ?? toIsoDateOnly(new Date()),
+  );
+  const [search, setSearch] = React.useState("");
+  const [selectedDishId, setSelectedDishId] = React.useState<string | null>(
+    initialValues?.dishId ?? null,
+  );
+  const [targetYieldQuantity, setTargetYieldQuantity] = React.useState<
+    number | null
+  >(initialValues?.targetYieldQuantity ?? null);
+  // Whether the user has actually edited the target-yield field away from
+  // its auto-filled default. `computeTargetYieldScaleFactor` (grocery
+  // generation) treats a `null` targetYieldQuantity as "always track the
+  // source's current authored yield" and an explicit number as a permanent
+  // pin — so submitting the auto-filled default as if it were an explicit
+  // choice would silently pin every un-scaled Meal to today's yield instead
+  // of following later authored-yield edits. A prefilled edit already has
+  // an explicit (or explicitly absent) target yield, so it starts "touched".
+  const [targetYieldTouched, setTargetYieldTouched] = React.useState(
+    initialValues != null,
+  );
+  const [note, setNote] = React.useState(initialValues?.note ?? "");
+
+  const [favorites, setFavorites] = React.useState(false);
+  const [stageFilter, setStageFilter] = React.useState<Set<StageValue>>(
+    () => new Set<StageValue>(["ACTIVE"]),
+  );
+  const [kindFilter, setKindFilter] = React.useState<Set<DishKindValue>>(
+    () => new Set<DishKindValue>(["RECIPE"]),
+  );
+  const [tagIdFilter, setTagIdFilter] = React.useState<Set<string>>(
+    () => new Set(),
+  );
+  const [cuisineFilter, setCuisineFilter] = React.useState<Set<string>>(
+    () => new Set(),
+  );
+  const [flavorProfileFilter, setFlavorProfileFilter] = React.useState<
+    Set<string>
+  >(() => new Set());
+  const [ratingFilter, setRatingFilter] =
+    React.useState<RatingFilterValue | null>(null);
+  const [sort, setSort] = React.useState<{
+    property: SortProperty;
+    direction: SortDirectionValue;
+  }>({ property: "recentlyCooked", direction: "asc" });
+
+  const selectedCandidate = candidates.find((c) => c.dishId === selectedDishId);
+
+  function close() {
+    onOpenChange(false);
+  }
+
+  function selectDish(dishId: string | null) {
+    setSelectedDishId(dishId);
+    if (dishId == null) return;
+    const candidate = candidates.find((c) => c.dishId === dishId);
+    setTargetYieldQuantity(candidate?.yieldQuantity ?? null);
+    setTargetYieldTouched(false);
+  }
+
+  function toggleStage(value: string) {
+    const stage = value as StageValue;
+    setStageFilter((prev) => toggledSet(prev, stage));
+  }
+
+  function toggleKind(value: string) {
+    const kind = value as DishKindValue;
+    setKindFilter((prev) => toggledSet(prev, kind));
+  }
+
+  function toggleTag(value: string) {
+    setTagIdFilter((prev) => toggledSet(prev, value));
+  }
+
+  function toggleCuisine(value: string) {
+    setCuisineFilter((prev) => toggledSet(prev, value));
+  }
+
+  function toggleFlavorProfile(value: string) {
+    setFlavorProfileFilter((prev) => toggledSet(prev, value));
+  }
+
+  function setRating(value: string) {
+    setRatingFilter(value === "ANY" ? null : (value as RatingFilterValue));
+  }
+
+  function clearFilters() {
+    setSearch("");
+    setFavorites(false);
+    setStageFilter(new Set());
+    setKindFilter(new Set());
+    setTagIdFilter(new Set());
+    setCuisineFilter(new Set());
+    setFlavorProfileFilter(new Set());
+    setRatingFilter(null);
+  }
+
+  const visibleCandidates = React.useMemo(() => {
+    const query = search.trim().toLowerCase();
+    const filtered = candidates.filter((candidate) => {
+      if (query && !candidate.title.toLowerCase().includes(query)) {
+        return false;
+      }
+      if (stageFilter.size > 0 && !stageFilter.has(candidate.stage)) {
+        return false;
+      }
+      if (kindFilter.size > 0 && !kindFilter.has(candidate.kind)) {
+        return false;
+      }
+      if (favorites && !candidate.isFavorite) return false;
+      if (
+        cuisineFilter.size > 0 &&
+        (!candidate.cuisine || !cuisineFilter.has(candidate.cuisine))
+      ) {
+        return false;
+      }
+      // Tags/Flavor profiles use match-all (AND), mirroring the Recipes/
+      // Parts library's own multi-select semantics (§47.6/47.7) — a
+      // candidate must carry every selected tag/Flavor profile, not just one.
+      if (
+        tagIdFilter.size > 0 &&
+        ![...tagIdFilter].every((id) => candidate.tagIds.includes(id))
+      ) {
+        return false;
+      }
+      if (
+        flavorProfileFilter.size > 0 &&
+        ![...flavorProfileFilter].every((id) =>
+          candidate.flavorProfileValueIds.includes(id),
+        )
+      ) {
+        return false;
+      }
+      if (
+        !matchesRatingFilter(
+          candidate.ratingValue == null
+            ? { kind: "none" }
+            : { kind: "actual", value: candidate.ratingValue, count: 0 },
+          ratingFilter,
+        )
+      ) {
+        return false;
+      }
+      return true;
+    });
+    return [...filtered].sort((a, b) => {
+      const cmp = compareBySortProperty(a, b, sort.property);
+      return sort.direction === "asc" ? cmp : -cmp;
+    });
+  }, [
+    candidates,
+    search,
+    stageFilter,
+    kindFilter,
+    favorites,
+    cuisineFilter,
+    tagIdFilter,
+    flavorProfileFilter,
+    ratingFilter,
+    sort,
+  ]);
+
+  const activeFilterChips: {
+    key: string;
+    label: string;
+    onRemove: () => void;
+  }[] = [];
+  if (search) {
+    activeFilterChips.push({
+      key: "search",
+      label: `“${search}”`,
+      onRemove: () => setSearch(""),
+    });
+  }
+  if (favorites) {
+    activeFilterChips.push({
+      key: "favorites",
+      label: "Favorites",
+      onRemove: () => setFavorites(false),
+    });
+  }
+  for (const stage of stageFilter) {
+    activeFilterChips.push({
+      key: `stage-${stage}`,
+      label: STAGE_LABEL[stage],
+      onRemove: () => toggleStage(stage),
+    });
+  }
+  for (const kind of kindFilter) {
+    activeFilterChips.push({
+      key: `kind-${kind}`,
+      label: kind === "PART" ? "Part" : "Recipe",
+      onRemove: () => toggleKind(kind),
+    });
+  }
+  for (const cuisine of cuisineFilter) {
+    activeFilterChips.push({
+      key: `cuisine-${cuisine}`,
+      label: cuisine,
+      onRemove: () => toggleCuisine(cuisine),
+    });
+  }
+  const tagNameById = new Map(tagOptions.map((t) => [t.id, t.displayName]));
+  for (const tagId of tagIdFilter) {
+    activeFilterChips.push({
+      key: `tag-${tagId}`,
+      label: tagNameById.get(tagId) ?? "Tag",
+      onRemove: () => toggleTag(tagId),
+    });
+  }
+  const flavorProfileNameById = new Map(
+    flavorProfileOptions.map((v) => [v.id, v.displayName]),
+  );
+  for (const flavorProfileId of flavorProfileFilter) {
+    activeFilterChips.push({
+      key: `flavor-${flavorProfileId}`,
+      label: flavorProfileNameById.get(flavorProfileId) ?? "Flavor profile",
+      onRemove: () => toggleFlavorProfile(flavorProfileId),
+    });
+  }
+  if (ratingFilter) {
+    activeFilterChips.push({
+      key: "rating",
+      label: MEAL_PICKER_RATING_LABEL[ratingFilter],
+      onRemove: () => setRatingFilter(null),
+    });
+  }
+
+  function handleSubmit() {
+    if (!selectedDishId) return;
+    onSubmit({
+      dishId: selectedDishId,
+      cookDate,
+      // Only send an explicit target yield if the user actually changed it
+      // — leaving the auto-filled default alone means "always follow the
+      // source's current authored yield," matching how a scaling-untouched
+      // entry has always behaved (see `targetYieldTouched`'s note above).
+      targetYieldQuantity: targetYieldTouched ? targetYieldQuantity : null,
+      targetYieldUnit: selectedCandidate?.yieldUnit ?? null,
+      note: note.trim() || null,
+    });
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) close();
+      }}
+    >
+      <DialogContent
+        showCloseButton={false}
+        className="flex max-h-[85vh] w-full max-w-3xl flex-col gap-0 overflow-hidden px-0 sm:max-w-3xl"
+      >
+        <DialogHeader className="bg-muted/50 -mt-4 flex shrink-0 flex-row items-center justify-between gap-2 rounded-t-xl border-b p-4">
+          <DialogTitle>
+            {mode === "edit" ? "Edit meal" : "Add meal"}
+          </DialogTitle>
+          <DialogClose asChild>
+            <Button variant="ghost" size="icon-sm" className="-my-1.5">
+              <X />
+              <span className="sr-only">Close</span>
+            </Button>
+          </DialogClose>
+        </DialogHeader>
+
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pt-4 pb-4">
+          <Field>
+            <FieldLabel htmlFor="meal-modal-cook-date">Cook date</FieldLabel>
+            <DatePickerField
+              id="meal-modal-cook-date"
+              value={cookDate}
+              onChange={setCookDate}
+              ariaLabel="Cook date"
+            />
+          </Field>
+
+          {selectedDishId && selectedCandidate ? (
+            <div className="flex flex-col gap-4">
+              <SelectableDishRow
+                item={candidateToSelectionItem(selectedCandidate)}
+                selectionControl="remove"
+                onRemove={() => selectDish(null)}
+              />
+
+              <p className="text-muted-foreground text-sm">
+                {selectedCandidate.yieldQuantity != null
+                  ? `Makes ${selectedCandidate.yieldQuantity} ${selectedCandidate.yieldUnit ?? ""}`.trim()
+                  : "No specified yield for this Recipe/Part."}
+              </p>
+              <Field>
+                <FieldLabel htmlFor="meal-modal-target-yield">
+                  Target yield
+                </FieldLabel>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="meal-modal-target-yield"
+                    type="number"
+                    inputMode="decimal"
+                    step="any"
+                    min="0"
+                    className="w-13"
+                    value={targetYieldQuantity ?? ""}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      setTargetYieldTouched(true);
+                      setTargetYieldQuantity(raw === "" ? null : Number(raw));
+                    }}
+                  />
+                  {selectedCandidate.yieldUnit && (
+                    <span className="text-muted-foreground text-sm">
+                      {selectedCandidate.yieldUnit}
+                      {selectedCandidate.yieldQuantity != null &&
+                        selectedCandidate.yieldQuantity > 0 &&
+                        targetYieldQuantity != null && (
+                          <>
+                            {" "}
+                            · Scale recipe by{" "}
+                            {formatScale(
+                              targetYieldQuantity /
+                                selectedCandidate.yieldQuantity,
+                            )}
+                            ×
+                          </>
+                        )}
+                    </span>
+                  )}
+                </div>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="meal-modal-note">Note</FieldLabel>
+                <Input
+                  id="meal-modal-note"
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                />
+              </Field>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              <Field>
+                <FieldLabel htmlFor="meal-modal-search">Search</FieldLabel>
+                <div className="relative">
+                  <Search
+                    className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2"
+                    aria-hidden="true"
+                  />
+                  <Input
+                    id="meal-modal-search"
+                    placeholder="Search your Recipes and Parts…"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="pl-8"
+                  />
+                </div>
+              </Field>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={favorites}
+                    onCheckedChange={(v) => setFavorites(v === true)}
+                  />
+                  Favorites
+                </label>
+                <FilterPopover
+                  label="Recipe stage"
+                  options={MEAL_PICKER_STAGES.map((stage) => ({
+                    value: stage,
+                    label: STAGE_LABEL[stage],
+                  }))}
+                  selected={stageFilter}
+                  onToggleAction={toggleStage}
+                  onClearAction={() => setStageFilter(new Set())}
+                />
+                <FilterPopover
+                  label="Recipe / Part"
+                  options={MEAL_PICKER_KINDS}
+                  selected={kindFilter}
+                  onToggleAction={toggleKind}
+                />
+                <FilterPopover
+                  label="Tags"
+                  options={tagOptions.map((tag) => ({
+                    value: tag.id,
+                    label: tag.displayName,
+                  }))}
+                  selected={tagIdFilter}
+                  onToggleAction={toggleTag}
+                  emptyMessage="No tags yet."
+                />
+                <FilterPopover
+                  label="Cuisine"
+                  options={cuisineOptions.map((cuisine) => ({
+                    value: cuisine,
+                    label: cuisine,
+                  }))}
+                  selected={cuisineFilter}
+                  onToggleAction={toggleCuisine}
+                  emptyMessage="No cuisines used yet."
+                />
+                <FilterPopover
+                  label="Flavor profiles"
+                  options={flavorProfileOptions.map((value) => ({
+                    value: value.id,
+                    label: value.displayName,
+                  }))}
+                  selected={flavorProfileFilter}
+                  onToggleAction={toggleFlavorProfile}
+                  emptyMessage="No Flavor profiles yet."
+                />
+                <Select value={ratingFilter ?? "ANY"} onValueChange={setRating}>
+                  <SelectTrigger
+                    size="sm"
+                    className="w-36"
+                    aria-label="Rating filter"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ANY">Any rating</SelectItem>
+                    {ratingFilterValues.map((value) => (
+                      <SelectItem key={value} value={value}>
+                        {MEAL_PICKER_RATING_LABEL[value]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="border-border flex flex-wrap items-center justify-between gap-3 border-t pt-3">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {activeFilterChips.length > 0 ? (
+                    <>
+                      {activeFilterChips.map((chip) => (
+                        <Badge
+                          key={chip.key}
+                          variant="outline"
+                          className="bg-primary/15 text-brand-blue-text gap-1 border-transparent pr-1 text-xs"
+                        >
+                          {chip.label}
+                          <button
+                            type="button"
+                            onClick={chip.onRemove}
+                            aria-label={`Remove ${chip.label} filter`}
+                            className="hover:bg-primary/20 cursor-pointer rounded-full p-0.5"
+                          >
+                            <X className="size-3" aria-hidden="true" />
+                          </button>
+                        </Badge>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={clearFilters}
+                        className="text-muted-foreground text-xs hover:underline"
+                      >
+                        Clear
+                      </button>
+                    </>
+                  ) : (
+                    <span className="text-muted-foreground text-xs">
+                      No filters applied
+                    </span>
+                  )}
+                </div>
+                <SortSelect
+                  id="meal-modal-sort"
+                  property={sort.property}
+                  direction={sort.direction}
+                  options={MEAL_SORT_OPTIONS}
+                  onChangeAction={setSort}
+                  triggerClassName="w-44"
+                />
+              </div>
+
+              {visibleCandidates.length === 0 ? (
+                candidates.length === 0 ? (
+                  <p className="text-muted-foreground text-sm">
+                    You don&apos;t have any Recipes or Parts yet.
+                  </p>
+                ) : (
+                  <p className="text-muted-foreground text-sm">
+                    No matches — try adjusting the filters above.
+                  </p>
+                )
+              ) : (
+                <ul className="flex max-h-72 flex-col gap-1 overflow-y-auto">
+                  {visibleCandidates.slice(0, 20).map((candidate) => (
+                    <li key={candidate.dishId}>
+                      <SelectableDishRow
+                        item={candidateToSelectionItem(candidate)}
+                        selectionControl="radio"
+                        selected={false}
+                        onSelect={() => selectDish(candidate.dishId)}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="mx-0 shrink-0">
+          <Button variant="outline" onClick={close}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            disabled={!selectedDishId}
+            onClick={handleSubmit}
+          >
+            {mode === "edit" ? "Save changes" : "Add meal"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

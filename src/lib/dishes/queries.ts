@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db/prisma";
 import { NotFoundError } from "@/lib/errors";
 import type { DishKindValue } from "@/lib/dishes/schema";
 import { decimalToNumber } from "@/lib/dishes/format";
+import { versionLabel } from "@/lib/dishes/version-note";
 import {
   buildLibraryWhere,
   compareDishesForLibrary,
@@ -157,10 +158,7 @@ export const dishDetailInclude = {
   },
 } as const;
 
-const librarySortValueSet = new Set<string>([
-  "RECENTLY_COOKED",
-  "LEAST_RECENTLY_COOKED",
-]);
+const librarySortValueSet = new Set<string>(["RECENTLY_COOKED"]);
 
 /**
  * BUILD_PLAN.md Slice 10 — the full search/filter/sort query builder shared
@@ -322,6 +320,7 @@ export async function queryDishLibrary(
       filters.sort,
       searchActive,
       filters.sortIsExplicit,
+      filters.sortDirection,
     ),
   );
 
@@ -579,29 +578,76 @@ export type AttachablePart = Awaited<
  * Slice 23 — candidate list for the "What will you cook?" picker
  * (Home dashboard / Cook page): every owned, non-archived Recipe and Part
  * with a current Version, combined so the picker's All/Recipes/Parts tabs
- * can filter client-side. Mirrors `listAttachableParts`'s restrained tag
- * shape.
+ * can filter client-side. Design pass (rich selection-row unification):
+ * resolves the same Version/Stage/cuisine/rating data
+ * `listShareableItemsForSender` does, so this picker's rows share the exact
+ * same rich treatment.
  */
 export async function listCookablePickerItems(ownerId: string) {
+  const preference = await prisma.userPreference.findUnique({
+    where: { userId: ownerId },
+    select: { primaryRatingDisplay: true },
+  });
+
   const dishes = await prisma.dish.findMany({
     where: { ownerId, archivedAt: null, currentVersionId: { not: null } },
     select: {
       id: true,
       kind: true,
+      stage: true,
+      cuisine: true,
       currentTitle: true,
+      currentVersionId: true,
+      sourceKind: true,
+      sourceAggregateRating: true,
+      sourceRatingCount: true,
+      sourceTitle: true,
+      sourceDishVersionLabel: true,
+      currentVersion: {
+        select: {
+          imageAssetId: true,
+          majorVersion: true,
+          minorVersion: true,
+        },
+      },
       tags: {
         select: { tag: { select: { displayName: true, isFavorite: true } } },
       },
     },
     orderBy: { currentTitle: "asc" },
   });
+
+  const ratings = await getPrincipalRatingsForDishes(
+    dishes.map((dish) => ({
+      id: dish.id,
+      currentVersionId: dish.currentVersionId,
+      sourceKind: dish.sourceKind,
+      sourceAggregateRating: decimalToNumber(dish.sourceAggregateRating),
+      sourceRatingCount: dish.sourceRatingCount,
+      sourceTitle: dish.sourceTitle,
+      sourceDishVersionLabel: dish.sourceDishVersionLabel,
+    })),
+    preference?.primaryRatingDisplay ?? "GROUP_AVERAGE",
+  );
+
   return dishes.map((dish) => ({
     id: dish.id,
     kind: dish.kind,
+    stage: dish.stage,
+    cuisine: dish.cuisine,
     currentTitle: dish.currentTitle,
+    versionLabel: dish.currentVersion
+      ? versionLabel(
+          dish.currentVersion.majorVersion,
+          dish.currentVersion.minorVersion,
+        )
+      : "",
+    imageAssetId: dish.currentVersion?.imageAssetId ?? null,
     tags: dish.tags
       .filter((t) => !t.tag.isFavorite)
       .map((t) => t.tag.displayName),
+    isFavorite: dish.tags.some((t) => t.tag.isFavorite),
+    rating: ratings.get(dish.id) ?? ({ kind: "none" } as PrincipalRating),
   }));
 }
 export type CookablePickerItem = Awaited<

@@ -21,14 +21,26 @@ const mockedListCookablePickerItems = vi.mocked(listCookablePickerItems);
 const RAGU: CookablePickerItem = {
   id: "recipe-1",
   kind: "RECIPE",
+  stage: "ACTIVE",
+  cuisine: null,
   currentTitle: "Weeknight Ragu",
+  versionLabel: "V1.0",
+  imageAssetId: null,
   tags: ["Weeknight", "Comfort food"],
+  isFavorite: false,
+  rating: { kind: "none" },
 };
 const SAUCE: CookablePickerItem = {
   id: "part-1",
   kind: "PART",
+  stage: "ACTIVE",
+  cuisine: null,
   currentTitle: "Tomato Sauce",
+  versionLabel: "V1.0",
+  imageAssetId: null,
   tags: [],
+  isFavorite: false,
+  rating: { kind: "none" },
 };
 
 /**
@@ -130,9 +142,9 @@ describe("StartCookingButton picker", () => {
     const cookButton = screen.getByRole("button", { name: "Cook" });
     expect(cookButton).toBeDisabled();
 
-    const row = await screen.findByRole("button", { name: /Weeknight Ragu/ });
+    const row = await screen.findByRole("radio", { name: /Weeknight Ragu/ });
     await user.click(row);
-    expect(row).toHaveAttribute("aria-pressed", "true");
+    expect(row).toHaveAttribute("aria-checked", "true");
     expect(cookButton).toBeEnabled();
   });
 
@@ -163,7 +175,7 @@ describe("StartCookingButton picker", () => {
     render(<StartCookingButton />);
     await user.click(screen.getByRole("button", { name: "Start cooking" }));
     await user.click(
-      await screen.findByRole("button", { name: /Weeknight Ragu/ }),
+      await screen.findByRole("radio", { name: /Weeknight Ragu/ }),
     );
     await user.click(screen.getByRole("button", { name: "Cook" }));
 
@@ -180,7 +192,7 @@ describe("StartCookingButton picker", () => {
     render(<StartCookingButton />);
     await user.click(screen.getByRole("button", { name: "Start cooking" }));
     await user.click(
-      await screen.findByRole("button", { name: /Tomato Sauce/ }),
+      await screen.findByRole("radio", { name: /Tomato Sauce/ }),
     );
     await user.click(screen.getByRole("button", { name: "Cook" }));
 
