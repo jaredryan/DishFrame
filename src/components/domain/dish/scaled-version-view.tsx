@@ -16,7 +16,10 @@ import {
 import { PartLinkTreeView } from "@/components/domain/dish/part-link-tree-view";
 import type { PartLinkTree } from "@/lib/sections/service";
 import type { DishKindValue } from "@/lib/dishes/schema";
-import { orderSectionsAndTopLevelPartLinks } from "@/lib/dishes/display-order";
+import {
+  orderInstructionsAndPartLinks,
+  orderSectionsAndTopLevelPartLinks,
+} from "@/lib/dishes/display-order";
 
 /**
  * A plain-object mirror of the Prisma Section/Ingredient/Instruction row
@@ -61,7 +64,11 @@ export type ScaledSectionRow = {
   name: string | null;
   guidanceNote: string | null;
   ingredients: ScaledIngredientRow[];
-  instructions: { id: string; text: string }[];
+  // `position` shares this Section's own merged Instruction/PartLink
+  // ordering sequence (see `orderInstructionsAndPartLinks`, `schema.ts`'s
+  // `sectionContentSequence` doc comment) — needed here for the same
+  // reason `ScaledSectionRow.position` is, one level down.
+  instructions: { id: string; text: string; position: number }[];
   partLinks: PartLinkTree[];
 };
 
@@ -320,26 +327,50 @@ export function ScaledVersionView({
               </ul>
             )}
 
-            {section.instructions.length > 0 && (
-              <ol className="flex flex-col gap-2">
-                {section.instructions.map((instruction, i) => (
-                  <li key={instruction.id} className="flex gap-2 text-sm">
-                    <span className="text-muted-foreground tabular-nums">
-                      {i + 1}.
-                    </span>
-                    <span>{instruction.text}</span>
-                  </li>
-                ))}
-              </ol>
-            )}
-
-            {section.partLinks.map((tree, treeIndex) => (
-              <PartLinkTreeView
-                key={`${tree.targetDishId ?? "materialized"}:${tree.targetDishVersionId ?? treeIndex}`}
-                tree={tree}
-                scaleFactor={scaleFactor}
-              />
-            ))}
+            {(() => {
+              const contentItems = orderInstructionsAndPartLinks(
+                section.instructions.map((instruction) => ({
+                  position: instruction.position,
+                  value: instruction,
+                })),
+                section.partLinks.map((tree) => ({
+                  position: tree.position,
+                  value: tree,
+                })),
+              );
+              if (contentItems.length === 0) return null;
+              const ordinalByInstructionId = new Map<string, number>();
+              let nextOrdinal = 1;
+              for (const item of contentItems) {
+                if (item.type === "instruction") {
+                  ordinalByInstructionId.set(item.instruction.id, nextOrdinal);
+                  nextOrdinal += 1;
+                }
+              }
+              return (
+                <div className="flex flex-col gap-2">
+                  {contentItems.map((item) =>
+                    item.type === "instruction" ? (
+                      <p
+                        key={item.instruction.id}
+                        className="flex gap-2 text-sm"
+                      >
+                        <span className="text-muted-foreground tabular-nums">
+                          {ordinalByInstructionId.get(item.instruction.id)}.
+                        </span>
+                        <span>{item.instruction.text}</span>
+                      </p>
+                    ) : (
+                      <PartLinkTreeView
+                        key={`${item.partLink.targetDishId ?? "materialized"}:${item.partLink.targetDishVersionId ?? item.position}`}
+                        tree={item.partLink}
+                        scaleFactor={scaleFactor}
+                      />
+                    ),
+                  )}
+                </div>
+              );
+            })()}
           </ContentCard>
         );
       })}

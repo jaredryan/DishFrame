@@ -286,6 +286,9 @@ describe("DishEditor Sections", () => {
 
     await user.click(screen.getByRole("button", { name: "Edit Section 1" }));
     await user.type(screen.getByLabelText("Section name"), "Sauce");
+    // A saved Ingredient (has a lineageId) starts collapsed — reveal its
+    // fields before reading/editing them (Slice 6A collapsed-by-default).
+    await user.click(screen.getByRole("button", { name: "Expand Salt" }));
     const ingredientName = screen.getByLabelText("Ingredient name");
     await user.clear(ingredientName);
     await user.type(ingredientName, "Kosher salt");
@@ -299,6 +302,8 @@ describe("DishEditor Sections", () => {
 
     await user.click(screen.getByRole("button", { name: "Edit Section 1" }));
     expect(screen.getByLabelText("Section name")).toHaveValue("");
+    // The modal remounted fresh, so the saved Ingredient is collapsed again.
+    await user.click(screen.getByRole("button", { name: "Expand Salt" }));
     expect(screen.getByLabelText("Ingredient name")).toHaveValue("Salt");
   });
 
@@ -744,6 +749,9 @@ describe("DishEditor minor/major version choice", () => {
     // action reveals its editable fields (Slice 6A browser-review
     // correction pass: collapsed Sections show "Edit …", not "Expand …").
     await user.click(screen.getByRole("button", { name: "Edit Section 1" }));
+    // A saved Ingredient (has a lineageId) starts collapsed — reveal its
+    // fields before reading/editing them (Slice 6A collapsed-by-default).
+    await user.click(screen.getByRole("button", { name: "Expand Salt" }));
     const nameInput = screen.getByLabelText("Ingredient name");
     await user.clear(nameInput);
     await user.type(nameInput, "Kosher salt");
@@ -772,6 +780,9 @@ describe("DishEditor minor/major version choice", () => {
     render(<DishEditor kind="RECIPE" dish={existingDish} />);
 
     await user.click(screen.getByRole("button", { name: "Edit Section 1" }));
+    // A saved Ingredient (has a lineageId) starts collapsed — reveal its
+    // fields before reading/editing them (Slice 6A collapsed-by-default).
+    await user.click(screen.getByRole("button", { name: "Expand Salt" }));
     const nameInput = screen.getByLabelText("Ingredient name");
     await user.clear(nameInput);
     await user.type(nameInput, "Kosher salt");

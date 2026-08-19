@@ -81,22 +81,43 @@ test.describe("Meal Plans: build, sync grocery list, edit, complete", () => {
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect(page).toHaveURL(/\/recipes\/[^/]+$/, { timeout: 15_000 });
 
-    // --- Create a Meal Plan ---
+    // --- Create a Meal Plan (full create page, Slice 22 redesign) ---
     await page.goto("/meal-plans");
-    await page.getByRole("button", { name: "Plan meals" }).click();
+    // The list page's CTA is a Link (asChild Button), so its role is "link";
+    // the create page's submit button below is a real <button>.
+    await page.getByRole("link", { name: "Create meal plan" }).click();
+    await expect(page).toHaveURL(/\/meal-plans\/new$/, { timeout: 15_000 });
     await page.getByLabel("Title").fill("This week");
-    await page.getByRole("button", { name: "Create Meal Plan" }).click();
-    await expect(page).toHaveURL(/\/meal-plans\/[^/]+$/, { timeout: 15_000 });
-    const mealPlanUrl = page.url();
 
-    // --- Add the Recipe as an entry (default target yield — no scaling) ---
-    await page.getByRole("combobox", { name: "Recipe or Part" }).click();
-    await page.getByRole("option", { name: title }).click();
-    await page.getByRole("button", { name: "Add entry" }).click();
+    // --- Add the Recipe as a Meal via the Add-meal modal (default target
+    // yield — no scaling). The modal's default filters (Stage: Active) would
+    // exclude this freshly created, still-Idea-stage Recipe, so Clear them
+    // first. ---
+    await page.getByRole("button", { name: "Add meal", exact: true }).click();
+    const addMealDialog = page.getByRole("dialog", { name: "Add meal" });
+    await addMealDialog.getByRole("button", { name: "Clear" }).click();
+    await addMealDialog
+      .getByPlaceholder("Search your Recipes and Parts…")
+      .fill(title);
+    await addMealDialog.getByRole("radio", { name: title }).click();
+    await addMealDialog
+      .getByRole("button", { name: "Add meal", exact: true })
+      .click();
+    await expect(page.locator("li").filter({ hasText: title })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    // --- Final Save creates the MealPlan record and its Meal together ---
+    await page.getByRole("button", { name: "Create meal plan" }).click();
+    await expect(page).toHaveURL(/\/meal-plans\/(?!new)[^/]+$/, {
+      timeout: 15_000,
+    });
+    const mealPlanUrl = page.url();
+    const mealPlanId = mealPlanUrl.split("/").pop();
     const entryCard = page.locator("li").filter({ hasText: title });
     await expect(entryCard).toBeVisible({ timeout: 10_000 });
 
-    // --- Generate a synced grocery list from the whole plan ---
+    // --- Generate a synced grocery list from the View page ---
     await page.getByRole("button", { name: "Generate grocery list" }).click();
     await page
       .getByRole("dialog")
@@ -113,13 +134,25 @@ test.describe("Meal Plans: build, sync grocery list, edit, complete", () => {
     await riceCheckbox.click();
     await expect(riceCheckbox).toBeChecked();
 
-    // --- Back on the plan: edit the entry's target yield, doubling it ---
-    await page.goto(mealPlanUrl);
+    // --- On the Edit page: change the entry's target yield, doubling it
+    // (composition changes live on Edit, not the read-only View page) ---
+    await page.goto(`/meal-plans/${mealPlanId}/edit`);
     await entryCard.getByRole("button", { name: "Edit" }).click();
-    await entryCard.getByLabel("Target yield").fill("8");
-    await entryCard.getByRole("button", { name: "Save" }).click();
+    // "Edit meal" opens as a dialog (portalled outside the entryCard <li>),
+    // not inline within the entry — so its fields must be queried from the
+    // dialog, not from entryCard.
+    const editMealDialog = page.getByRole("dialog", { name: "Edit meal" });
+    await editMealDialog.getByLabel("Target yield").fill("8");
+    await editMealDialog.getByRole("button", { name: "Save changes" }).click();
     await expect(entryCard.getByText(/Makes 8 servings/)).toBeVisible({
       timeout: 10_000,
+    });
+    // "Save changes" above only stages the edit in local draft state — the
+    // page-level Save is what actually persists it via updateMealPlanEntry
+    // (and, inside that same transaction, resyncs linked grocery lists).
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(page).toHaveURL(/\/meal-plans\/(?!new)[^/]+$/, {
+      timeout: 15_000,
     });
 
     // --- Back on the grocery list: the checkoff survives, and the change

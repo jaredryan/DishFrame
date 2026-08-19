@@ -94,6 +94,7 @@ function toDisplaySections(
     instructions: section.instructions.map((instruction) => ({
       id: instruction.id,
       text: instruction.text,
+      position: instruction.position,
     })),
   }));
 }

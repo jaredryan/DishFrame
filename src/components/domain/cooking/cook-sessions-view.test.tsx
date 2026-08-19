@@ -63,8 +63,10 @@ describe("CookActiveSessionCard", () => {
     render(<CookActiveSessionCard session={activeSession} />);
 
     expect(screen.getByText("Weeknight Ragu")).toBeInTheDocument();
-    expect(screen.getByText(/Started.*ago/)).toBeInTheDocument();
-    expect(screen.getByText(/min elapsed/)).toBeInTheDocument();
+    // activeSession started 90 minutes ago: formatRelativeAge floors to "1
+    // hour ago" while formatElapsedLabel rounds to "2 hours elapsed".
+    expect(screen.getByText(/hour.*ago/)).toBeInTheDocument();
+    expect(screen.getByText(/hours elapsed/)).toBeInTheDocument();
   });
 
   it("expands Notes to show the currently-cooking units and current Cooking notes", async () => {

@@ -150,6 +150,15 @@ export type IngredientInput = z.infer<typeof ingredientInputSchema>;
 export const instructionInputSchema = z.object({
   lineageId: z.string().min(1).optional(),
   text: z.string().trim().min(1, "Enter an instruction.").max(2000),
+  // Post-cook Review/Section-editor refinement pass: an Instruction's slot
+  // in the one shared ordering sequence with this Section's own nested
+  // PartLinks (see `partLinkInputSchema.position`'s doc comment) — mirrors
+  // the top-level Section/PartLink "unified authored order" pattern.
+  // Optional (unlike PartLinkInput.position) so every pre-existing
+  // construction site that builds a bare `{ text }` — import/paste,
+  // duplication, blank-row append — keeps working unchanged; `undefined`
+  // falls back to the instruction's own array index wherever this is read.
+  position: z.number().int().min(0).optional(),
 });
 export type InstructionInput = z.infer<typeof instructionInputSchema>;
 
@@ -161,14 +170,18 @@ export type InstructionInput = z.infer<typeof instructionInputSchema>;
 // targets — present when loaded from an existing Version, absent for a
 // freshly attached occurrence, exactly like every other lineage-keyed row.
 //
-// Slice 6 post-gate (Review Gate 3):
+// Slice 6 post-gate (Review Gate 3), extended by the Section-editor
+// refinement pass below:
 // - `position`: for a TOP-LEVEL occurrence (on `dishContentSchema.partLinks`),
 //   this is its slot in the one shared ordering sequence with top-level
 //   Sections (see `sectionInputSchema.position`'s doc comment) — the
 //   authoritative value, not the array's own iteration order. For a
-//   Section-nested occurrence, this is simply its position within that
-//   Section's own `partLinks` array (unaffected by the unified top-level
-//   sequence), the same convention ingredients/instructions already use.
+//   Section-nested occurrence, this is its slot in that same *kind* of
+//   unified sequence, but one level down: shared with that Section's own
+//   `instructions` (see `instructionInputSchema.position`) rather than with
+//   top-level Sections. `sectionContentSequence` below is the one place
+//   that merges the two arrays back into true reading order from these
+//   `position` values.
 // - `multiplier`: the parent-specific quantity multiplier for this
 //   occurrence (default 1, must be positive) — composes with whole-item
 //   scaling via the existing scaling utilities (`src/lib/units/scaling.ts`),
@@ -414,6 +427,44 @@ export function sortByPosition<T extends { position: number }>(
   items: T[],
 ): T[] {
   return [...items].sort((a, b) => a.position - b.position);
+}
+
+export type SectionContentItem =
+  | { kind: "instruction"; instruction: InstructionInput }
+  | { kind: "partLink"; partLink: PartLinkInput };
+
+/**
+ * Section-editor refinement pass: merges a Section's `instructions` and
+ * (nested) `partLinks` arrays back into one reading-order sequence, the
+ * nested-level counterpart to `sortByPosition`'s top-level Section/PartLink
+ * merge. An Instruction's `position` is optional (unlike PartLinkInput's) —
+ * missing values (any instruction never touched by the merged-order editor)
+ * fall back to that instruction's own array index, matching the pre-this-
+ * pass convention where array order alone was the source of truth. Ties
+ * (including every historical PartLink, whose `position` predates this pass
+ * and only ever meant "index within this Section's own partLinks array")
+ * resolve instructions-before-partLinks via `Array.sort`'s stability, since
+ * that matches how a Section rendered before this pass — first save through
+ * the Section editor's merged list renumbers every item's `position`
+ * contiguously and removes the ambiguity for that Section going forward.
+ */
+export function sectionContentSequence(section: {
+  instructions: InstructionInput[];
+  partLinks: PartLinkInput[];
+}): SectionContentItem[] {
+  const items: Array<{ item: SectionContentItem; position: number }> = [
+    ...section.instructions.map((instruction, index) => ({
+      item: { kind: "instruction" as const, instruction },
+      position: instruction.position ?? index,
+    })),
+    ...section.partLinks.map((partLink) => ({
+      item: { kind: "partLink" as const, partLink },
+      position: partLink.position,
+    })),
+  ];
+  return items
+    .sort((a, b) => a.position - b.position)
+    .map((entry) => entry.item);
 }
 
 export type VersionContentChange = {

@@ -134,6 +134,7 @@ export function versionContentToInput(
       instructions: section.instructions.map((instruction) => ({
         lineageId: instruction.lineageId,
         text: instruction.text,
+        position: instruction.position,
       })),
       partLinks: bySectionId.get(section.id) ?? [],
     })),

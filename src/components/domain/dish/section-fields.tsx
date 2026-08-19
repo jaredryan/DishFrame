@@ -20,6 +20,7 @@ import type {
   DishKindValue,
   IngredientInput,
   InstructionInput,
+  PartLinkInput,
   SectionInput,
 } from "@/lib/dishes/schema";
 
@@ -121,19 +122,42 @@ export function SectionFields({
   // This still operates directly on the parent form (not the modal's
   // isolated session) — an already-attached linked Part is shown and
   // detached from this collapsed card, not from inside the Section modal.
+  // Section-editor refinement pass: Instructions and nested PartLinks now
+  // share one merged ordering sequence (`sectionContentSequence`) instead of
+  // each owning an independent position space — a freshly detached
+  // occurrence's content must be seeded into the next free slots in *that*
+  // shared sequence, not just `partLinks.fields.length`, or it would land at
+  // a position that collides with this Section's own existing instructions.
+  function nextMergedPosition(): number {
+    const currentInstructions = getValues(
+      `${prefix}.instructions`,
+    ) as InstructionInput[];
+    const currentPartLinks = getValues(
+      `${prefix}.partLinks`,
+    ) as PartLinkInput[];
+    const positions = [
+      ...currentInstructions.map((instruction, index) =>
+        instruction.position != null ? instruction.position : index,
+      ),
+      ...currentPartLinks.map((link) => link.position),
+    ];
+    return positions.length === 0 ? 0 : Math.max(...positions) + 1;
+  }
+
   function handleDetach(partLinkIndex: number, content: DetachedContent) {
     // `useFieldArray`'s `.fields` doesn't update synchronously between
     // multiple `.append()` calls in one handler, so a running counter (not
-    // `partLinks.fields.length` re-read each time) is what keeps each
-    // newly-appended nested occurrence's position distinct.
-    let nextPosition = partLinks.fields.length;
+    // re-read each time) is what keeps each newly-appended occurrence's
+    // position distinct.
+    let nextPosition = nextMergedPosition();
     content.sections.forEach((detachedSection) => {
       detachedSection.ingredients.forEach((ingredient) =>
         ingredients.append(ingredient),
       );
-      detachedSection.instructions.forEach((instruction) =>
-        instructions.append(instruction),
-      );
+      detachedSection.instructions.forEach((instruction) => {
+        instructions.append({ ...instruction, position: nextPosition });
+        nextPosition += 1;
+      });
       detachedSection.partLinks.forEach((link) => {
         partLinks.append({ ...link, position: nextPosition });
         nextPosition += 1;

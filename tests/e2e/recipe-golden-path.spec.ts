@@ -275,6 +275,11 @@ test.describe("Recipes: create, view, edit, archive, restore, duplicate, delete"
     // Slice 6 correction pass §4: see the golden path test above.
     await page.getByRole("button", { name: "Edit Section 1" }).click();
     const editDialog = page.getByRole("dialog");
+    // Ingredient rows now open collapsed by default (existing lineageId) —
+    // expand it to reach the Ingredient name field.
+    await editDialog
+      .getByRole("button", { name: "Expand Vegetable broth" })
+      .click();
     const nameInput = editDialog.getByLabel("Ingredient name");
     await nameInput.fill("");
     await nameInput.fill("Roasted vegetable broth");

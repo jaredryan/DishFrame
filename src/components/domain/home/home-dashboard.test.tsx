@@ -273,11 +273,11 @@ describe("HomeDashboard", () => {
       expect(screen.getByText("Beach Week")).toBeInTheDocument();
     });
 
-    it("renders the Plan meals primary action and a View meal plans link, both to /meal-plans", () => {
+    it("renders the Plan meals primary action to /meal-plans/new and a View meal plans link to /meal-plans", () => {
       render(<HomeDashboard {...baseProps()} />);
       expect(screen.getByRole("link", { name: /plan meals/i })).toHaveAttribute(
         "href",
-        "/meal-plans",
+        "/meal-plans/new",
       );
       expect(
         screen.getByRole("link", { name: /View meal plans/i }),

@@ -36,7 +36,7 @@ export function IngredientFields({
   index: number;
   onRemove: () => void;
 }) {
-  const { register, watch, setValue } = useFormContext();
+  const { register, watch, setValue, getValues } = useFormContext();
   const idPrefix = `${prefix.replace(/\./g, "-")}`;
   const name: string = watch(`${prefix}.name`);
   const quantity = watch(`${prefix}.quantity`);
@@ -47,7 +47,12 @@ export function IngredientFields({
   const preparationNote = watch(`${prefix}.preparationNote`);
   const substitute = watch(`${prefix}.substitute`);
   const isOptional = !!watch(`${prefix}.isOptional`);
-  const [collapsed, setCollapsed] = React.useState(false);
+  // Collapsed by default on modal open (matches PartLinkFields' same
+  // lineageId-based rule) — only a brand-new, not-yet-saved ingredient
+  // (no lineageId) starts expanded so it can be filled in right away.
+  const [collapsed, setCollapsed] = React.useState(
+    () => !!getValues(`${prefix}.lineageId`),
+  );
   const { mode, chooseMode } = useAmountMode(prefix);
 
   const {

@@ -33,3 +33,35 @@ export function orderSectionsAndTopLevelPartLinks<TSection, TPartLink>(
   ];
   return items.sort((a, b) => a.position - b.position);
 }
+
+export type OrderedInstructionOrPartLink<TInstruction, TPartLink> =
+  | { type: "instruction"; position: number; instruction: TInstruction }
+  | { type: "partLink"; position: number; partLink: TPartLink };
+
+/**
+ * Section-editor refinement pass: the nested-level counterpart of
+ * `orderSectionsAndTopLevelPartLinks` above, for a single Section's own
+ * `instructions` and nested `partLinks` — same "one shared `position`
+ * sequence, two separate arrays" shape one level down (see
+ * `sectionContentSequence`'s doc comment, `src/lib/dishes/schema.ts`), so
+ * every read-only renderer merges the two the same way rather than always
+ * rendering every Instruction before every attached Part.
+ */
+export function orderInstructionsAndPartLinks<TInstruction, TPartLink>(
+  instructions: PositionedItem<TInstruction>[],
+  partLinks: PositionedItem<TPartLink>[],
+): OrderedInstructionOrPartLink<TInstruction, TPartLink>[] {
+  const items: OrderedInstructionOrPartLink<TInstruction, TPartLink>[] = [
+    ...instructions.map(({ position, value }) => ({
+      type: "instruction" as const,
+      position,
+      instruction: value,
+    })),
+    ...partLinks.map(({ position, value }) => ({
+      type: "partLink" as const,
+      position,
+      partLink: value,
+    })),
+  ];
+  return items.sort((a, b) => a.position - b.position);
+}

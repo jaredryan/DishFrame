@@ -159,15 +159,13 @@ test.describe("Home dashboard: navigation (empty account)", () => {
       .click();
     await expect(page).toHaveURL(/\/parts$/, { timeout: 15_000 });
 
-    // --- Meal plans: empty state, primary action + View meal plans both -> Meal Plans ---
+    // --- Meal plans: empty state, primary action -> create page, View meal plans -> Meal Plans ---
     await page.goto("/home");
     const mealPlans = dashboardSection(page, "Meal plans");
     await expect(mealPlans.getByText("No Meal Plans yet.")).toBeVisible();
     await mealPlans.getByRole("link", { name: "Plan meals" }).click();
-    await expect(page).toHaveURL(/\/meal-plans$/, { timeout: 15_000 });
-    await expect(
-      page.getByRole("button", { name: "Plan meals" }),
-    ).toBeVisible();
+    await expect(page).toHaveURL(/\/meal-plans\/new$/, { timeout: 15_000 });
+    await expect(page.getByLabel("Title")).toBeVisible();
 
     await page.goto("/home");
     await dashboardSection(page, "Meal plans")
@@ -276,7 +274,7 @@ test.describe("Home dashboard: populated data", () => {
     });
     await expect(picker).toBeVisible();
     await picker.getByPlaceholder("Search").fill(recipeTitle);
-    await picker.getByRole("button", { name: new RegExp(recipeTitle) }).click();
+    await picker.getByRole("radio", { name: new RegExp(recipeTitle) }).click();
     await picker.getByRole("button", { name: "Cook", exact: true }).click();
     await expect(page).toHaveURL(/\/cook\?from=home$/, { timeout: 15_000 });
     await page.getByRole("button", { name: "Start cooking" }).click();
@@ -284,10 +282,15 @@ test.describe("Home dashboard: populated data", () => {
 
     // --- Meal Plan ---
     await page.goto("/meal-plans");
-    await page.getByRole("button", { name: "Plan meals" }).click();
+    // The list page's CTA is a Link (asChild Button), so its role is "link";
+    // the create page's submit button below is a real <button>.
+    await page.getByRole("link", { name: "Create meal plan" }).click();
+    await expect(page).toHaveURL(/\/meal-plans\/new$/, { timeout: 15_000 });
     await page.getByLabel("Title").fill(mealPlanTitle);
-    await page.getByRole("button", { name: "Create Meal Plan" }).click();
-    await expect(page).toHaveURL(/\/meal-plans\/[^/]+$/, { timeout: 15_000 });
+    await page.getByRole("button", { name: "Create meal plan" }).click();
+    await expect(page).toHaveURL(/\/meal-plans\/(?!new)[^/]+$/, {
+      timeout: 15_000,
+    });
 
     // --- Grocery List, generated from the Recipe ---
     await page.goto("/grocery-lists");

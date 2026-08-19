@@ -698,6 +698,12 @@ export async function listCurrentPartUsages(
         },
       },
     },
+    // Top-level occurrences (`sectionId: null`) first — Postgres sorts NULL
+    // first on an ascending order by default — so when a container has more
+    // than one live direct occurrence (see the dedupe below), the top-level
+    // one is the one kept, matching how `sectionName: null` already reads
+    // as "the" occurrence rather than one of several.
+    orderBy: [{ sectionId: "asc" }, { id: "asc" }],
   });
 
   const sectionIds = links
@@ -711,22 +717,41 @@ export async function listCurrentPartUsages(
     : [];
   const sectionNameById = new Map(sections.map((s) => [s.id, s.name]));
 
-  return links.map((link) => ({
-    id: link.id,
-    lineageId: link.lineageId,
-    containerDishId: link.containerVersion.dish.id,
-    containerKind: link.containerVersion.dish.kind,
-    containerTitle: link.containerVersion.dish.currentTitle ?? "Untitled",
-    containerVersionId: link.containerVersion.id,
-    containerMajorVersion: link.containerVersion.majorVersion,
-    containerMinorVersion: link.containerVersion.minorVersion,
-    // Guaranteed non-null: the CHECK constraint requires both target
-    // fields whenever `linkState = LIVE` (schema.prisma §D.6).
-    targetDishVersionId: link.targetDishVersionId!,
-    sectionName: link.sectionId
-      ? (sectionNameById.get(link.sectionId) ?? null)
-      : null,
-  }));
+  // §71: "Recipes using this Part," not "occurrences" — a container Dish
+  // that links this Part more than once (top-level and Section-nested, or
+  // in two different Sections) still surfaces as exactly one row. The
+  // direct-duplicate invariant (`findDuplicatePartTargets`) prevents this
+  // for content saved through the ordinary editor, but isn't a DB
+  // constraint (schema.ts's own doc comment) and predates Slice 6 post-gate
+  // — this dedupe is the defensive backstop for any container whose extra
+  // direct occurrence(s) got here some other way (legacy data, a path that
+  // doesn't call that validation), so this view — and the propagation
+  // picker/"Update everywhere" that reads it — never shows or acts on more
+  // than one row per container Dish.
+  const seenContainerDishIds = new Set<string>();
+  const usages: PartUsage[] = [];
+  for (const link of links) {
+    const containerDishId = link.containerVersion.dish.id;
+    if (seenContainerDishIds.has(containerDishId)) continue;
+    seenContainerDishIds.add(containerDishId);
+    usages.push({
+      id: link.id,
+      lineageId: link.lineageId,
+      containerDishId,
+      containerKind: link.containerVersion.dish.kind,
+      containerTitle: link.containerVersion.dish.currentTitle ?? "Untitled",
+      containerVersionId: link.containerVersion.id,
+      containerMajorVersion: link.containerVersion.majorVersion,
+      containerMinorVersion: link.containerVersion.minorVersion,
+      // Guaranteed non-null: the CHECK constraint requires both target
+      // fields whenever `linkState = LIVE` (schema.prisma §D.6).
+      targetDishVersionId: link.targetDishVersionId!,
+      sectionName: link.sectionId
+        ? (sectionNameById.get(link.sectionId) ?? null)
+        : null,
+    });
+  }
+  return usages;
 }
 
 /**

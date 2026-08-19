@@ -80,6 +80,15 @@ const partialUnratedSession: DishCompletedSessionData = {
  */
 describe("DishActiveSessionCard", () => {
   it("titles the card with the session-start timestamp and a noninteractive elapsed chip", () => {
+    // formatElapsedLabel measures against real wall-clock time, and
+    // activeSession.startedAt is a fixed historical date — pin "now" close
+    // to it so the elapsed chip stays in "min elapsed" range regardless of
+    // how much real time has passed since this fixture was written.
+    vi.useFakeTimers();
+    vi.setSystemTime(
+      new Date(activeSession.startedAt.getTime() + 42 * 60 * 1000),
+    );
+
     render(<DishActiveSessionCard session={activeSession} />);
 
     expect(
@@ -92,7 +101,9 @@ describe("DishActiveSessionCard", () => {
         new RegExp(timeFormatter.format(activeSession.startedAt)),
       ),
     ).toBeInTheDocument();
-    expect(screen.getByText(/min elapsed/)).toBeInTheDocument();
+    expect(screen.getByText("42 min elapsed")).toBeInTheDocument();
+
+    vi.useRealTimers();
   });
 
   it("expands Notes to show the currently-selected cooking units (present tense) and current Cooking notes", async () => {

@@ -24,13 +24,20 @@ function ChecklistRow({
   onToggle: (checked: boolean) => void;
   index?: number;
 }) {
+  // Instructions (index != null) top-align so a wrapping multiline step
+  // starts beside the checkbox rather than centering the checkbox
+  // halfway down the text; ingredients stay centered since they're
+  // reliably single-line.
+  const isInstruction = index != null;
   return (
-    <label className="hover:bg-muted/40 -mx-1 flex cursor-pointer items-center rounded-md px-1">
+    <label
+      className={`hover:bg-muted/40 -mx-1 flex cursor-pointer rounded-md px-1 ${isInstruction ? "items-start" : "items-center"}`}
+    >
       <Checkbox
         checked={checked}
         disabled={disabled}
         onCheckedChange={(next) => onToggle(next === true)}
-        className="mr-3 size-5 shrink-0"
+        className={`mr-3 size-5 shrink-0 ${isInstruction ? "mt-0.5" : ""}`}
       />
       {index != null && (
         <span className="text-muted-foreground mr-1 w-5 shrink-0 text-sm tabular-nums">

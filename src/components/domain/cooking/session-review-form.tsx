@@ -9,6 +9,7 @@ import {
   Eye,
   NotebookPen,
   Pencil,
+  Plus,
   Save,
   Trash2,
 } from "lucide-react";
@@ -36,6 +37,8 @@ import {
 import { StarRatingInput } from "@/components/domain/cooking/star-rating-input";
 import { CoachMark } from "@/components/onboarding/coach-mark";
 import { saveSessionReview, deleteSessionReview } from "@/lib/reviews/actions";
+import { createTaster } from "@/lib/tasters/actions";
+import { initialCreateTasterActionState } from "@/lib/tasters/schema";
 import { updateDishStage } from "@/lib/dishes/actions";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
 import { STAGE_LABEL } from "@/components/domain/dish/stage-badge";
@@ -179,6 +182,48 @@ export function SessionReviewForm({
   >(() =>
     Object.fromEntries(existingRatings.map((r) => [r.tasterId, r.value])),
   );
+
+  // Tasters started as a prop, but adding one in place (without leaving the
+  // review) means the list has to live in state so a freshly created taster
+  // can be appended and immediately rated — the rest of the review's own
+  // state (text fields, ratings already entered) is untouched by this.
+  const [tasters, setTasters] = React.useState<TasterOption[]>(tasterOptions);
+  const [addingTaster, setAddingTaster] = React.useState(false);
+  const [newTasterName, setNewTasterName] = React.useState("");
+  const [addTasterError, setAddTasterError] = React.useState<string | null>(
+    null,
+  );
+  const [isAddingTaster, startAddTasterTransition] = React.useTransition();
+
+  function handleAddTaster(event: React.SyntheticEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const name = newTasterName.trim();
+    if (!name) return;
+
+    setAddTasterError(null);
+    startAddTasterTransition(async () => {
+      const formData = new FormData();
+      formData.set("name", name);
+      const result = await createTaster(
+        initialCreateTasterActionState,
+        formData,
+      );
+      if (result.status === "success" && result.taster) {
+        setTasters((prev) => [
+          ...prev,
+          {
+            id: result.taster!.id,
+            name: result.taster!.name,
+            isOwner: result.taster!.isOwner,
+          },
+        ]);
+        setNewTasterName("");
+        setAddingTaster(false);
+      } else {
+        setAddTasterError(result.message ?? "Could not add taster.");
+      }
+    });
+  }
 
   // "This session included" real multi-select checkboxes (post-cook review
   // redesign item 1). Prefilled from the previously saved review selection
@@ -465,6 +510,7 @@ export function SessionReviewForm({
             value={whatWentWell}
             onChange={(e) => setWhatWentWell(e.target.value)}
             rows={2}
+            className="bg-card dark:bg-card"
           />
         </Field>
         <Field label="What did not go well?">
@@ -472,6 +518,7 @@ export function SessionReviewForm({
             value={whatDidNotGoWell}
             onChange={(e) => setWhatDidNotGoWell(e.target.value)}
             rows={2}
+            className="bg-card dark:bg-card"
           />
         </Field>
         <Field label="Anything else?">
@@ -479,19 +526,20 @@ export function SessionReviewForm({
             value={anythingElse}
             onChange={(e) => setAnythingElse(e.target.value)}
             rows={2}
+            className="bg-card dark:bg-card"
           />
         </Field>
       </div>
 
-      {tasterOptions.length > 0 && (
-        <div className="flex flex-col gap-3">
-          <p className="text-foreground text-sm font-medium">
-            {dishKind === "PART"
-              ? `How did ${dishTitle} turn out?`
-              : `Would you like to rate ${dishTitle} as a whole?`}
-          </p>
+      <div className="flex flex-col gap-3">
+        <p className="text-foreground text-sm font-medium">
+          {dishKind === "PART"
+            ? `How did ${dishTitle} turn out?`
+            : `Would you like to rate ${dishTitle} as a whole?`}
+        </p>
+        {tasters.length > 0 && (
           <ul className="flex flex-col gap-1">
-            {tasterOptions.map((taster) => (
+            {tasters.map((taster) => (
               <li
                 key={taster.id}
                 className="flex items-center justify-between gap-2"
@@ -509,8 +557,54 @@ export function SessionReviewForm({
               </li>
             ))}
           </ul>
-        </div>
-      )}
+        )}
+
+        {addingTaster ? (
+          <form onSubmit={handleAddTaster} className="flex items-center gap-2">
+            <Input
+              autoFocus
+              value={newTasterName}
+              onChange={(e) => setNewTasterName(e.target.value)}
+              placeholder="e.g. Mom"
+              maxLength={60}
+              className="bg-card dark:bg-card h-8 flex-1"
+              disabled={isAddingTaster}
+            />
+            <Button type="submit" size="sm" disabled={isAddingTaster}>
+              {isAddingTaster ? "Adding…" : "Add"}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={isAddingTaster}
+              onClick={() => {
+                setAddingTaster(false);
+                setNewTasterName("");
+                setAddTasterError(null);
+              }}
+            >
+              Cancel
+            </Button>
+          </form>
+        ) : (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="self-start"
+            onClick={() => setAddingTaster(true)}
+          >
+            <Plus className="size-4" aria-hidden="true" />
+            Add a taster
+          </Button>
+        )}
+        {addTasterError && (
+          <p role="alert" className="text-destructive-text text-sm">
+            {addTasterError}
+          </p>
+        )}
+      </div>
 
       <details className="group">
         <summary className="text-muted-foreground cursor-pointer text-sm select-none">
@@ -524,6 +618,7 @@ export function SessionReviewForm({
                 value={amountQuantity}
                 onChange={(e) => setAmountQuantity(e.target.value)}
                 placeholder="e.g. 5"
+                className="bg-card dark:bg-card"
               />
             </Field>
             <Field label="Unit" className="w-28">
@@ -531,6 +626,7 @@ export function SessionReviewForm({
                 value={amountUnit}
                 onChange={(e) => setAmountUnit(e.target.value)}
                 placeholder="servings"
+                className="bg-card dark:bg-card"
               />
             </Field>
           </div>
@@ -546,6 +642,7 @@ export function SessionReviewForm({
               value={adjustedMinutes}
               onChange={(e) => setAdjustedMinutes(e.target.value)}
               placeholder={formatMinutes(rawElapsedSeconds) || "minutes"}
+              className="bg-card dark:bg-card"
             />
           </Field>
         </div>

@@ -35,14 +35,52 @@ import type { DishKindValue } from "@/lib/dishes/schema";
 
 type TimerActions = ReturnType<typeof useTimerActions>;
 
-/**
- * ARCHITECTURE_PROPOSAL.md §C.8 / desktop Cooking Mode redesign — the
- * three-zone desktop workspace: a sticky left Section nav, a focused center
- * destination (the Recipe/session panel or one Section), and a sticky right
- * rail holding every active timer regardless of which Section is selected.
- * Desktop only (`lg:` and up); mobile/tablet keep the prior single-column
- * layout untouched in `CookingModeShell`.
- */
+/** Shared props for all three responsive Cooking Mode layouts (desktop/tablet/mobile). */
+export type CookingLayoutProps = {
+  sessionId: string;
+  isActive: boolean;
+  dishId: string;
+  dishTitle: string;
+  dishKind: DishKindValue | null;
+  versionLabel: string;
+  statusLabel: string;
+  hasReview: boolean;
+  planActiveUnits: PlanUnit[];
+  planRemovedUnits: PlanUnit[];
+  addableUnits: AddableUnit[];
+  onUnitRemoved: (unitId: string) => void;
+  selectedDestination: string | null;
+  onSelectDestination: (destination: string | null) => void;
+  unitViewModels: UnitViewModel[];
+  aggregateProgress: { checked: number; total: number };
+  completedUnitsCount: number;
+  totalUnitsCount: number;
+  cookingNotes: string | null;
+  onRequestEnd: () => void;
+  onOpenSessionScale: () => void;
+  isChecked: (item: CookingModeChecklistItem) => boolean;
+  onToggleItem: (itemId: string, checked: boolean) => void;
+  onMarkAllPrepared: (unit: CookingModeUnit) => void;
+  onResetAll: (unit: CookingModeUnit) => void;
+  collapsedIngredientUnits: Set<string>;
+  onToggleIngredientsCollapsed: (unitId: string) => void;
+  onMarkAllInstructions: (unit: CookingModeUnit) => void;
+  onResetInstructions: (unit: CookingModeUnit) => void;
+  collapsedInstructionUnits: Set<string>;
+  onToggleInstructionsCollapsed: (unitId: string) => void;
+  onOpenUnitScale: (unit: CookingModeUnit) => void;
+  addTimerUnitId: string | null;
+  onRequestAddTimer: (unitId: string) => void;
+  onCancelAddTimer: () => void;
+  onTimerCreated: () => void;
+  onSetUnitCompletion: (unitId: string, completed: boolean) => void;
+  isPending: boolean;
+  railTimers: RailTimer[];
+  timerActions: TimerActions;
+  liveTimers: Map<string, LiveTimerState>;
+};
+
+/** ARCHITECTURE_PROPOSAL.md §C.8 — the three-zone desktop workspace (`lg:` and up); `TabletCookingLayout`/`MobileCookingLayout` reuse this file's `NavList`/`TimerList`/`RecipePanel`/`SectionPanel` exports for narrower ranges. */
 export function DesktopCookingLayout({
   sessionId,
   isActive,
@@ -85,56 +123,14 @@ export function DesktopCookingLayout({
   railTimers,
   timerActions,
   liveTimers,
-}: {
-  sessionId: string;
-  isActive: boolean;
-  dishId: string;
-  dishTitle: string;
-  dishKind: DishKindValue | null;
-  versionLabel: string;
-  statusLabel: string;
-  hasReview: boolean;
-  planActiveUnits: PlanUnit[];
-  planRemovedUnits: PlanUnit[];
-  addableUnits: AddableUnit[];
-  onUnitRemoved: (unitId: string) => void;
-  selectedDestination: string | null;
-  onSelectDestination: (destination: string | null) => void;
-  unitViewModels: UnitViewModel[];
-  aggregateProgress: { checked: number; total: number };
-  completedUnitsCount: number;
-  totalUnitsCount: number;
-  cookingNotes: string | null;
-  onRequestEnd: () => void;
-  onOpenSessionScale: () => void;
-  isChecked: (item: CookingModeChecklistItem) => boolean;
-  onToggleItem: (itemId: string, checked: boolean) => void;
-  onMarkAllPrepared: (unit: CookingModeUnit) => void;
-  onResetAll: (unit: CookingModeUnit) => void;
-  collapsedIngredientUnits: Set<string>;
-  onToggleIngredientsCollapsed: (unitId: string) => void;
-  onMarkAllInstructions: (unit: CookingModeUnit) => void;
-  onResetInstructions: (unit: CookingModeUnit) => void;
-  collapsedInstructionUnits: Set<string>;
-  onToggleInstructionsCollapsed: (unitId: string) => void;
-  onOpenUnitScale: (unit: CookingModeUnit) => void;
-  addTimerUnitId: string | null;
-  onRequestAddTimer: (unitId: string) => void;
-  onCancelAddTimer: () => void;
-  onTimerCreated: () => void;
-  onSetUnitCompletion: (unitId: string, completed: boolean) => void;
-  isPending: boolean;
-  railTimers: RailTimer[];
-  timerActions: TimerActions;
-  liveTimers: Map<string, LiveTimerState>;
-}) {
+}: CookingLayoutProps) {
   const selectedUnit = selectedDestination
     ? (unitViewModels.find((vm) => vm.unit.id === selectedDestination)?.unit ??
       null)
     : null;
 
   return (
-    <div className="hidden lg:flex lg:h-dvh lg:w-full lg:overflow-hidden">
+    <div className="flex h-dvh w-full overflow-hidden">
       <NavRail
         dishTitle={dishTitle}
         selectedDestination={selectedDestination}
@@ -143,7 +139,7 @@ export function DesktopCookingLayout({
       />
 
       <main className="flex-1 overflow-y-auto">
-        <div className="mx-auto flex max-w-2xl flex-col gap-6 px-8 py-8">
+        <div className="mx-auto flex max-w-2xl flex-col gap-6 px-6 py-8 xl:px-8">
           {selectedDestination === null ? (
             <RecipePanel
               sessionId={sessionId}
@@ -228,8 +224,32 @@ function NavRail({
   return (
     <nav
       aria-label="Cooking navigation"
-      className="border-border bg-card flex h-full w-60 shrink-0 flex-col gap-1 overflow-y-auto border-r p-3"
+      className="border-border bg-card flex h-full w-52 shrink-0 flex-col gap-1 overflow-y-auto border-r p-3 xl:w-60"
     >
+      <NavList
+        dishTitle={dishTitle}
+        selectedDestination={selectedDestination}
+        onSelectDestination={onSelectDestination}
+        unitViewModels={unitViewModels}
+      />
+    </nav>
+  );
+}
+
+/** The Recipe destination button + Section list, without a `<nav>` wrapper — each layout supplies its own. */
+export function NavList({
+  dishTitle,
+  selectedDestination,
+  onSelectDestination,
+  unitViewModels,
+}: {
+  dishTitle: string;
+  selectedDestination: string | null;
+  onSelectDestination: (destination: string | null) => void;
+  unitViewModels: UnitViewModel[];
+}) {
+  return (
+    <>
       <button
         type="button"
         onClick={() => onSelectDestination(null)}
@@ -300,11 +320,11 @@ function NavRail({
           );
         })}
       </ul>
-    </nav>
+    </>
   );
 }
 
-function RecipePanel({
+export function RecipePanel({
   sessionId,
   isActive,
   dishId,
@@ -466,7 +486,7 @@ function RecipePanel({
   );
 }
 
-function SectionPanel({
+export function SectionPanel({
   sessionId,
   unit,
   isActive,
@@ -612,41 +632,60 @@ function TimerRail({
   return (
     <aside
       aria-label="Active timers"
-      className="border-border bg-card flex h-full w-72 shrink-0 flex-col gap-2 overflow-y-auto border-l p-3"
+      className="border-border bg-card flex h-full w-60 shrink-0 flex-col gap-2 overflow-y-auto border-l p-3 xl:w-72"
     >
       <h2 className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
         Timers
       </h2>
-      {timers.length === 0 ? (
-        <p className="text-muted-foreground text-sm">
-          No active timers. Start one from a Section.
-        </p>
-      ) : (
-        <ul className="flex flex-col gap-2">
-          {timers.map(({ timer, sectionLabel }) => {
-            const live = liveTimers.get(timer.id);
-            const remaining = live?.remainingSeconds ?? timer.durationSeconds;
-            const expired = live?.isExpired ?? false;
-            return (
-              <TimerRow
-                key={timer.id}
-                timer={timer}
-                remainingSeconds={remaining}
-                isExpired={expired}
-                isActive={isActive}
-                sectionLabel={sectionLabel}
-                onStart={() => timerActions.start(timer, remaining)}
-                onPause={() => timerActions.pause(timer, remaining)}
-                onAdjust={(delta) =>
-                  timerActions.adjust(timer, delta, remaining)
-                }
-                onReset={() => timerActions.reset(timer)}
-                onDismiss={() => timerActions.dismiss(timer)}
-              />
-            );
-          })}
-        </ul>
-      )}
+      <TimerList
+        timers={timers}
+        isActive={isActive}
+        liveTimers={liveTimers}
+        timerActions={timerActions}
+      />
     </aside>
+  );
+}
+
+/** The bare list of `TimerRow`s (with an empty-state message), without aside/heading chrome — reused across all three layouts. */
+export function TimerList({
+  timers,
+  isActive,
+  liveTimers,
+  timerActions,
+  emptyMessage = "No active timers. Start one from a Section.",
+}: {
+  timers: RailTimer[];
+  isActive: boolean;
+  liveTimers: Map<string, LiveTimerState>;
+  timerActions: TimerActions;
+  emptyMessage?: string;
+}) {
+  if (timers.length === 0) {
+    return <p className="text-muted-foreground text-sm">{emptyMessage}</p>;
+  }
+  return (
+    <ul className="flex flex-col gap-2">
+      {timers.map(({ timer, sectionLabel }) => {
+        const live = liveTimers.get(timer.id);
+        const remaining = live?.remainingSeconds ?? timer.durationSeconds;
+        const expired = live?.isExpired ?? false;
+        return (
+          <TimerRow
+            key={timer.id}
+            timer={timer}
+            remainingSeconds={remaining}
+            isExpired={expired}
+            isActive={isActive}
+            sectionLabel={sectionLabel}
+            onStart={() => timerActions.start(timer, remaining)}
+            onPause={() => timerActions.pause(timer, remaining)}
+            onAdjust={(delta) => timerActions.adjust(timer, delta, remaining)}
+            onReset={() => timerActions.reset(timer)}
+            onDismiss={() => timerActions.dismiss(timer)}
+          />
+        );
+      })}
+    </ul>
   );
 }

@@ -247,16 +247,19 @@ function isLivePartLink(link: InsertablePartLink): link is PartLinkInput {
  * lineage-preserving-or-minting style as every other row `insertSections`
  * writes.
  *
- * Slice 6 post-gate (Review Gate 3's "unified authored order"): a
- * TOP-LEVEL PartLink's `position` is written from its own explicit
- * `PartLinkInput.position` field — its real slot in the one shared
- * ordering sequence with top-level Sections (`sectionInputSchema.
- * position`'s doc comment) — never array iteration order, since the two
- * top-level arrays aren't assumed to already arrive interleaved. A
- * Section-nested PartLink keeps the pre-gate convention (its own array
- * index — Section-nested ordering is unaffected by the unified top-level
- * sequence). This applies identically regardless of LIVE/MATERIALIZED kind
- * — both share one `partLinks` array, in one authored order.
+ * Slice 6 post-gate (Review Gate 3's "unified authored order"), extended by
+ * the Section-editor refinement pass: a TOP-LEVEL PartLink's `position` is
+ * written from its own explicit `PartLinkInput.position` field — its real
+ * slot in the one shared ordering sequence with top-level Sections
+ * (`sectionInputSchema.position`'s doc comment) — never array iteration
+ * order, since the two top-level arrays aren't assumed to already arrive
+ * interleaved. A Section-nested PartLink now uses that same explicit field
+ * too, for the same reason one level down: its slot in the merged sequence
+ * shared with that Section's own Instructions (`instructionInputSchema.
+ * position`, `sectionContentSequence`) — no longer just its own array
+ * index, now that Instructions can be interleaved with it. This applies
+ * identically regardless of LIVE/MATERIALIZED kind — both share one
+ * `partLinks` array, in one authored order.
  */
 async function insertPartLinks(
   tx: Prisma.TransactionClient,
@@ -265,9 +268,8 @@ async function insertPartLinks(
   partLinks: InsertablePartLink[],
   lineageFor: (id: string | undefined) => string,
 ): Promise<void> {
-  for (let pi = 0; pi < partLinks.length; pi++) {
-    const partLink = partLinks[pi];
-    const position = sectionId === null ? partLink.position : pi;
+  for (const partLink of partLinks) {
+    const position = partLink.position;
     if (isLivePartLink(partLink)) {
       await tx.partLink.create({
         data: {
@@ -395,7 +397,12 @@ export async function insertSections(
           dishVersionId,
           sectionId: sectionRow.id,
           text: instruction.text,
-          position: ti,
+          // Section-editor refinement pass: this Instruction's slot in the
+          // merged sequence shared with the Section's own nested PartLinks
+          // (`instructionInputSchema.position`'s doc comment) — falls back
+          // to array index only for content that never went through the
+          // merged-order editor (pre-existing convention, unchanged).
+          position: instruction.position ?? ti,
         },
       });
     }

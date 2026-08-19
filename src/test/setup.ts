@@ -21,4 +21,26 @@ if (typeof window !== "undefined") {
       disconnect() {}
     };
   }
+
+  // jsdom doesn't implement matchMedia; this generic min-width evaluator
+  // (against jsdom's fixed 1024px innerWidth) is enough for components that
+  // pick a layout via `(min-width: …px)` queries, e.g. useCookingLayoutMode.
+  if (typeof window.matchMedia === "undefined") {
+    window.matchMedia = (query: string) => {
+      const minWidthMatch = query.match(/\(min-width:\s*(\d+)px\)/);
+      const matches = minWidthMatch
+        ? window.innerWidth >= Number(minWidthMatch[1])
+        : false;
+      return {
+        matches,
+        media: query,
+        onchange: null,
+        addListener: () => {},
+        removeListener: () => {},
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        dispatchEvent: () => false,
+      } as MediaQueryList;
+    };
+  }
 }
