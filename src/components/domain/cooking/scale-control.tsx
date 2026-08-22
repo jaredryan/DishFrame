@@ -124,7 +124,7 @@ export function ScaleControl({
           Makes {outputQuantity} {outputUnit}.{" "}
           {isSafeMode
             ? "Leave unchanged to keep the current scale."
-            : "Leave blank for the authored amount."}
+            : "Leave blank for the original amount."}
         </FieldDescription>
         {isSafeMode && (
           <Button
@@ -154,7 +154,7 @@ export function ScaleControl({
       <FieldDescription>
         {isSafeMode
           ? "Leave unchanged to keep the current scale. E.g. 2 to double."
-          : "E.g. 2 to double. Leave blank for the authored amount."}
+          : "E.g. 2 to double. Leave blank for the original amount."}
       </FieldDescription>
       {isSafeMode && (
         <Button
