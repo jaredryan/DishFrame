@@ -235,17 +235,6 @@ export function CookingModeShell({
   const completedUnits = activeUnits.filter(
     (u) => u.completedAt != null,
   ).length;
-  // Item 8: main cooking progress is Instructions-only — checking off
-  // Ingredients (their own, separate prep count) never advances it.
-  const totalInstructions = activeUnits.reduce(
-    (sum, u) => sum + instructionItemsOf(u).length,
-    0,
-  );
-  const checkedInstructions = activeUnits.reduce(
-    (sum, u) =>
-      sum + instructionItemsOf(u).filter(checklistState.isChecked).length,
-    0,
-  );
 
   function handleSetUnitCompletion(unitId: string, completed: boolean) {
     setError(null);
@@ -460,10 +449,6 @@ export function CookingModeShell({
     selectedDestination,
     onSelectDestination: selectDestination,
     unitViewModels,
-    aggregateProgress: {
-      checked: checkedInstructions,
-      total: totalInstructions,
-    },
     completedUnitsCount: completedUnits,
     totalUnitsCount: totalUnits,
     cookingNotes,

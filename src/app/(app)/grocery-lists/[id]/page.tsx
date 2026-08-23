@@ -58,6 +58,7 @@ export default async function GroceryListDetailPage({
     id: list.id,
     title: list.title,
     createdAt: list.createdAt.toISOString(),
+    plannedDate: list.plannedDate.toISOString(),
     completedAt: list.completedAt?.toISOString() ?? null,
     mode: list.mode,
     linkedMealPlanId: list.linkedMealPlanId,

@@ -52,7 +52,6 @@ export type CookingLayoutProps = {
   selectedDestination: string | null;
   onSelectDestination: (destination: string | null) => void;
   unitViewModels: UnitViewModel[];
-  aggregateProgress: { checked: number; total: number };
   completedUnitsCount: number;
   totalUnitsCount: number;
   cookingNotes: string | null;
@@ -97,7 +96,6 @@ export function DesktopCookingLayout({
   selectedDestination,
   onSelectDestination,
   unitViewModels,
-  aggregateProgress,
   completedUnitsCount,
   totalUnitsCount,
   cookingNotes,
@@ -150,7 +148,6 @@ export function DesktopCookingLayout({
               versionLabel={versionLabel}
               statusLabel={statusLabel}
               hasReview={hasReview}
-              aggregateProgress={aggregateProgress}
               completedUnitsCount={completedUnitsCount}
               totalUnitsCount={totalUnitsCount}
               cookingNotes={cookingNotes}
@@ -333,7 +330,6 @@ export function RecipePanel({
   versionLabel,
   statusLabel,
   hasReview,
-  aggregateProgress,
   completedUnitsCount,
   totalUnitsCount,
   cookingNotes,
@@ -354,7 +350,6 @@ export function RecipePanel({
   versionLabel: string;
   statusLabel: string;
   hasReview: boolean;
-  aggregateProgress: { checked: number; total: number };
   completedUnitsCount: number;
   totalUnitsCount: number;
   cookingNotes: string | null;
@@ -395,29 +390,10 @@ export function RecipePanel({
         <p className="text-muted-foreground text-sm">
           {versionLabel}
           {statusLabel}
+          {totalUnitsCount > 0 &&
+            ` · ${completedUnitsCount}/${totalUnitsCount} done`}
         </p>
       </div>
-
-      {totalUnitsCount > 0 && (
-        <div className="flex items-center gap-2">
-          <div className="bg-muted-foreground h-1.5 flex-1 overflow-hidden rounded-full">
-            <div
-              className="bg-brand-green h-full rounded-full transition-[width]"
-              style={{
-                width: `${
-                  aggregateProgress.total > 0
-                    ? (aggregateProgress.checked / aggregateProgress.total) *
-                      100
-                    : (completedUnitsCount / totalUnitsCount) * 100
-                }%`,
-              }}
-            />
-          </div>
-          <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
-            {completedUnitsCount}/{totalUnitsCount} Sections done
-          </span>
-        </div>
-      )}
 
       {isActive && (
         <CoachMark guideKey="cooking-session" title="Cooking Sessions">
@@ -538,16 +514,12 @@ export function SectionPanel({
 
   return (
     <>
-      <div className="flex items-start justify-between gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <h1 className="font-heading text-foreground min-w-0 text-2xl font-semibold text-balance">
           {unit.label}
         </h1>
         {isActive && (
-          <div className="flex shrink-0 items-center gap-2">
-            <Button variant="outline" size="sm" onClick={onOpenUnitScale}>
-              <SlidersHorizontal className="size-4" aria-hidden="true" />
-              Scale
-            </Button>
+          <div className="flex items-center justify-between gap-2 sm:w-auto sm:shrink-0 sm:justify-end">
             <Button
               size="sm"
               onClick={onRequestAddTimer}
@@ -555,6 +527,10 @@ export function SectionPanel({
             >
               <TimerIcon className="size-4" aria-hidden="true" />
               Start timer
+            </Button>
+            <Button variant="outline" size="sm" onClick={onOpenUnitScale}>
+              <SlidersHorizontal className="size-4" aria-hidden="true" />
+              Scale
             </Button>
           </div>
         )}

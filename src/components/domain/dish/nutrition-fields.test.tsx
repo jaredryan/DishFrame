@@ -175,9 +175,7 @@ describe("FDC search and select", () => {
 
     render(<DishEditor kind="RECIPE" />);
 
-    await user.click(
-      screen.getByRole("button", { name: "Search USDA FoodData Central" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Search" }));
     const dialog = await screen.findByRole("dialog");
     await user.type(
       within(dialog).getByLabelText("Search USDA FoodData Central"),
@@ -208,9 +206,7 @@ describe("FDC search and select", () => {
 
     render(<DishEditor kind="RECIPE" />);
 
-    await user.click(
-      screen.getByRole("button", { name: "Search USDA FoodData Central" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Search" }));
     const dialog = await screen.findByRole("dialog");
     await user.type(
       within(dialog).getByLabelText("Search USDA FoodData Central"),

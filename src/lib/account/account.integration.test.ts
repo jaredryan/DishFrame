@@ -296,6 +296,7 @@ describe("deleteAccount", () => {
         title: "Linked list",
         mode: "MEAL_PLAN_LINKED",
         linkedMealPlanId: mealPlan.id,
+        plannedDate: new Date(),
       },
     });
 

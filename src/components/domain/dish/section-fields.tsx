@@ -196,17 +196,19 @@ export function SectionFields({
           expanding this row inline; this collapsed representation is the
           parent page's permanent view of the Section, updated only when
           the modal session is Finished. */}
-      <div className="flex items-center gap-2">
-        <DragHandle
-          label={`Drag to reorder ${label}`}
-          attributes={attributes}
-          listeners={listeners}
-          isDragging={isDragging}
-        />
-        <h3 className="font-heading text-foreground min-w-0 flex-1 truncate text-base font-medium">
-          {sectionTitle}
-        </h3>
-        <div className="flex shrink-0 items-center gap-0.5">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="flex items-center gap-2 sm:contents">
+          <DragHandle
+            label={`Drag to reorder ${label}`}
+            attributes={attributes}
+            listeners={listeners}
+            isDragging={isDragging}
+          />
+          <h3 className="font-heading text-foreground min-w-0 flex-1 truncate text-base font-medium">
+            {sectionTitle}
+          </h3>
+        </div>
+        <div className="flex items-center gap-0.5 sm:shrink-0">
           <TooltipIconButton
             label={`Duplicate ${label}`}
             tooltip={`Duplicate ${label} — inserts an independent copy right after it`}

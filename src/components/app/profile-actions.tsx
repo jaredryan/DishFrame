@@ -26,7 +26,7 @@ export function ProfileActions() {
         <h2 className="text-foreground text-lg font-semibold">
           Export my data
         </h2>
-        <div className="border-border bg-card flex items-center justify-between gap-4 rounded-xl border p-4">
+        <div className="border-border bg-card flex flex-col gap-4 rounded-xl border p-4 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-muted-foreground text-sm">
             Downloads a structured export of your account data — Recipes, Parts,
             Cooking Sessions, Cooking notes, Session Reviews, and Taster data
@@ -34,7 +34,7 @@ export function ProfileActions() {
             image files aren&apos;t included, and there&apos;s no import path
             back into DishFrame yet. Keep the file private.
           </p>
-          <Button variant="outline" asChild>
+          <Button variant="outline" asChild className="self-start sm:self-auto">
             <a href="/api/export/account" download>
               <Download />
               Export
@@ -45,7 +45,7 @@ export function ProfileActions() {
 
       <section className="flex flex-col gap-4">
         <h2 className="text-foreground text-lg font-semibold">Sign out</h2>
-        <div className="border-border bg-card flex items-center justify-between rounded-xl border p-4">
+        <div className="border-border bg-card flex flex-col gap-4 rounded-xl border p-4 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-muted-foreground text-sm">
             End your session on this device.
           </p>
@@ -53,6 +53,7 @@ export function ProfileActions() {
             variant="outline"
             disabled={signingOut}
             onClick={handleSignOut}
+            className="self-start sm:self-auto"
           >
             <LogOut />
             {signingOut ? "Signing out…" : "Sign out"}

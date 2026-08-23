@@ -130,7 +130,12 @@ describe("MealPlanEditor Add-meal picker", () => {
     await user.click(screen.getByRole("button", { name: "Add meal" }));
     expect(await screen.findByText("Other Dish")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("checkbox", { name: "Favorites" }));
+    // Favorites lives inside the Tags filter dropdown as its first, divided
+    // special option rather than a standalone control.
+    await user.click(screen.getByRole("button", { name: "Tags" }));
+    await user.click(
+      await screen.findByRole("checkbox", { name: "Favorites" }),
+    );
 
     expect(await screen.findByText("Favorite Dish")).toBeInTheDocument();
     expect(screen.queryByText("Other Dish")).not.toBeInTheDocument();

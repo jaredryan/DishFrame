@@ -111,8 +111,8 @@ describe("LibraryFilterBar (URL/query-state)", () => {
     const user = userEvent.setup();
     renderBar();
 
-    await user.click(screen.getByRole("combobox", { name: "Sort" }));
-    await user.click(screen.getByRole("option", { name: "Rating" }));
+    await user.click(screen.getByRole("button", { name: "Sort" }));
+    await user.click(screen.getByRole("button", { name: "Rating" }));
 
     expect(push).toHaveBeenCalledWith("/recipes?sort=rating");
   });
@@ -121,8 +121,8 @@ describe("LibraryFilterBar (URL/query-state)", () => {
     const user = userEvent.setup();
     renderBar();
 
-    await user.click(screen.getByRole("combobox", { name: "Sort" }));
-    await user.click(screen.getByRole("option", { name: "Recently updated" }));
+    await user.click(screen.getByRole("button", { name: "Sort" }));
+    await user.click(screen.getByRole("button", { name: "Recently updated" }));
 
     // Recently updated is already active at its "desc" default — picking it
     // again reverses to "asc" rather than doing nothing, and (being a
@@ -134,8 +134,8 @@ describe("LibraryFilterBar (URL/query-state)", () => {
     const user = userEvent.setup();
     renderBar({ sort: "ALPHABETICAL" });
 
-    await user.click(screen.getByRole("combobox", { name: "Sort" }));
-    await user.click(screen.getByRole("option", { name: "Recently updated" }));
+    await user.click(screen.getByRole("button", { name: "Sort" }));
+    await user.click(screen.getByRole("button", { name: "Recently updated" }));
 
     // An explicit pick of the same value as the default must still
     // round-trip as explicit, since it changes ordering behavior while a

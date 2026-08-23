@@ -169,7 +169,7 @@ describe("grocery category service", () => {
       );
 
       const list = await prisma.groceryList.create({
-        data: { ownerId: userId, title: "Test list" },
+        data: { ownerId: userId, title: "Test list", plannedDate: new Date() },
       });
       const item = await prisma.groceryListItem.create({
         data: {

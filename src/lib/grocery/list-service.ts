@@ -119,6 +119,7 @@ export type GenerateGroceryListSourceInput = {
 
 export type GenerateGroceryListInput = {
   title: string;
+  plannedDate: Date;
   sources: GenerateGroceryListSourceInput[];
 };
 
@@ -181,7 +182,9 @@ export async function generateGroceryList(
   );
 
   return prisma.$transaction(async (tx) => {
-    const list = await tx.groceryList.create({ data: { ownerId, title } });
+    const list = await tx.groceryList.create({
+      data: { ownerId, title, plannedDate: input.plannedDate },
+    });
 
     const pending: PendingContribution[] = [];
     for (const resolved of resolvedSources) {
@@ -1103,18 +1106,33 @@ export async function applyGroceryListSourceRefresh(
 // List lifecycle (§64)
 // ---------------------------------------------------------------------------
 
-export async function renameGroceryList(
+/**
+ * Updates a Grocery List's editable details — name, active status, and
+ * date — from the detail page's Edit modal. Active status is expressed as
+ * `completedAt` under the hood: turning it off completes the list (if not
+ * already), turning it on reopens it.
+ */
+export async function updateGroceryListDetails(
   ownerId: string,
   listId: string,
-  title: string,
+  input: { title: string; plannedDate: Date; isActive: boolean },
 ) {
-  const trimmed = title.trim();
+  const trimmed = input.title.trim();
   if (!trimmed)
     throw new ValidationError("Enter a title for this grocery list.");
-  await getOwnedGroceryListOrThrow(ownerId, listId);
+  const list = await getOwnedGroceryListOrThrow(ownerId, listId);
+  const wasActive = list.completedAt == null;
   return prisma.groceryList.update({
     where: { id: listId },
-    data: { title: trimmed },
+    data: {
+      title: trimmed,
+      plannedDate: input.plannedDate,
+      completedAt: input.isActive
+        ? null
+        : wasActive
+          ? new Date()
+          : list.completedAt,
+    },
   });
 }
 
@@ -1158,7 +1176,13 @@ export async function duplicateGroceryList(ownerId: string, listId: string) {
 
   return prisma.$transaction(async (tx) => {
     const copy = await tx.groceryList.create({
-      data: { ownerId, title: `${list.title} (copy)` },
+      data: {
+        ownerId,
+        title: `${list.title} (copy)`,
+        // Represents a new shopping trip (see doc comment above), so it
+        // gets today's date rather than inheriting the original's.
+        plannedDate: new Date(),
+      },
     });
 
     const sourceIdMap = new Map<string, string>();
@@ -1326,6 +1350,9 @@ export async function generateGroceryListFromMealPlan(
         title,
         mode: "MEAL_PLAN_LINKED",
         linkedMealPlanId: mealPlanId,
+        // Meal-Plan-generated lists have no manual create-form date input,
+        // so this defaults to the generation date.
+        plannedDate: new Date(),
       },
     });
 

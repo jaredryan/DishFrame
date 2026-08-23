@@ -16,6 +16,7 @@ export const generateGroceryListSchema = z.object({
     .trim()
     .min(1, "Enter a title for this grocery list.")
     .max(120),
+  plannedDate: z.coerce.date(),
   sources: z
     .array(
       z.object({
@@ -26,12 +27,14 @@ export const generateGroceryListSchema = z.object({
     .min(1, "Select at least one Recipe or Part."),
 });
 
-export const renameGroceryListSchema = listIdSchema.extend({
+export const updateGroceryListDetailsSchema = listIdSchema.extend({
   title: z
     .string()
     .trim()
     .min(1, "Enter a title for this grocery list.")
     .max(120),
+  plannedDate: z.coerce.date(),
+  isActive: z.boolean(),
 });
 
 export const addManualGroceryItemSchema = listIdSchema.extend({
@@ -134,6 +137,7 @@ export type GroceryListDetailDto = {
   id: string;
   title: string;
   createdAt: string;
+  plannedDate: string;
   completedAt: string | null;
   mode: "STANDALONE" | "MEAL_PLAN_LINKED";
   linkedMealPlanId: string | null;

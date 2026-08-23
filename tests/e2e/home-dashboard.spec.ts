@@ -297,7 +297,7 @@ test.describe("Home dashboard: populated data", () => {
     await page.getByRole("button", { name: "Make grocery list" }).click();
     await page.getByLabel("Title").fill(groceryListTitle);
     await page.getByRole("checkbox", { name: recipeTitle }).check();
-    await page.getByRole("button", { name: "Generate list" }).click();
+    await page.getByRole("button", { name: "Generate" }).click();
     await expect(page).toHaveURL(/\/grocery-lists\/[^/]+$/, {
       timeout: 15_000,
     });

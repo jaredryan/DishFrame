@@ -50,8 +50,11 @@ export function SelectableDishRow({
   onRemove?: () => void;
   className?: string;
 }) {
-  const left = (
-    <>
+  // Selection control + thumbnail + name stay together on their own row at
+  // every width — only the metadata below is allowed to drop to a second
+  // row on narrow screens (mobile-responsiveness correction pass).
+  const leftRow = (
+    <div className="flex min-w-0 flex-1 items-center gap-3">
       {selectionControl === "checkbox" && (
         <Checkbox
           checked={selected}
@@ -107,7 +110,7 @@ export function SelectableDishRow({
           </div>
         )}
       </div>
-    </>
+    </div>
   );
 
   // The "remove" row is always shown on the same tinted `bg-primary/5`
@@ -115,34 +118,43 @@ export function SelectableDishRow({
   // read the same way even though there's no live `selected` toggle for it.
   const kindBadgeSelected = selectionControl === "remove" ? true : selected;
 
-  const right = (
-    <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+  const metadata = (
+    <>
       <DishKindBadge kind={item.kind} selected={kindBadgeSelected} />
       <StageBadge stage={item.stage} />
       {item.cuisine && <Badge variant="outline">{item.cuisine}</Badge>}
       <RatingBadge rating={item.rating} />
-    </div>
+    </>
   );
+
+  // On narrow screens this metadata row drops below `leftRow` and wraps
+  // freely instead of squeezing the name or forcing the row wider than its
+  // container; `sm:` restores the original single-row, right-aligned
+  // desktop treatment.
+  const metadataRowClass =
+    "flex w-full flex-wrap items-center gap-1 sm:w-auto sm:shrink-0 sm:justify-end";
 
   if (selectionControl === "remove") {
     return (
       <div
         className={cn(
-          "border-primary bg-primary/5 flex items-center gap-3 rounded-lg border p-2",
+          "border-primary bg-primary/5 flex flex-col gap-2 rounded-lg border p-2 sm:flex-row sm:items-center sm:gap-3",
           className,
         )}
       >
-        {left}
-        {right}
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          aria-label={`Remove ${item.title}`}
-          onClick={onRemove}
-        >
-          <X aria-hidden="true" />
-        </Button>
+        {leftRow}
+        <div className={metadataRowClass}>
+          {metadata}
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label={`Remove ${item.title}`}
+            onClick={onRemove}
+          >
+            <X aria-hidden="true" />
+          </Button>
+        </div>
       </div>
     );
   }
@@ -155,21 +167,26 @@ export function SelectableDishRow({
         aria-checked={selected}
         onClick={onSelect}
         className={cn(
-          "hover:bg-muted/50 flex w-full cursor-pointer items-center gap-3 rounded-lg p-2 text-left",
+          "hover:bg-muted/50 flex w-full cursor-pointer flex-col gap-2 rounded-lg p-2 text-left sm:flex-row sm:items-center sm:gap-3",
           selected && "bg-primary/5 ring-primary/40 ring-1",
           className,
         )}
       >
-        {left}
-        {right}
+        {leftRow}
+        <div className={metadataRowClass}>{metadata}</div>
       </button>
     );
   }
 
   return (
-    <div className={cn("flex items-center gap-3 p-2", className)}>
-      {left}
-      {right}
+    <div
+      className={cn(
+        "flex flex-col gap-2 p-2 sm:flex-row sm:items-center sm:gap-3",
+        className,
+      )}
+    >
+      {leftRow}
+      <div className={metadataRowClass}>{metadata}</div>
     </div>
   );
 }

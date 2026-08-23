@@ -106,6 +106,7 @@ describe("database-level constraints", () => {
           ownerId: userId,
           title: "Broken list",
           mode: "MEAL_PLAN_LINKED",
+          plannedDate: new Date(),
           // linkedMealPlanId intentionally omitted.
         },
       }),

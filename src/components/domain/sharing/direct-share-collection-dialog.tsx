@@ -115,7 +115,7 @@ export function DirectShareCollectionDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && close()}>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>Send</DialogTitle>
           <DialogDescription>
@@ -125,78 +125,80 @@ export function DirectShareCollectionDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {step === "sent" ? (
-          <p className="text-sm">
-            Sent {selected.size} item{selected.size === 1 ? "" : "s"} to{" "}
-            {email.trim()}.
-          </p>
-        ) : step === "review" ? (
-          <div className="space-y-4">
-            <div className="border-border rounded-lg border p-3 text-sm">
-              <p>
-                Sending to <span className="font-medium">{email.trim()}</span>
-              </p>
-              <p className="mt-1">
-                {selected.size} item{selected.size === 1 ? "" : "s"} selected
-              </p>
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+          {step === "sent" ? (
+            <p className="text-sm">
+              Sent {selected.size} item{selected.size === 1 ? "" : "s"} to{" "}
+              {email.trim()}.
+            </p>
+          ) : step === "review" ? (
+            <div className="space-y-4">
+              <div className="border-border rounded-lg border p-3 text-sm">
+                <p>
+                  Sending to <span className="font-medium">{email.trim()}</span>
+                </p>
+                <p className="mt-1">
+                  {selected.size} item{selected.size === 1 ? "" : "s"} selected
+                </p>
+              </div>
+              {note.trim().length > 0 && (
+                <p className="text-sm italic">&ldquo;{note.trim()}&rdquo;</p>
+              )}
+              {sendError && (
+                <p role="alert" className="text-destructive-text text-sm">
+                  {sendError}
+                </p>
+              )}
             </div>
-            {note.trim().length > 0 && (
-              <p className="text-sm italic">&ldquo;{note.trim()}&rdquo;</p>
-            )}
-            {sendError && (
-              <p role="alert" className="text-destructive-text text-sm">
-                {sendError}
-              </p>
-            )}
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="collection-share-email">
-                Recipient&apos;s email
-              </Label>
-              <Input
-                id="collection-share-email"
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                placeholder="name@example.com"
+          ) : (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="collection-share-email">
+                  Recipient&apos;s email
+                </Label>
+                <Input
+                  id="collection-share-email"
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="name@example.com"
+                />
+                <p className="text-muted-foreground text-sm">
+                  They&apos;ll see this in DishFrame if they have an account
+                  with this email, or after signing in with it.
+                </p>
+              </div>
+
+              <ShareItemSelector
+                items={items}
+                itemsError={itemsError}
+                search={search}
+                onSearchChange={setSearch}
+                selected={selected}
+                onToggle={toggleSelected}
+                onSelectAll={selectAll}
+                maxItems={DIRECT_SHARE_MAX_ITEMS}
               />
-              <p className="text-muted-foreground text-sm">
-                They&apos;ll see this in DishFrame if they have an account with
-                this email, or after signing in with it.
-              </p>
+
+              <div className="space-y-2">
+                <Label htmlFor="collection-share-note">Note (optional)</Label>
+                <Textarea
+                  id="collection-share-note"
+                  value={note}
+                  onChange={(event) => setNote(event.target.value)}
+                  maxLength={1000}
+                  rows={3}
+                />
+              </div>
+
+              {sendError && (
+                <p role="alert" className="text-destructive-text text-sm">
+                  {sendError}
+                </p>
+              )}
             </div>
-
-            <ShareItemSelector
-              items={items}
-              itemsError={itemsError}
-              search={search}
-              onSearchChange={setSearch}
-              selected={selected}
-              onToggle={toggleSelected}
-              onSelectAll={selectAll}
-              maxItems={DIRECT_SHARE_MAX_ITEMS}
-            />
-
-            <div className="space-y-2">
-              <Label htmlFor="collection-share-note">Note (optional)</Label>
-              <Textarea
-                id="collection-share-note"
-                value={note}
-                onChange={(event) => setNote(event.target.value)}
-                maxLength={1000}
-                rows={3}
-              />
-            </div>
-
-            {sendError && (
-              <p role="alert" className="text-destructive-text text-sm">
-                {sendError}
-              </p>
-            )}
-          </div>
-        )}
+          )}
+        </div>
 
         <DialogFooter>
           {step === "sent" ? (

@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Eye, Pencil, ShoppingCart, Trash2 } from "lucide-react";
+import { Eye, ShoppingCart, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -26,18 +26,11 @@ export type GroceryListRowItem = {
 /**
  * Single Grocery List row, shared by the Grocery Lists index
  * (`GroceryListRows`) and the Home dashboard's "Grocery lists" section. The
- * whole card stays a "stretched link" to the list — completed lists show an
- * Eye/"View" action instead of Edit to signal you're most likely just
- * checking a finished list, though the destination (and ability to still
- * edit it) is identical.
+ * whole card stays a "stretched link" to the list — View is the default
+ * destination for both variants, since opening a list is as likely to mean
+ * shopping from it as editing it.
  */
-export function GroceryListCard({
-  list,
-  variant,
-}: {
-  list: GroceryListRowItem;
-  variant: "active" | "completed";
-}) {
+export function GroceryListCard({ list }: { list: GroceryListRowItem }) {
   const router = useRouter();
   const [isPending, startTransition] = React.useTransition();
   const [error, setError] = React.useState<string | null>(null);
@@ -55,8 +48,6 @@ export function GroceryListCard({
       }
     });
   }
-
-  const isCompleted = variant === "completed";
 
   return (
     <li className="border-border bg-card relative flex items-center justify-between gap-3 rounded-lg border px-4 py-3">
@@ -80,21 +71,12 @@ export function GroceryListCard({
         )}
       </div>
       <div className="relative z-10 flex shrink-0 items-center gap-1">
-        {isCompleted ? (
-          <TooltipIconButton
-            label={`View ${list.title}`}
-            tooltip="View"
-            icon={Eye}
-            onClick={() => router.push(`/grocery-lists/${list.id}`)}
-          />
-        ) : (
-          <TooltipIconButton
-            label={`Edit ${list.title}`}
-            tooltip="Edit"
-            icon={Pencil}
-            onClick={() => router.push(`/grocery-lists/${list.id}`)}
-          />
-        )}
+        <TooltipIconButton
+          label={`View ${list.title}`}
+          tooltip="View"
+          icon={Eye}
+          onClick={() => router.push(`/grocery-lists/${list.id}`)}
+        />
         <TooltipIconButton
           label={`Delete ${list.title}`}
           tooltip="Delete"
@@ -161,7 +143,7 @@ export function GroceryListRows({
         ) : (
           <ul className="flex flex-col gap-2">
             {active.map((list) => (
-              <GroceryListCard key={list.id} list={list} variant="active" />
+              <GroceryListCard key={list.id} list={list} />
             ))}
           </ul>
         )}
@@ -178,7 +160,7 @@ export function GroceryListRows({
         ) : (
           <ul className="flex flex-col gap-2">
             {completed.map((list) => (
-              <GroceryListCard key={list.id} list={list} variant="completed" />
+              <GroceryListCard key={list.id} list={list} />
             ))}
           </ul>
         )}

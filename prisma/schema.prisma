@@ -797,6 +797,10 @@ model GroceryList {
   linkedMealPlanId String?
   completedAt      DateTime?
   createdAt        DateTime        @default(now())
+  // The user-facing "date" for this list (e.g. the planned shopping day),
+  // distinct from createdAt. Always required — callers must supply a value
+  // (forms default it to today) rather than relying on a DB default.
+  plannedDate      DateTime        @db.Date
 
   owner          User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   // Round-3 Correction 2: Restrict, not SetNull. SetNull would fire automatically the

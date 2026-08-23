@@ -57,6 +57,12 @@ type VersionSectionRow = Prisma.SectionGetPayload<{
  * not a real `Decimal` instance). This Server Component does the
  * Decimal→number conversion once, here, before handing sections down.
  */
+// Restrained highlight distinguishing the secondary cooking-related metadata
+// chips (Last cooked, Makes, Difficulty) from the neutral outline chips
+// ahead of them in the unified chip list.
+const COOKING_METADATA_CHIP_CLASS =
+  "gap-1 border-transparent bg-brand-orange/10 text-brand-orange-text dark:bg-brand-orange/20";
+
 function toDisplaySections(
   sections: VersionSectionRow[],
   sectionPartLinkTreeLists: PartLinkTree[][],
@@ -267,12 +273,16 @@ export async function DishDetailView({
     </div>
   );
 
-  // Slice 6A: lifecycle Stage, Version, and cuisine all render as chips
-  // together (never Version/cuisine as loose unrelated text) — Stage
-  // keeps its own meaningful color treatment (`StageBadge`); Version/
-  // cuisine are neutral outline chips beside it. Slice 10: tags/Flavor
-  // profiles (Favorite excluded — already shown via the star toggle above)
-  // join the same row, with the editor popover right beside them.
+  // Mobile-responsiveness correction pass: the lifecycle/identity chips
+  // (Stage, Version, Rating, Cuisine, tags/Flavor profiles) and the
+  // secondary cooking-related chips (Last cooked, Makes, Prep, Cook,
+  // Difficulty) now render as one chip list instead of two visually split
+  // rows — the cooking-related ones stay last, in their existing order, and
+  // get a restrained orange highlight so they read as a distinguishable
+  // sub-group within the single list rather than blending into the neutral
+  // outline chips ahead of them. View ratings/Tags & Flavors moved out of
+  // this list into the primary action row with Cook (`cookRowEl`) — they're
+  // actions, not descriptive metadata.
   const chipsEl = (
     <div className="flex flex-wrap items-center gap-1.5">
       <StageBadge stage={dish.stage} />
@@ -293,49 +303,8 @@ export async function DishDetailView({
           {name}
         </Badge>
       ))}
-      <DishTagFlavorEditor
-        dishId={dish.id}
-        kind={kind}
-        tagOptions={tagOptions}
-        flavorProfileOptions={flavorProfileOptions}
-        selectedTagIds={selectedTagIds}
-        selectedFlavorProfileValueIds={selectedFlavorProfileValueIds}
-      />
-      <RatingDetailDialog
-        kindLabel={label as "Recipe" | "Part"}
-        summary={ratingSummary}
-        startingPoint={startingPoint}
-      />
-    </div>
-  );
-
-  const descriptionEl = (version.description || version.versionNote) && (
-    <div className="flex flex-col gap-2">
-      {version.description && (
-        <p className="text-foreground text-sm whitespace-pre-wrap">
-          {version.description}
-        </p>
-      )}
-      {version.versionNote && (
-        <p className="text-muted-foreground text-sm italic">
-          {version.versionNote}
-        </p>
-      )}
-    </div>
-  );
-
-  // Slice 6A: restrained per-kind icons give these factual chips a scan-
-  // able identity without four competing saturated colors — lifecycle
-  // Stage (above) stays the only chip carrying real color meaning.
-  const metadataChipsEl = (effectiveYieldQuantity != null ||
-    version.prepTimeMinutes != null ||
-    version.cookTimeMinutes != null ||
-    version.difficulty ||
-    lastCookedAt ||
-    cookingHistoryEvents.length > 0) && (
-    <div className="flex flex-wrap gap-1.5">
       {lastCookedAt && (
-        <Badge variant="outline" className="gap-1">
+        <Badge variant="outline" className={COOKING_METADATA_CHIP_CLASS}>
           <History className="size-3" aria-hidden="true" />
           Last cooked {lastCookedAt.toLocaleDateString()}
         </Badge>
@@ -344,7 +313,7 @@ export async function DishDetailView({
         <CookingHistoryDialog events={cookingHistoryEvents} />
       )}
       {effectiveYieldQuantity != null && (
-        <Badge variant="outline" className="gap-1">
+        <Badge variant="outline" className={COOKING_METADATA_CHIP_CLASS}>
           <Soup className="size-3" aria-hidden="true" />
           Makes {effectiveYieldQuantity} {version.yieldUnit ?? ""}
         </Badge>
@@ -362,10 +331,25 @@ export async function DishDetailView({
         </Badge>
       )}
       {version.difficulty && (
-        <Badge variant="outline" className="gap-1">
+        <Badge variant="outline" className={COOKING_METADATA_CHIP_CLASS}>
           <Gauge className="size-3" aria-hidden="true" />
           {version.difficulty}
         </Badge>
+      )}
+    </div>
+  );
+
+  const descriptionEl = (version.description || version.versionNote) && (
+    <div className="flex flex-col gap-2">
+      {version.description && (
+        <p className="text-foreground text-sm whitespace-pre-wrap">
+          {version.description}
+        </p>
+      )}
+      {version.versionNote && (
+        <p className="text-muted-foreground text-sm italic">
+          {version.versionNote}
+        </p>
       )}
     </div>
   );
@@ -386,14 +370,30 @@ export async function DishDetailView({
   // so this same row naturally lands at the bottom of the left column on
   // desktop and directly below the details/tags — above the narrow image
   // and the Section/Ingredient content that follows — on a single column.
+  // Mobile-responsiveness correction pass: View ratings and Tags & Flavors
+  // join this same primary action row (Cook, View ratings, Tags & Flavors)
+  // instead of sitting inline among the metadata chips above.
   const cookRowEl = (
-    <div>
+    <div className="flex flex-wrap items-center gap-2">
       <Button asChild>
         <Link href={`${dishBasePath(kind)}/${dish.id}/cook`}>
           <ChefHat aria-hidden="true" />
           Cook
         </Link>
       </Button>
+      <RatingDetailDialog
+        kindLabel={label as "Recipe" | "Part"}
+        summary={ratingSummary}
+        startingPoint={startingPoint}
+      />
+      <DishTagFlavorEditor
+        dishId={dish.id}
+        kind={kind}
+        tagOptions={tagOptions}
+        flavorProfileOptions={flavorProfileOptions}
+        selectedTagIds={selectedTagIds}
+        selectedFlavorProfileValueIds={selectedFlavorProfileValueIds}
+      />
     </div>
   );
 
@@ -466,7 +466,6 @@ export async function DishDetailView({
           {titleRowEl}
           {chipsEl}
           {descriptionEl}
-          {metadataChipsEl}
           {nutritionEl}
           {cookRowEl}
         </div>

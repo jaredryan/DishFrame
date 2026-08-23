@@ -11,7 +11,6 @@ import { NotFoundError } from "@/lib/errors";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { StageBadge } from "@/components/domain/dish/stage-badge";
 import { VersionSectionsView } from "@/components/domain/dish/version-sections-view";
 import { VersionSelector } from "@/components/domain/dish/version-selector";
 import { PromoteVersionButton } from "@/components/domain/dish/promote-version-button";
@@ -88,9 +87,6 @@ export default async function RecipeVersionPage({
     0,
   );
   const isCurrent = version.id === dish.currentVersionId;
-  const sourceVersion = version.sourceVersionId
-    ? versions.find((v) => v.id === version.sourceVersionId)
-    : null;
 
   const { sections: sectionPartLinkInputs, partLinks: topLevelPartLinkInputs } =
     versionContentToInput(version.sections, version.partLinks);
@@ -160,7 +156,7 @@ export default async function RecipeVersionPage({
         <p className="text-muted-foreground text-sm">
           {isCurrent
             ? "This is the current version."
-            : "This is a historical version — its content never changes. Description, photo, and note can still be edited from here (PRODUCT_SPEC.md §7.2), via Edit this version below."}
+            : "This is a historical version — only description, photo, and note can be updated. Other edits will create a new version."}
         </p>
 
         {/* Design remediation pass: description/image/note are plain,
@@ -225,39 +221,6 @@ export default async function RecipeVersionPage({
             current Version. */}
         <NutritionSummary nutrition={toNutritionSummaryData(version)} />
 
-        {sourceVersion && (
-          <p className="text-muted-foreground text-sm">
-            Based on{" "}
-            <Link
-              href={`${basePath}/${dish.id}/versions/${sourceVersion.id}`}
-              className="text-primary hover:underline"
-            >
-              V{sourceVersion.majorVersion}.{sourceVersion.minorVersion}
-            </Link>
-          </p>
-        )}
-
-        {/* Slice 4 correction pass §6: Stage/cuisine belong to the stable
-            Dish, not to this immutable Version snapshot (PRODUCT_SPEC.md
-            §13.9) — kept in its own labeled block so it never reads as
-            though this historical Version stored these values itself. */}
-        <div className="border-border bg-muted/40 flex flex-col gap-1 rounded-lg border px-3 py-2">
-          <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
-            Current recipe details
-          </p>
-          <div className="flex flex-wrap items-center gap-2">
-            <StageBadge stage={dish.stage} />
-            {dish.cuisine && (
-              <span className="text-muted-foreground text-sm">
-                {dish.cuisine}
-              </span>
-            )}
-          </div>
-          <p className="text-muted-foreground text-xs">
-            Reflects the recipe now, not this version&apos;s snapshot.
-          </p>
-        </div>
-
         <VersionSelector
           kind="RECIPE"
           dishId={dish.id}
@@ -273,7 +236,7 @@ export default async function RecipeVersionPage({
           <Button asChild>
             <Link href={`${basePath}/${dish.id}/cook?versionId=${version.id}`}>
               <ChefHat aria-hidden="true" />
-              {isCurrent ? "Prepare to cook" : "Prepare to cook this version"}
+              {isCurrent ? "Cook" : "Cook this version"}
             </Link>
           </Button>
           {/* Slice 4 correction pass §1: any saved Version may be an
@@ -302,8 +265,8 @@ export default async function RecipeVersionPage({
             </Link>
           </Button>
           {/* Slice 18, PRODUCT_SPEC.md §87: pinned to this exact Version via
-              `?versionId=`, mirroring the "Prepare to cook this version"
-              link above — never the current Version, even from here. */}
+              `?versionId=`, mirroring the "Cook this version" link above —
+              never the current Version, even from here. */}
           <Button variant="outline" asChild>
             <Link href={`/print/recipes/${dish.id}?versionId=${version.id}`}>
               <Printer aria-hidden="true" />

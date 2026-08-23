@@ -30,14 +30,14 @@ export default async function RecipesPage({
       description="Every recipe you organize in DishFrame lives here, built from sections you write or reuse."
       action={
         <>
-          <Button asChild variant="outline">
-            <Link href="/recipes/import">
-              <Import /> Import
-            </Link>
-          </Button>
           <Button asChild>
             <Link href="/recipes/new">
               <NotebookPen /> Create recipe
+            </Link>
+          </Button>
+          <Button asChild variant="outline">
+            <Link href="/recipes/import">
+              <Import /> Import
             </Link>
           </Button>
         </>

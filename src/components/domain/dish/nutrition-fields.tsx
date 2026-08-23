@@ -170,7 +170,7 @@ export function NutritionFields() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="font-heading text-lg font-medium">Nutrition</h2>
         <FdcSearchPicker onApply={applyFdcNutrition} />
       </div>

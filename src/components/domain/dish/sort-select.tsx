@@ -1,15 +1,15 @@
 "use client";
 
-import { useRef } from "react";
-import { ArrowDown, ArrowUp } from "lucide-react";
+import * as React from "react";
+import { ArrowDown, ArrowUp, ChevronDown } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 
 export type SortDirectionValue = "asc" | "desc";
 
@@ -25,13 +25,13 @@ export type SortSelectOption<P extends string> = {
  * One dropdown-style sort control, shared by the Recipes/Parts library and
  * the Add/Edit Meal modal: picking a property sets it at that property's own
  * default direction; picking the *already-active* property again reverses
- * direction instead of doing nothing (handled via handleReselect, since
- * Radix's controlled Select never fires onValueChange for a re-picked value
- * equal to the current one). The active property's direction shows as an
- * up/down arrow next to its label, in both the closed trigger and the open
- * list (Radix portals a selected `SelectItem`'s children into the trigger,
- * so one set of item markup drives both) — the checkmark indicator is
- * hidden since the arrow already conveys which option is active.
+ * direction instead of doing nothing. Built on the same Button-trigger/
+ * Popover-menu system as `FilterPopover` (mobile-responsiveness correction
+ * pass) rather than a native `Select`, so every filter/sort control in these
+ * bars reads as one consistent family. Options render as plain rows (no
+ * checkboxes — this is single-select) with the active property's direction
+ * shown as an up/down arrow, both in the closed trigger and next to the
+ * active row in the open menu.
  */
 export function SortSelect<P extends string>({
   id,
@@ -53,28 +53,23 @@ export function SortSelect<P extends string>({
   }) => void;
   triggerClassName?: string;
 }) {
-  function handleValueChange(value: string) {
-    const next = value as P;
-    // Radix's Select is controlled, so it never calls onValueChange when the
-    // clicked item's value equals the current value — re-picking the active
-    // property is handled separately below, via handleReselect.
-    const option = options.find((o) => o.value === next);
-    onChangeAction({
-      property: next,
-      direction: option?.defaultDirection ?? "desc",
-    });
-  }
+  const [open, setOpen] = React.useState(false);
+  const activeOption = options.find((o) => o.value === property);
+  const Arrow = direction === "asc" ? ArrowUp : ArrowDown;
 
-  // Mirrors Radix SelectItem's own pointerup(mouse)/click(touch) split so
-  // this fires exactly once per interaction instead of twice.
-  const pointerTypeRef = useRef<string>("touch");
-
-  function handleReselect(optionValue: P) {
-    if (optionValue !== property) return;
-    onChangeAction({
-      property,
-      direction: direction === "asc" ? "desc" : "asc",
-    });
+  function pick(option: SortSelectOption<P>) {
+    if (option.value === property) {
+      onChangeAction({
+        property,
+        direction: direction === "asc" ? "desc" : "asc",
+      });
+    } else {
+      onChangeAction({
+        property: option.value,
+        direction: option.defaultDirection,
+      });
+    }
+    setOpen(false);
   }
 
   return (
@@ -87,49 +82,48 @@ export function SortSelect<P extends string>({
           {label}
         </Label>
       )}
-      <Select value={property} onValueChange={handleValueChange}>
-        <SelectTrigger id={id} size="sm" className={triggerClassName}>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {options.map((option) => {
-            const isActive = option.value === property;
-            const Arrow = direction === "asc" ? ArrowUp : ArrowDown;
-            return (
-              <SelectItem
-                key={option.value}
-                value={option.value}
-                hideIndicator
-                onPointerDown={(event) => {
-                  pointerTypeRef.current = event.pointerType;
-                }}
-                onPointerUp={() => {
-                  if (pointerTypeRef.current === "mouse") {
-                    handleReselect(option.value);
-                  }
-                }}
-                onClick={() => {
-                  if (pointerTypeRef.current !== "mouse") {
-                    handleReselect(option.value);
-                  }
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    handleReselect(option.value);
-                  }
-                }}
-              >
-                <span className="flex items-center gap-1.5">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            id={id}
+            type="button"
+            variant="outline"
+            size="sm"
+            className={cn("gap-1.5", triggerClassName)}
+          >
+            {activeOption?.label ?? "Sort"}
+            {activeOption && <Arrow className="size-3.5" aria-hidden="true" />}
+            <ChevronDown
+              className="text-muted-foreground size-3.5"
+              aria-hidden="true"
+            />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-56 max-w-none" align="start">
+          <div className="flex flex-col gap-1">
+            {options.map((option) => {
+              const isActive = option.value === property;
+              const OptionArrow = direction === "asc" ? ArrowUp : ArrowDown;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => pick(option)}
+                  className={cn(
+                    "hover:bg-muted flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm",
+                    isActive && "bg-muted font-medium",
+                  )}
+                >
                   {option.label}
                   {isActive && (
-                    <Arrow className="size-3.5" aria-hidden="true" />
+                    <OptionArrow className="size-3.5" aria-hidden="true" />
                   )}
-                </span>
-              </SelectItem>
-            );
-          })}
-        </SelectContent>
-      </Select>
+                </button>
+              );
+            })}
+          </div>
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }

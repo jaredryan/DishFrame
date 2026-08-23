@@ -6,6 +6,7 @@ import Link from "next/link";
 import {
   AlertCircle,
   CalendarDays,
+  ChevronDown,
   Pencil,
   Plus,
   RefreshCw,
@@ -19,14 +20,11 @@ import { Input } from "@/components/ui/input";
 import { Field, FieldLabel, FieldError } from "@/components/ui/field";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Dialog,
   DialogClose,
@@ -60,6 +58,7 @@ import {
 } from "@/lib/mealplans/actions";
 import { computeAllocationStatus } from "@/lib/mealplans/allocation";
 import { formatDateOnly, toIsoDateOnly } from "@/lib/date";
+import { cn } from "@/lib/utils";
 import { useUnsavedChangesGuard } from "@/components/domain/dish/use-unsaved-changes-guard";
 import {
   matchesRatingFilter,
@@ -1148,6 +1147,77 @@ function toggledSet<T>(set: Set<T>, value: T): Set<T> {
   return next;
 }
 
+/**
+ * Rating filter, restyled onto the same Button/Popover trigger-and-menu
+ * system as the other Add/Edit Meal filter controls (mobile-responsiveness
+ * correction pass) — it previously used a plain `Select`, which looked
+ * inconsistent alongside `FilterPopover`'s Button triggers for no real
+ * reason. Single-select (one active rating, or "Any rating"), so it isn't
+ * built on `FilterPopover`'s multi-select checkbox list.
+ */
+function RatingFilterPopover({
+  value,
+  onChange,
+}: {
+  value: RatingFilterValue | null;
+  onChange: (value: RatingFilterValue | null) => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const activeLabel = value ? MEAL_PICKER_RATING_LABEL[value] : "Any rating";
+
+  function pick(next: RatingFilterValue | null) {
+    onChange(next);
+    setOpen(false);
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="gap-1.5"
+          aria-label="Rating filter"
+        >
+          {activeLabel}
+          <ChevronDown
+            className="text-muted-foreground size-3.5"
+            aria-hidden="true"
+          />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-56 max-w-none" align="start">
+        <div className="flex flex-col gap-1">
+          <button
+            type="button"
+            onClick={() => pick(null)}
+            className={cn(
+              "hover:bg-muted rounded-md px-2 py-1.5 text-left text-sm",
+              value == null && "bg-muted font-medium",
+            )}
+          >
+            Any rating
+          </button>
+          {ratingFilterValues.map((option) => (
+            <button
+              key={option}
+              type="button"
+              onClick={() => pick(option)}
+              className={cn(
+                "hover:bg-muted rounded-md px-2 py-1.5 text-left text-sm",
+                value === option && "bg-muted font-medium",
+              )}
+            >
+              {MEAL_PICKER_RATING_LABEL[option]}
+            </button>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function compareBySortProperty(
   a: MealPlanEntryCandidate,
   b: MealPlanEntryCandidate,
@@ -1301,10 +1371,6 @@ function MealPickerModal({
 
   function toggleFlavorProfile(value: string) {
     setFlavorProfileFilter((prev) => toggledSet(prev, value));
-  }
-
-  function setRating(value: string) {
-    setRatingFilter(value === "ANY" ? null : (value as RatingFilterValue));
   }
 
   function clearFilters() {
@@ -1579,13 +1645,6 @@ function MealPickerModal({
               </Field>
 
               <div className="flex flex-wrap items-center gap-2">
-                <label className="flex items-center gap-2 text-sm">
-                  <Checkbox
-                    checked={favorites}
-                    onCheckedChange={(v) => setFavorites(v === true)}
-                  />
-                  Favorites
-                </label>
                 <FilterPopover
                   label="Recipe stage"
                   options={MEAL_PICKER_STAGES.map((stage) => ({
@@ -1611,6 +1670,11 @@ function MealPickerModal({
                   selected={tagIdFilter}
                   onToggleAction={toggleTag}
                   emptyMessage="No tags yet."
+                  specialOption={{
+                    label: "Favorites",
+                    checked: favorites,
+                    onToggle: () => setFavorites((prev) => !prev),
+                  }}
                 />
                 <FilterPopover
                   label="Cuisine"
@@ -1632,23 +1696,10 @@ function MealPickerModal({
                   onToggleAction={toggleFlavorProfile}
                   emptyMessage="No Flavor profiles yet."
                 />
-                <Select value={ratingFilter ?? "ANY"} onValueChange={setRating}>
-                  <SelectTrigger
-                    size="sm"
-                    className="w-36"
-                    aria-label="Rating filter"
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ANY">Any rating</SelectItem>
-                    {ratingFilterValues.map((value) => (
-                      <SelectItem key={value} value={value}>
-                        {MEAL_PICKER_RATING_LABEL[value]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <RatingFilterPopover
+                  value={ratingFilter}
+                  onChange={setRatingFilter}
+                />
               </div>
 
               <div className="border-border flex flex-wrap items-center justify-between gap-3 border-t pt-3">

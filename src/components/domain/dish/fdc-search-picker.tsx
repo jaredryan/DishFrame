@@ -107,22 +107,22 @@ export function FdcSearchPicker({
           variant="outline"
           size="sm"
           onClick={() => {
-            setMode("search");
+            setMode("scan");
             setOpen(true);
           }}
         >
-          <Search /> Search USDA FoodData Central
+          <ScanLine /> Scan barcode
         </Button>
         <Button
           type="button"
           variant="outline"
           size="sm"
           onClick={() => {
-            setMode("scan");
+            setMode("search");
             setOpen(true);
           }}
         >
-          <ScanLine /> Scan barcode
+          <Search /> Search
         </Button>
       </div>
       <Dialog
@@ -150,7 +150,7 @@ export function FdcSearchPicker({
             <form onSubmit={runSearch} className="flex gap-2">
               <Input
                 autoFocus
-                placeholder="e.g. banana, raw"
+                placeholder="Search USDA FoodData Central"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 aria-label="Search USDA FoodData Central"

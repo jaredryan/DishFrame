@@ -255,8 +255,9 @@ export function LibraryFilterBar({
 
   // Rating uses shadcn's Select, whose default trigger (font size/weight,
   // border/background color, corner radius) drifts from the Button-based
-  // popover triggers above — this brings the two into one family, and also
-  // matches SortSelect's own trigger.
+  // popover triggers above — this brings the two into one family. (Sort
+  // moved onto the same Button/Popover system directly, so it no longer
+  // needs this class.)
   const selectTriggerMatchClass =
     "gap-1 rounded-[min(var(--radius-md),12px)] data-[size=sm]:rounded-[min(var(--radius-md),12px)] border-border bg-background px-2.5 text-[0.8rem] font-medium hover:bg-muted hover:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50";
 
@@ -384,7 +385,7 @@ export function LibraryFilterBar({
           direction={filters.sortDirection}
           options={SORT_OPTIONS}
           onChangeAction={setSort}
-          triggerClassName={`${selectTriggerMatchClass} w-44`}
+          triggerClassName="w-44"
         />
       </div>
     </div>

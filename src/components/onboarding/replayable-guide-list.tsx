@@ -26,7 +26,7 @@ export function ReplayableGuideList() {
         return (
           <li
             key={guideKey}
-            className="border-border bg-card flex items-center justify-between gap-3 rounded-xl border p-4"
+            className="border-border bg-card flex flex-col gap-3 rounded-xl border p-4 sm:flex-row sm:items-center sm:justify-between"
           >
             <div className="flex items-start gap-2.5">
               {status != null ? (
@@ -53,7 +53,7 @@ export function ReplayableGuideList() {
               type="button"
               variant="outline"
               size="sm"
-              className="shrink-0"
+              className="self-start sm:shrink-0 sm:self-auto"
               onClick={() => {
                 resetGuide(guideKey);
                 router.push(info.href);

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ChevronRight, Star } from "lucide-react";
+import { Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -43,13 +43,13 @@ export function RatingDetailDialog({
   return (
     <>
       <Button
-        variant="ghost"
+        variant="outline"
         size="sm"
-        className="text-muted-foreground h-auto gap-1 px-0 hover:bg-transparent hover:underline"
+        className="gap-1.5"
         onClick={() => setOpen(true)}
       >
+        <Star className="size-3.5" aria-hidden="true" />
         View ratings
-        <ChevronRight className="size-3.5" aria-hidden="true" />
       </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>

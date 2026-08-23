@@ -2,20 +2,25 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
+import { DndContext, closestCenter, type DragEndEvent } from "@dnd-kit/core";
 import {
-  ChevronDown,
-  ChevronUp,
-  MoreHorizontal,
-  Pencil,
-  Plus,
-  RefreshCw,
-  Trash2,
-} from "lucide-react";
+  SortableContext,
+  arrayMove,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { MoreHorizontal, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
+import { Field, FieldLabel } from "@/components/ui/field";
+import { DatePickerField } from "@/components/ui/date-picker-field";
+import { DragHandle } from "@/components/ui/drag-handle";
+import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import {
   Select,
   SelectContent,
@@ -38,6 +43,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { TooltipIconButton } from "@/components/domain/dish/reorder-buttons";
+import { useReorderSensors } from "@/lib/dnd/sensors";
+import { createReorderAnnouncements } from "@/lib/dnd/announcements";
+import { toIsoDateOnly, formatDateOnly } from "@/lib/date";
 import {
   toggleGroceryItem,
   addManualGroceryItem,
@@ -48,7 +56,7 @@ import {
   combineGroceryItems,
   uncombineGroceryItem,
   selectGroceryItemVariant,
-  renameGroceryList,
+  updateGroceryListDetails,
   completeGroceryList,
   reopenGroceryList,
   duplicateGroceryList,
@@ -127,11 +135,14 @@ export function GroceryListDetailView({
   );
   const [isPending, startTransition] = React.useTransition();
   const [error, setError] = React.useState<string | null>(null);
-  const [renaming, setRenaming] = React.useState(false);
+  const [editOpen, setEditOpen] = React.useState(false);
   const [deleteOpen, setDeleteOpen] = React.useState(false);
   const [refreshSourceId, setRefreshSourceId] = React.useState<string | null>(
     null,
   );
+  const [editingItemId, setEditingItemId] = React.useState<string | null>(null);
+  const [addItemOpen, setAddItemOpen] = React.useState(false);
+  const sensors = useReorderSensors();
 
   const [prevItems, setPrevItems] = React.useState(list.items);
   if (prevItems !== list.items) {
@@ -192,144 +203,125 @@ export function GroceryListDetailView({
     setCombineSelection(new Set());
   }
 
-  function handleMove(
-    itemId: string,
-    direction: -1 | 1,
-    group: GroceryListItemDto[],
-  ) {
-    const index = group.findIndex((i) => i.id === itemId);
-    const targetIndex = index + direction;
-    if (targetIndex < 0 || targetIndex >= group.length) return;
-    const reorderedGroup = [...group];
-    [reorderedGroup[index], reorderedGroup[targetIndex]] = [
-      reorderedGroup[targetIndex],
-      reorderedGroup[index],
-    ];
-    // Rebuild the full list order: every other item keeps its relative
-    // order, this category's slice is replaced with the swapped order.
-    const groupIds = new Set(group.map((i) => i.id));
-    const fullOrder = [...list.items].sort((a, b) => a.position - b.position);
-    let cursor = 0;
-    const orderedItemIds = fullOrder.map((item) =>
-      groupIds.has(item.id) ? reorderedGroup[cursor++].id : item.id,
-    );
-    runAction(() =>
-      reorderGroceryListItems({ listId: list.id, orderedItemIds }),
-    );
+  // Drag-to-reorder is scoped to one category group's own `SortableContext`
+  // at a time (matching the up/down-arrow behavior it replaces) — the full
+  // list order is rebuilt by keeping every other group's relative order and
+  // splicing in this group's newly-dragged order.
+  function handleGroupDragEnd(group: GroceryListItemDto[]) {
+    return (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
+      const oldIndex = group.findIndex((i) => i.id === active.id);
+      const newIndex = group.findIndex((i) => i.id === over.id);
+      if (oldIndex === -1 || newIndex === -1) return;
+      const reorderedGroup = arrayMove(group, oldIndex, newIndex);
+      const groupIds = new Set(group.map((i) => i.id));
+      const fullOrder = [...list.items].sort((a, b) => a.position - b.position);
+      let cursor = 0;
+      const orderedItemIds = fullOrder.map((item) =>
+        groupIds.has(item.id) ? reorderedGroup[cursor++].id : item.id,
+      );
+      runAction(() =>
+        reorderGroceryListItems({ listId: list.id, orderedItemIds }),
+      );
+    };
   }
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-6">
+      <Breadcrumbs
+        items={[
+          { label: "Grocery Lists", href: "/grocery-lists" },
+          { label: list.title },
+        ]}
+      />
+
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1">
-          {renaming ? (
-            <form
-              className="flex items-center gap-2"
-              onSubmit={(e) => {
-                e.preventDefault();
-                const formData = new FormData(e.currentTarget);
-                const title = String(formData.get("title") ?? "").trim();
-                if (title) {
-                  runAction(() =>
-                    renameGroceryList({ listId: list.id, title }),
-                  );
-                }
-                setRenaming(false);
-              }}
-            >
-              <Input
-                name="title"
-                defaultValue={list.title}
-                autoFocus
-                className="h-9"
-              />
-              <Button type="submit" size="sm">
-                Save
-              </Button>
-            </form>
-          ) : (
-            <div className="flex items-center gap-2">
-              <h1 className="font-heading text-foreground text-2xl font-semibold">
-                {list.title}
-              </h1>
-              {!isCompleted && (
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => setRenaming(true)}
-                  aria-label="Rename this list"
-                >
-                  <Pencil className="size-4" aria-hidden="true" />
-                </Button>
-              )}
-            </div>
-          )}
-          <p className="text-muted-foreground mt-1 text-sm">
-            {isCompleted ? "Completed" : "Active"} ·{" "}
-            {new Date(list.createdAt).toLocaleDateString()}
+          <h1 className="font-heading text-foreground text-2xl font-semibold">
+            {list.title}
+          </h1>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <Badge variant={isCompleted ? "secondary" : "default"}>
+              {isCompleted ? "Completed" : "Active"}
+            </Badge>
+            <Badge variant="outline">
+              {formatDateOnly(list.plannedDate, {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+              })}
+            </Badge>
             {list.mode === "MEAL_PLAN_LINKED" && list.linkedMealPlanId && (
-              <>
-                {" · "}
-                <Link
-                  href={`/meal-plans/${list.linkedMealPlanId}`}
-                  className="underline"
-                >
-                  Linked to Meal Plan
-                </Link>
-              </>
+              <Link
+                href={`/meal-plans/${list.linkedMealPlanId}`}
+                className="text-muted-foreground text-sm underline"
+              >
+                Linked to Meal Plan
+              </Link>
             )}
-          </p>
+          </div>
         </div>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="icon">
-              <MoreHorizontal aria-hidden="true" />
-              <span className="sr-only">List actions</span>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {isCompleted ? (
-              <DropdownMenuItem
-                onClick={() =>
-                  runAction(() => reopenGroceryList({ listId: list.id }))
-                }
-              >
-                Reopen
-              </DropdownMenuItem>
-            ) : (
-              <DropdownMenuItem
-                onClick={() =>
-                  runAction(() => completeGroceryList({ listId: list.id }))
-                }
-              >
-                Complete
-              </DropdownMenuItem>
-            )}
-            <DropdownMenuItem
-              onClick={() =>
-                startTransition(async () => {
-                  const result = await duplicateGroceryList({
-                    listId: list.id,
-                  });
-                  if (result.status === "success") {
-                    router.push(`/grocery-lists/${result.listId}`);
-                  } else {
-                    setError(result.message);
+        <div className="flex shrink-0 items-center gap-1">
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => setEditOpen(true)}
+            aria-label="Edit this list"
+          >
+            <Pencil aria-hidden="true" />
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="icon">
+                <MoreHorizontal aria-hidden="true" />
+                <span className="sr-only">List actions</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {isCompleted ? (
+                <DropdownMenuItem
+                  onClick={() =>
+                    runAction(() => reopenGroceryList({ listId: list.id }))
                   }
-                })
-              }
-            >
-              Duplicate
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className="text-destructive-text"
-              onClick={() => setDeleteOpen(true)}
-            >
-              Delete
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+                >
+                  Reopen
+                </DropdownMenuItem>
+              ) : (
+                <DropdownMenuItem
+                  onClick={() =>
+                    runAction(() => completeGroceryList({ listId: list.id }))
+                  }
+                >
+                  Complete
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem
+                onClick={() =>
+                  startTransition(async () => {
+                    const result = await duplicateGroceryList({
+                      listId: list.id,
+                    });
+                    if (result.status === "success") {
+                      router.push(`/grocery-lists/${result.listId}`);
+                    } else {
+                      setError(result.message);
+                    }
+                  })
+                }
+              >
+                Duplicate
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="text-destructive-text"
+                onClick={() => setDeleteOpen(true)}
+              >
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
 
       {list.sources.length > 0 && (
@@ -405,93 +397,120 @@ export function GroceryListDetailView({
       )}
 
       <div className="flex flex-col gap-5">
-        {groups.map((group) => (
-          <div key={group.categoryId ?? "none"} className="flex flex-col gap-2">
-            <h2 className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
-              {group.label}
-            </h2>
-            <ul className="flex flex-col gap-2">
-              {group.items.map((item, index) => (
-                <GroceryItemRow
-                  key={item.id}
-                  item={item}
-                  checked={checkedIds.has(item.id)}
-                  onToggle={() => handleToggle(item.id)}
-                  disabled={isCompleted}
-                  categoryOptions={categoryOptions}
-                  combineMode={combineMode}
-                  combineSelected={combineSelection.has(item.id)}
-                  onCombineToggle={() =>
-                    setCombineSelection((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(item.id)) next.delete(item.id);
-                      else next.add(item.id);
-                      return next;
-                    })
-                  }
-                  onMoveUp={
-                    index > 0
-                      ? () => handleMove(item.id, -1, group.items)
-                      : undefined
-                  }
-                  onMoveDown={
-                    index < group.items.length - 1
-                      ? () => handleMove(item.id, 1, group.items)
-                      : undefined
-                  }
-                  onRecategorize={(categoryId) =>
-                    runAction(() =>
-                      recategorizeGroceryItem({
-                        listId: list.id,
-                        itemId: item.id,
-                        categoryId,
-                      }),
-                    )
-                  }
-                  onEdit={(input) =>
-                    runAction(() =>
-                      editGroceryItem({
-                        listId: list.id,
-                        itemId: item.id,
-                        ...input,
-                      }),
-                    )
-                  }
-                  onRemove={() =>
-                    runAction(() =>
-                      removeGroceryItem({ listId: list.id, itemId: item.id }),
-                    )
-                  }
-                  onUncombine={() =>
-                    runAction(() =>
-                      uncombineGroceryItem({
-                        listId: list.id,
-                        itemId: item.id,
-                      }),
-                    )
-                  }
-                  onSelectVariant={(variant) =>
-                    runAction(() =>
-                      selectGroceryItemVariant({
-                        listId: list.id,
-                        itemId: item.id,
-                        variant,
-                      }),
-                    )
-                  }
-                  onAcknowledgeSync={() =>
-                    runAction(() =>
-                      acknowledgeGroceryItemSync({
-                        listId: list.id,
-                        itemId: item.id,
-                      }),
-                    )
-                  }
-                />
-              ))}
-            </ul>
-          </div>
-        ))}
+        {groups.map((group) => {
+          const dragDisabledBase = isCompleted || combineMode;
+          return (
+            <div
+              key={group.categoryId ?? "none"}
+              className="flex flex-col gap-2"
+            >
+              <h2 className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+                {group.label}
+              </h2>
+              <DndContext
+                id={`grocery-items-${group.categoryId ?? "none"}`}
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleGroupDragEnd(group.items)}
+                accessibility={{
+                  announcements: createReorderAnnouncements(
+                    (id) =>
+                      group.items.find((i) => i.id === id)?.name ?? "item",
+                    (id) => ({
+                      index: group.items.findIndex((i) => i.id === id),
+                      total: group.items.length,
+                    }),
+                  ),
+                }}
+              >
+                <SortableContext
+                  items={group.items.map((i) => i.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <ul className="flex flex-col gap-2">
+                    {group.items.map((item) => (
+                      <SortableGroceryItemRow
+                        key={item.id}
+                        item={item}
+                        checked={checkedIds.has(item.id)}
+                        onToggle={() => handleToggle(item.id)}
+                        disabled={isCompleted}
+                        dragDisabled={
+                          dragDisabledBase || editingItemId === item.id
+                        }
+                        categoryOptions={categoryOptions}
+                        combineMode={combineMode}
+                        combineSelected={combineSelection.has(item.id)}
+                        onCombineToggle={() =>
+                          setCombineSelection((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(item.id)) next.delete(item.id);
+                            else next.add(item.id);
+                            return next;
+                          })
+                        }
+                        isEditing={editingItemId === item.id}
+                        onStartEdit={() => setEditingItemId(item.id)}
+                        onCancelEdit={() => setEditingItemId(null)}
+                        onRecategorize={(categoryId) =>
+                          runAction(() =>
+                            recategorizeGroceryItem({
+                              listId: list.id,
+                              itemId: item.id,
+                              categoryId,
+                            }),
+                          )
+                        }
+                        onEdit={(input) =>
+                          runAction(() =>
+                            editGroceryItem({
+                              listId: list.id,
+                              itemId: item.id,
+                              ...input,
+                            }),
+                          )
+                        }
+                        onRemove={() =>
+                          runAction(() =>
+                            removeGroceryItem({
+                              listId: list.id,
+                              itemId: item.id,
+                            }),
+                          )
+                        }
+                        onUncombine={() =>
+                          runAction(() =>
+                            uncombineGroceryItem({
+                              listId: list.id,
+                              itemId: item.id,
+                            }),
+                          )
+                        }
+                        onSelectVariant={(variant) =>
+                          runAction(() =>
+                            selectGroceryItemVariant({
+                              listId: list.id,
+                              itemId: item.id,
+                              variant,
+                            }),
+                          )
+                        }
+                        onAcknowledgeSync={() =>
+                          runAction(() =>
+                            acknowledgeGroceryItemSync({
+                              listId: list.id,
+                              itemId: item.id,
+                            }),
+                          )
+                        }
+                      />
+                    ))}
+                  </ul>
+                </SortableContext>
+              </DndContext>
+            </div>
+          );
+        })}
         {list.items.length === 0 && (
           <p className="text-muted-foreground text-sm">
             This list has no items yet.
@@ -500,10 +519,30 @@ export function GroceryListDetailView({
       </div>
 
       {!isCompleted && (
-        <ManualAddForm
+        <div className="bg-background/95 sticky bottom-0 flex justify-end border-t py-4 backdrop-blur-sm">
+          <Button type="button" onClick={() => setAddItemOpen(true)}>
+            <Plus aria-hidden="true" /> Add item
+          </Button>
+        </div>
+      )}
+
+      {addItemOpen && (
+        <AddItemDialog
           listId={list.id}
           categoryOptions={categoryOptions}
-          onAdded={refresh}
+          onClose={() => setAddItemOpen(false)}
+          onAdded={() => {
+            refresh();
+            setAddItemOpen(false);
+          }}
+        />
+      )}
+
+      {editOpen && (
+        <EditGroceryListDialog
+          list={list}
+          onClose={() => setEditOpen(false)}
+          onSaved={refresh}
         />
       )}
 
@@ -552,6 +591,54 @@ export function GroceryListDetailView({
   );
 }
 
+type DragHandleProps = {
+  attributes: React.ComponentProps<typeof DragHandle>["attributes"];
+  listeners: React.ComponentProps<typeof DragHandle>["listeners"];
+  isDragging: boolean;
+};
+
+/**
+ * Sortable wrapper around `GroceryItemRow` — owns the `useSortable` hook so
+ * dragging is scoped to one category group's `SortableContext` at a time,
+ * matching the reorder pattern established by `GroceryCategoryManager`.
+ * Dragging is disabled for the row currently being edited, same reasoning
+ * as the category manager (its form fields shouldn't fight the drag
+ * sensor), and for every row while the list is completed or in combine mode.
+ */
+function SortableGroceryItemRow(
+  props: Omit<React.ComponentProps<typeof GroceryItemRow>, "dragHandle"> & {
+    dragDisabled: boolean;
+  },
+) {
+  const { dragDisabled, ...rowProps } = props;
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: props.item.id, disabled: dragDisabled });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  return (
+    <li
+      ref={setNodeRef}
+      style={style}
+      className="border-border bg-card flex flex-col gap-2 rounded-lg border p-3"
+    >
+      <GroceryItemRow
+        {...rowProps}
+        dragHandle={dragDisabled ? null : { attributes, listeners, isDragging }}
+      />
+    </li>
+  );
+}
+
 function GroceryItemRow({
   item,
   checked,
@@ -561,8 +648,10 @@ function GroceryItemRow({
   combineMode,
   combineSelected,
   onCombineToggle,
-  onMoveUp,
-  onMoveDown,
+  isEditing,
+  onStartEdit,
+  onCancelEdit,
+  dragHandle,
   onRecategorize,
   onEdit,
   onRemove,
@@ -578,8 +667,10 @@ function GroceryItemRow({
   combineMode: boolean;
   combineSelected: boolean;
   onCombineToggle: () => void;
-  onMoveUp?: () => void;
-  onMoveDown?: () => void;
+  isEditing: boolean;
+  onStartEdit: () => void;
+  onCancelEdit: () => void;
+  dragHandle: DragHandleProps | null;
   onRecategorize: (categoryId: string) => void;
   onEdit: (input: {
     name?: string;
@@ -592,7 +683,6 @@ function GroceryItemRow({
   onAcknowledgeSync: () => void;
 }) {
   const [expanded, setExpanded] = React.useState(false);
-  const [editing, setEditing] = React.useState(false);
   const isCombined = item.contributions.length > 1;
   const soleContribution = !isCombined ? item.contributions[0] : undefined;
   // Only show a variant-selection action that can actually succeed (Slice 12
@@ -603,12 +693,22 @@ function GroceryItemRow({
   const optionalityDisplay = aggregateOptionalityDisplay(item);
 
   return (
-    <li className="border-border bg-card flex flex-col gap-2 rounded-lg border p-3">
-      <div className="flex items-start gap-3">
+    <>
+      <div className="flex items-start gap-2">
+        {dragHandle && (
+          <DragHandle
+            label={`Drag to reorder ${item.name}`}
+            attributes={dragHandle.attributes}
+            listeners={dragHandle.listeners}
+            isDragging={dragHandle.isDragging}
+            className="mt-1"
+          />
+        )}
         {combineMode ? (
           <Checkbox
             checked={combineSelected}
             onCheckedChange={onCombineToggle}
+            className="mt-1.5"
           />
         ) : (
           <Checkbox
@@ -616,13 +716,14 @@ function GroceryItemRow({
             onCheckedChange={onToggle}
             disabled={disabled}
             aria-label={`Mark ${item.name} ${checked ? "not bought" : "bought"}`}
+            className="mt-1.5"
           />
         )}
 
         <div className="min-w-0 flex-1">
-          {editing ? (
+          {isEditing ? (
             <form
-              className="flex flex-wrap items-center gap-2"
+              className="flex flex-col gap-2"
               onSubmit={(e) => {
                 e.preventDefault();
                 const formData = new FormData(e.currentTarget);
@@ -632,37 +733,66 @@ function GroceryItemRow({
                     String(formData.get("quantityText") ?? "").trim() || null,
                   unit: String(formData.get("unit") ?? "").trim() || null,
                 });
-                setEditing(false);
+                const categoryId = String(
+                  formData.get("categoryId") ?? "",
+                ).trim();
+                if (categoryId && categoryId !== (item.category?.id ?? "")) {
+                  onRecategorize(categoryId);
+                }
+                onCancelEdit();
               }}
             >
-              <Input
-                name="name"
-                defaultValue={item.name}
-                className="h-8 flex-1"
-              />
-              <Input
-                name="quantityText"
-                defaultValue={item.quantityText ?? ""}
-                placeholder="Qty"
-                className="h-8 w-20"
-              />
-              <Input
-                name="unit"
-                defaultValue={item.unit ?? ""}
-                placeholder="Unit"
-                className="h-8 w-20"
-              />
-              <Button type="submit" size="sm">
-                Save
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => setEditing(false)}
-              >
-                Cancel
-              </Button>
+              <Input name="name" defaultValue={item.name} className="h-8" />
+              <div className="flex items-center gap-2">
+                <Input
+                  name="quantityText"
+                  defaultValue={item.quantityText ?? ""}
+                  placeholder="Qty"
+                  className="h-8 w-20"
+                />
+                <Input
+                  name="unit"
+                  defaultValue={item.unit ?? ""}
+                  placeholder="Unit"
+                  className="h-8 w-20"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <Label htmlFor={`category-${item.id}`} className="text-xs">
+                  Category
+                </Label>
+                <Select
+                  name="categoryId"
+                  defaultValue={item.category?.id ?? ""}
+                >
+                  <SelectTrigger
+                    id={`category-${item.id}`}
+                    className="h-7 w-40 text-xs"
+                  >
+                    <SelectValue placeholder="Category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {categoryOptions.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.displayName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button type="submit" size="sm">
+                  Save
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={onCancelEdit}
+                >
+                  Cancel
+                </Button>
+              </div>
             </form>
           ) : (
             <div
@@ -713,26 +843,12 @@ function GroceryItemRow({
           )}
         </div>
 
-        {!disabled && !editing && !combineMode && (
+        {!disabled && !isEditing && !combineMode && (
           <div className="flex shrink-0 items-center gap-0.5">
-            {onMoveUp && (
-              <TooltipIconButton
-                label={`Move ${item.name} up`}
-                icon={ChevronUp}
-                onClick={onMoveUp}
-              />
-            )}
-            {onMoveDown && (
-              <TooltipIconButton
-                label={`Move ${item.name} down`}
-                icon={ChevronDown}
-                onClick={onMoveDown}
-              />
-            )}
             <TooltipIconButton
               label={`Edit ${item.name}`}
               icon={Pencil}
-              onClick={() => setEditing(true)}
+              onClick={onStartEdit}
             />
             <TooltipIconButton
               label={`Remove ${item.name}`}
@@ -744,60 +860,48 @@ function GroceryItemRow({
         )}
       </div>
 
-      {!disabled && !combineMode && (
-        <div className="flex flex-wrap items-center gap-2 pl-7">
-          <Select
-            value={item.category?.id ?? ""}
-            onValueChange={onRecategorize}
-          >
-            <SelectTrigger className="h-7 w-40 text-xs">
-              <SelectValue placeholder="Category" />
-            </SelectTrigger>
-            <SelectContent>
-              {categoryOptions.map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.displayName}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          {isCombined && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setExpanded((p) => !p)}
-            >
-              {expanded ? "Hide" : "Show"} sources ({item.contributions.length})
-            </Button>
-          )}
-          {isCombined && (
-            <Button variant="ghost" size="sm" onClick={onUncombine}>
-              Uncombine
-            </Button>
-          )}
-          {canSelectVariant &&
-            soleContribution!.selectedVariant === "PRIMARY" && (
+      {!disabled &&
+        !isEditing &&
+        !combineMode &&
+        (isCombined || canSelectVariant) && (
+          <div className="flex flex-wrap items-center gap-2 pl-7">
+            {isCombined && (
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => onSelectVariant("SUBSTITUTE")}
+                onClick={() => setExpanded((p) => !p)}
               >
-                Use substitute
+                {expanded ? "Hide" : "Show"} sources (
+                {item.contributions.length})
               </Button>
             )}
-          {canSelectVariant &&
-            soleContribution!.selectedVariant === "SUBSTITUTE" && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => onSelectVariant("PRIMARY")}
-              >
-                Use original
+            {isCombined && (
+              <Button variant="ghost" size="sm" onClick={onUncombine}>
+                Uncombine
               </Button>
             )}
-        </div>
-      )}
+            {canSelectVariant &&
+              soleContribution!.selectedVariant === "PRIMARY" && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onSelectVariant("SUBSTITUTE")}
+                >
+                  Use substitute
+                </Button>
+              )}
+            {canSelectVariant &&
+              soleContribution!.selectedVariant === "SUBSTITUTE" && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onSelectVariant("PRIMARY")}
+                >
+                  Use original
+                </Button>
+              )}
+          </div>
+        )}
 
       {expanded && isCombined && (
         <ul className="text-muted-foreground border-border ml-7 flex flex-col gap-1 border-l pl-3 text-xs">
@@ -811,85 +915,205 @@ function GroceryItemRow({
           ))}
         </ul>
       )}
-    </li>
+    </>
   );
 }
 
-function ManualAddForm({
+function AddItemDialog({
   listId,
   categoryOptions,
+  onClose,
   onAdded,
 }: {
   listId: string;
   categoryOptions: GroceryCategoryOptionDto[];
+  onClose: () => void;
   onAdded: () => void;
 }) {
   const [isPending, startTransition] = React.useTransition();
   const [error, setError] = React.useState<string | null>(null);
-  const formRef = React.useRef<HTMLFormElement>(null);
 
   return (
-    <form
-      ref={formRef}
-      className="border-border flex flex-wrap items-end gap-2 rounded-lg border border-dashed p-3"
-      onSubmit={(e) => {
-        e.preventDefault();
-        const formData = new FormData(e.currentTarget);
-        const name = String(formData.get("name") ?? "").trim();
-        if (!name) return;
-        setError(null);
-        const categoryId =
-          String(formData.get("categoryId") ?? "").trim() || null;
-        startTransition(async () => {
-          const result = await addManualGroceryItem({
-            listId,
-            name,
-            quantityText:
-              String(formData.get("quantityText") ?? "").trim() || null,
-            unit: String(formData.get("unit") ?? "").trim() || null,
-            categoryId,
-          });
-          if (result.status === "success") {
-            formRef.current?.reset();
-            onAdded();
-          } else {
-            setError(result.message ?? "Could not add this item.");
-          }
-        });
-      }}
-    >
-      <div className="flex flex-col gap-1">
-        <Label htmlFor="manual-item-name">Add an item</Label>
-        <Input
-          id="manual-item-name"
-          name="name"
-          placeholder="e.g. Paper towels"
-          required
-        />
-      </div>
-      <Input name="quantityText" placeholder="Qty" className="w-20" />
-      <Input name="unit" placeholder="Unit" className="w-20" />
-      <Select name="categoryId">
-        <SelectTrigger className="h-9 w-36">
-          <SelectValue placeholder="Category (auto)" />
-        </SelectTrigger>
-        <SelectContent>
-          {categoryOptions.map((c) => (
-            <SelectItem key={c.id} value={c.id}>
-              {c.displayName}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      <Button type="submit" disabled={isPending}>
-        <Plus aria-hidden="true" /> Add
-      </Button>
-      {error && (
-        <p role="alert" className="text-destructive-text w-full text-sm">
-          {error}
-        </p>
-      )}
-    </form>
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Add item</DialogTitle>
+        </DialogHeader>
+        <form
+          id="add-grocery-item-form"
+          className="flex flex-col gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const formData = new FormData(e.currentTarget);
+            const name = String(formData.get("name") ?? "").trim();
+            if (!name) return;
+            setError(null);
+            const categoryId =
+              String(formData.get("categoryId") ?? "").trim() || null;
+            startTransition(async () => {
+              const result = await addManualGroceryItem({
+                listId,
+                name,
+                quantityText:
+                  String(formData.get("quantityText") ?? "").trim() || null,
+                unit: String(formData.get("unit") ?? "").trim() || null,
+                categoryId,
+              });
+              if (result.status === "success") {
+                onAdded();
+              } else {
+                setError(result.message ?? "Could not add this item.");
+              }
+            });
+          }}
+        >
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="manual-item-name">Item</Label>
+            <Input
+              id="manual-item-name"
+              name="name"
+              placeholder="e.g. Paper towels"
+              required
+              autoFocus
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="manual-item-quantity">Qty</Label>
+              <Input
+                id="manual-item-quantity"
+                name="quantityText"
+                className="w-20"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="manual-item-unit">Unit</Label>
+              <Input id="manual-item-unit" name="unit" className="w-20" />
+            </div>
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="manual-item-category">Category</Label>
+            <Select name="categoryId">
+              <SelectTrigger id="manual-item-category" className="w-full">
+                <SelectValue placeholder="Category (auto)" />
+              </SelectTrigger>
+              <SelectContent>
+                {categoryOptions.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.displayName}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {error && (
+            <p role="alert" className="text-destructive-text text-sm">
+              {error}
+            </p>
+          )}
+        </form>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            form="add-grocery-item-form"
+            disabled={isPending}
+          >
+            {isPending ? "Adding…" : "Add"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function EditGroceryListDialog({
+  list,
+  onClose,
+  onSaved,
+}: {
+  list: GroceryListDetailDto;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [title, setTitle] = React.useState(list.title);
+  const [plannedDate, setPlannedDate] = React.useState(() =>
+    toIsoDateOnly(new Date(list.plannedDate)),
+  );
+  const [isActive, setIsActive] = React.useState(list.completedAt == null);
+  const [error, setError] = React.useState<string | null>(null);
+  const [isPending, startTransition] = React.useTransition();
+
+  function handleSave() {
+    setError(null);
+    startTransition(async () => {
+      const result = await updateGroceryListDetails({
+        listId: list.id,
+        title,
+        plannedDate: new Date(plannedDate),
+        isActive,
+      });
+      if (result.status === "success") {
+        onSaved();
+        onClose();
+      } else {
+        setError(result.message ?? "Could not save these changes.");
+      }
+    });
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit grocery list</DialogTitle>
+        </DialogHeader>
+        <div className="flex flex-col gap-3">
+          <Field>
+            <FieldLabel htmlFor="edit-grocery-list-title">Name</FieldLabel>
+            <Input
+              id="edit-grocery-list-title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              maxLength={120}
+              autoFocus
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="edit-grocery-list-date">Date</FieldLabel>
+            <DatePickerField
+              id="edit-grocery-list-date"
+              value={plannedDate}
+              onChange={setPlannedDate}
+              ariaLabel="Grocery list date"
+            />
+          </Field>
+          <div className="flex items-center justify-between gap-4">
+            <Label htmlFor="edit-grocery-list-active">Active</Label>
+            <Switch
+              id="edit-grocery-list-active"
+              checked={isActive}
+              onCheckedChange={setIsActive}
+            />
+          </div>
+          {error && (
+            <p role="alert" className="text-destructive-text text-sm">
+              {error}
+            </p>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={handleSave} disabled={isPending}>
+            {isPending ? "Saving…" : "Save"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

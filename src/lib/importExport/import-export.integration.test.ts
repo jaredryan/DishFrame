@@ -359,6 +359,7 @@ describe("importExport service", () => {
       data: {
         ownerId: owner.id,
         title: "Weekly list",
+        plannedDate: new Date(),
         items: {
           create: [
             {

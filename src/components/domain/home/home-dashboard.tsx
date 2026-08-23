@@ -203,7 +203,7 @@ export function HomeDashboard({
         ) : (
           <ul className="flex flex-col gap-2">
             {activeGroceryLists.map((list) => (
-              <GroceryListCard key={list.id} list={list} variant="active" />
+              <GroceryListCard key={list.id} list={list} />
             ))}
           </ul>
         )}

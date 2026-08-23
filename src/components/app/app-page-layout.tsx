@@ -33,7 +33,7 @@ export function AppPageLayout({
   return (
     <div className={`mx-auto flex ${CONTENT_WIDTH[width]} flex-col gap-6`}>
       {beforeHeader}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="font-heading text-foreground text-2xl font-semibold">
             {title}

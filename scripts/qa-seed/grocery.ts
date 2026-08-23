@@ -57,6 +57,7 @@ export async function buildGroceryFixtures(
 
   const listAId = await listService.generateGroceryList(ownerId, {
     title: "[QA] Weeknight Shopping",
+    plannedDate: new Date(),
     sources: [
       { dishId: recipes.stirfry.dishId, scaleFactor: 1 },
       { dishId: recipes.ricebowl.dishId, scaleFactor: 1.5 },
@@ -136,6 +137,7 @@ export async function buildGroceryFixtures(
   // List B — a plain single-source list, fully checked off and completed.
   const listBId = await listService.generateGroceryList(ownerId, {
     title: "[QA] Pantry Restock",
+    plannedDate: new Date(),
     sources: [{ dishId: ramen.dishId, scaleFactor: 1 }],
   });
   const listBItems = await itemsFor(listBId);

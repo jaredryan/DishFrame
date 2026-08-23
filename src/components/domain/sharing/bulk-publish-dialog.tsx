@@ -180,7 +180,7 @@ export function BulkPublishDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && close()}>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>Publish</DialogTitle>
           <DialogDescription>
@@ -192,77 +192,83 @@ export function BulkPublishDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {step === "select" && (
-          <ShareItemSelector
-            items={items}
-            itemsError={itemsError}
-            search={search}
-            onSearchChange={setSearch}
-            selected={selected}
-            onToggle={toggleSelected}
-            onSelectAll={selectAll}
-            maxItems={PUBLISH_MAX_ITEMS}
-          />
-        )}
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+          {step === "select" && (
+            <ShareItemSelector
+              items={items}
+              itemsError={itemsError}
+              search={search}
+              onSearchChange={setSearch}
+              selected={selected}
+              onToggle={toggleSelected}
+              onSelectAll={selectAll}
+              maxItems={PUBLISH_MAX_ITEMS}
+            />
+          )}
 
-        {step === "settings" && (
-          <div className="space-y-4">
-            <p className="text-muted-foreground text-sm">
-              {selected.size} item{selected.size === 1 ? "" : "s"} selected
-            </p>
-            <div className="space-y-2">
-              <Label>Mode</Label>
-              <Select
-                value={mode}
-                onValueChange={(value) => setMode(value as ShareLinkModeValue)}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="FIXED_SNAPSHOT">
-                    Share current version (fixed)
-                  </SelectItem>
-                  <SelectItem value="CURRENT">Share latest version</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <Label htmlFor="bulk-publish-show-name">Show my name</Label>
-              <Switch
-                id="bulk-publish-show-name"
-                checked={showCreatorName}
-                onCheckedChange={setShowCreatorName}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="bulk-publish-expires">Expires (optional)</Label>
-              <input
-                id="bulk-publish-expires"
-                type="date"
-                value={expiresAt}
-                onChange={(event) => setExpiresAt(event.target.value)}
-                className="border-input bg-background flex h-9 w-full rounded-md border px-3 py-1 text-sm shadow-xs"
-              />
-            </div>
-
-            {error && (
-              <p role="alert" className="text-destructive-text text-sm">
-                {error}
+          {step === "settings" && (
+            <div className="space-y-4">
+              <p className="text-muted-foreground text-sm">
+                {selected.size} item{selected.size === 1 ? "" : "s"} selected
               </p>
-            )}
-          </div>
-        )}
+              <div className="space-y-2">
+                <Label>Mode</Label>
+                <Select
+                  value={mode}
+                  onValueChange={(value) =>
+                    setMode(value as ShareLinkModeValue)
+                  }
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="FIXED_SNAPSHOT">
+                      Share current version (fixed)
+                    </SelectItem>
+                    <SelectItem value="CURRENT">
+                      Share latest version
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
-        {step === "result" && results && (
-          <ul className="max-h-96 space-y-3 overflow-y-auto">
-            {results.map((result) => (
-              <ResultRow key={result.dishId} result={result} />
-            ))}
-          </ul>
-        )}
+              <div className="flex items-center justify-between">
+                <Label htmlFor="bulk-publish-show-name">Show my name</Label>
+                <Switch
+                  id="bulk-publish-show-name"
+                  checked={showCreatorName}
+                  onCheckedChange={setShowCreatorName}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="bulk-publish-expires">Expires (optional)</Label>
+                <input
+                  id="bulk-publish-expires"
+                  type="date"
+                  value={expiresAt}
+                  onChange={(event) => setExpiresAt(event.target.value)}
+                  className="border-input bg-background flex h-9 w-full max-w-full min-w-0 rounded-md border px-3 py-1 text-sm shadow-xs"
+                />
+              </div>
+
+              {error && (
+                <p role="alert" className="text-destructive-text text-sm">
+                  {error}
+                </p>
+              )}
+            </div>
+          )}
+
+          {step === "result" && results && (
+            <ul className="max-h-96 space-y-3 overflow-y-auto">
+              {results.map((result) => (
+                <ResultRow key={result.dishId} result={result} />
+              ))}
+            </ul>
+          )}
+        </div>
 
         <DialogFooter>
           {step === "select" ? (

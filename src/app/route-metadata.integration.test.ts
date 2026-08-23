@@ -248,7 +248,11 @@ describe("route metadata", () => {
     const owner = await createTestUser();
     userIds.push(owner.id);
     const list = await prisma.groceryList.create({
-      data: { ownerId: owner.id, title: "This Week's Groceries" },
+      data: {
+        ownerId: owner.id,
+        title: "This Week's Groceries",
+        plannedDate: new Date(),
+      },
     });
     mockGetServerSession.mockResolvedValue({ user: { id: owner.id } });
 

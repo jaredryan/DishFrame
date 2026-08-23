@@ -4,6 +4,7 @@ import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 import {
   Popover,
   PopoverContent,
@@ -27,6 +28,7 @@ export function FilterPopover({
   onClearAction,
   emptyMessage,
   triggerClassName = "gap-1.5",
+  specialOption,
 }: {
   label: string;
   options: FilterPopoverOption[];
@@ -35,6 +37,14 @@ export function FilterPopover({
   onClearAction?: () => void;
   emptyMessage?: string;
   triggerClassName?: string;
+  /** An extra option rendered above the option list, set off by a divider —
+   * e.g. the Add/Edit Meal modal's "Favorites" filter living inside the Tags
+   * dropdown instead of its own standalone control. */
+  specialOption?: {
+    label: string;
+    checked: boolean;
+    onToggle: () => void;
+  };
 }) {
   const selectedSet = selected instanceof Set ? selected : new Set(selected);
   return (
@@ -54,6 +64,18 @@ export function FilterPopover({
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-56 max-w-none" align="start">
+        {specialOption && (
+          <>
+            <Label className="flex cursor-pointer items-center gap-2 pb-1.5 text-sm font-normal">
+              <Checkbox
+                checked={specialOption.checked}
+                onCheckedChange={specialOption.onToggle}
+              />
+              {specialOption.label}
+            </Label>
+            <Separator className="mb-1.5" />
+          </>
+        )}
         {options.length === 0 ? (
           <p className="text-muted-foreground text-xs">
             {emptyMessage ?? "Nothing to choose from yet."}

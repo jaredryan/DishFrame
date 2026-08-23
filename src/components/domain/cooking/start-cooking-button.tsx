@@ -126,7 +126,7 @@ export function StartCookingButton({
           }
         }}
       >
-        <DialogContent className="sm:max-w-xl">
+        <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>What will you cook?</DialogTitle>
             <DialogDescription>
@@ -134,7 +134,7 @@ export function StartCookingButton({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="flex flex-col gap-3">
+          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
             <div className="relative">
               <Search
                 className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2"

@@ -114,6 +114,7 @@ describe("grocery list service", () => {
 
       const listId = await listService.generateGroceryList(userId, {
         title: "This week",
+        plannedDate: new Date(),
         sources: [
           { dishId: recipeA, scaleFactor: 1 },
           { dishId: recipeB, scaleFactor: 1 },
@@ -180,6 +181,7 @@ describe("grocery list service", () => {
 
       const listId = await listService.generateGroceryList(userId, {
         title: "This week",
+        plannedDate: new Date(),
         sources: [
           { dishId: recipeA, scaleFactor: 1 },
           { dishId: recipeB, scaleFactor: 1 },
@@ -249,6 +251,7 @@ describe("grocery list service", () => {
 
       const listId = await listService.generateGroceryList(userId, {
         title: "This week",
+        plannedDate: new Date(),
         sources: [
           { dishId: recipeA, scaleFactor: 1 },
           { dishId: recipeB, scaleFactor: 1 },
@@ -315,6 +318,7 @@ describe("grocery list service", () => {
 
       const listId = await listService.generateGroceryList(userId, {
         title: "This week",
+        plannedDate: new Date(),
         sources: [
           { dishId: recipeA, scaleFactor: 1 },
           { dishId: recipeB, scaleFactor: 1 },
@@ -361,6 +365,7 @@ describe("grocery list service", () => {
 
       const listId = await listService.generateGroceryList(userId, {
         title: "This week",
+        plannedDate: new Date(),
         sources: [{ dishId: recipeId, scaleFactor: 1 }],
       });
 
@@ -410,6 +415,7 @@ describe("grocery list service", () => {
 
       const listId = await listService.generateGroceryList(userId, {
         title: "This week",
+        plannedDate: new Date(),
         sources: [{ dishId: recipeId, scaleFactor: 1 }],
       });
 
@@ -501,6 +507,7 @@ describe("grocery list service", () => {
 
       const listId = await listService.generateGroceryList(userId, {
         title: "This week",
+        plannedDate: new Date(),
         sources: [{ dishId: recipeA, scaleFactor: 1 }],
       });
 
@@ -537,6 +544,7 @@ describe("grocery list service", () => {
       );
       const listId = await listService.generateGroceryList(userId, {
         title: "This week",
+        plannedDate: new Date(),
         sources: [{ dishId: recipeId, scaleFactor: 1 }],
       });
 
@@ -600,6 +608,7 @@ describe("grocery list service", () => {
       );
       const listId = await listService.generateGroceryList(userId, {
         title: "This week",
+        plannedDate: new Date(),
         sources: [{ dishId: recipeId, scaleFactor: 1 }],
       });
 
@@ -657,6 +666,7 @@ describe("grocery list service", () => {
       );
       const listId = await listService.generateGroceryList(userId, {
         title: "This week",
+        plannedDate: new Date(),
         sources: [{ dishId: recipeId, scaleFactor: 1 }],
       });
 
@@ -677,6 +687,7 @@ describe("grocery list service", () => {
       await expect(
         listService.generateGroceryList(userId, {
           title: "Empty",
+          plannedDate: new Date(),
           sources: [],
         }),
       ).rejects.toThrow(ValidationError);
@@ -697,6 +708,7 @@ describe("grocery list service", () => {
       await expect(
         listService.generateGroceryList(intruder.id, {
           title: "Steal",
+          plannedDate: new Date(),
           sources: [{ dishId: recipeId, scaleFactor: 1 }],
         }),
       ).rejects.toThrow(NotFoundError);
@@ -749,6 +761,7 @@ describe("grocery list service", () => {
       );
       const listId = await listService.generateGroceryList(userId, {
         title: "This week",
+        plannedDate: new Date(),
         sources: [
           { dishId: recipeA, scaleFactor: 1 },
           { dishId: recipeB, scaleFactor: 1 },
@@ -785,6 +798,7 @@ describe("grocery list service", () => {
       );
       const listId = await listService.generateGroceryList(userId, {
         title: "This week",
+        plannedDate: new Date(),
         sources: [{ dishId: recipeId, scaleFactor: 1 }],
       });
       const item = await prisma.groceryListItem.findFirstOrThrow({
@@ -814,6 +828,7 @@ describe("grocery list service", () => {
 
       const listId = await listService.generateGroceryList(userId, {
         title: "This week",
+        plannedDate: new Date(),
         sources: [{ dishId: recipeId, scaleFactor: 1 }],
       });
       const item = await prisma.groceryListItem.findFirstOrThrow({
@@ -870,6 +885,7 @@ describe("grocery list service", () => {
       );
       const listId = await listService.generateGroceryList(userId, {
         title: "This week",
+        plannedDate: new Date(),
         sources: [{ dishId: recipeId, scaleFactor: 1 }],
       });
       const item = await prisma.groceryListItem.findFirstOrThrow({
@@ -889,6 +905,75 @@ describe("grocery list service", () => {
     });
   });
 
+  describe("updateGroceryListDetails", () => {
+    it("updates name, date, and active status together", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      await initializeNewUser(userId);
+
+      const recipeId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content(),
+      );
+      const listId = await listService.generateGroceryList(userId, {
+        title: "This week",
+        plannedDate: new Date("2026-01-01"),
+        sources: [{ dishId: recipeId, scaleFactor: 1 }],
+      });
+
+      const newDate = new Date("2026-02-14");
+      await listService.updateGroceryListDetails(userId, listId, {
+        title: "Valentine's dinner",
+        plannedDate: newDate,
+        isActive: false,
+      });
+
+      const updated = await prisma.groceryList.findUniqueOrThrow({
+        where: { id: listId },
+      });
+      expect(updated.title).toBe("Valentine's dinner");
+      expect(updated.plannedDate.toISOString().slice(0, 10)).toBe("2026-02-14");
+      expect(updated.completedAt).not.toBeNull();
+
+      // Setting isActive back to true reopens it.
+      await listService.updateGroceryListDetails(userId, listId, {
+        title: "Valentine's dinner",
+        plannedDate: newDate,
+        isActive: true,
+      });
+      const reactivated = await prisma.groceryList.findUniqueOrThrow({
+        where: { id: listId },
+      });
+      expect(reactivated.completedAt).toBeNull();
+    });
+
+    it("rejects a blank title", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      await initializeNewUser(userId);
+
+      const recipeId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content(),
+      );
+      const listId = await listService.generateGroceryList(userId, {
+        title: "This week",
+        plannedDate: new Date(),
+        sources: [{ dishId: recipeId, scaleFactor: 1 }],
+      });
+
+      await expect(
+        listService.updateGroceryListDetails(userId, listId, {
+          title: "   ",
+          plannedDate: new Date(),
+          isActive: true,
+        }),
+      ).rejects.toThrow(ValidationError);
+    });
+  });
+
   describe("duplicateGroceryList", () => {
     it("creates an independent, unchecked copy", async () => {
       const user = await createTestUser();
@@ -902,6 +987,7 @@ describe("grocery list service", () => {
       );
       const listId = await listService.generateGroceryList(userId, {
         title: "This week",
+        plannedDate: new Date(),
         sources: [{ dishId: recipeId, scaleFactor: 1 }],
       });
       const item = await prisma.groceryListItem.findFirstOrThrow({
@@ -966,6 +1052,7 @@ describe("grocery list service", () => {
       );
       const listId = await listService.generateGroceryList(userId, {
         title: "This week",
+        plannedDate: new Date(),
         sources: [
           { dishId: recipeA, scaleFactor: 1 },
           { dishId: recipeB, scaleFactor: 1 },
@@ -1040,6 +1127,7 @@ describe("grocery list service", () => {
       );
       const listId = await listService.generateGroceryList(userId, {
         title: "This week",
+        plannedDate: new Date(),
         sources: [
           { dishId: recipeA, scaleFactor: 1 },
           { dishId: recipeB, scaleFactor: 1 },
@@ -1122,6 +1210,7 @@ describe("grocery list service", () => {
       );
       const listId = await listService.generateGroceryList(userId, {
         title: "This week",
+        plannedDate: new Date(),
         sources: [{ dishId: recipeId, scaleFactor: 3 }],
       });
       const contribution =
@@ -1212,6 +1301,7 @@ describe("grocery list service", () => {
       );
       const listId = await listService.generateGroceryList(ownerId, {
         title: "This week",
+        plannedDate: new Date(),
         sources: [{ dishId: recipeId, scaleFactor: 1 }],
       });
       const item = await prisma.groceryListItem.findFirstOrThrow({
@@ -1415,6 +1505,7 @@ describe("grocery list service", () => {
       );
       const listId = await listService.generateGroceryList(userId, {
         title: "This week",
+        plannedDate: new Date(),
         sources: [{ dishId: recipeId, scaleFactor: 1 }],
       });
       const item = await prisma.groceryListItem.findFirstOrThrow({
@@ -1442,6 +1533,7 @@ describe("grocery list service", () => {
       );
       const listId = await listService.generateGroceryList(userId, {
         title: "This week",
+        plannedDate: new Date(),
         sources: [{ dishId: recipeId, scaleFactor: 1 }],
       });
       const manual = await listService.addManualGroceryItem(userId, listId, {
@@ -1501,6 +1593,7 @@ describe("grocery list service", () => {
       );
       const listId = await listService.generateGroceryList(userId, {
         title: "This week",
+        plannedDate: new Date(),
         sources: [
           { dishId: recipeA, scaleFactor: 1 },
           { dishId: recipeB, scaleFactor: 1 },
@@ -1583,6 +1676,7 @@ describe("grocery list service", () => {
       );
       const listId = await listService.generateGroceryList(userId, {
         title: "This week",
+        plannedDate: new Date(),
         sources: [{ dishId: recipeId, scaleFactor: 1 }],
       });
 
@@ -1684,6 +1778,7 @@ describe("grocery list service", () => {
       );
       const listId = await listService.generateGroceryList(userId, {
         title: "This week",
+        plannedDate: new Date(),
         sources: [{ dishId: recipeId, scaleFactor: 1 }],
       });
       const beforeContribution =
@@ -1794,6 +1889,7 @@ describe("grocery list service", () => {
       );
       const listId = await listService.generateGroceryList(userId, {
         title: "This week",
+        plannedDate: new Date(),
         sources: [{ dishId: recipeId, scaleFactor: 1 }],
       });
       const beforeContribution =
@@ -1904,6 +2000,7 @@ describe("grocery list service", () => {
       );
       const listId = await listService.generateGroceryList(userId, {
         title: "This week",
+        plannedDate: new Date(),
         sources: [{ dishId: recipeId, scaleFactor: 1 }],
       });
       const beforeContribution =
@@ -2005,6 +2102,7 @@ describe("grocery list service", () => {
       );
       const listId = await listService.generateGroceryList(userId, {
         title: "This week",
+        plannedDate: new Date(),
         sources: [{ dishId: recipeId, scaleFactor: 1 }],
       });
       const item = await prisma.groceryListItem.findFirstOrThrow({
@@ -2125,6 +2223,7 @@ describe("grocery list service", () => {
       );
       const listId = await listService.generateGroceryList(userId, {
         title: "This week",
+        plannedDate: new Date(),
         sources: [{ dishId: recipeId, scaleFactor: 1 }],
       });
       const item = await prisma.groceryListItem.findFirstOrThrow({
@@ -2222,6 +2321,7 @@ describe("grocery list service", () => {
       );
       const listId = await listService.generateGroceryList(userId, {
         title: "This week",
+        plannedDate: new Date(),
         sources: [{ dishId: recipeId, scaleFactor: 1 }],
       });
       const item = await prisma.groceryListItem.findFirstOrThrow({
@@ -2342,6 +2442,7 @@ describe("grocery list service", () => {
       );
       const listId = await listService.generateGroceryList(userId, {
         title: "This week",
+        plannedDate: new Date(),
         sources: [
           { dishId: untouchedRecipe, scaleFactor: 1 },
           { dishId: refreshedRecipe, scaleFactor: 1 },
@@ -2449,6 +2550,7 @@ describe("grocery list service", () => {
       );
       const listId = await listService.generateGroceryList(userId, {
         title: "This week",
+        plannedDate: new Date(),
         sources: [{ dishId: recipeId, scaleFactor: 1 }],
       });
       await dishService.deleteDish(userId, recipeId, "RECIPE");

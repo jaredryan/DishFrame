@@ -13,7 +13,6 @@ import {
   type CreateFlavorProfileActionState,
 } from "@/lib/flavor-profiles/schema";
 
-const FLAVOR_PROFILES_PATH = "/flavor-profiles";
 const SETTINGS_PATH = "/settings";
 
 export async function createFlavorProfile(
@@ -31,7 +30,6 @@ export async function createFlavorProfile(
       name,
     );
 
-    revalidatePath(FLAVOR_PROFILES_PATH);
     revalidatePath(SETTINGS_PATH);
     return {
       status: "success",
@@ -60,7 +58,6 @@ export async function renameFlavorProfile(
 
     await flavorProfileService.renameFlavorProfileValue(userId, id, name);
 
-    revalidatePath(FLAVOR_PROFILES_PATH);
     revalidatePath(SETTINGS_PATH);
     return { status: "success", message: "Renamed." };
   } catch (error) {
@@ -78,7 +75,6 @@ export async function deleteFlavorProfile(
 
     await flavorProfileService.deleteFlavorProfileValue(userId, id);
 
-    revalidatePath(FLAVOR_PROFILES_PATH);
     revalidatePath(SETTINGS_PATH);
     return { status: "success", message: "Deleted." };
   } catch (error) {
@@ -97,7 +93,6 @@ export async function reorderFlavorProfiles(
 
     await flavorProfileService.reorderFlavorProfileValues(userId, ids);
 
-    revalidatePath(FLAVOR_PROFILES_PATH);
     revalidatePath(SETTINGS_PATH);
     return { status: "success" };
   } catch (error) {

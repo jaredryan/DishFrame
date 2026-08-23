@@ -31,14 +31,14 @@ export default async function PartsPage({
       description="Save the sauces, sides, staples, and preparations you use across more than one recipe."
       action={
         <>
-          <Button asChild variant="outline">
-            <Link href="/parts/import">
-              <Import /> Import
-            </Link>
-          </Button>
           <Button asChild>
             <Link href="/parts/new">
               <Layers /> Create part
+            </Link>
+          </Button>
+          <Button asChild variant="outline">
+            <Link href="/parts/import">
+              <Import /> Import
             </Link>
           </Button>
         </>

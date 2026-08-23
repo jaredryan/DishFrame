@@ -237,17 +237,19 @@ export function PartLinkFields({
       style={style}
       className="border-border bg-card flex flex-col gap-3 rounded-xl border p-4"
     >
-      <div className="flex items-center gap-2">
-        <DragHandle
-          label={`Drag to reorder ${title}`}
-          attributes={attributes}
-          listeners={listeners}
-          isDragging={isDragging}
-        />
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
-          <h3 className="font-heading text-foreground truncate text-base font-medium">
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+        <div className="flex items-center gap-2 sm:contents">
+          <DragHandle
+            label={`Drag to reorder ${title}`}
+            attributes={attributes}
+            listeners={listeners}
+            isDragging={isDragging}
+          />
+          <h3 className="font-heading text-foreground min-w-0 flex-1 truncate text-base font-medium sm:flex-initial">
             {title}
           </h3>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5 sm:min-w-0 sm:flex-1">
           <Badge variant="outline">Part</Badge>
           {versionLabel && (
             <Badge variant="outline" className="tabular-nums">
@@ -258,7 +260,7 @@ export function PartLinkFields({
             <Badge variant="outline">× {committedMultiplier}</Badge>
           )}
         </div>
-        <div className="flex shrink-0 items-center gap-0.5">
+        <div className="flex items-center gap-0.5 sm:shrink-0">
           {targetDishId && (
             <>
               <TooltipProvider>

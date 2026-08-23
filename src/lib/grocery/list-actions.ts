@@ -6,7 +6,7 @@ import { toActionErrorMessage } from "@/lib/errors";
 import * as listService from "@/lib/grocery/list-service";
 import {
   generateGroceryListSchema,
-  renameGroceryListSchema,
+  updateGroceryListDetailsSchema,
   addManualGroceryItemSchema,
   editGroceryItemSchema,
   recategorizeGroceryItemSchema,
@@ -33,6 +33,7 @@ export type GenerateGroceryListActionState =
 
 export async function generateGroceryList(values: {
   title: string;
+  plannedDate: Date;
   sources: Array<{ dishId: string; scaleFactor: number }>;
 }): Promise<GenerateGroceryListActionState> {
   try {
@@ -46,14 +47,16 @@ export async function generateGroceryList(values: {
   }
 }
 
-export async function renameGroceryList(values: {
+export async function updateGroceryListDetails(values: {
   listId: string;
   title: string;
+  plannedDate: Date;
+  isActive: boolean;
 }): Promise<ActionState> {
   try {
     const userId = await requireUserId();
-    const { listId, title } = renameGroceryListSchema.parse(values);
-    await listService.renameGroceryList(userId, listId, title);
+    const { listId, ...input } = updateGroceryListDetailsSchema.parse(values);
+    await listService.updateGroceryListDetails(userId, listId, input);
     revalidateList(listId);
     return { status: "success" };
   } catch (error) {
