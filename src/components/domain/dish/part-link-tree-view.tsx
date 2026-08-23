@@ -3,6 +3,7 @@ import { Eye } from "lucide-react";
 import { scaledIngredientDisplay } from "@/lib/dishes/scaled-display";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
 import { Badge } from "@/components/ui/badge";
+import { SemanticChip } from "@/components/domain/dish/semantic-chip";
 import {
   ContentCard,
   CONTENT_CARD_TITLE_CLASS,
@@ -47,15 +48,15 @@ export function PartLinkTreeView({
   const effectiveScale = scaleFactor * tree.multiplier;
 
   const header = (
-    <div className="flex flex-wrap items-center justify-between gap-2">
+    <div className="flex items-start justify-between gap-2">
       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
         <h4 className={CONTENT_CARD_TITLE_CLASS}>
           {tree.title ?? "Untitled part"}
         </h4>
-        <Badge variant="outline">Part</Badge>
-        <Badge variant="outline" className="tabular-nums">
+        <SemanticChip semantic="neutral">Part</SemanticChip>
+        <SemanticChip semantic="purple" className="tabular-nums">
           {tree.versionLabel}
-        </Badge>
+        </SemanticChip>
         {tree.multiplier !== 1 && (
           <Badge variant="outline">× {tree.multiplier}</Badge>
         )}

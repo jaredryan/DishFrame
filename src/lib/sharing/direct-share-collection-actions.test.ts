@@ -58,7 +58,7 @@ describe("sharing/actions.ts Slice 22 auth boundary", () => {
     const { sendDirectShareCollection } = await importActions();
     const result = await sendDirectShareCollection({
       recipientEmail: "a@example.invalid",
-      dishIds: ["d1"],
+      items: [{ dishId: "d1", dishVersionId: "v1" }],
       note: null,
     });
     expect(result).toEqual({ status: "error", message: NOT_SIGNED_IN.message });
@@ -94,16 +94,20 @@ describe("sharing/actions.ts Slice 22 auth boundary", () => {
     mockSendCollection.mockResolvedValue({ collectionId: "c1" });
     const { sendDirectShareCollection } = await importActions();
 
+    const items = [
+      { dishId: "d1", dishVersionId: "v1" },
+      { dishId: "d2", dishVersionId: "v2" },
+    ];
     const result = await sendDirectShareCollection({
       recipientEmail: "a@example.invalid",
-      dishIds: ["d1", "d2"],
+      items,
       note: "Hi",
     });
 
     expect(result).toEqual({ status: "success", collectionId: "c1" });
     expect(mockSendCollection).toHaveBeenCalledWith("user-1", {
       recipientEmail: "a@example.invalid",
-      dishIds: ["d1", "d2"],
+      items,
       note: "Hi",
     });
   });
@@ -112,10 +116,13 @@ describe("sharing/actions.ts Slice 22 auth boundary", () => {
     mockRequireUserId.mockResolvedValue("user-1");
     const { sendDirectShareCollection } = await importActions();
 
-    const tooMany = Array.from({ length: 51 }, (_, i) => `d${i}`);
+    const tooMany = Array.from({ length: 51 }, (_, i) => ({
+      dishId: `d${i}`,
+      dishVersionId: `v${i}`,
+    }));
     const result = await sendDirectShareCollection({
       recipientEmail: "a@example.invalid",
-      dishIds: tooMany,
+      items: tooMany,
       note: null,
     });
 

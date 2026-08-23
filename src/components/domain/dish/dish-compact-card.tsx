@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { Star, Eye, Pencil } from "lucide-react";
 import { StageBadge } from "@/components/domain/dish/stage-badge";
 import { RatingBadge } from "@/components/domain/dish/rating-badge";
+import { SemanticChip } from "@/components/domain/dish/semantic-chip";
 import { Badge } from "@/components/ui/badge";
 import { TooltipIconButton } from "@/components/domain/dish/reorder-buttons";
 import { DishKindBadge } from "@/components/domain/dish/dish-kind-badge";
@@ -57,7 +58,9 @@ export function DishCompactCard({
           {showKind && <DishKindBadge kind={kind} />}
           <StageBadge stage={dish.stage} />
           {dish.rating && <RatingBadge rating={dish.rating} />}
-          {dish.cuisine && <Badge variant="outline">{dish.cuisine}</Badge>}
+          {dish.cuisine && (
+            <SemanticChip semantic="green">{dish.cuisine}</SemanticChip>
+          )}
           <Badge variant="outline">
             Updated {dateFormatter.format(dish.updatedAt)}
           </Badge>

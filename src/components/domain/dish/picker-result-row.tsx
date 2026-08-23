@@ -1,14 +1,14 @@
-import { Badge } from "@/components/ui/badge";
 import { DishKindBadge } from "@/components/domain/dish/dish-kind-badge";
+import { SemanticChip } from "@/components/domain/dish/semantic-chip";
 import { cn } from "@/lib/utils";
 import type { DishKindValue } from "@/lib/dishes/schema";
 
 const MAX_VISIBLE_TAGS = 3;
 
 /**
- * Restrained tag display shared by the Attach-a-part and Start-cooking
- * pickers — a handful of Badges plus a compact "+N" overflow indicator, so a
- * heavily-tagged item never blows out the row height.
+ * Restrained tag display for the Attach-a-part picker — a handful of
+ * neutral chips plus a compact "+N" overflow indicator, so a heavily-tagged
+ * item never blows out the row height.
  */
 function PickerTagList({
   tags,
@@ -24,28 +24,25 @@ function PickerTagList({
   return (
     <>
       {shown.map((tag) => (
-        <Badge key={tag} variant="outline" className={selectedBorder}>
+        <SemanticChip key={tag} semantic="neutral" className={selectedBorder}>
           {tag}
-        </Badge>
+        </SemanticChip>
       ))}
       {overflow > 0 && (
-        <Badge
-          variant="outline"
-          className={cn("text-muted-foreground", selectedBorder)}
-        >
+        <SemanticChip semantic="neutral" className={selectedBorder}>
           +{overflow}
-        </Badge>
+        </SemanticChip>
       )}
     </>
   );
 }
 
 /**
- * One clickable result row, shared by the Attach-a-part and Start-cooking
- * pickers. `kind` renders the Recipe/Part distinction badge when given (the
- * Attach-a-part picker omits it — only Parts are ever candidates there);
- * `selected` renders a selected state for pickers where clicking selects
- * rather than immediately confirming.
+ * One clickable result row for the Attach-a-part picker. `kind` renders the
+ * Recipe/Part distinction badge when given (the Attach-a-part picker omits
+ * it — only Parts are ever candidates there); `selected` renders a selected
+ * state for pickers where clicking selects rather than immediately
+ * confirming.
  */
 export function PickerResultRow({
   title,

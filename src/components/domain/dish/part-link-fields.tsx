@@ -6,6 +6,7 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { SemanticChip } from "@/components/domain/dish/semantic-chip";
 import { Input } from "@/components/ui/input";
 import { DragHandle } from "@/components/ui/drag-handle";
 import { versionLabel as formatVersionLabel } from "@/lib/dishes/version-note";
@@ -250,11 +251,11 @@ export function PartLinkFields({
           </h3>
         </div>
         <div className="flex flex-wrap items-center gap-1.5 sm:min-w-0 sm:flex-1">
-          <Badge variant="outline">Part</Badge>
+          <SemanticChip semantic="neutral">Part</SemanticChip>
           {versionLabel && (
-            <Badge variant="outline" className="tabular-nums">
+            <SemanticChip semantic="purple" className="tabular-nums">
               {versionLabel}
-            </Badge>
+            </SemanticChip>
           )}
           {committedMultiplier !== 1 && (
             <Badge variant="outline">× {committedMultiplier}</Badge>

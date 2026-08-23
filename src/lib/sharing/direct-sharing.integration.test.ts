@@ -82,7 +82,12 @@ async function sendItem(
 ): Promise<{ directShareId: string; collectionId: string }> {
   const { collectionId } = await sendDirectShareCollection(senderId, {
     recipientEmail: input.recipientEmail,
-    dishIds: [input.dishId],
+    items: [
+      {
+        dishId: input.dishId,
+        dishVersionId: await currentVersionId(input.dishId),
+      },
+    ],
     note: input.note,
   });
   const child = await prisma.directShare.findFirstOrThrow({

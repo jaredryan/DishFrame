@@ -483,6 +483,24 @@ export type DishVersionSummary = Awaited<
   ReturnType<typeof listDishVersionSummaries>
 >[number];
 
+// Same ordering/scope as `listDishVersionSummaries` above, but with each
+// Version's own authored yield instead of title/note metadata — backs the
+// Send/Publish/Add-Edit-meal Version pickers, whose `DishYieldScalingField`-
+// driven callers need the chosen Version's own yield, not just its label.
+export function listDishVersionYieldOptions(dishId: string) {
+  return prisma.dishVersion.findMany({
+    where: { dishId },
+    select: {
+      id: true,
+      majorVersion: true,
+      minorVersion: true,
+      yieldQuantity: true,
+      yieldUnit: true,
+    },
+    orderBy: [{ majorVersion: "asc" }, { minorVersion: "asc" }],
+  });
+}
+
 // PRODUCT_SPEC.md §13.5: current = highest major, then highest minor within
 // it — the highest existing majorVersion alone tells the editor which line
 // is current, needed to label "Start a new version" correctly regardless of

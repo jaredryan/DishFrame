@@ -221,7 +221,7 @@ async function sendOneItem(
 ): Promise<{ directShareId: string; collectionId: string }> {
   const { collectionId } = await sendDirectShareCollection(senderId, {
     recipientEmail: input.recipientEmail,
-    dishIds: [input.dishId],
+    items: await toItems([input.dishId]),
     note: input.note,
   });
   const child = await prisma.directShare.findFirstOrThrow({
@@ -269,6 +269,22 @@ function collectionFixtureContent(
     partLinks: [],
     ...overrides,
   };
+}
+
+// `sendDirectShareCollection` takes an explicit Version choice per item
+// (schema.ts) — QA fixtures always want each Dish's current Version.
+async function toItems(
+  dishIds: string[],
+): Promise<{ dishId: string; dishVersionId: string }[]> {
+  const dishes = await prisma.dish.findMany({
+    where: { id: { in: dishIds } },
+    select: { id: true, currentVersionId: true },
+  });
+  const versionById = new Map(dishes.map((d) => [d.id, d.currentVersionId!]));
+  return dishIds.map((dishId) => ({
+    dishId,
+    dishVersionId: versionById.get(dishId)!,
+  }));
 }
 
 const CLAIM_DEMO_EMAIL = "qa-claim-demo@dishframe.invalid";
@@ -429,7 +445,7 @@ export async function buildDirectShareFixtures(
     const unclaimedPartEmail = "not-yet-joined-part-qa@dishframe.invalid";
     await sendDirectShareCollection(primaryId, {
       recipientEmail: unclaimedPartEmail,
-      dishIds: [dishId],
+      items: await toItems([dishId]),
       note: "You'll see this once you sign in.",
     });
     summary.push({
@@ -447,7 +463,7 @@ export async function buildDirectShareFixtures(
     const partId = await newRecipeOrPart("PART", "[QA] Mixed Send Part");
     await sendDirectShareCollection(primaryId, {
       recipientEmail: counterpartyEmail,
-      dishIds: [recipeId, partId],
+      items: await toItems([recipeId, partId]),
       note: "One Recipe and one Part in the same send.",
     });
     summary.push({
@@ -470,7 +486,7 @@ export async function buildDirectShareFixtures(
     );
     await sendDirectShareCollection(primaryId, {
       recipientEmail: counterpartyEmail,
-      dishIds,
+      items: await toItems(dishIds),
       note: "A few for the weekend — no rush.",
     });
     summary.push({
@@ -492,7 +508,7 @@ export async function buildDirectShareFixtures(
     ]);
     const { collectionId } = await sendDirectShareCollection(primaryId, {
       recipientEmail: counterpartyEmail,
-      dishIds: [acceptDishId, declineDishId],
+      items: await toItems([acceptDishId, declineDishId]),
       note: "One of these is a repeat, one's new.",
     });
     const acceptedChild = await prisma.directShare.findFirstOrThrow({
@@ -518,7 +534,7 @@ export async function buildDirectShareFixtures(
     const unclaimedEmail = "not-yet-joined-qa@dishframe.invalid";
     await sendDirectShareCollection(primaryId, {
       recipientEmail: unclaimedEmail,
-      dishIds: [dishId],
+      items: await toItems([dishId]),
       note: "You'll see this once you sign in.",
     });
     summary.push({
@@ -540,7 +556,7 @@ export async function buildDirectShareFixtures(
     const dishId = await newRecipeOrPart("RECIPE", title);
     await sendDirectShareCollection(primaryId, {
       recipientEmail: CLAIM_DEMO_EMAIL,
-      dishIds: [dishId],
+      items: await toItems([dishId]),
       note: "Claim this once you're signed up.",
     });
     const claimDemo = await resolveSeedOwner(

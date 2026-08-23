@@ -658,10 +658,13 @@ describe("CookingModeShell — desktop timer rail", () => {
     );
 
     // Rail is independent of the selected Section (design item 5).
-    expect(within(desktopRail()).getByText(/Rice/)).toBeInTheDocument();
+    const riceRow = within(desktopRail())
+      .getByText(/Rice/)
+      .closest("li") as HTMLElement;
+    expect(riceRow).toBeInTheDocument();
 
     await user.click(
-      within(desktopRail()).getByRole("button", { name: /start timer/i }),
+      within(riceRow).getByRole("button", { name: /start timer/i }),
     );
     await waitFor(() =>
       expect(mockedStartTimer).toHaveBeenCalledWith({
@@ -671,12 +674,12 @@ describe("CookingModeShell — desktop timer rail", () => {
     );
   });
 
-  it("shows a glanceable timer chip on the owning Section's nav item", () => {
+  it("does not surface timer state on the owning Section's nav item (timers live only in the rail)", () => {
     render(<CookingModeShell {...baseProps} units={timerFixture()} />);
     const prepNavItem = within(desktopNav()).getByRole("button", {
       name: /Prep/,
     });
-    expect(within(prepNavItem).getByText("5:00")).toBeInTheDocument();
+    expect(within(prepNavItem).queryByText("5:00")).not.toBeInTheDocument();
   });
 });
 

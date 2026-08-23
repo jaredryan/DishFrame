@@ -1,3 +1,4 @@
+import * as React from "react";
 import Link from "next/link";
 import {
   Check,
@@ -20,9 +21,8 @@ import {
   IngredientsSection,
   InstructionsSection,
 } from "@/components/domain/cooking/checklist-sections";
-import { AddTimerForm } from "@/components/domain/cooking/add-timer-form";
+import { StartTimerDialog } from "@/components/domain/cooking/start-timer-dialog";
 import { TimerRow } from "@/components/domain/cooking/timer-row";
-import { formatCountdown } from "@/lib/cooking/timer-math";
 import type {
   CookingModeChecklistItem,
   CookingModeUnit,
@@ -68,9 +68,6 @@ export type CookingLayoutProps = {
   collapsedInstructionUnits: Set<string>;
   onToggleInstructionsCollapsed: (unitId: string) => void;
   onOpenUnitScale: (unit: CookingModeUnit) => void;
-  addTimerUnitId: string | null;
-  onRequestAddTimer: (unitId: string) => void;
-  onCancelAddTimer: () => void;
   onTimerCreated: () => void;
   onSetUnitCompletion: (unitId: string, completed: boolean) => void;
   isPending: boolean;
@@ -112,9 +109,6 @@ export function DesktopCookingLayout({
   collapsedInstructionUnits,
   onToggleInstructionsCollapsed,
   onOpenUnitScale,
-  addTimerUnitId,
-  onRequestAddTimer,
-  onCancelAddTimer,
   onTimerCreated,
   onSetUnitCompletion,
   isPending,
@@ -122,6 +116,7 @@ export function DesktopCookingLayout({
   timerActions,
   liveTimers,
 }: CookingLayoutProps) {
+  const [timerModalOpen, setTimerModalOpen] = React.useState(false);
   const selectedUnit = selectedDestination
     ? (unitViewModels.find((vm) => vm.unit.id === selectedDestination)?.unit ??
       null)
@@ -162,7 +157,6 @@ export function DesktopCookingLayout({
             />
           ) : selectedUnit ? (
             <SectionPanel
-              sessionId={sessionId}
               unit={selectedUnit}
               isActive={isActive}
               isChecked={isChecked}
@@ -182,10 +176,6 @@ export function DesktopCookingLayout({
                 onToggleInstructionsCollapsed(selectedUnit.id)
               }
               onOpenUnitScale={() => onOpenUnitScale(selectedUnit)}
-              addTimerActive={addTimerUnitId === selectedUnit.id}
-              onRequestAddTimer={() => onRequestAddTimer(selectedUnit.id)}
-              onCancelAddTimer={onCancelAddTimer}
-              onTimerCreated={onTimerCreated}
               onSetUnitCompletion={onSetUnitCompletion}
               isPending={isPending}
             />
@@ -202,7 +192,19 @@ export function DesktopCookingLayout({
         isActive={isActive}
         liveTimers={liveTimers}
         timerActions={timerActions}
+        onStartTimer={() => setTimerModalOpen(true)}
       />
+
+      {isActive && (
+        <StartTimerDialog
+          open={timerModalOpen}
+          onOpenChangeAction={setTimerModalOpen}
+          sessionId={sessionId}
+          unitViewModels={unitViewModels}
+          selectedDestination={selectedDestination}
+          onCreatedAction={onTimerCreated}
+        />
+      )}
     </div>
   );
 }
@@ -261,7 +263,7 @@ export function NavList({
       </button>
       <div className="border-border my-1 border-t" />
       <ul className="flex flex-col gap-1">
-        {unitViewModels.map(({ unit, instructionProgress, timerChips }) => {
+        {unitViewModels.map(({ unit, instructionProgress }) => {
           const isSelected = unit.id === selectedDestination;
           return (
             <li key={unit.id}>
@@ -292,26 +294,6 @@ export function NavList({
                     )}
                   </span>
                 </span>
-                {timerChips.length > 0 && (
-                  <span className="flex flex-wrap gap-1">
-                    {timerChips.map((chip) => (
-                      <span
-                        key={chip.id}
-                        className={`rounded-full border px-1.5 py-0.5 text-[10px] font-medium tabular-nums ${
-                          chip.isExpired
-                            ? "border-brand-orange bg-brand-orange/10 text-brand-orange-text animate-pulse"
-                            : chip.state === "RUNNING"
-                              ? "border-brand-orange/50 text-brand-orange-text"
-                              : "border-border text-muted-foreground"
-                        }`}
-                      >
-                        {chip.isExpired
-                          ? "Time's up"
-                          : formatCountdown(chip.remainingSeconds)}
-                      </span>
-                    ))}
-                  </span>
-                )}
               </button>
             </li>
           );
@@ -463,7 +445,6 @@ export function RecipePanel({
 }
 
 export function SectionPanel({
-  sessionId,
   unit,
   isActive,
   isChecked,
@@ -477,14 +458,9 @@ export function SectionPanel({
   instructionsCollapsed,
   onToggleInstructionsCollapsed,
   onOpenUnitScale,
-  addTimerActive,
-  onRequestAddTimer,
-  onCancelAddTimer,
-  onTimerCreated,
   onSetUnitCompletion,
   isPending,
 }: {
-  sessionId: string;
   unit: CookingModeUnit;
   isActive: boolean;
   isChecked: (item: CookingModeChecklistItem) => boolean;
@@ -498,10 +474,6 @@ export function SectionPanel({
   instructionsCollapsed: boolean;
   onToggleInstructionsCollapsed: () => void;
   onOpenUnitScale: () => void;
-  addTimerActive: boolean;
-  onRequestAddTimer: () => void;
-  onCancelAddTimer: () => void;
-  onTimerCreated: () => void;
   onSetUnitCompletion: (unitId: string, completed: boolean) => void;
   isPending: boolean;
 }) {
@@ -514,36 +486,22 @@ export function SectionPanel({
 
   return (
     <>
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex items-start justify-between gap-2">
         <h1 className="font-heading text-foreground min-w-0 text-2xl font-semibold text-balance">
           {unit.label}
         </h1>
         {isActive && (
-          <div className="flex items-center justify-between gap-2 sm:w-auto sm:shrink-0 sm:justify-end">
-            <Button
-              size="sm"
-              onClick={onRequestAddTimer}
-              disabled={addTimerActive}
-            >
-              <TimerIcon className="size-4" aria-hidden="true" />
-              Start timer
-            </Button>
-            <Button variant="outline" size="sm" onClick={onOpenUnitScale}>
-              <SlidersHorizontal className="size-4" aria-hidden="true" />
-              Scale
-            </Button>
-          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onOpenUnitScale}
+            className="shrink-0"
+          >
+            <SlidersHorizontal className="size-4" aria-hidden="true" />
+            Scale
+          </Button>
         )}
       </div>
-
-      {isActive && addTimerActive && (
-        <AddTimerForm
-          sessionId={sessionId}
-          unitId={unit.id}
-          onDone={onTimerCreated}
-          onCancel={onCancelAddTimer}
-        />
-      )}
 
       <IngredientsSection
         items={ingredientItems}
@@ -599,20 +557,30 @@ function TimerRail({
   isActive,
   liveTimers,
   timerActions,
+  onStartTimer,
 }: {
   timers: RailTimer[];
   isActive: boolean;
   liveTimers: Map<string, LiveTimerState>;
   timerActions: TimerActions;
+  onStartTimer: () => void;
 }) {
   return (
     <aside
       aria-label="Active timers"
       className="border-border bg-card flex h-full w-60 shrink-0 flex-col gap-2 overflow-y-auto border-l p-3 xl:w-72"
     >
-      <h2 className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
-        Timers
-      </h2>
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+          Timers
+        </h2>
+        {isActive && (
+          <Button size="sm" onClick={onStartTimer}>
+            <TimerIcon className="size-4" aria-hidden="true" />
+            Start timer
+          </Button>
+        )}
+      </div>
       <TimerList
         timers={timers}
         isActive={isActive}
@@ -629,7 +597,7 @@ export function TimerList({
   isActive,
   liveTimers,
   timerActions,
-  emptyMessage = "No active timers. Start one from a Section.",
+  emptyMessage = "No active timers. Use Start timer above.",
 }: {
   timers: RailTimer[];
   isActive: boolean;

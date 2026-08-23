@@ -8,8 +8,10 @@ import * as dishMetadata from "@/lib/dishes/dish-metadata";
 import {
   listCurrentPartUsages,
   getOwnedDishOrThrow,
+  listDishVersionYieldOptions,
   type PartUsage,
 } from "@/lib/dishes/queries";
+import { decimalToNumber } from "@/lib/dishes/format";
 import {
   dishContentSchema,
   duplicateDishSchema,
@@ -510,6 +512,49 @@ export async function getCurrentPartUsages(
     await getOwnedDishOrThrow(userId, partDishId, "PART");
     const usages = await listCurrentPartUsages(userId, partDishId);
     return { status: "success", usages };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export type DishVersionOption = {
+  id: string;
+  majorVersion: number;
+  minorVersion: number;
+  yieldQuantity: number | null;
+  yieldUnit: string | null;
+};
+
+type ListDishVersionOptionsActionState =
+  | {
+      status: "success";
+      versions: DishVersionOption[];
+      currentVersionId: string | null;
+    }
+  | { status: "error"; message: string };
+
+/** Backs the explicit Version-selection pickers in the Send, Publish,
+ * Make-grocery-list, and Add/Edit-meal flows — each fetches this on demand
+ * for the specific Recipe/Part the user is configuring. */
+export async function listDishVersionOptions(
+  kind: DishKindValue,
+  dishId: string,
+): Promise<ListDishVersionOptionsActionState> {
+  try {
+    const userId = await requireUserId();
+    const dish = await getOwnedDishOrThrow(userId, dishId, kind);
+    const versions = await listDishVersionYieldOptions(dishId);
+    return {
+      status: "success",
+      versions: versions.map((v) => ({
+        id: v.id,
+        majorVersion: v.majorVersion,
+        minorVersion: v.minorVersion,
+        yieldQuantity: decimalToNumber(v.yieldQuantity),
+        yieldUnit: v.yieldUnit,
+      })),
+      currentVersionId: dish.currentVersionId,
+    };
   } catch (error) {
     return { status: "error", message: toActionErrorMessage(error) };
   }

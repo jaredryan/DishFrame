@@ -1,5 +1,5 @@
 import { Star } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { SemanticChip } from "@/components/domain/dish/semantic-chip";
 import type { PrincipalRating } from "@/lib/reviews/queries";
 
 /**
@@ -28,9 +28,9 @@ export function RatingBadge({
       : undefined;
 
   return (
-    <Badge
-      variant="outline"
-      className={`gap-1 tabular-nums ${isProvisional ? "text-muted-foreground" : ""} ${className ?? ""}`}
+    <SemanticChip
+      semantic="purple"
+      className={`tabular-nums ${isProvisional ? "text-muted-foreground bg-muted" : ""} ${className ?? ""}`}
       title={title}
     >
       <Star
@@ -42,6 +42,6 @@ export function RatingBadge({
         aria-hidden="true"
       />
       {label}
-    </Badge>
+    </SemanticChip>
   );
 }

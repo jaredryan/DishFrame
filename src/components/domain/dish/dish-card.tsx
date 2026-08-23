@@ -4,6 +4,7 @@ import { Card, CardContent, CardTitle } from "@/components/ui/card";
 import { PlatePlaceholderIcon } from "@/components/domain/dish/plate-placeholder-icon";
 import { StageBadge } from "@/components/domain/dish/stage-badge";
 import { RatingBadge } from "@/components/domain/dish/rating-badge";
+import { SemanticChip } from "@/components/domain/dish/semantic-chip";
 import type { DishKindValue, StageValue } from "@/lib/dishes/schema";
 import type { PrincipalRating } from "@/lib/reviews/queries";
 
@@ -73,9 +74,7 @@ export function DishCard({
             <StageBadge stage={dish.stage} />
             {dish.rating && <RatingBadge rating={dish.rating} />}
             {dish.cuisine && (
-              <span className="text-muted-foreground text-xs">
-                {dish.cuisine}
-              </span>
+              <SemanticChip semantic="green">{dish.cuisine}</SemanticChip>
             )}
           </div>
         </CardContent>

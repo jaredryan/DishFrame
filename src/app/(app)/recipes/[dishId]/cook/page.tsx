@@ -5,6 +5,7 @@ import { buildCookableUnits } from "@/lib/cooking/queries";
 import {
   getOwnedDishOrThrow,
   getDishScopedVersionContentOrThrow,
+  listDishVersionSummaries,
 } from "@/lib/dishes/queries";
 import { NotFoundError } from "@/lib/errors";
 import {
@@ -62,11 +63,10 @@ export default async function RecipeCookingSetupPage({
     throw error;
   }
 
-  const cookableUnits = await buildCookableUnits(
-    session.user.id,
-    dish,
-    version,
-  );
+  const [cookableUnits, versions] = await Promise.all([
+    buildCookableUnits(session.user.id, dish, version),
+    listDishVersionSummaries(dishId),
+  ]);
   const units: SetupUnit[] = cookableUnits.map((unit) => ({
     unitKey: unit.unitKey,
     kind: unit.kind,
@@ -83,11 +83,17 @@ export default async function RecipeCookingSetupPage({
 
   return (
     <CookingSetup
+      // Remounts (and so resets local plan/scale state) whenever the
+      // selected Version changes — the units/yield below are already
+      // re-derived server-side for the new Version.
+      key={version.id}
       dishId={dish.id}
       dishVersionId={version.id}
       dishTitle={dish.currentTitle || "Untitled"}
       versionLabel={versionLabel(version.majorVersion, version.minorVersion)}
       isCurrent={version.id === dish.currentVersionId}
+      currentVersionId={dish.currentVersionId}
+      versions={versions}
       units={units}
       sourceOutputQuantity={decimalToNumber(version.yieldQuantity)}
       sourceOutputUnit={version.yieldUnit}

@@ -4,6 +4,7 @@ import { getServerSession } from "@/lib/auth/session";
 import {
   getOwnedGroceryListOrThrow,
   listGroceryCategories,
+  listGrocerySourceCandidates,
 } from "@/lib/grocery/queries";
 import { NotFoundError } from "@/lib/errors";
 import { decimalToNumber } from "@/lib/dishes/format";
@@ -53,6 +54,7 @@ export default async function GroceryListDetailPage({
     displayName: c.displayName,
     isFallback: c.isFallback,
   }));
+  const sourceCandidates = await listGrocerySourceCandidates(session.user.id);
 
   const dto: GroceryListDetailDto = {
     id: list.id,
@@ -65,6 +67,8 @@ export default async function GroceryListDetailPage({
     sources: list.sources.map((s) => ({
       id: s.id,
       dishId: s.dishId,
+      dishVersionId: s.dishVersionId,
+      scaleFactor: decimalToNumber(s.scaleFactor) ?? 1,
       sourceDishTitleSnapshot: s.sourceDishTitleSnapshot,
       sourceDishKindSnapshot: s.sourceDishKindSnapshot,
       sourceDishVersionLabelSnapshot: s.sourceDishVersionLabelSnapshot,
@@ -127,5 +131,11 @@ export default async function GroceryListDetailPage({
     })),
   };
 
-  return <GroceryListDetailView list={dto} categoryOptions={categoryOptions} />;
+  return (
+    <GroceryListDetailView
+      list={dto}
+      categoryOptions={categoryOptions}
+      sourceCandidates={sourceCandidates}
+    />
+  );
 }

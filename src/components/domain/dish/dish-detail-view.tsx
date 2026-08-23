@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { StageBadge } from "@/components/domain/dish/stage-badge";
 import { DishDetailActions } from "@/components/domain/dish/dish-detail-actions";
 import { RatingBadge } from "@/components/domain/dish/rating-badge";
+import { SemanticChip } from "@/components/domain/dish/semantic-chip";
 import { RatingDetailDialog } from "@/components/domain/dish/rating-detail-dialog";
 import {
   ScaledVersionView,
@@ -57,12 +58,6 @@ type VersionSectionRow = Prisma.SectionGetPayload<{
  * not a real `Decimal` instance). This Server Component does the
  * Decimal→number conversion once, here, before handing sections down.
  */
-// Restrained highlight distinguishing the secondary cooking-related metadata
-// chips (Last cooked, Makes, Difficulty) from the neutral outline chips
-// ahead of them in the unified chip list.
-const COOKING_METADATA_CHIP_CLASS =
-  "gap-1 border-transparent bg-brand-orange/10 text-brand-orange-text dark:bg-brand-orange/20";
-
 function toDisplaySections(
   sections: VersionSectionRow[],
   sectionPartLinkTreeLists: PartLinkTree[][],
@@ -286,37 +281,39 @@ export async function DishDetailView({
   const chipsEl = (
     <div className="flex flex-wrap items-center gap-1.5">
       <StageBadge stage={dish.stage} />
-      <Badge variant="outline" className="tabular-nums">
+      <SemanticChip semantic="purple" className="tabular-nums">
         {versionLabel}
-      </Badge>
+      </SemanticChip>
       {principalRating.kind !== "none" && (
         <RatingBadge rating={principalRating} />
       )}
-      {dish.cuisine && <Badge variant="outline">{dish.cuisine}</Badge>}
+      {dish.cuisine && (
+        <SemanticChip semantic="green">{dish.cuisine}</SemanticChip>
+      )}
       {flavorProfileNames.map((name) => (
-        <Badge key={`flavor-${name}`} variant="outline">
+        <SemanticChip key={`flavor-${name}`} semantic="green">
           {name}
-        </Badge>
+        </SemanticChip>
       ))}
       {nonFavoriteTagNames.map((name) => (
-        <Badge key={`tag-${name}`} variant="outline">
+        <SemanticChip key={`tag-${name}`} semantic="neutral">
           {name}
-        </Badge>
+        </SemanticChip>
       ))}
       {lastCookedAt && (
-        <Badge variant="outline" className={COOKING_METADATA_CHIP_CLASS}>
+        <SemanticChip semantic="orange">
           <History className="size-3" aria-hidden="true" />
           Last cooked {lastCookedAt.toLocaleDateString()}
-        </Badge>
+        </SemanticChip>
       )}
       {kind === "PART" && cookingHistoryEvents.length > 0 && (
         <CookingHistoryDialog events={cookingHistoryEvents} />
       )}
       {effectiveYieldQuantity != null && (
-        <Badge variant="outline" className={COOKING_METADATA_CHIP_CLASS}>
+        <SemanticChip semantic="orange">
           <Soup className="size-3" aria-hidden="true" />
           Makes {effectiveYieldQuantity} {version.yieldUnit ?? ""}
-        </Badge>
+        </SemanticChip>
       )}
       {version.prepTimeMinutes != null && (
         <Badge variant="outline" className="gap-1">
@@ -331,10 +328,10 @@ export async function DishDetailView({
         </Badge>
       )}
       {version.difficulty && (
-        <Badge variant="outline" className={COOKING_METADATA_CHIP_CLASS}>
+        <SemanticChip semantic="orange">
           <Gauge className="size-3" aria-hidden="true" />
           {version.difficulty}
-        </Badge>
+        </SemanticChip>
       )}
     </div>
   );

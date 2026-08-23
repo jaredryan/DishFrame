@@ -10,7 +10,16 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { MoreHorizontal, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronUp,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Search,
+  Trash2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -43,9 +52,17 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { TooltipIconButton } from "@/components/domain/dish/reorder-buttons";
+import { SelectableDishRow } from "@/components/domain/dish/selectable-dish-row";
+import { DishYieldScalingField } from "@/components/domain/grocery/dish-yield-scaling-field";
+import {
+  PICKER_TABS,
+  candidateToSelectionItem,
+  type PickerTab,
+} from "@/components/domain/grocery/grocery-source-picker";
 import { useReorderSensors } from "@/lib/dnd/sensors";
 import { createReorderAnnouncements } from "@/lib/dnd/announcements";
 import { toIsoDateOnly, formatDateOnly } from "@/lib/date";
+import { cn } from "@/lib/utils";
 import {
   toggleGroceryItem,
   addManualGroceryItem,
@@ -64,15 +81,24 @@ import {
   previewGroceryListSourceRefresh,
   applyGroceryListSourceRefresh,
   acknowledgeGroceryItemSync,
+  addGroceryListSource,
+  removeGroceryListSource,
+  updateGroceryListSource,
+  listGrocerySourceVersionOptions,
 } from "@/lib/grocery/list-actions";
 import { resyncMealPlanGroceryLists } from "@/lib/mealplans/actions";
 import Link from "next/link";
 import type {
   GroceryListDetailDto,
   GroceryListItemDto,
+  GroceryListSourceDto,
   GroceryCategoryOptionDto,
 } from "@/lib/grocery/list-schema";
 import type { GroceryListSourceRefreshPreview } from "@/lib/grocery/list-service";
+import type {
+  GrocerySourceCandidate,
+  DishVersionYieldOption,
+} from "@/lib/grocery/queries";
 
 const FALLBACK_LABEL = "Other";
 
@@ -121,9 +147,11 @@ function aggregateOptionalityDisplay(
 export function GroceryListDetailView({
   list,
   categoryOptions,
+  sourceCandidates,
 }: {
   list: GroceryListDetailDto;
   categoryOptions: GroceryCategoryOptionDto[];
+  sourceCandidates: GrocerySourceCandidate[];
 }) {
   const router = useRouter();
   const [checkedIds, setCheckedIds] = React.useState(
@@ -142,6 +170,14 @@ export function GroceryListDetailView({
   );
   const [editingItemId, setEditingItemId] = React.useState<string | null>(null);
   const [addItemOpen, setAddItemOpen] = React.useState(false);
+  const [mealsCollapsed, setMealsCollapsed] = React.useState(false);
+  const [groceriesCollapsed, setGroceriesCollapsed] = React.useState(false);
+  const [addMealOpen, setAddMealOpen] = React.useState(false);
+  const [editingSource, setEditingSource] =
+    React.useState<GroceryListSourceDto | null>(null);
+  const [deletingSourceId, setDeletingSourceId] = React.useState<string | null>(
+    null,
+  );
   const sensors = useReorderSensors();
 
   const [prevItems, setPrevItems] = React.useState(list.items);
@@ -324,207 +360,247 @@ export function GroceryListDetailView({
         </div>
       </div>
 
-      {list.sources.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {list.sources.map((source) => (
-            <Badge key={source.id} variant="secondary" className="gap-1">
-              {source.sourceDishTitleSnapshot}{" "}
-              {source.sourceDishVersionLabelSnapshot}
-              {source.isDeleted && " (deleted)"}
-              {!isCompleted && !source.isDeleted && (
-                <button
-                  type="button"
-                  className="ml-1 inline-flex items-center"
-                  onClick={() => setRefreshSourceId(source.id)}
-                  aria-label={`Refresh ${source.sourceDishTitleSnapshot}`}
-                  title="Check for a newer version"
-                >
-                  <RefreshCw className="size-3" aria-hidden="true" />
-                </button>
-              )}
-            </Badge>
-          ))}
-        </div>
-      )}
-
       {error && (
         <p role="alert" className="text-destructive-text text-sm">
           {error}
         </p>
       )}
 
-      {!isCompleted && (
-        <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            variant={combineMode ? "default" : "outline"}
-            size="sm"
-            onClick={() => {
-              setCombineMode((prev) => !prev);
-              setCombineSelection(new Set());
-            }}
-          >
-            {combineMode ? "Cancel combine" : "Combine items"}
-          </Button>
-          {list.mode === "MEAL_PLAN_LINKED" && list.linkedMealPlanId && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={isPending}
-              onClick={() =>
-                runAction(() =>
-                  resyncMealPlanGroceryLists({
-                    mealPlanId: list.linkedMealPlanId!,
-                  }),
-                )
-              }
-            >
-              Sync now
-            </Button>
-          )}
-          {combineMode && (
-            <Button
-              type="button"
-              size="sm"
-              disabled={combineSelection.size < 2 || isPending}
-              onClick={handleCombine}
-            >
-              Combine selected ({combineSelection.size})
-            </Button>
-          )}
-        </div>
-      )}
-
-      <div className="flex flex-col gap-5">
-        {groups.map((group) => {
-          const dragDisabledBase = isCompleted || combineMode;
-          return (
-            <div
-              key={group.categoryId ?? "none"}
-              className="flex flex-col gap-2"
-            >
-              <h2 className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
-                {group.label}
-              </h2>
-              <DndContext
-                id={`grocery-items-${group.categoryId ?? "none"}`}
-                sensors={sensors}
-                collisionDetection={closestCenter}
-                onDragEnd={handleGroupDragEnd(group.items)}
-                accessibility={{
-                  announcements: createReorderAnnouncements(
-                    (id) =>
-                      group.items.find((i) => i.id === id)?.name ?? "item",
-                    (id) => ({
-                      index: group.items.findIndex((i) => i.id === id),
-                      total: group.items.length,
-                    }),
-                  ),
-                }}
+      <section className="flex flex-col gap-2">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="font-heading text-lg font-medium">Meals</h2>
+          <div className="flex shrink-0 items-center gap-1">
+            <TooltipIconButton
+              label={mealsCollapsed ? "Expand Meals" : "Collapse Meals"}
+              icon={mealsCollapsed ? ChevronDown : ChevronUp}
+              onClick={() => setMealsCollapsed((v) => !v)}
+            />
+            {!isCompleted && (
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => setAddMealOpen(true)}
               >
-                <SortableContext
-                  items={group.items.map((i) => i.id)}
-                  strategy={verticalListSortingStrategy}
-                >
-                  <ul className="flex flex-col gap-2">
-                    {group.items.map((item) => (
-                      <SortableGroceryItemRow
-                        key={item.id}
-                        item={item}
-                        checked={checkedIds.has(item.id)}
-                        onToggle={() => handleToggle(item.id)}
-                        disabled={isCompleted}
-                        dragDisabled={
-                          dragDisabledBase || editingItemId === item.id
-                        }
-                        categoryOptions={categoryOptions}
-                        combineMode={combineMode}
-                        combineSelected={combineSelection.has(item.id)}
-                        onCombineToggle={() =>
-                          setCombineSelection((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(item.id)) next.delete(item.id);
-                            else next.add(item.id);
-                            return next;
-                          })
-                        }
-                        isEditing={editingItemId === item.id}
-                        onStartEdit={() => setEditingItemId(item.id)}
-                        onCancelEdit={() => setEditingItemId(null)}
-                        onRecategorize={(categoryId) =>
-                          runAction(() =>
-                            recategorizeGroceryItem({
-                              listId: list.id,
-                              itemId: item.id,
-                              categoryId,
-                            }),
-                          )
-                        }
-                        onEdit={(input) =>
-                          runAction(() =>
-                            editGroceryItem({
-                              listId: list.id,
-                              itemId: item.id,
-                              ...input,
-                            }),
-                          )
-                        }
-                        onRemove={() =>
-                          runAction(() =>
-                            removeGroceryItem({
-                              listId: list.id,
-                              itemId: item.id,
-                            }),
-                          )
-                        }
-                        onUncombine={() =>
-                          runAction(() =>
-                            uncombineGroceryItem({
-                              listId: list.id,
-                              itemId: item.id,
-                            }),
-                          )
-                        }
-                        onSelectVariant={(variant) =>
-                          runAction(() =>
-                            selectGroceryItemVariant({
-                              listId: list.id,
-                              itemId: item.id,
-                              variant,
-                            }),
-                          )
-                        }
-                        onAcknowledgeSync={() =>
-                          runAction(() =>
-                            acknowledgeGroceryItemSync({
-                              listId: list.id,
-                              itemId: item.id,
-                            }),
-                          )
-                        }
-                      />
-                    ))}
-                  </ul>
-                </SortableContext>
-              </DndContext>
-            </div>
-          );
-        })}
-        {list.items.length === 0 && (
-          <p className="text-muted-foreground text-sm">
-            This list has no items yet.
-          </p>
-        )}
-      </div>
-
-      {!isCompleted && (
-        <div className="bg-background/95 sticky bottom-0 flex justify-end border-t py-4 backdrop-blur-sm">
-          <Button type="button" onClick={() => setAddItemOpen(true)}>
-            <Plus aria-hidden="true" /> Add item
-          </Button>
+                <Plus aria-hidden="true" /> Add meal
+              </Button>
+            )}
+          </div>
         </div>
-      )}
+        {!mealsCollapsed && (
+          <div className="flex flex-col gap-2">
+            {list.sources.length === 0 ? (
+              <p className="text-muted-foreground text-sm">
+                No meals in this list yet.
+              </p>
+            ) : (
+              list.sources.map((source) => (
+                <MealCard
+                  key={source.id}
+                  source={source}
+                  isCompleted={isCompleted}
+                  onSync={() => setRefreshSourceId(source.id)}
+                  onEdit={() => setEditingSource(source)}
+                  onDelete={() => setDeletingSourceId(source.id)}
+                />
+              ))
+            )}
+          </div>
+        )}
+      </section>
+
+      <section className="flex flex-col gap-2">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="font-heading text-lg font-medium">Groceries</h2>
+          <div className="flex shrink-0 items-center gap-1">
+            <TooltipIconButton
+              label={
+                groceriesCollapsed ? "Expand Groceries" : "Collapse Groceries"
+              }
+              icon={groceriesCollapsed ? ChevronDown : ChevronUp}
+              onClick={() => setGroceriesCollapsed((v) => !v)}
+            />
+            {!isCompleted && (
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => setAddItemOpen(true)}
+              >
+                <Plus aria-hidden="true" /> Add item
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {!groceriesCollapsed && (
+          <div className="flex flex-col gap-4">
+            {!isCompleted && (
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant={combineMode ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => {
+                    setCombineMode((prev) => !prev);
+                    setCombineSelection(new Set());
+                  }}
+                >
+                  {combineMode ? "Cancel combine" : "Combine items"}
+                </Button>
+                {list.mode === "MEAL_PLAN_LINKED" && list.linkedMealPlanId && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={isPending}
+                    onClick={() =>
+                      runAction(() =>
+                        resyncMealPlanGroceryLists({
+                          mealPlanId: list.linkedMealPlanId!,
+                        }),
+                      )
+                    }
+                  >
+                    Sync now
+                  </Button>
+                )}
+                {combineMode && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={combineSelection.size < 2 || isPending}
+                    onClick={handleCombine}
+                  >
+                    Combine selected ({combineSelection.size})
+                  </Button>
+                )}
+              </div>
+            )}
+
+            <div className="flex flex-col gap-5">
+              {groups.map((group) => {
+                const dragDisabledBase = isCompleted || combineMode;
+                return (
+                  <div
+                    key={group.categoryId ?? "none"}
+                    className="flex flex-col gap-2"
+                  >
+                    <h3 className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+                      {group.label}
+                    </h3>
+                    <DndContext
+                      id={`grocery-items-${group.categoryId ?? "none"}`}
+                      sensors={sensors}
+                      collisionDetection={closestCenter}
+                      onDragEnd={handleGroupDragEnd(group.items)}
+                      accessibility={{
+                        announcements: createReorderAnnouncements(
+                          (id) =>
+                            group.items.find((i) => i.id === id)?.name ??
+                            "item",
+                          (id) => ({
+                            index: group.items.findIndex((i) => i.id === id),
+                            total: group.items.length,
+                          }),
+                        ),
+                      }}
+                    >
+                      <SortableContext
+                        items={group.items.map((i) => i.id)}
+                        strategy={verticalListSortingStrategy}
+                      >
+                        <ul className="flex flex-col gap-2">
+                          {group.items.map((item) => (
+                            <SortableGroceryItemRow
+                              key={item.id}
+                              item={item}
+                              checked={checkedIds.has(item.id)}
+                              onToggle={() => handleToggle(item.id)}
+                              disabled={isCompleted}
+                              dragDisabled={
+                                dragDisabledBase || editingItemId === item.id
+                              }
+                              categoryOptions={categoryOptions}
+                              combineMode={combineMode}
+                              combineSelected={combineSelection.has(item.id)}
+                              onCombineToggle={() =>
+                                setCombineSelection((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(item.id)) next.delete(item.id);
+                                  else next.add(item.id);
+                                  return next;
+                                })
+                              }
+                              isEditing={editingItemId === item.id}
+                              onStartEdit={() => setEditingItemId(item.id)}
+                              onCancelEdit={() => setEditingItemId(null)}
+                              onRecategorize={(categoryId) =>
+                                runAction(() =>
+                                  recategorizeGroceryItem({
+                                    listId: list.id,
+                                    itemId: item.id,
+                                    categoryId,
+                                  }),
+                                )
+                              }
+                              onEdit={(input) =>
+                                runAction(() =>
+                                  editGroceryItem({
+                                    listId: list.id,
+                                    itemId: item.id,
+                                    ...input,
+                                  }),
+                                )
+                              }
+                              onRemove={() =>
+                                runAction(() =>
+                                  removeGroceryItem({
+                                    listId: list.id,
+                                    itemId: item.id,
+                                  }),
+                                )
+                              }
+                              onUncombine={() =>
+                                runAction(() =>
+                                  uncombineGroceryItem({
+                                    listId: list.id,
+                                    itemId: item.id,
+                                  }),
+                                )
+                              }
+                              onSelectVariant={(variant) =>
+                                runAction(() =>
+                                  selectGroceryItemVariant({
+                                    listId: list.id,
+                                    itemId: item.id,
+                                    variant,
+                                  }),
+                                )
+                              }
+                              onAcknowledgeSync={() =>
+                                runAction(() =>
+                                  acknowledgeGroceryItemSync({
+                                    listId: list.id,
+                                    itemId: item.id,
+                                  }),
+                                )
+                              }
+                            />
+                          ))}
+                        </ul>
+                      </SortableContext>
+                    </DndContext>
+                  </div>
+                );
+              })}
+              {list.items.length === 0 && (
+                <p className="text-muted-foreground text-sm">
+                  This list has no items yet.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+      </section>
 
       {addItemOpen && (
         <AddItemDialog
@@ -537,6 +613,64 @@ export function GroceryListDetailView({
           }}
         />
       )}
+
+      {addMealOpen && (
+        <AddMealDialog
+          listId={list.id}
+          candidates={sourceCandidates}
+          onClose={() => setAddMealOpen(false)}
+          onAdded={() => {
+            refresh();
+            setAddMealOpen(false);
+          }}
+        />
+      )}
+
+      {editingSource && (
+        <EditMealDialog
+          listId={list.id}
+          source={editingSource}
+          onClose={() => setEditingSource(null)}
+          onSaved={() => {
+            refresh();
+            setEditingSource(null);
+          }}
+        />
+      )}
+
+      <Dialog
+        open={deletingSourceId != null}
+        onOpenChange={(open) => !open && setDeletingSourceId(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Remove this meal?</DialogTitle>
+            <DialogDescription>
+              This removes its ingredients from the Groceries list below. This
+              can&apos;t be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeletingSourceId(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={isPending}
+              onClick={() => {
+                if (!deletingSourceId) return;
+                const sourceId = deletingSourceId;
+                setDeletingSourceId(null);
+                runAction(() =>
+                  removeGroceryListSource({ listId: list.id, sourceId }),
+                );
+              }}
+            >
+              Remove
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {editOpen && (
         <EditGroceryListDialog
@@ -588,6 +722,356 @@ export function GroceryListDetailView({
         />
       )}
     </div>
+  );
+}
+
+/** One Grocery List source, as a Recipe/Part-name-left / action-group-right
+ * card — Sync uses the same latest-Version semantics as the rest of
+ * DishFrame (the existing `RefreshSourceDialog` preview/apply flow); Edit
+ * and Delete are new. Never draggable — sources aren't reorderable. */
+function MealCard({
+  source,
+  isCompleted,
+  onSync,
+  onEdit,
+  onDelete,
+}: {
+  source: GroceryListSourceDto;
+  isCompleted: boolean;
+  onSync: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div className="border-border bg-card flex items-center justify-between gap-2 rounded-lg border p-3">
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium">
+          {source.sourceDishTitleSnapshot}{" "}
+          <span className="text-muted-foreground font-normal">
+            {source.sourceDishVersionLabelSnapshot}
+          </span>
+        </p>
+        {source.isDeleted && (
+          <p className="text-muted-foreground text-xs">
+            This Recipe/Part has been deleted.
+          </p>
+        )}
+      </div>
+      {!isCompleted && (
+        <div className="flex shrink-0 items-center gap-0.5">
+          {!source.isDeleted && (
+            <TooltipIconButton
+              label={`Sync ${source.sourceDishTitleSnapshot}`}
+              icon={RefreshCw}
+              onClick={onSync}
+            />
+          )}
+          {!source.isDeleted && (
+            <TooltipIconButton
+              label={`Edit ${source.sourceDishTitleSnapshot}`}
+              icon={Pencil}
+              onClick={onEdit}
+            />
+          )}
+          <TooltipIconButton
+            label={`Delete ${source.sourceDishTitleSnapshot}`}
+            icon={Trash2}
+            onClick={onDelete}
+            className="text-destructive-text hover:bg-destructive/10 hover:text-destructive-text"
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Detail page's "Add meal" — the same rich search picker used by Cook/Send/
+ * Publish/Add-Edit-Meal (`SelectableDishRow` + sticky search/tabs), single-
+ * select, followed by the same target-servings scaling step
+ * `GrocerySourcePickerPanel` uses when creating a list from scratch. */
+function AddMealDialog({
+  listId,
+  candidates,
+  onClose,
+  onAdded,
+}: {
+  listId: string;
+  candidates: GrocerySourceCandidate[];
+  onClose: () => void;
+  onAdded: () => void;
+}) {
+  const [search, setSearch] = React.useState("");
+  const [tab, setTab] = React.useState<PickerTab>("ALL");
+  const [selectedDishId, setSelectedDishId] = React.useState<string | null>(
+    null,
+  );
+  const [scale, setScale] = React.useState<number | null>(1);
+  const [error, setError] = React.useState<string | null>(null);
+  const [isPending, startTransition] = React.useTransition();
+
+  const selected = candidates.find((c) => c.dishId === selectedDishId) ?? null;
+  const tabCandidates = candidates.filter(
+    (c) => tab === "ALL" || c.kind === tab,
+  );
+  const filtered = tabCandidates.filter((c) =>
+    c.title.toLowerCase().includes(search.trim().toLowerCase()),
+  );
+
+  function handleAdd() {
+    if (!selectedDishId) return;
+    setError(null);
+    startTransition(async () => {
+      const result = await addGroceryListSource({
+        listId,
+        dishId: selectedDishId,
+        scaleFactor: scale ?? 1,
+      });
+      if (result.status === "success") {
+        onAdded();
+      } else {
+        setError(result.message ?? "Could not add this meal.");
+      }
+    });
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="flex max-h-[85vh] flex-col overflow-y-auto sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Add meal</DialogTitle>
+          <DialogDescription>
+            Select a Recipe or Part to add to this list.
+          </DialogDescription>
+        </DialogHeader>
+
+        {selected ? (
+          <div className="flex flex-col gap-4">
+            <SelectableDishRow
+              item={candidateToSelectionItem(selected)}
+              selectionControl="remove"
+              onRemove={() => setSelectedDishId(null)}
+            />
+            <DishYieldScalingField
+              id={selected.dishId}
+              kindLabel={selected.kind === "PART" ? "Part" : "Recipe"}
+              yieldQuantity={selected.yieldQuantity}
+              yieldUnit={selected.yieldUnit}
+              onScaleChange={setScale}
+            />
+          </div>
+        ) : (
+          <div className="-mx-1 flex min-h-0 flex-col gap-2 overflow-y-auto px-1">
+            <div className="bg-popover sticky top-0 z-10 flex flex-col gap-2 pb-2">
+              <div className="relative">
+                <Search
+                  className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2"
+                  aria-hidden="true"
+                />
+                <Input
+                  placeholder="Search"
+                  className="pl-8"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                />
+              </div>
+              <div role="tablist" className="border-border flex gap-1 border-b">
+                {PICKER_TABS.map((t) => (
+                  <button
+                    key={t.value}
+                    type="button"
+                    role="tab"
+                    aria-selected={tab === t.value}
+                    onClick={() => setTab(t.value)}
+                    className={cn(
+                      "-mb-px cursor-pointer border-b-2 px-3 py-1.5 text-sm font-medium outline-none",
+                      tab === t.value
+                        ? "border-primary text-foreground"
+                        : "text-muted-foreground hover:text-foreground border-transparent",
+                    )}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {filtered.length === 0 ? (
+              <p className="text-muted-foreground py-4 text-center text-sm">
+                {candidates.length === 0
+                  ? "You don't have any recipes or parts saved yet."
+                  : "Nothing matches that search."}
+              </p>
+            ) : (
+              <div className="flex flex-col gap-1">
+                {filtered.map((candidate) => (
+                  <SelectableDishRow
+                    key={candidate.dishId}
+                    item={candidateToSelectionItem(candidate)}
+                    selectionControl="radio"
+                    selected={false}
+                    onSelect={() => setSelectedDishId(candidate.dishId)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {error && (
+          <p role="alert" className="text-destructive-text text-sm">
+            {error}
+          </p>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={handleAdd} disabled={!selectedDishId || isPending}>
+            {isPending ? "Adding…" : "Add meal"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Detail page's "Edit meal" — a direct one-step Version + target-servings
+ * change (no diff preview, unlike Sync). Version options (each with its own
+ * authored yield) are fetched fresh on open since they aren't part of the
+ * page's initial data. */
+function EditMealDialog({
+  listId,
+  source,
+  onClose,
+  onSaved,
+}: {
+  listId: string;
+  source: GroceryListSourceDto;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [versions, setVersions] = React.useState<
+    DishVersionYieldOption[] | null
+  >(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [selectedVersionId, setSelectedVersionId] = React.useState(
+    source.dishVersionId ?? "",
+  );
+  const [scale, setScale] = React.useState<number | null>(source.scaleFactor);
+  const [error, setError] = React.useState<string | null>(null);
+  const [isPending, startTransition] = React.useTransition();
+
+  React.useEffect(() => {
+    if (!source.dishId) return;
+    let cancelled = false;
+    listGrocerySourceVersionOptions({ dishId: source.dishId }).then(
+      (result) => {
+        if (cancelled) return;
+        if (result.status === "success") {
+          setVersions(result.versions);
+        } else {
+          setLoadError(result.message);
+        }
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [source.dishId]);
+
+  const selectedVersion =
+    versions?.find((v) => v.id === selectedVersionId) ?? null;
+
+  function handleSave() {
+    if (!selectedVersionId) return;
+    setError(null);
+    startTransition(async () => {
+      const result = await updateGroceryListSource({
+        listId,
+        sourceId: source.id,
+        targetVersionId: selectedVersionId,
+        scaleFactor: scale ?? 1,
+      });
+      if (result.status === "success") {
+        onSaved();
+      } else {
+        setError(result.message ?? "Could not save this meal.");
+      }
+    });
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit {source.sourceDishTitleSnapshot}</DialogTitle>
+        </DialogHeader>
+        <div className="flex flex-col gap-3">
+          {loadError && (
+            <p role="alert" className="text-destructive-text text-sm">
+              {loadError}
+            </p>
+          )}
+          {!versions && !loadError && (
+            <p className="text-muted-foreground text-sm">Loading versions…</p>
+          )}
+          {versions && (
+            <Field>
+              <FieldLabel htmlFor="edit-meal-version">Version</FieldLabel>
+              <Select
+                value={selectedVersionId}
+                onValueChange={setSelectedVersionId}
+              >
+                <SelectTrigger id="edit-meal-version" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {versions.map((v) => (
+                    <SelectItem key={v.id} value={v.id}>
+                      V{v.majorVersion}.{v.minorVersion}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          )}
+          {selectedVersion && (
+            <DishYieldScalingField
+              id={source.id}
+              kindLabel={
+                source.sourceDishKindSnapshot === "PART" ? "Part" : "Recipe"
+              }
+              yieldQuantity={selectedVersion.yieldQuantity}
+              yieldUnit={selectedVersion.yieldUnit}
+              initialQuantity={
+                selectedVersion.id === source.dishVersionId &&
+                selectedVersion.yieldQuantity != null
+                  ? selectedVersion.yieldQuantity * source.scaleFactor
+                  : undefined
+              }
+              onScaleChange={setScale}
+            />
+          )}
+          {error && (
+            <p role="alert" className="text-destructive-text text-sm">
+              {error}
+            </p>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleSave}
+            disabled={isPending || !selectedVersionId}
+          >
+            {isPending ? "Saving…" : "Save changes"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -694,21 +1178,19 @@ function GroceryItemRow({
 
   return (
     <>
-      <div className="flex items-start gap-2">
+      <div className="flex items-center gap-2">
         {dragHandle && (
           <DragHandle
             label={`Drag to reorder ${item.name}`}
             attributes={dragHandle.attributes}
             listeners={dragHandle.listeners}
             isDragging={dragHandle.isDragging}
-            className="mt-1"
           />
         )}
         {combineMode ? (
           <Checkbox
             checked={combineSelected}
             onCheckedChange={onCombineToggle}
-            className="mt-1.5"
           />
         ) : (
           <Checkbox
@@ -716,7 +1198,6 @@ function GroceryItemRow({
             onCheckedChange={onToggle}
             disabled={disabled}
             aria-label={`Mark ${item.name} ${checked ? "not bought" : "bought"}`}
-            className="mt-1.5"
           />
         )}
 

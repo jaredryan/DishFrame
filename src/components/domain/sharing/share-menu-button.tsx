@@ -15,6 +15,31 @@ import { BulkPublishDialog } from "@/components/domain/sharing/bulk-publish-dial
 
 type DialogKind = "send" | "publish" | null;
 
+// `AppPageLayout`'s own header breakpoint (`sm:flex-row`) — below it the
+// Share button sits on the left, stacked under the title, so the dropdown
+// must anchor to the button's left edge instead of its right.
+const HEADER_ROW_QUERY = "(min-width: 640px)";
+
+function subscribeHeaderRow(onChange: () => void) {
+  const query = window.matchMedia(HEADER_ROW_QUERY);
+  query.addEventListener("change", onChange);
+  return () => query.removeEventListener("change", onChange);
+}
+
+/** Matches the pre-existing desktop-only behavior until the client effect
+ * can read the real viewport, avoiding a hydration mismatch. */
+function getHeaderRowServerSnapshot() {
+  return true;
+}
+
+function useIsHeaderRow(): boolean {
+  return React.useSyncExternalStore(
+    subscribeHeaderRow,
+    () => window.matchMedia(HEADER_ROW_QUERY).matches,
+    getHeaderRowServerSnapshot,
+  );
+}
+
 /**
  * `/share`'s primary action: a "Share" dropdown (same interaction concept
  * as the Home dashboard's "+ Create" menu — `create-dish-menu.tsx`) rather
@@ -24,6 +49,7 @@ type DialogKind = "send" | "publish" | null;
 export function ShareMenuButton() {
   const router = useRouter();
   const [openDialog, setOpenDialog] = React.useState<DialogKind>(null);
+  const isHeaderRow = useIsHeaderRow();
 
   return (
     <>
@@ -34,7 +60,10 @@ export function ShareMenuButton() {
             Share
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-fit">
+        <DropdownMenuContent
+          align={isHeaderRow ? "end" : "start"}
+          className="w-fit"
+        >
           <DropdownMenuItem onSelect={() => setOpenDialog("send")}>
             <Send /> Send
           </DropdownMenuItem>

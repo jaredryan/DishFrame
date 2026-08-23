@@ -113,6 +113,9 @@ async function getOwnedFallbackCategory(ownerId: string) {
 
 export type GenerateGroceryListSourceInput = {
   dishId: string;
+  /** Explicit Version choice from the "Make grocery list" modal — defaults
+   * to the Dish's current Version when omitted. */
+  dishVersionId?: string | null;
   /** 1 = the source's authored amount, unscaled (§60.2). */
   scaleFactor: number;
 };
@@ -155,16 +158,18 @@ export async function generateGroceryList(
         );
       }
       const dish = await getOwnedDishOrThrow(ownerId, source.dishId);
-      if (!dish.currentVersionId) {
+      const resolvedVersionId = source.dishVersionId || dish.currentVersionId;
+      if (!resolvedVersionId) {
         throw new ValidationError(
           `"${dish.currentTitle ?? "Untitled"}" has no saved content to generate from.`,
         );
       }
-      const version = await prisma.dishVersion.findFirstOrThrow({
-        where: { id: dish.currentVersionId },
-        select: { majorVersion: true, minorVersion: true },
+      const version = await prisma.dishVersion.findFirst({
+        where: { id: resolvedVersionId, dishId: dish.id },
+        select: { id: true, majorVersion: true, minorVersion: true },
       });
-      const slots = await gatherIngredientSlots(ownerId, dish.currentVersionId);
+      if (!version) throw new NotFoundError("Version not found.");
+      const slots = await gatherIngredientSlots(ownerId, version.id);
       const occurrences = resolveIngredientOccurrences(
         slots,
         source.scaleFactor,
@@ -192,7 +197,7 @@ export async function generateGroceryList(
         data: {
           groceryListId: list.id,
           dishId: resolved.dish.id,
-          dishVersionId: resolved.dish.currentVersionId!,
+          dishVersionId: resolved.version.id,
           scaleFactor: resolved.scaleFactor,
           sourceDishTitleSnapshot: resolved.dish.currentTitle ?? "Untitled",
           sourceDishKindSnapshot: resolved.dish.kind,
@@ -935,18 +940,29 @@ export async function applyGroceryListSourceRefresh(
   listId: string,
   sourceId: string,
   targetVersionId?: string,
+  /** Grocery List "Edit meal" modal: an explicit new target-servings scale,
+   * replacing the source's existing one. Omitted for a plain Sync, which
+   * keeps the source's current scale. */
+  scaleFactorOverride?: number,
 ): Promise<void> {
   const list = await getOwnedGroceryListOrThrow(ownerId, listId);
   assertListActive(list);
   const source = list.sources.find((s) => s.id === sourceId);
   if (!source) throw new NotFoundError("Grocery list source not found.");
+  if (
+    scaleFactorOverride != null &&
+    (!Number.isFinite(scaleFactorOverride) || scaleFactorOverride <= 0)
+  ) {
+    throw new ValidationError("This meal's amount must be a positive number.");
+  }
 
   const { targetVersion } = await resolveRefreshTarget(
     ownerId,
     source,
     targetVersionId,
   );
-  const scaleFactor = decimalToNumber(source.scaleFactor) ?? 1;
+  const scaleFactor =
+    scaleFactorOverride ?? decimalToNumber(source.scaleFactor) ?? 1;
   const slots = await gatherIngredientSlots(ownerId, targetVersion.id);
   const fresh = resolveIngredientOccurrences(slots, scaleFactor);
   const freshByLineage = new Map(
@@ -1097,8 +1113,169 @@ export async function applyGroceryListSourceRefresh(
           targetVersion.majorVersion,
           targetVersion.minorVersion,
         ),
+        ...(scaleFactorOverride != null
+          ? { scaleFactor: scaleFactorOverride }
+          : {}),
       },
     });
+  });
+}
+
+/**
+ * Adds one more Recipe/Part as a Grocery List source (detail page's "Add
+ * meal") — same per-source snapshot as `generateGroceryList`, then folds
+ * every resolved occurrence into the list using the same combine-or-create
+ * logic as a source refresh's "Added" case, so it lands in an existing
+ * combinable item where one exists.
+ */
+export async function addGroceryListSource(
+  ownerId: string,
+  listId: string,
+  dishId: string,
+  scaleFactor: number,
+): Promise<void> {
+  const list = await getOwnedGroceryListOrThrow(ownerId, listId);
+  assertListActive(list);
+  if (!Number.isFinite(scaleFactor) || scaleFactor <= 0) {
+    throw new ValidationError("This meal's amount must be a positive number.");
+  }
+
+  const dish = await getOwnedDishOrThrow(ownerId, dishId);
+  if (!dish.currentVersionId) {
+    throw new ValidationError(
+      `"${dish.currentTitle ?? "Untitled"}" has no saved content to add.`,
+    );
+  }
+  const version = await prisma.dishVersion.findFirstOrThrow({
+    where: { id: dish.currentVersionId },
+    select: { majorVersion: true, minorVersion: true },
+  });
+  const slots = await gatherIngredientSlots(ownerId, dish.currentVersionId);
+  const occurrences = resolveIngredientOccurrences(slots, scaleFactor);
+
+  const fallbackCategory = await getOwnedFallbackCategory(ownerId);
+  const memories = await prisma.ingredientCategoryMemory.findMany({
+    where: { ownerId },
+  });
+  const categoryByNormalizedName = new Map(
+    memories.map((m) => [m.normalizedIngredientName, m.groceryCategoryId]),
+  );
+
+  await prisma.$transaction(async (tx) => {
+    const sourceRow = await tx.groceryListSource.create({
+      data: {
+        groceryListId: listId,
+        dishId: dish.id,
+        dishVersionId: dish.currentVersionId!,
+        scaleFactor,
+        sourceDishTitleSnapshot: dish.currentTitle ?? "Untitled",
+        sourceDishKindSnapshot: dish.kind,
+        sourceDishVersionLabelSnapshot: versionLabel(
+          version.majorVersion,
+          version.minorVersion,
+        ),
+      },
+    });
+
+    for (const occurrence of occurrences) {
+      const candidateItems = await tx.groceryListItem.findMany({
+        where: { groceryListId: listId },
+        include: { contributions: { take: 1 } },
+      });
+      const combinable = candidateItems.find(
+        (candidate) =>
+          candidate.contributions[0] &&
+          canCombine(
+            contributionToCombinable(candidate.contributions[0]),
+            toCombinable("new", occurrence),
+          ),
+      );
+
+      const maxPosition = await tx.groceryListItem.aggregate({
+        where: { groceryListId: listId },
+        _max: { position: true },
+      });
+      const targetItemId =
+        combinable?.id ??
+        (
+          await tx.groceryListItem.create({
+            data: {
+              groceryListId: listId,
+              categoryId:
+                categoryByNormalizedName.get(
+                  normalizedIngredientName(occurrence.originalName),
+                ) ?? fallbackCategory.id,
+              name: occurrence.originalName,
+              isOptional: occurrence.isOptional,
+              isManual: false,
+              position: (maxPosition._max.position ?? -1) + 1,
+            },
+          })
+        ).id;
+
+      await tx.groceryItemContribution.create({
+        data: {
+          groceryListItemId: targetItemId,
+          groceryListSourceId: sourceRow.id,
+          ingredientLineageId: occurrence.ingredientLineageId,
+          originalName: occurrence.originalName,
+          quantityDecimal: occurrence.quantity,
+          quantityText:
+            occurrence.displayText ??
+            formatGroceryQuantityText(
+              occurrence.quantity,
+              occurrence.quantityEnd,
+              occurrence.isApproximate,
+            ),
+          unit: occurrence.unit,
+          isOptional: occurrence.isOptional,
+          ...substituteSnapshotFields(occurrence.substitute),
+        },
+      });
+      await recomputeItemAggregate(tx, targetItemId);
+    }
+  });
+}
+
+/**
+ * Removes one Grocery List source (detail page meal card's Delete) and every
+ * one of its contributions — an item left with no remaining contribution is
+ * deleted with it, same "last contribution standing" rule a source refresh's
+ * "Removed" case applies; every other source/item, including manual edits,
+ * is untouched.
+ */
+export async function removeGroceryListSource(
+  ownerId: string,
+  listId: string,
+  sourceId: string,
+): Promise<void> {
+  const list = await getOwnedGroceryListOrThrow(ownerId, listId);
+  assertListActive(list);
+  const source = list.sources.find((s) => s.id === sourceId);
+  if (!source) throw new NotFoundError("Grocery list source not found.");
+
+  const existingContributions = await prisma.groceryItemContribution.findMany({
+    where: { groceryListSourceId: sourceId },
+  });
+
+  await prisma.$transaction(async (tx) => {
+    for (const contribution of existingContributions) {
+      await tx.groceryItemContribution.delete({
+        where: { id: contribution.id },
+      });
+      const remaining = await tx.groceryItemContribution.count({
+        where: { groceryListItemId: contribution.groceryListItemId },
+      });
+      if (remaining === 0) {
+        await tx.groceryListItem.delete({
+          where: { id: contribution.groceryListItemId },
+        });
+      } else {
+        await recomputeItemAggregate(tx, contribution.groceryListItemId);
+      }
+    }
+
+    await tx.groceryListSource.delete({ where: { id: sourceId } });
   });
 }
 

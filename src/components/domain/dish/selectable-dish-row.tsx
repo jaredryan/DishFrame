@@ -1,10 +1,10 @@
 import { UtensilsCrossed, X } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { StageBadge } from "@/components/domain/dish/stage-badge";
 import { RatingBadge } from "@/components/domain/dish/rating-badge";
 import { DishKindBadge } from "@/components/domain/dish/dish-kind-badge";
+import { SemanticChip } from "@/components/domain/dish/semantic-chip";
 import { cn } from "@/lib/utils";
 import type { DishKindValue, StageValue } from "@/lib/dishes/schema";
 import type { PrincipalRating } from "@/lib/reviews/queries";
@@ -103,9 +103,13 @@ export function SelectableDishRow({
         {item.tagNames.length > 0 && (
           <div className="mt-1 flex flex-wrap gap-1">
             {item.tagNames.map((tag) => (
-              <Badge key={tag} variant="outline" className="text-[0.7rem]">
+              <SemanticChip
+                key={tag}
+                semantic="neutral"
+                className="text-[0.7rem]"
+              >
                 {tag}
-              </Badge>
+              </SemanticChip>
             ))}
           </div>
         )}
@@ -122,7 +126,9 @@ export function SelectableDishRow({
     <>
       <DishKindBadge kind={item.kind} selected={kindBadgeSelected} />
       <StageBadge stage={item.stage} />
-      {item.cuisine && <Badge variant="outline">{item.cuisine}</Badge>}
+      {item.cuisine && (
+        <SemanticChip semantic="green">{item.cuisine}</SemanticChip>
+      )}
       <RatingBadge rating={item.rating} />
     </>
   );

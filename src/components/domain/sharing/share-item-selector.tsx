@@ -45,19 +45,26 @@ export function ShareItemSelector({
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between gap-2">
-        <Label>Items</Label>
-        {!isSingle && items && items.length > 0 && (
-          <Button type="button" variant="ghost" size="sm" onClick={onSelectAll}>
-            Select all
-          </Button>
-        )}
+      <div className="bg-popover sticky top-0 z-10 flex flex-col gap-2 pb-2">
+        <div className="flex items-center justify-between gap-2">
+          <Label>Items</Label>
+          {!isSingle && items && items.length > 0 && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={onSelectAll}
+            >
+              Select all
+            </Button>
+          )}
+        </div>
+        <Input
+          placeholder="Search your items…"
+          value={search}
+          onChange={(event) => onSearchChange(event.target.value)}
+        />
       </div>
-      <Input
-        placeholder="Search your items…"
-        value={search}
-        onChange={(event) => onSearchChange(event.target.value)}
-      />
       {itemsError && (
         <p role="alert" className="text-destructive-text text-sm">
           {itemsError}
@@ -74,7 +81,7 @@ export function ShareItemSelector({
       {items && items.length > 0 && (
         <ul
           role={isSingle ? "radiogroup" : undefined}
-          className="border-border max-h-64 overflow-y-auto rounded-md border"
+          className="border-border rounded-md border"
         >
           {filteredItems.length === 0 && (
             <li className="text-muted-foreground p-3 text-sm">

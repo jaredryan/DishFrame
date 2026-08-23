@@ -268,6 +268,8 @@ export async function reactivateMealPlan(
 
 export type AddMealPlanEntryInput = {
   dishId: string;
+  /** Explicit Version choice — defaults to the Dish's current Version. */
+  dishVersionId?: string | null;
   cookDate: Date;
   targetYieldQuantity?: number | null;
   targetYieldUnit?: string | null;
@@ -289,22 +291,24 @@ export async function addMealPlanEntry(
 ): Promise<string> {
   const mealPlan = await getOwnedMealPlanOrThrow(ownerId, mealPlanId);
   const dish = await getOwnedDishOrThrow(ownerId, input.dishId);
-  if (!dish.currentVersionId) {
+  const resolvedVersionId = input.dishVersionId || dish.currentVersionId;
+  if (!resolvedVersionId) {
     throw new ValidationError(
       `"${dish.currentTitle ?? "Untitled"}" has no saved content to plan from.`,
     );
   }
-  const version = await prisma.dishVersion.findFirstOrThrow({
-    where: { id: dish.currentVersionId },
-    select: { majorVersion: true, minorVersion: true },
+  const version = await prisma.dishVersion.findFirst({
+    where: { id: resolvedVersionId, dishId: dish.id },
+    select: { id: true, majorVersion: true, minorVersion: true },
   });
+  if (!version) throw new NotFoundError("Version not found.");
 
   return prisma.$transaction(async (tx) => {
     const entry = await tx.mealPlanEntry.create({
       data: {
         mealPlanId,
         dishId: dish.id,
-        dishVersionId: dish.currentVersionId!,
+        dishVersionId: version.id,
         cookDate: input.cookDate,
         targetYieldQuantity: input.targetYieldQuantity ?? null,
         targetYieldUnit: input.targetYieldUnit?.trim() || null,

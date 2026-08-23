@@ -21,6 +21,7 @@ export const generateGroceryListSchema = z.object({
     .array(
       z.object({
         dishId: z.string().min(1),
+        dishVersionId: z.string().min(1).optional(),
         scaleFactor: positiveScaleFactor,
       }),
     )
@@ -67,6 +68,25 @@ export const combineGroceryItemsSchema = listIdSchema.extend({
 export const refreshSourceSchema = listIdSchema.extend({
   sourceId: z.string().min(1),
   targetVersionId: z.string().min(1).optional(),
+});
+
+export const addGroceryListSourceSchema = listIdSchema.extend({
+  dishId: z.string().min(1),
+  scaleFactor: positiveScaleFactor,
+});
+
+export const removeGroceryListSourceSchema = listIdSchema.extend({
+  sourceId: z.string().min(1),
+});
+
+export const updateGroceryListSourceSchema = listIdSchema.extend({
+  sourceId: z.string().min(1),
+  targetVersionId: z.string().min(1),
+  scaleFactor: positiveScaleFactor,
+});
+
+export const listSourceVersionOptionsSchema = z.object({
+  dishId: z.string().min(1),
 });
 
 export const selectGroceryItemVariantSchema = itemIdSchema.extend({
@@ -127,6 +147,8 @@ export type GroceryListItemDto = {
 export type GroceryListSourceDto = {
   id: string;
   dishId: string | null;
+  dishVersionId: string | null;
+  scaleFactor: number;
   sourceDishTitleSnapshot: string;
   sourceDishKindSnapshot: "RECIPE" | "PART";
   sourceDishVersionLabelSnapshot: string;

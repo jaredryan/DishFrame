@@ -134,39 +134,41 @@ export function StartCookingButton({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
-            <div className="relative">
-              <Search
-                className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2"
-                aria-hidden="true"
-              />
-              <Input
-                autoFocus
-                placeholder="Search"
-                className="pl-8"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-              />
-            </div>
+          <div className="-mx-1 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-1">
+            <div className="bg-popover sticky top-0 z-10 flex flex-col gap-3 pb-1">
+              <div className="relative">
+                <Search
+                  className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2"
+                  aria-hidden="true"
+                />
+                <Input
+                  autoFocus
+                  placeholder="Search"
+                  className="pl-8"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                />
+              </div>
 
-            <div role="tablist" className="border-border flex gap-1 border-b">
-              {TABS.map((t) => (
-                <button
-                  key={t.value}
-                  type="button"
-                  role="tab"
-                  aria-selected={tab === t.value}
-                  onClick={() => setTab(t.value)}
-                  className={cn(
-                    "-mb-px cursor-pointer border-b-2 px-3 py-1.5 text-sm font-medium outline-none",
-                    tab === t.value
-                      ? "border-primary text-foreground"
-                      : "text-muted-foreground hover:text-foreground border-transparent",
-                  )}
-                >
-                  {t.label}
-                </button>
-              ))}
+              <div role="tablist" className="border-border flex gap-1 border-b">
+                {TABS.map((t) => (
+                  <button
+                    key={t.value}
+                    type="button"
+                    role="tab"
+                    aria-selected={tab === t.value}
+                    onClick={() => setTab(t.value)}
+                    className={cn(
+                      "-mb-px cursor-pointer border-b-2 px-3 py-1.5 text-sm font-medium outline-none",
+                      tab === t.value
+                        ? "border-primary text-foreground"
+                        : "text-muted-foreground hover:text-foreground border-transparent",
+                    )}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {isLoading ? (
@@ -188,7 +190,7 @@ export function StartCookingButton({
                 </Button>
               </div>
             ) : (
-              <div className="-m-px flex max-h-72 flex-col gap-1 overflow-y-auto p-px">
+              <div className="flex flex-col gap-1">
                 {filtered.length === 0 && (
                   <p className="text-muted-foreground py-6 text-center text-sm">
                     {(items ?? []).length === 0

@@ -32,19 +32,13 @@ export type CookingModeUnit = {
   timers: CookingModeTimer[];
 };
 
-export type TimerChip = {
-  id: string;
-  name: string;
-  remainingSeconds: number;
-  isExpired: boolean;
-  state: CookingModeTimer["state"];
-};
-
-/** Per-Section derived data the desktop nav rail and center panel both need. */
+/** Per-Section derived data the desktop nav rail and center panel both need.
+ * Timers are never shown here — Section navigation stays Recipe/Section
+ * navigation only; every timer lives solely in the dedicated Timers area
+ * (PRODUCT_SPEC.md §29.7). */
 export type UnitViewModel = {
   unit: CookingModeUnit;
   instructionProgress: { checked: number; total: number };
-  timerChips: TimerChip[];
 };
 
 /** A timer plus the Section it belongs to, for the desktop timer rail — which

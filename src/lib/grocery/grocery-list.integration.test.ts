@@ -6,6 +6,7 @@ import * as dishService from "@/lib/dishes/service";
 import * as listService from "@/lib/grocery/list-service";
 import * as groceryService from "@/lib/grocery/service";
 import { NotFoundError, ValidationError } from "@/lib/errors";
+import { decimalToNumber } from "@/lib/dishes/format";
 import type { DishContentInput, IngredientInput } from "@/lib/dishes/schema";
 
 vi.mock("@vercel/blob", () => ({ del: vi.fn(async () => {}) }));
@@ -2562,6 +2563,185 @@ describe("grocery list service", () => {
       await expect(
         listService.previewGroceryListSourceRefresh(userId, listId, source.id),
       ).rejects.toThrow(ValidationError);
+    });
+  });
+
+  describe("Grocery List detail page meal management", () => {
+    it("addGroceryListSource folds a new source's ingredients into existing combinable items and creates new ones", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      await initializeNewUser(userId);
+
+      const recipeA = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({ name: "Flour", quantity: 2, unit: "cup" }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      const listId = await listService.generateGroceryList(userId, {
+        title: "This week",
+        plannedDate: new Date(),
+        sources: [{ dishId: recipeA, scaleFactor: 1 }],
+      });
+
+      const recipeB = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({
+          title: "Second Recipe",
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({ name: "Flour", quantity: 3, unit: "cup" }),
+                ingredient({ name: "Sugar", quantity: 1, unit: "cup" }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+
+      await listService.addGroceryListSource(userId, listId, recipeB, 1);
+
+      const sources = await prisma.groceryListSource.findMany({
+        where: { groceryListId: listId },
+      });
+      expect(sources).toHaveLength(2);
+
+      const flourItem = await prisma.groceryListItem.findFirstOrThrow({
+        where: { groceryListId: listId, name: "Flour" },
+        include: { contributions: true },
+      });
+      expect(flourItem.quantityDecimal?.toNumber()).toBe(5);
+      expect(flourItem.contributions).toHaveLength(2);
+
+      const sugarItem = await prisma.groceryListItem.findFirstOrThrow({
+        where: { groceryListId: listId, name: "Sugar" },
+      });
+      expect(sugarItem.quantityDecimal?.toNumber()).toBe(1);
+    });
+
+    it("removeGroceryListSource deletes that source's exclusive items but preserves manual items and other sources", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      await initializeNewUser(userId);
+
+      const recipeId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({ name: "Flour", quantity: 2, unit: "cup" }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      const listId = await listService.generateGroceryList(userId, {
+        title: "This week",
+        plannedDate: new Date(),
+        sources: [{ dishId: recipeId, scaleFactor: 1 }],
+      });
+      const manual = await listService.addManualGroceryItem(userId, listId, {
+        name: "Paper towels",
+      });
+
+      const source = await prisma.groceryListSource.findFirstOrThrow({
+        where: { groceryListId: listId },
+      });
+
+      await listService.removeGroceryListSource(userId, listId, source.id);
+
+      const remainingSources = await prisma.groceryListSource.count({
+        where: { groceryListId: listId },
+      });
+      expect(remainingSources).toBe(0);
+
+      const flourItem = await prisma.groceryListItem.findFirst({
+        where: { groceryListId: listId, name: "Flour" },
+      });
+      expect(flourItem).toBeNull();
+
+      const manualAfter = await prisma.groceryListItem.findUnique({
+        where: { id: manual.id },
+      });
+      expect(manualAfter).not.toBeNull();
+    });
+
+    it("applyGroceryListSourceRefresh with a scale override rescales the item and persists the source's new scale", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      await initializeNewUser(userId);
+
+      const recipeId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({ name: "Flour", quantity: 2, unit: "cup" }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      const listId = await listService.generateGroceryList(userId, {
+        title: "This week",
+        plannedDate: new Date(),
+        sources: [{ dishId: recipeId, scaleFactor: 1 }],
+      });
+      const dishVersionId = await currentVersionId(recipeId);
+
+      const source = await prisma.groceryListSource.findFirstOrThrow({
+        where: { groceryListId: listId },
+      });
+
+      await listService.applyGroceryListSourceRefresh(
+        userId,
+        listId,
+        source.id,
+        dishVersionId,
+        2,
+      );
+
+      const flourItem = await prisma.groceryListItem.findFirstOrThrow({
+        where: { groceryListId: listId, name: "Flour" },
+      });
+      expect(flourItem.quantityDecimal?.toNumber()).toBe(4);
+
+      const sourceAfter = await prisma.groceryListSource.findUniqueOrThrow({
+        where: { id: source.id },
+      });
+      expect(decimalToNumber(sourceAfter.scaleFactor)).toBe(2);
     });
   });
 

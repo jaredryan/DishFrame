@@ -2,6 +2,7 @@ import * as React from "react";
 import { ChevronDown, ChevronUp, Timer as TimerIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatCountdown } from "@/lib/cooking/timer-math";
+import { StartTimerDialog } from "@/components/domain/cooking/start-timer-dialog";
 import {
   NavList,
   TimerList,
@@ -13,6 +14,7 @@ import {
 /** Portrait-tablet range (`md:` up to `lg:`, ~768–1023px): a left rail (Section nav + docked timers) plus main content. */
 export function TabletCookingLayout(props: CookingLayoutProps) {
   const {
+    sessionId,
     dishTitle,
     selectedDestination,
     onSelectDestination,
@@ -21,8 +23,10 @@ export function TabletCookingLayout(props: CookingLayoutProps) {
     isActive,
     liveTimers,
     timerActions,
+    onTimerCreated,
   } = props;
   const [timersExpanded, setTimersExpanded] = React.useState(false);
+  const [timerModalOpen, setTimerModalOpen] = React.useState(false);
 
   const selectedUnit = selectedDestination
     ? (unitViewModels.find((vm) => vm.unit.id === selectedDestination)?.unit ??
@@ -63,6 +67,12 @@ export function TabletCookingLayout(props: CookingLayoutProps) {
                 <ChevronDown className="size-4" aria-hidden="true" />
               </Button>
             </div>
+            {isActive && (
+              <Button size="sm" onClick={() => setTimerModalOpen(true)}>
+                <TimerIcon className="size-4" aria-hidden="true" />
+                Start timer
+              </Button>
+            )}
             <TimerList
               timers={railTimers}
               isActive={isActive}
@@ -135,7 +145,6 @@ export function TabletCookingLayout(props: CookingLayoutProps) {
             <RecipePanel {...props} />
           ) : selectedUnit ? (
             <SectionPanel
-              sessionId={props.sessionId}
               unit={selectedUnit}
               isActive={props.isActive}
               isChecked={props.isChecked}
@@ -159,10 +168,6 @@ export function TabletCookingLayout(props: CookingLayoutProps) {
                 props.onToggleInstructionsCollapsed(selectedUnit.id)
               }
               onOpenUnitScale={() => props.onOpenUnitScale(selectedUnit)}
-              addTimerActive={props.addTimerUnitId === selectedUnit.id}
-              onRequestAddTimer={() => props.onRequestAddTimer(selectedUnit.id)}
-              onCancelAddTimer={props.onCancelAddTimer}
-              onTimerCreated={props.onTimerCreated}
               onSetUnitCompletion={props.onSetUnitCompletion}
               isPending={props.isPending}
             />
@@ -173,6 +178,17 @@ export function TabletCookingLayout(props: CookingLayoutProps) {
           )}
         </div>
       </main>
+
+      {isActive && (
+        <StartTimerDialog
+          open={timerModalOpen}
+          onOpenChangeAction={setTimerModalOpen}
+          sessionId={sessionId}
+          unitViewModels={unitViewModels}
+          selectedDestination={selectedDestination}
+          onCreatedAction={onTimerCreated}
+        />
+      )}
     </div>
   );
 }

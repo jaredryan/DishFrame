@@ -64,9 +64,12 @@ async function sendItem(
   senderId: string,
   input: { dishId: string; recipientEmail: string },
 ): Promise<{ directShareId: string }> {
+  const dish = await prisma.dish.findUniqueOrThrow({
+    where: { id: input.dishId },
+  });
   const { collectionId } = await sendDirectShareCollection(senderId, {
     recipientEmail: input.recipientEmail,
-    dishIds: [input.dishId],
+    items: [{ dishId: input.dishId, dishVersionId: dish.currentVersionId! }],
     note: null,
   });
   const child = await prisma.directShare.findFirstOrThrow({

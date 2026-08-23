@@ -85,7 +85,7 @@ describe("DishDetailActions — contextual sharing stays single-item", () => {
     await user.click(screen.getByRole("combobox"));
     expect(
       await screen.findByRole("option", {
-        name: "Share current version (fixed)",
+        name: "Share a fixed version",
       }),
     ).toBeInTheDocument();
     expect(

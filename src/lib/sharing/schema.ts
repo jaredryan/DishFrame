@@ -61,8 +61,15 @@ export const sendDirectShareCollectionSchema = z.object({
     .trim()
     .toLowerCase()
     .pipe(z.email("Enter a valid email address.")),
-  dishIds: z
-    .array(z.string().min(1))
+  // Each selected item carries its own explicit Version choice (design
+  // pass) — never one Version applied across the whole batch.
+  items: z
+    .array(
+      z.object({
+        dishId: z.string().min(1),
+        dishVersionId: z.string().min(1),
+      }),
+    )
     .min(1, "Select at least one item.")
     .max(
       DIRECT_SHARE_MAX_ITEMS,
@@ -92,6 +99,10 @@ export const publishDishesSchema = z.object({
       `You can publish at most ${PUBLISH_MAX_ITEMS} items at once.`,
     ),
   mode: z.enum(shareLinkModeValues).default("FIXED_SNAPSHOT"),
+  // Per-item explicit Version choice for FIXED_SNAPSHOT only — ignored
+  // under CURRENT mode, which keeps tracking each item's own latest
+  // Version exactly as before (no picker needed there).
+  versionIdByDishId: z.record(z.string(), z.string().min(1)).optional(),
   showCreatorName: z.boolean().default(false),
   expiresAt: z.coerce.date().nullable().optional(),
 });

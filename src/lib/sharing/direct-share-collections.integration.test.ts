@@ -72,6 +72,17 @@ async function currentVersionId(dishId: string): Promise<string> {
   return dish.currentVersionId!;
 }
 
+async function toItems(
+  dishIds: string[],
+): Promise<{ dishId: string; dishVersionId: string }[]> {
+  return Promise.all(
+    dishIds.map(async (dishId) => ({
+      dishId,
+      dishVersionId: await currentVersionId(dishId),
+    })),
+  );
+}
+
 async function newUser(overrides?: { email?: string }) {
   const user = await createTestUser(overrides);
   return user;
@@ -106,7 +117,7 @@ describe("sendDirectShareCollection", () => {
 
       const { collectionId } = await sendDirectShareCollection(sender.id, {
         recipientEmail: recipient.email,
-        dishIds: [dishId],
+        items: await toItems([dishId]),
         note: "Try this one",
       });
 
@@ -139,7 +150,7 @@ describe("sendDirectShareCollection", () => {
 
       const { collectionId } = await sendDirectShareCollection(sender.id, {
         recipientEmail: recipient.email,
-        dishIds: [dishA, dishB],
+        items: await toItems([dishA, dishB]),
         note: "Try both of these",
       });
 
@@ -176,7 +187,7 @@ describe("sendDirectShareCollection", () => {
 
       const { collectionId } = await sendDirectShareCollection(sender.id, {
         recipientEmail: recipient.email,
-        dishIds: [partId],
+        items: await toItems([partId]),
         note: null,
       });
 
@@ -207,7 +218,7 @@ describe("sendDirectShareCollection", () => {
 
       const { collectionId } = await sendDirectShareCollection(sender.id, {
         recipientEmail: recipient.email,
-        dishIds: [recipeId, partId],
+        items: await toItems([recipeId, partId]),
         note: null,
       });
 
@@ -253,7 +264,7 @@ describe("sendDirectShareCollection", () => {
 
       const { collectionId } = await sendDirectShareCollection(sender.id, {
         recipientEmail: targetEmail,
-        dishIds: [dishId],
+        items: await toItems([dishId]),
         note: null,
       });
 
@@ -283,7 +294,7 @@ describe("sendDirectShareCollection", () => {
       );
       const { collectionId } = await sendDirectShareCollection(sender.id, {
         recipientEmail: "nobody-yet@example.invalid",
-        dishIds: [dishId],
+        items: await toItems([dishId]),
         note: null,
       });
 
@@ -330,7 +341,7 @@ describe("sendDirectShareCollection", () => {
       await expect(
         sendDirectShareCollection(sender.id, {
           recipientEmail: recipient.email,
-          dishIds: [ownDishId, notOwnedDishId],
+          items: await toItems([ownDishId, notOwnedDishId]),
           note: null,
         }),
       ).rejects.toThrow(NotFoundError);
@@ -350,14 +361,14 @@ describe("sendDirectShareCollection", () => {
       );
       await sendDirectShareCollection(sender.id, {
         recipientEmail: "pending-target@example.invalid",
-        dishIds: [dishId],
+        items: await toItems([dishId]),
         note: null,
       });
 
       await expect(
         sendDirectShareCollection(sender.id, {
           recipientEmail: "pending-target@example.invalid",
-          dishIds: [dishId],
+          items: await toItems([dishId]),
           note: null,
         }),
       ).rejects.toThrow(ConflictError);
@@ -375,7 +386,7 @@ describe("sendDirectShareCollection", () => {
       );
       const input = {
         recipientEmail: recipient.email,
-        dishIds: [dishId],
+        items: await toItems([dishId]),
         note: null,
       };
 
@@ -417,7 +428,7 @@ describe("sendDirectShareCollection", () => {
       await expect(
         sendDirectShareCollection(sender.id, {
           recipientEmail: sender.email.toUpperCase(),
-          dishIds: [dishId],
+          items: await toItems([dishId]),
           note: null,
         }),
       ).rejects.toThrow(ValidationError);
@@ -436,7 +447,7 @@ describe("sendDirectShareCollection", () => {
       const baseVersionId = await currentVersionId(dishId);
       const { collectionId } = await sendDirectShareCollection(sender.id, {
         recipientEmail: recipient.email,
-        dishIds: [dishId],
+        items: await toItems([dishId]),
         note: null,
       });
 
@@ -477,7 +488,7 @@ describe("finalizeDirectShareCollectionDecision", () => {
       );
       const { collectionId } = await sendDirectShareCollection(sender.id, {
         recipientEmail: recipient.email,
-        dishIds: [dishA, dishB],
+        items: await toItems([dishA, dishB]),
         note: null,
       });
       const detail = await getDirectShareCollectionDetail(
@@ -519,7 +530,7 @@ describe("finalizeDirectShareCollectionDecision", () => {
       );
       const { collectionId } = await sendDirectShareCollection(sender.id, {
         recipientEmail: recipient.email,
-        dishIds: [dishA, dishB],
+        items: await toItems([dishA, dishB]),
         note: null,
       });
       const detail = await getDirectShareCollectionDetail(
@@ -564,7 +575,7 @@ describe("finalizeDirectShareCollectionDecision", () => {
       );
       const { collectionId } = await sendDirectShareCollection(sender.id, {
         recipientEmail: recipient.email,
-        dishIds: [dishId],
+        items: await toItems([dishId]),
         note: null,
       });
 
@@ -595,7 +606,7 @@ describe("claimPendingDirectShareCollections", () => {
       );
       const { collectionId } = await sendDirectShareCollection(sender.id, {
         recipientEmail: claimEmail,
-        dishIds: [dishId],
+        items: await toItems([dishId]),
         note: null,
       });
 
@@ -628,7 +639,7 @@ describe("claimPendingDirectShareCollections", () => {
       );
       await sendDirectShareCollection(sender.id, {
         recipientEmail: claimEmail,
-        dishIds: [dishId],
+        items: await toItems([dishId]),
         note: null,
       });
 
@@ -658,7 +669,7 @@ describe("claimPendingDirectShareCollections", () => {
       );
       await sendDirectShareCollection(sender.id, {
         recipientEmail: claimEmail,
-        dishIds: [dishId],
+        items: await toItems([dishId]),
         note: null,
       });
 
@@ -688,7 +699,7 @@ describe("claimPendingDirectShareCollections", () => {
       );
       await sendDirectShareCollection(sender.id, {
         recipientEmail: claimEmail,
-        dishIds: [dishId],
+        items: await toItems([dishId]),
         note: null,
       });
 
@@ -717,7 +728,7 @@ describe("claimPendingDirectShareCollections", () => {
       );
       const { collectionId } = await sendDirectShareCollection(sender.id, {
         recipientEmail: claimEmail,
-        dishIds: [dishId],
+        items: await toItems([dishId]),
         note: null,
       });
       await cancelDirectShareCollection(sender.id, collectionId);
@@ -888,7 +899,7 @@ describe("reconcilePendingDirectShareCollectionsForViewer (Slice 22 /share race 
       );
       await sendDirectShareCollection(sender.id, {
         recipientEmail,
-        dishIds: [dishId],
+        items: await toItems([dishId]),
         note: null,
       });
 
@@ -913,7 +924,7 @@ describe("reconcilePendingDirectShareCollectionsForViewer (Slice 22 /share race 
       // exact-email bind would claim it regardless of this test's intent.
       await sendDirectShareCollection(sender.id, {
         recipientEmail,
-        dishIds: [dishId],
+        items: await toItems([dishId]),
         note: null,
       });
 
@@ -950,7 +961,7 @@ describe("reconcilePendingDirectShareCollectionsForViewer (Slice 22 /share race 
         sender.id,
         {
           recipientEmail,
-          dishIds: [fullyCanceledDishId],
+          items: await toItems([fullyCanceledDishId]),
           note: null,
         },
       );
@@ -974,7 +985,7 @@ describe("reconcilePendingDirectShareCollectionsForViewer (Slice 22 /share race 
         sender.id,
         {
           recipientEmail,
-          dishIds: [pendingDishId, canceledDishId],
+          items: await toItems([pendingDishId, canceledDishId]),
           note: null,
         },
       );
@@ -1029,7 +1040,7 @@ describe("50/51-Recipe collection boundary", () => {
 
       const { collectionId } = await sendDirectShareCollection(sender.id, {
         recipientEmail: recipient.email,
-        dishIds,
+        items: await toItems(dishIds),
         note: null,
       });
 
@@ -1093,7 +1104,7 @@ describe("50/51-Recipe collection boundary", () => {
       await expect(
         sendDirectShareCollection(sender.id, {
           recipientEmail: recipient.email,
-          dishIds,
+          items: await toItems(dishIds),
           note: null,
         }),
       ).rejects.toThrow(ValidationError);
@@ -1122,7 +1133,7 @@ describe("durability across deletion", () => {
       );
       const { collectionId } = await sendDirectShareCollection(sender.id, {
         recipientEmail: recipient.email,
-        dishIds: [dishId],
+        items: await toItems([dishId]),
         note: null,
       });
       const detail = await getDirectShareCollectionDetail(
@@ -1164,7 +1175,7 @@ describe("durability across deletion", () => {
       );
       const { collectionId } = await sendDirectShareCollection(sender.id, {
         recipientEmail: recipient.email,
-        dishIds: [dishA, dishB],
+        items: await toItems([dishA, dishB]),
         note: null,
       });
       const detail = await getDirectShareCollectionDetail(
@@ -1209,7 +1220,7 @@ describe("durability across deletion", () => {
         );
         const { collectionId } = await sendDirectShareCollection(sender.id, {
           recipientEmail: recipient.email,
-          dishIds: [dishId],
+          items: await toItems([dishId]),
           note: null,
         });
 

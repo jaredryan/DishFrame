@@ -142,6 +142,7 @@ export type EntryIdActionState =
 export async function addMealPlanEntry(values: {
   mealPlanId: string;
   dishId: string;
+  dishVersionId?: string;
   cookDate: Date | string;
   targetYieldQuantity?: number | null;
   targetYieldUnit?: string | null;

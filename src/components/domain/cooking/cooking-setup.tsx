@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { ChefHat, ChevronDown, ChevronUp, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,6 +23,10 @@ import {
   ScaleControl,
   computeOutputBasis,
 } from "@/components/domain/cooking/scale-control";
+import {
+  VersionPickerField,
+  type VersionOption,
+} from "@/components/domain/dish/version-picker-field";
 
 export type SetupUnit = {
   unitKey: string;
@@ -67,6 +71,8 @@ export function CookingSetup({
   dishTitle,
   versionLabel,
   isCurrent,
+  currentVersionId,
+  versions,
   units,
   sourceOutputQuantity,
   sourceOutputUnit,
@@ -77,6 +83,13 @@ export function CookingSetup({
   dishTitle: string;
   versionLabel: string;
   isCurrent: boolean;
+  // The Recipe/Part's actual current Version id, for the picker's
+  // "(current)" suffix — distinct from `dishVersionId`, the Version this
+  // setup screen is showing, whenever a historical Version is selected.
+  currentVersionId: string | null;
+  // Every saved Version, for the Version picker — switching navigates to
+  // this same setup screen for the chosen Version's own content.
+  versions: VersionOption[];
   units: SetupUnit[];
   sourceOutputQuantity: number | null;
   sourceOutputUnit: string | null;
@@ -85,6 +98,18 @@ export function CookingSetup({
   cancelHref: string;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  // Changing Version re-navigates this setup screen so the server re-derives
+  // the cookable units/yield from that Version's own content — the same
+  // "switch and re-fetch" pattern `VersionSelector`/`VersionComparePicker`
+  // use elsewhere, rather than trying to patch units/yield client-side.
+  function handleVersionChange(versionId: string) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("versionId", versionId);
+    router.push(`${pathname}?${params.toString()}`);
+  }
 
   // §23.3: every eligible unit begins included, in the server-suggested
   // order (§23.5). `includedKeys` is the ordered active plan; anything not
@@ -178,6 +203,25 @@ export function CookingSetup({
           {!isCurrent && " (historical version)"}
         </p>
       </div>
+
+      <VersionPickerField
+        id="cooking-setup-version"
+        versions={versions}
+        currentVersionId={currentVersionId}
+        value={dishVersionId}
+        onChangeAction={handleVersionChange}
+      />
+
+      <ContentCard>
+        <h2 className={CONTENT_CARD_TITLE_CLASS}>Whole-session scale</h2>
+        <ScaleControl
+          outputQuantity={sourceOutputQuantity}
+          outputUnit={sourceOutputUnit}
+          targetLabel="Cook for"
+          multiplierLabel="Scale the whole session"
+          onMultiplierChange={setSessionMultiplier}
+        />
+      </ContentCard>
 
       <ContentCard>
         <h2 className={CONTENT_CARD_TITLE_CLASS}>Included, in order</h2>
@@ -285,17 +329,6 @@ export function CookingSetup({
             </ul>
           </div>
         )}
-      </ContentCard>
-
-      <ContentCard>
-        <h2 className={CONTENT_CARD_TITLE_CLASS}>Whole-session scale</h2>
-        <ScaleControl
-          outputQuantity={sourceOutputQuantity}
-          outputUnit={sourceOutputUnit}
-          targetLabel="Cook for"
-          multiplierLabel="Scale the whole session"
-          onMultiplierChange={setSessionMultiplier}
-        />
       </ContentCard>
 
       {error && (

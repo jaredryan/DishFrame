@@ -3,7 +3,7 @@ import { Copy as CopyIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
+import { SemanticChip } from "@/components/domain/dish/semantic-chip";
 import {
   Select,
   SelectContent,
@@ -20,6 +20,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ShareItemSelector } from "@/components/domain/sharing/share-item-selector";
+import { SelectableDishRow } from "@/components/domain/dish/selectable-dish-row";
+import { DishVersionPicker } from "@/components/domain/dish/version-picker-field";
 import {
   listShareableItemsForSender,
   publishDishes,
@@ -54,9 +56,9 @@ function ResultRow({ result }: { result: PublishDishesResultItem }) {
         <span className="min-w-0 flex-1 truncate text-sm font-medium">
           {result.title}
         </span>
-        <Badge variant="outline">
+        <SemanticChip semantic="neutral">
           {result.dishKind === "PART" ? "Part" : "Recipe"}
-        </Badge>
+        </SemanticChip>
       </div>
       <div className="border-border bg-muted flex items-center gap-2 rounded-md border px-3 py-2">
         <code className="flex-1 truncate text-sm">{result.url}</code>
@@ -102,6 +104,9 @@ export function BulkPublishDialog({
   const [search, setSearch] = React.useState("");
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const [mode, setMode] = React.useState<ShareLinkModeValue>("FIXED_SNAPSHOT");
+  const [versionByDishId, setVersionByDishId] = React.useState<
+    Record<string, string>
+  >({});
   const [showCreatorName, setShowCreatorName] = React.useState(false);
   const [expiresAt, setExpiresAt] = React.useState("");
   const [results, setResults] = React.useState<
@@ -137,6 +142,7 @@ export function BulkPublishDialog({
     setSearch("");
     setSelected(new Set());
     setMode("FIXED_SNAPSHOT");
+    setVersionByDishId({});
     setShowCreatorName(false);
     setExpiresAt("");
     setResults(null);
@@ -165,6 +171,8 @@ export function BulkPublishDialog({
       const response = await publishDishes({
         dishIds: [...selected],
         mode,
+        versionIdByDishId:
+          mode === "FIXED_SNAPSHOT" ? versionByDishId : undefined,
         showCreatorName,
         expiresAt: expiresAt ? new Date(expiresAt) : null,
       });
@@ -192,7 +200,7 @@ export function BulkPublishDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <div className="-mx-1 flex min-h-0 flex-1 flex-col overflow-y-auto px-1">
           {step === "select" && (
             <ShareItemSelector
               items={items}
@@ -224,7 +232,7 @@ export function BulkPublishDialog({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="FIXED_SNAPSHOT">
-                      Share current version (fixed)
+                      Share a fixed version
                     </SelectItem>
                     <SelectItem value="CURRENT">
                       Share latest version
@@ -232,6 +240,38 @@ export function BulkPublishDialog({
                   </SelectContent>
                 </Select>
               </div>
+
+              {mode === "FIXED_SNAPSHOT" && items && (
+                <div className="space-y-3">
+                  <Label>Version to publish for each</Label>
+                  {[...selected].map((dishId) => {
+                    const item = items.find((i) => i.id === dishId);
+                    if (!item) return null;
+                    return (
+                      <div key={dishId} className="flex flex-col gap-2">
+                        <SelectableDishRow
+                          item={item}
+                          selectionControl="remove"
+                          onRemove={() => toggleSelected(dishId)}
+                        />
+                        <DishVersionPicker
+                          id={`publish-version-${dishId}`}
+                          kind={item.kind}
+                          dishId={dishId}
+                          value={versionByDishId[dishId] ?? null}
+                          onChangeAction={(versionId) =>
+                            setVersionByDishId((prev) => ({
+                              ...prev,
+                              [dishId]: versionId,
+                            }))
+                          }
+                          className="pl-2"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
 
               <div className="flex items-center justify-between">
                 <Label htmlFor="bulk-publish-show-name">Show my name</Label>
@@ -292,7 +332,14 @@ export function BulkPublishDialog({
               >
                 Back
               </Button>
-              <Button onClick={handlePublish} disabled={isPending}>
+              <Button
+                onClick={handlePublish}
+                disabled={
+                  isPending ||
+                  (mode === "FIXED_SNAPSHOT" &&
+                    ![...selected].every((id) => versionByDishId[id]))
+                }
+              >
                 {isPending ? "Publishing…" : "Publish"}
               </Button>
             </>

@@ -50,6 +50,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
+import { SemanticChip } from "@/components/domain/dish/semantic-chip";
 import { NumberField } from "@/components/domain/dish/number-field";
 import { NutritionFields } from "@/components/domain/dish/nutrition-fields";
 import { SectionFields } from "@/components/domain/dish/section-fields";
@@ -1124,9 +1125,9 @@ function SessionEvidenceTrigger({
             <Badge variant="outline">
               {evidence.outcome === "COMPLETED" ? "Completed" : "Ended early"}
             </Badge>
-            <Badge variant="outline" className="tabular-nums">
+            <SemanticChip semantic="purple" className="tabular-nums">
               {evidence.cookedVersionLabel}
-            </Badge>
+            </SemanticChip>
             {endedAtLabel && (
               <span className="text-muted-foreground">{endedAtLabel}</span>
             )}

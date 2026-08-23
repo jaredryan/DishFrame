@@ -141,6 +141,9 @@ export async function publishDishes(
   input: {
     dishIds: string[];
     mode: CreateShareLinkInput["mode"];
+    // FIXED_SNAPSHOT only — each item's explicit Version choice; ignored
+    // under CURRENT mode.
+    versionIdByDishId?: Record<string, string>;
     showCreatorName: boolean;
     expiresAt: Date | null;
   },
@@ -153,6 +156,10 @@ export async function publishDishes(
         const created = await createShareLink(ownerId, {
           dishId,
           mode: input.mode,
+          versionId:
+            input.mode === "FIXED_SNAPSHOT"
+              ? input.versionIdByDishId?.[dishId]
+              : undefined,
           showCreatorName: input.showCreatorName,
           expiresAt: input.expiresAt,
         });

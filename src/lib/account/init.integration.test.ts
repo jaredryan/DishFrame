@@ -272,9 +272,10 @@ describe("initializeNewUser", () => {
       "RECIPE",
       minimalRecipeContent("Init Claim Target"),
     );
+    const dish = await prisma.dish.findUniqueOrThrow({ where: { id: dishId } });
     const { collectionId } = await sendDirectShareCollection(sender.id, {
       recipientEmail: claimEmail,
-      dishIds: [dishId],
+      items: [{ dishId, dishVersionId: dish.currentVersionId! }],
       note: null,
     });
 

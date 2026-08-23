@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Field, FieldLabel, FieldError } from "@/components/ui/field";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { Badge } from "@/components/ui/badge";
+import { SemanticChip } from "@/components/domain/dish/semantic-chip";
 import {
   Popover,
   PopoverContent,
@@ -46,6 +47,12 @@ import {
   SelectableDishRow,
   type DishSelectionItem,
 } from "@/components/domain/dish/selectable-dish-row";
+import { VersionPickerField } from "@/components/domain/dish/version-picker-field";
+import {
+  listDishVersionOptions,
+  type DishVersionOption,
+} from "@/lib/dishes/actions";
+import { versionLabel as formatVersionLabel } from "@/lib/dishes/version-note";
 import {
   createMealPlan,
   updateMealPlan,
@@ -126,6 +133,7 @@ type RunAction = (action: () => Promise<ActionResult>) => void;
 type DraftEntry = {
   localId: string;
   dishId: string;
+  dishVersionId: string;
   title: string;
   versionLabel: string;
   cookDate: string;
@@ -136,6 +144,10 @@ type DraftEntry = {
 
 type MealValues = {
   dishId: string | null;
+  dishVersionId: string | null;
+  /** Display label for `dishVersionId` — resolved by the picker, since it
+   * may be a historical Version, not just the Dish's current one. */
+  versionLabel: string;
   cookDate: string;
   targetYieldQuantity: number | null;
   targetYieldUnit: string | null;
@@ -168,10 +180,10 @@ type StoredDraft = {
 };
 
 // A queued edit for an already-saved entry may also change which Recipe/
-// Part it points to — `updateMealPlanEntry` has no way to repoint an entry,
-// so a dish change is applied at Save time as remove-then-add (a new entry)
-// instead. Everything else about the edit reaches the server as an ordinary
-// `updateMealPlanEntry` patch.
+// Part — or which of its Versions — it points to; `updateMealPlanEntry` has
+// no way to repoint an entry, so either kind of change is applied at Save
+// time as remove-then-add (a new entry) instead. Everything else about the
+// edit reaches the server as an ordinary `updateMealPlanEntry` patch.
 function mergeEntryEdit(
   entry: MealPlanEntryDto,
   edit: MealValues | undefined,
@@ -185,9 +197,10 @@ function mergeEntryEdit(
   return {
     ...entry,
     dishId: edit.dishId,
+    dishVersionId: edit.dishVersionId,
     dishKind: candidate?.kind ?? entry.dishKind,
     title: candidate?.title ?? entry.title,
-    versionLabel: candidate?.versionLabel ?? entry.versionLabel,
+    versionLabel: edit.versionLabel || entry.versionLabel,
     cookDate: edit.cookDate,
     targetYieldQuantity: edit.targetYieldQuantity,
     targetYieldUnit: edit.targetYieldUnit,
@@ -392,6 +405,8 @@ export function MealPlanEditor(
       localId: entry.localId,
       initialValues: {
         dishId: entry.dishId,
+        dishVersionId: entry.dishVersionId,
+        versionLabel: entry.versionLabel,
         cookDate: entry.cookDate,
         targetYieldQuantity: entry.targetYieldQuantity,
         targetYieldUnit: entry.targetYieldUnit,
@@ -407,6 +422,8 @@ export function MealPlanEditor(
       entryId: entry.id,
       initialValues: {
         dishId: entry.dishId,
+        dishVersionId: entry.dishVersionId,
+        versionLabel: entry.versionLabel,
         cookDate: dateOnly(entry.cookDate),
         targetYieldQuantity: entry.targetYieldQuantity,
         targetYieldUnit: entry.targetYieldUnit,
@@ -416,7 +433,7 @@ export function MealPlanEditor(
   }
 
   function handleMealModalSubmit(values: MealValues) {
-    if (!mealModal || !values.dishId) return;
+    if (!mealModal || !values.dishId || !values.dishVersionId) return;
     const candidate = candidates.find((c) => c.dishId === values.dishId);
 
     if (mealModal.mode === "add") {
@@ -425,8 +442,9 @@ export function MealPlanEditor(
         {
           localId: crypto.randomUUID(),
           dishId: values.dishId!,
+          dishVersionId: values.dishVersionId!,
           title: candidate?.title ?? "Untitled",
-          versionLabel: candidate?.versionLabel ?? "",
+          versionLabel: values.versionLabel,
           cookDate: values.cookDate,
           targetYieldQuantity: values.targetYieldQuantity,
           targetYieldUnit: values.targetYieldUnit,
@@ -440,8 +458,9 @@ export function MealPlanEditor(
             ? {
                 ...entry,
                 dishId: values.dishId!,
+                dishVersionId: values.dishVersionId!,
                 title: candidate?.title ?? entry.title,
-                versionLabel: candidate?.versionLabel ?? entry.versionLabel,
+                versionLabel: values.versionLabel,
                 cookDate: values.cookDate,
                 targetYieldQuantity: values.targetYieldQuantity,
                 targetYieldUnit: values.targetYieldUnit,
@@ -495,6 +514,7 @@ export function MealPlanEditor(
         const entryResult = await addMealPlanEntry({
           mealPlanId,
           dishId: entry.dishId,
+          dishVersionId: entry.dishVersionId,
           cookDate: entry.cookDate,
           targetYieldQuantity: entry.targetYieldQuantity,
           targetYieldUnit: entry.targetYieldUnit,
@@ -541,16 +561,21 @@ export function MealPlanEditor(
         if (result.status !== "success") hadEntryError = true;
       }
 
-      // A queued edit that changed the entry's Recipe/Part is applied as
-      // remove-then-add (`updateMealPlanEntry` can't repoint an entry) —
+      // A queued edit that changed the entry's Recipe/Part — or which of its
+      // Versions it points to — is applied as remove-then-add
+      // (`updateMealPlanEntry` can't repoint an entry or its Version) —
       // `replacedEntryIds` lets the Version-adoption loop below skip an
       // entry that no longer exists by the time it would run.
       const replacedEntryIds = new Set<string>();
       for (const [entryId, edit] of Object.entries(entryEdits)) {
-        if (removedEntryIds.has(entryId) || !edit.dishId) continue;
+        if (removedEntryIds.has(entryId) || !edit.dishId || !edit.dishVersionId)
+          continue;
         const original = mealPlan.entries.find((e) => e.id === entryId);
         if (!original) continue;
-        if (edit.dishId !== original.dishId) {
+        if (
+          edit.dishId !== original.dishId ||
+          edit.dishVersionId !== original.dishVersionId
+        ) {
           replacedEntryIds.add(entryId);
           const removeResult = await removeMealPlanEntry({
             mealPlanId: mealPlan.id,
@@ -563,6 +588,7 @@ export function MealPlanEditor(
           const addResult = await addMealPlanEntry({
             mealPlanId: mealPlan.id,
             dishId: edit.dishId,
+            dishVersionId: edit.dishVersionId,
             cookDate: edit.cookDate,
             targetYieldQuantity: edit.targetYieldQuantity,
             targetYieldUnit: edit.targetYieldUnit,
@@ -595,6 +621,7 @@ export function MealPlanEditor(
         const result = await addMealPlanEntry({
           mealPlanId: mealPlan.id,
           dishId: entry.dishId,
+          dishVersionId: entry.dishVersionId,
           cookDate: entry.cookDate,
           targetYieldQuantity: entry.targetYieldQuantity,
           targetYieldUnit: entry.targetYieldUnit,
@@ -895,10 +922,10 @@ function DraftEntryCard({
             <CalendarDays className="size-3" aria-hidden="true" />
             {formatDateOnly(entry.cookDate)}
           </Badge>
-          <Badge variant="outline" className="gap-1">
+          <SemanticChip semantic="orange">
             <Soup className="size-3" aria-hidden="true" />
             {yieldChipLabel(entry.targetYieldQuantity, entry.targetYieldUnit)}
-          </Badge>
+          </SemanticChip>
           {showDraftBadge && <Badge variant="outline">Not yet saved</Badge>}
         </div>
         {entry.note && (
@@ -971,10 +998,10 @@ function EditEntryCard({
             <CalendarDays className="size-3" aria-hidden="true" />
             {formatDateOnly(entry.cookDate)}
           </Badge>
-          <Badge variant="outline" className="gap-1">
+          <SemanticChip semantic="orange">
             <Soup className="size-3" aria-hidden="true" />
             {yieldChipLabel(entry.targetYieldQuantity, entry.targetYieldUnit)}
-          </Badge>
+          </SemanticChip>
         </div>
         {entry.dishId == null && (
           <p className="text-destructive-text text-xs">
@@ -1298,6 +1325,18 @@ function MealPickerModal({
   const [selectedDishId, setSelectedDishId] = React.useState<string | null>(
     initialValues?.dishId ?? null,
   );
+  const [selectedVersionId, setSelectedVersionId] = React.useState<
+    string | null
+  >(initialValues?.dishVersionId ?? null);
+  const [dishVersions, setDishVersions] = React.useState<
+    DishVersionOption[] | null
+  >(null);
+  const [currentVersionId, setCurrentVersionId] = React.useState<string | null>(
+    null,
+  );
+  const [dishVersionsError, setDishVersionsError] = React.useState<
+    string | null
+  >(null);
   const [targetYieldQuantity, setTargetYieldQuantity] = React.useState<
     number | null
   >(initialValues?.targetYieldQuantity ?? null);
@@ -1338,6 +1377,43 @@ function MealPickerModal({
   }>({ property: "recentlyCooked", direction: "asc" });
 
   const selectedCandidate = candidates.find((c) => c.dishId === selectedDishId);
+  const selectedVersion = dishVersions?.find((v) => v.id === selectedVersionId);
+  // The selected Version's own yield once loaded; falls back to the
+  // candidate's (current-Version) yield while versions are still loading.
+  const effectiveYieldQuantity =
+    selectedVersion?.yieldQuantity ?? selectedCandidate?.yieldQuantity ?? null;
+  const effectiveYieldUnit =
+    selectedVersion?.yieldUnit ?? selectedCandidate?.yieldUnit ?? null;
+
+  // Fetches the full Version list (each with its own yield) for whichever
+  // Recipe/Part is selected — necessarily an effect, since it reacts to
+  // `selectedDishId` changing rather than a render-time value.
+  React.useEffect(() => {
+    if (!selectedDishId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- clears version state synchronously when the selection is cleared
+      setDishVersions(null);
+      setCurrentVersionId(null);
+      setDishVersionsError(null);
+      return;
+    }
+    const candidate = candidates.find((c) => c.dishId === selectedDishId);
+    if (!candidate) return;
+    let cancelled = false;
+    listDishVersionOptions(candidate.kind, selectedDishId).then((result) => {
+      if (cancelled) return;
+      if (result.status === "success") {
+        setDishVersions(result.versions);
+        setCurrentVersionId(result.currentVersionId);
+        setSelectedVersionId((prev) => prev ?? result.currentVersionId);
+      } else {
+        setDishVersionsError(result.message);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDishId]);
 
   function close() {
     onOpenChange(false);
@@ -1345,10 +1421,27 @@ function MealPickerModal({
 
   function selectDish(dishId: string | null) {
     setSelectedDishId(dishId);
+    setSelectedVersionId(null);
+    setDishVersions(null);
+    setCurrentVersionId(null);
+    setDishVersionsError(null);
     if (dishId == null) return;
     const candidate = candidates.find((c) => c.dishId === dishId);
     setTargetYieldQuantity(candidate?.yieldQuantity ?? null);
     setTargetYieldTouched(false);
+  }
+
+  function selectVersion(versionId: string) {
+    setSelectedVersionId(versionId);
+    // Untouched (still following "whatever the selected Version yields")
+    // tracks the newly selected Version's own yield. A user-set target is
+    // preserved as-is — only the derived scale factor below (computed from
+    // `effectiveYieldQuantity`, itself derived from `selectedVersionId`)
+    // recalculates against the newly selected Version's yield.
+    if (!targetYieldTouched) {
+      const version = dishVersions?.find((v) => v.id === versionId);
+      setTargetYieldQuantity(version?.yieldQuantity ?? null);
+    }
   }
 
   function toggleStage(value: string) {
@@ -1516,16 +1609,25 @@ function MealPickerModal({
   }
 
   function handleSubmit() {
-    if (!selectedDishId) return;
+    if (!selectedDishId || !selectedVersionId) return;
     onSubmit({
       dishId: selectedDishId,
+      dishVersionId: selectedVersionId,
+      versionLabel: selectedVersion
+        ? formatVersionLabel(
+            selectedVersion.majorVersion,
+            selectedVersion.minorVersion,
+          )
+        : (initialValues?.versionLabel ??
+          selectedCandidate?.versionLabel ??
+          ""),
       cookDate,
       // Only send an explicit target yield if the user actually changed it
       // — leaving the auto-filled default alone means "always follow the
       // source's current authored yield," matching how a scaling-untouched
       // entry has always behaved (see `targetYieldTouched`'s note above).
       targetYieldQuantity: targetYieldTouched ? targetYieldQuantity : null,
-      targetYieldUnit: selectedCandidate?.yieldUnit ?? null,
+      targetYieldUnit: effectiveYieldUnit,
       note: note.trim() || null,
     });
   }
@@ -1573,49 +1675,67 @@ function MealPickerModal({
               />
 
               <p className="text-muted-foreground text-sm">
-                {selectedCandidate.yieldQuantity != null
-                  ? `Makes ${selectedCandidate.yieldQuantity} ${selectedCandidate.yieldUnit ?? ""}`.trim()
+                {effectiveYieldQuantity != null
+                  ? `Makes ${effectiveYieldQuantity} ${effectiveYieldUnit ?? ""}`.trim()
                   : "No specified yield for this Recipe/Part."}
               </p>
-              <Field>
-                <FieldLabel htmlFor="meal-modal-target-yield">
-                  Target yield
-                </FieldLabel>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="meal-modal-target-yield"
-                    type="number"
-                    inputMode="decimal"
-                    step="any"
-                    min="0"
-                    className="w-13"
-                    value={targetYieldQuantity ?? ""}
-                    onChange={(e) => {
-                      const raw = e.target.value;
-                      setTargetYieldTouched(true);
-                      setTargetYieldQuantity(raw === "" ? null : Number(raw));
-                    }}
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                {dishVersionsError ? (
+                  <p className="text-destructive-text text-sm">
+                    {dishVersionsError}
+                  </p>
+                ) : (
+                  <VersionPickerField
+                    id="meal-modal-version"
+                    versions={dishVersions ?? []}
+                    currentVersionId={currentVersionId}
+                    value={selectedVersionId ?? undefined}
+                    onChangeAction={selectVersion}
+                    disabled={!dishVersions}
+                    placeholder={dishVersions ? undefined : "Loading…"}
                   />
-                  {selectedCandidate.yieldUnit && (
-                    <span className="text-muted-foreground text-sm">
-                      {selectedCandidate.yieldUnit}
-                      {selectedCandidate.yieldQuantity != null &&
-                        selectedCandidate.yieldQuantity > 0 &&
-                        targetYieldQuantity != null && (
-                          <>
-                            {" "}
-                            · Scale recipe by{" "}
-                            {formatScale(
-                              targetYieldQuantity /
-                                selectedCandidate.yieldQuantity,
-                            )}
-                            ×
-                          </>
-                        )}
-                    </span>
-                  )}
-                </div>
-              </Field>
+                )}
+
+                <Field>
+                  <FieldLabel htmlFor="meal-modal-target-yield">
+                    Target yield
+                  </FieldLabel>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="meal-modal-target-yield"
+                      type="number"
+                      inputMode="decimal"
+                      step="any"
+                      min="0"
+                      className="w-13"
+                      value={targetYieldQuantity ?? ""}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        setTargetYieldTouched(true);
+                        setTargetYieldQuantity(raw === "" ? null : Number(raw));
+                      }}
+                    />
+                    {effectiveYieldUnit && (
+                      <span className="text-muted-foreground text-sm">
+                        {effectiveYieldUnit}
+                        {effectiveYieldQuantity != null &&
+                          effectiveYieldQuantity > 0 &&
+                          targetYieldQuantity != null && (
+                            <>
+                              {" "}
+                              · Scale recipe by{" "}
+                              {formatScale(
+                                targetYieldQuantity / effectiveYieldQuantity,
+                              )}
+                              ×
+                            </>
+                          )}
+                      </span>
+                    )}
+                  </div>
+                </Field>
+              </div>
               <Field>
                 <FieldLabel htmlFor="meal-modal-note">Note</FieldLabel>
                 <Input
@@ -1627,124 +1747,126 @@ function MealPickerModal({
             </div>
           ) : (
             <div className="flex flex-col gap-3">
-              <Field>
-                <FieldLabel htmlFor="meal-modal-search">Search</FieldLabel>
-                <div className="relative">
-                  <Search
-                    className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2"
-                    aria-hidden="true"
+              <div className="bg-popover sticky top-0 z-10 flex flex-col gap-3 pb-2">
+                <Field>
+                  <FieldLabel htmlFor="meal-modal-search">Search</FieldLabel>
+                  <div className="relative">
+                    <Search
+                      className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2"
+                      aria-hidden="true"
+                    />
+                    <Input
+                      id="meal-modal-search"
+                      placeholder="Search your Recipes and Parts…"
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      className="pl-8"
+                    />
+                  </div>
+                </Field>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <FilterPopover
+                    label="Recipe stage"
+                    options={MEAL_PICKER_STAGES.map((stage) => ({
+                      value: stage,
+                      label: STAGE_LABEL[stage],
+                    }))}
+                    selected={stageFilter}
+                    onToggleAction={toggleStage}
+                    onClearAction={() => setStageFilter(new Set())}
                   />
-                  <Input
-                    id="meal-modal-search"
-                    placeholder="Search your Recipes and Parts…"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    className="pl-8"
+                  <FilterPopover
+                    label="Recipe / Part"
+                    options={MEAL_PICKER_KINDS}
+                    selected={kindFilter}
+                    onToggleAction={toggleKind}
+                  />
+                  <FilterPopover
+                    label="Tags"
+                    options={tagOptions.map((tag) => ({
+                      value: tag.id,
+                      label: tag.displayName,
+                    }))}
+                    selected={tagIdFilter}
+                    onToggleAction={toggleTag}
+                    emptyMessage="No tags yet."
+                    specialOption={{
+                      label: "Favorites",
+                      checked: favorites,
+                      onToggle: () => setFavorites((prev) => !prev),
+                    }}
+                  />
+                  <FilterPopover
+                    label="Cuisine"
+                    options={cuisineOptions.map((cuisine) => ({
+                      value: cuisine,
+                      label: cuisine,
+                    }))}
+                    selected={cuisineFilter}
+                    onToggleAction={toggleCuisine}
+                    emptyMessage="No cuisines used yet."
+                  />
+                  <FilterPopover
+                    label="Flavor profiles"
+                    options={flavorProfileOptions.map((value) => ({
+                      value: value.id,
+                      label: value.displayName,
+                    }))}
+                    selected={flavorProfileFilter}
+                    onToggleAction={toggleFlavorProfile}
+                    emptyMessage="No Flavor profiles yet."
+                  />
+                  <RatingFilterPopover
+                    value={ratingFilter}
+                    onChange={setRatingFilter}
                   />
                 </div>
-              </Field>
 
-              <div className="flex flex-wrap items-center gap-2">
-                <FilterPopover
-                  label="Recipe stage"
-                  options={MEAL_PICKER_STAGES.map((stage) => ({
-                    value: stage,
-                    label: STAGE_LABEL[stage],
-                  }))}
-                  selected={stageFilter}
-                  onToggleAction={toggleStage}
-                  onClearAction={() => setStageFilter(new Set())}
-                />
-                <FilterPopover
-                  label="Recipe / Part"
-                  options={MEAL_PICKER_KINDS}
-                  selected={kindFilter}
-                  onToggleAction={toggleKind}
-                />
-                <FilterPopover
-                  label="Tags"
-                  options={tagOptions.map((tag) => ({
-                    value: tag.id,
-                    label: tag.displayName,
-                  }))}
-                  selected={tagIdFilter}
-                  onToggleAction={toggleTag}
-                  emptyMessage="No tags yet."
-                  specialOption={{
-                    label: "Favorites",
-                    checked: favorites,
-                    onToggle: () => setFavorites((prev) => !prev),
-                  }}
-                />
-                <FilterPopover
-                  label="Cuisine"
-                  options={cuisineOptions.map((cuisine) => ({
-                    value: cuisine,
-                    label: cuisine,
-                  }))}
-                  selected={cuisineFilter}
-                  onToggleAction={toggleCuisine}
-                  emptyMessage="No cuisines used yet."
-                />
-                <FilterPopover
-                  label="Flavor profiles"
-                  options={flavorProfileOptions.map((value) => ({
-                    value: value.id,
-                    label: value.displayName,
-                  }))}
-                  selected={flavorProfileFilter}
-                  onToggleAction={toggleFlavorProfile}
-                  emptyMessage="No Flavor profiles yet."
-                />
-                <RatingFilterPopover
-                  value={ratingFilter}
-                  onChange={setRatingFilter}
-                />
-              </div>
-
-              <div className="border-border flex flex-wrap items-center justify-between gap-3 border-t pt-3">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {activeFilterChips.length > 0 ? (
-                    <>
-                      {activeFilterChips.map((chip) => (
-                        <Badge
-                          key={chip.key}
-                          variant="outline"
-                          className="bg-primary/15 text-brand-blue-text gap-1 border-transparent pr-1 text-xs"
-                        >
-                          {chip.label}
-                          <button
-                            type="button"
-                            onClick={chip.onRemove}
-                            aria-label={`Remove ${chip.label} filter`}
-                            className="hover:bg-primary/20 cursor-pointer rounded-full p-0.5"
+                <div className="border-border flex flex-wrap items-center justify-between gap-3 border-t pt-3">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {activeFilterChips.length > 0 ? (
+                      <>
+                        {activeFilterChips.map((chip) => (
+                          <Badge
+                            key={chip.key}
+                            variant="outline"
+                            className="bg-primary/15 text-brand-blue-text gap-1 border-transparent pr-1 text-xs"
                           >
-                            <X className="size-3" aria-hidden="true" />
-                          </button>
-                        </Badge>
-                      ))}
-                      <button
-                        type="button"
-                        onClick={clearFilters}
-                        className="text-muted-foreground text-xs hover:underline"
-                      >
-                        Clear
-                      </button>
-                    </>
-                  ) : (
-                    <span className="text-muted-foreground text-xs">
-                      No filters applied
-                    </span>
-                  )}
+                            {chip.label}
+                            <button
+                              type="button"
+                              onClick={chip.onRemove}
+                              aria-label={`Remove ${chip.label} filter`}
+                              className="hover:bg-primary/20 cursor-pointer rounded-full p-0.5"
+                            >
+                              <X className="size-3" aria-hidden="true" />
+                            </button>
+                          </Badge>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={clearFilters}
+                          className="text-muted-foreground text-xs hover:underline"
+                        >
+                          Clear
+                        </button>
+                      </>
+                    ) : (
+                      <span className="text-muted-foreground text-xs">
+                        No filters applied
+                      </span>
+                    )}
+                  </div>
+                  <SortSelect
+                    id="meal-modal-sort"
+                    property={sort.property}
+                    direction={sort.direction}
+                    options={MEAL_SORT_OPTIONS}
+                    onChangeAction={setSort}
+                    triggerClassName="w-44"
+                  />
                 </div>
-                <SortSelect
-                  id="meal-modal-sort"
-                  property={sort.property}
-                  direction={sort.direction}
-                  options={MEAL_SORT_OPTIONS}
-                  onChangeAction={setSort}
-                  triggerClassName="w-44"
-                />
               </div>
 
               {visibleCandidates.length === 0 ? (
@@ -1758,7 +1880,7 @@ function MealPickerModal({
                   </p>
                 )
               ) : (
-                <ul className="flex max-h-72 flex-col gap-1 overflow-y-auto">
+                <ul className="flex flex-col gap-1">
                   {visibleCandidates.slice(0, 20).map((candidate) => (
                     <li key={candidate.dishId}>
                       <SelectableDishRow
@@ -1781,7 +1903,7 @@ function MealPickerModal({
           </Button>
           <Button
             type="button"
-            disabled={!selectedDishId}
+            disabled={!selectedDishId || !selectedVersionId}
             onClick={handleSubmit}
           >
             {mode === "edit" ? "Save changes" : "Add meal"}

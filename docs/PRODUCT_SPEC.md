@@ -2204,6 +2204,18 @@ DishFrame does not promise reliable sound or operating-system notification while
 
 PWA or native notifications remain deferred.
 
+## 29.7 Timer visibility location
+
+Timer state (name, countdown, expired state, controls) is surfaced only in
+the dedicated Timers area of Cooking Mode (the desktop rail; the
+equivalent collapsible area on tablet/mobile).
+
+Section/Recipe navigation (the left nav rail on desktop, and its
+tablet/mobile equivalents) never carries timer indicators — no countdown
+chip, badge, or other timer-derived state on a nav item, at any screen
+size. Navigation communicates only Section identity and
+checkoff/completion progress.
+
 ---
 
 # 30. Ending a Cooking Session

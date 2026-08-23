@@ -3,7 +3,7 @@
 import * as React from "react";
 import { Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { SemanticChip } from "@/components/domain/dish/semantic-chip";
 import {
   Dialog,
   DialogContent,
@@ -132,9 +132,9 @@ export function RatingDetailDialog({
                       key={v.dishVersionId}
                       className="flex items-center justify-between text-sm"
                     >
-                      <Badge variant="outline" className="tabular-nums">
+                      <SemanticChip semantic="purple" className="tabular-nums">
                         {v.versionLabel}
-                      </Badge>
+                      </SemanticChip>
                       <span className="text-muted-foreground tabular-nums">
                         {v.average.toFixed(1)}/5 · {v.count}
                       </span>

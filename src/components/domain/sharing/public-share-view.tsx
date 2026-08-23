@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import { SemanticChip } from "@/components/domain/dish/semantic-chip";
 import { formatIngredientLine } from "@/lib/dishes/format";
 import type {
   PublicShareContent,
@@ -189,40 +190,40 @@ export function PublicShareView({
           />
         )}
         {content.description && <p>{content.description}</p>}
-        <div className="text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 text-sm">
-          {content.cuisine && <span>{content.cuisine}</span>}
+        <div className="flex flex-wrap items-center gap-1.5">
+          {content.cuisine && (
+            <SemanticChip semantic="green">{content.cuisine}</SemanticChip>
+          )}
+          {content.flavorProfiles.map((flavor) => (
+            <SemanticChip key={flavor} semantic="green">
+              {flavor}
+            </SemanticChip>
+          ))}
+          {content.tags.map((tag) => (
+            <SemanticChip key={tag} semantic="neutral">
+              {tag}
+            </SemanticChip>
+          ))}
+          {content.aggregateRating != null && content.ratingCount != null && (
+            <SemanticChip semantic="purple" className="tabular-nums">
+              {content.aggregateRating.toFixed(1)}★ ({content.ratingCount})
+            </SemanticChip>
+          )}
           {content.yieldQuantity != null && (
-            <span>
+            <SemanticChip semantic="orange">
               Makes {content.yieldQuantity} {content.yieldUnit ?? ""}
-            </span>
+            </SemanticChip>
+          )}
+          {content.difficulty && (
+            <SemanticChip semantic="orange">{content.difficulty}</SemanticChip>
           )}
           {content.prepTimeMinutes != null && (
-            <span>Prep {content.prepTimeMinutes} min</span>
+            <Badge variant="outline">Prep {content.prepTimeMinutes} min</Badge>
           )}
           {content.cookTimeMinutes != null && (
-            <span>Cook {content.cookTimeMinutes} min</span>
-          )}
-          {content.difficulty && <span>{content.difficulty}</span>}
-          {content.aggregateRating != null && content.ratingCount != null && (
-            <span>
-              {content.aggregateRating.toFixed(1)}★ ({content.ratingCount})
-            </span>
+            <Badge variant="outline">Cook {content.cookTimeMinutes} min</Badge>
           )}
         </div>
-        {(content.tags.length > 0 || content.flavorProfiles.length > 0) && (
-          <div className="flex flex-wrap gap-2">
-            {content.tags.map((tag) => (
-              <Badge key={tag} variant="secondary">
-                {tag}
-              </Badge>
-            ))}
-            {content.flavorProfiles.map((flavor) => (
-              <Badge key={flavor} variant="secondary">
-                {flavor}
-              </Badge>
-            ))}
-          </div>
-        )}
       </header>
 
       <div className="space-y-4">

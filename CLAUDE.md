@@ -88,6 +88,51 @@ Never run `git status`, `git diff`, `git log`, or any other git
 inspection/mutation command (commit, push, pull, branch, PR) unless the
 owner explicitly asks in that turn. They manage Git state themselves.
 
+# Post-implementation behavior (added 2026-08-23)
+
+Once the requested edits are complete, stop implementation work and report
+completion. Do not perform an unsolicited final consistency/review pass
+after the requested changes are done.
+
+Specifically, once the edits themselves are finished, do not:
+
+- re-read modified files just to look for lingering diagnostics;
+- inspect the final diff for general correctness;
+- perform a final code-quality sweep;
+- run or invoke diagnostics;
+- run verification commands (also enforced mechanically — see the
+  `deny-self-run-bash.sh` PreToolUse hook in the global
+  `~/.claude/CLAUDE.md`-referenced hook setup, which denies typecheck,
+  lint, format-check, build, diagnostics, test, Playwright, Lighthouse,
+  and database/migration-verification commands, plus `check`/`verify:*`
+  wrappers, at the Bash-tool level);
+- perform broad post-edit searches/checks;
+- do any other self-appointed final review step.
+
+File reads/searches are still allowed when genuinely needed to implement
+the requested changes — this restricts extra review _after_ the
+implementation itself is complete, not the reads needed to do the work.
+
+The intended workflow:
+
+1. Read what is needed to implement.
+2. Make the requested edits.
+3. Update/add tests if the task requires maintaining coverage, but do not
+   run them unless explicitly authorized.
+4. Stop.
+5. Give one concise completion summary.
+
+**Why:** the owner wants the assistant to never spend time/usage on
+post-implementation verification or review it didn't ask for — that
+belongs to the owner's own fresh-session verification pass (see
+"Verification and Git policy" above and the global `~/.claude/CLAUDE.md`
+"Testing / verification policy").
+
+**How to apply:** across all DishFrame implementation passes, layered on
+top of (not replacing) the "Assistant workflow preference" section above
+— that section governs chat narration during the pass; this section
+governs what happens once the edits are done.
+
 # Implementation report policy (DishFrame-specific)
 
 The global `~/.claude/CLAUDE.md` "Token-efficient implementation

@@ -100,14 +100,6 @@ test.describe("Cooking Mode: unit switching, progress, and simultaneous timers",
     const timerRail = page.getByRole("complementary", {
       name: /active timers/i,
     });
-    // Mobile's single-column layout stays in the DOM (just `lg:hidden`)
-    // alongside the desktop three-zone layout. Unlike `getByRole`,
-    // `getByLabel` isn't filtered by the accessibility tree, so once the
-    // desktop's "Start timer" action opens an AddTimerForm, mobile's own
-    // (hidden) copy — mounted on the same selected unit — also matches.
-    // Scope to <main>, the desktop layout's unique landmark.
-    const main = page.getByRole("main");
-
     // --- Desktop opens on the Recipe overview by default (refinement pass
     // item 1); switch to "Prep" first via the nav — scoped to the nav
     // landmark since the Recipe overview's own Sections list at the bottom
@@ -123,14 +115,12 @@ test.describe("Cooking Mode: unit switching, progress, and simultaneous timers",
     await page
       .getByRole("button", { name: "Start timer", exact: true })
       .click();
-    await main.getByLabel("Name").fill("Rice");
-    await main.getByLabel("Minutes").fill("10");
-    // The header's own "Start timer" trigger disables itself while this
-    // form is open, so `.last()` unambiguously targets the form's submit.
-    await page
-      .getByRole("button", { name: "Start timer", exact: true })
-      .last()
-      .click();
+    // "Start timer" opens the shared StartTimerDialog (a portaled Radix
+    // dialog, not inline under <main>); its own submit button is "Start".
+    const timerDialog = page.getByRole("dialog", { name: "Start a timer" });
+    await timerDialog.getByLabel("Name").fill("Rice");
+    await timerDialog.getByLabel("Minutes").fill("10");
+    await timerDialog.getByRole("button", { name: "Start", exact: true }).click();
     await expect(timerRail.getByText(/Rice/)).toBeVisible();
 
     // --- Switch to "Sear" in one click via the left nav: check its
@@ -142,12 +132,9 @@ test.describe("Cooking Mode: unit switching, progress, and simultaneous timers",
     await page
       .getByRole("button", { name: "Start timer", exact: true })
       .click();
-    await main.getByLabel("Name").fill("Sauce");
-    await main.getByLabel("Minutes").fill("5");
-    await page
-      .getByRole("button", { name: "Start timer", exact: true })
-      .last()
-      .click();
+    await timerDialog.getByLabel("Name").fill("Sauce");
+    await timerDialog.getByLabel("Minutes").fill("5");
+    await timerDialog.getByRole("button", { name: "Start", exact: true }).click();
 
     // Both timers are simultaneously visible and controllable in the rail,
     // regardless of which Section is currently selected.

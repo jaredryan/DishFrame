@@ -12,6 +12,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ShareItemSelector } from "@/components/domain/sharing/share-item-selector";
+import { SelectableDishRow } from "@/components/domain/dish/selectable-dish-row";
+import { DishVersionPicker } from "@/components/domain/dish/version-picker-field";
 import {
   listShareableItemsForSender,
   sendDirectShareCollection,
@@ -44,6 +46,9 @@ export function DirectShareCollectionDialog({
   const [itemsError, setItemsError] = React.useState<string | null>(null);
   const [search, setSearch] = React.useState("");
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
+  const [selectedVersionByDishId, setSelectedVersionByDishId] = React.useState<
+    Record<string, string>
+  >({});
   const [note, setNote] = React.useState("");
   const [sendError, setSendError] = React.useState<string | null>(null);
   const [isPending, startTransition] = React.useTransition();
@@ -75,11 +80,15 @@ export function DirectShareCollectionDialog({
     setItemsError(null);
     setSearch("");
     setSelected(new Set());
+    setSelectedVersionByDishId({});
     setNote("");
     setSendError(null);
   }
 
-  const canReview = /\S+@\S+\.\S+/.test(email.trim()) && selected.size > 0;
+  const canReview =
+    /\S+@\S+\.\S+/.test(email.trim()) &&
+    selected.size > 0 &&
+    [...selected].every((id) => selectedVersionByDishId[id]);
 
   function toggleSelected(id: string) {
     setSelected((prev) => {
@@ -102,7 +111,10 @@ export function DirectShareCollectionDialog({
     startTransition(async () => {
       const result = await sendDirectShareCollection({
         recipientEmail: email,
-        dishIds: [...selected],
+        items: [...selected].map((dishId) => ({
+          dishId,
+          dishVersionId: selectedVersionByDishId[dishId],
+        })),
         note: note.trim().length > 0 ? note.trim() : null,
       });
       if (result.status === "error") {
@@ -125,7 +137,7 @@ export function DirectShareCollectionDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <div className="-mx-1 flex min-h-0 flex-1 flex-col overflow-y-auto px-1">
           {step === "sent" ? (
             <p className="text-sm">
               Sent {selected.size} item{selected.size === 1 ? "" : "s"} to{" "}
@@ -179,6 +191,38 @@ export function DirectShareCollectionDialog({
                 onSelectAll={selectAll}
                 maxItems={DIRECT_SHARE_MAX_ITEMS}
               />
+
+              {selected.size > 0 && items && (
+                <div className="space-y-3">
+                  <Label>Selected — choose a Version to send for each</Label>
+                  {[...selected].map((dishId) => {
+                    const item = items.find((i) => i.id === dishId);
+                    if (!item) return null;
+                    return (
+                      <div key={dishId} className="flex flex-col gap-2">
+                        <SelectableDishRow
+                          item={item}
+                          selectionControl="remove"
+                          onRemove={() => toggleSelected(dishId)}
+                        />
+                        <DishVersionPicker
+                          id={`send-version-${dishId}`}
+                          kind={item.kind}
+                          dishId={dishId}
+                          value={selectedVersionByDishId[dishId] ?? null}
+                          onChangeAction={(versionId) =>
+                            setSelectedVersionByDishId((prev) => ({
+                              ...prev,
+                              [dishId]: versionId,
+                            }))
+                          }
+                          className="pl-2"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
 
               <div className="space-y-2">
                 <Label htmlFor="collection-share-note">Note (optional)</Label>

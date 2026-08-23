@@ -1,4 +1,4 @@
-import { Badge } from "@/components/ui/badge";
+import { SemanticChip } from "@/components/domain/dish/semantic-chip";
 import type { DishKindValue } from "@/lib/dishes/schema";
 
 /** Compact Recipe/Part type badge shared by the Home dashboard and Cook
@@ -13,11 +13,11 @@ export function DishKindBadge({
   selected?: boolean;
 }) {
   return (
-    <Badge
-      variant="outline"
+    <SemanticChip
+      semantic="neutral"
       className={selected ? "border-primary/40" : undefined}
     >
       {kind === "PART" ? "Part" : "Recipe"}
-    </Badge>
+    </SemanticChip>
   );
 }

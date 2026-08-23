@@ -4,6 +4,7 @@ import * as React from "react";
 import { ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { SemanticChip } from "@/components/domain/dish/semantic-chip";
 import {
   Dialog,
   DialogContent,
@@ -87,13 +88,13 @@ export function CookingHistoryDialog({
                       </Badge>
                     )}
                     {event.occurrences.map((occurrence, index) => (
-                      <Badge
+                      <SemanticChip
                         key={index}
-                        variant="outline"
+                        semantic="purple"
                         className="text-xs tabular-nums"
                       >
                         {occurrence.partVersionLabelSnapshot}
-                      </Badge>
+                      </SemanticChip>
                     ))}
                   </div>
                   {paths.length > 0 && (

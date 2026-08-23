@@ -7,17 +7,26 @@ import type {
   GroceryListDetailDto,
   GroceryListItemDto,
 } from "@/lib/grocery/list-schema";
+import type { DishVersionYieldOption } from "@/lib/grocery/queries";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
 }));
 
-const { selectGroceryItemVariant, acknowledgeGroceryItemSync } = vi.hoisted(
-  () => ({
-    selectGroceryItemVariant: vi.fn(async () => ({ status: "success" })),
-    acknowledgeGroceryItemSync: vi.fn(async () => ({ status: "success" })),
-  }),
-);
+const {
+  selectGroceryItemVariant,
+  acknowledgeGroceryItemSync,
+  updateGroceryListSource,
+  listGrocerySourceVersionOptions,
+} = vi.hoisted(() => ({
+  selectGroceryItemVariant: vi.fn(async () => ({ status: "success" })),
+  acknowledgeGroceryItemSync: vi.fn(async () => ({ status: "success" })),
+  updateGroceryListSource: vi.fn(async () => ({ status: "success" })),
+  listGrocerySourceVersionOptions: vi.fn(async () => ({
+    status: "success" as const,
+    versions: [] as DishVersionYieldOption[],
+  })),
+}));
 
 vi.mock("@/lib/grocery/list-actions", () => ({
   toggleGroceryItem: vi.fn(async () => ({ status: "success" })),
@@ -47,6 +56,11 @@ vi.mock("@/lib/grocery/list-actions", () => ({
   })),
   applyGroceryListSourceRefresh: vi.fn(async () => ({ status: "success" })),
   acknowledgeGroceryItemSync,
+  addGroceryListSource: vi.fn(async () => ({ status: "success" })),
+  removeGroceryListSource: vi.fn(async () => ({ status: "success" })),
+  updateGroceryListSource,
+  listGrocerySourceVersionOptions,
+  generateGroceryList: vi.fn(async () => ({ status: "success", listId: "l" })),
 }));
 
 vi.mock("@/lib/mealplans/actions", () => ({
@@ -105,7 +119,13 @@ function renderList(
     items,
     ...listOverrides,
   };
-  return render(<GroceryListDetailView list={list} categoryOptions={[]} />);
+  return render(
+    <GroceryListDetailView
+      list={list}
+      categoryOptions={[]}
+      sourceCandidates={[]}
+    />,
+  );
 }
 
 describe("GroceryListDetailView — reversible substitute selection (Slice 12 correction 2)", () => {
@@ -341,5 +361,74 @@ describe("GroceryListDetailView — Meal-Plan sync flags (Slice 15, §81.4)", ()
     renderList([item({ syncFlag: "UNCHANGED" })]);
     expect(screen.queryByText("Plan changed")).not.toBeInTheDocument();
     expect(screen.queryByText("No longer in the plan")).not.toBeInTheDocument();
+  });
+});
+
+describe("GroceryListDetailView — Edit meal Version/yield recalculation", () => {
+  it("preserves the persisted target when switching Version, recalculating the scale from the newly selected Version's own yield", async () => {
+    listGrocerySourceVersionOptions.mockReset();
+    listGrocerySourceVersionOptions.mockResolvedValue({
+      status: "success",
+      versions: [
+        {
+          id: "v1",
+          majorVersion: 1,
+          minorVersion: 0,
+          yieldQuantity: 4,
+          yieldUnit: "servings",
+        },
+        {
+          id: "v2",
+          majorVersion: 2,
+          minorVersion: 0,
+          yieldQuantity: 8,
+          yieldUnit: "servings",
+        },
+      ],
+    });
+    updateGroceryListSource.mockReset();
+    updateGroceryListSource.mockResolvedValue({ status: "success" });
+
+    const user = userEvent.setup();
+    renderList([], {
+      sources: [
+        {
+          id: "source-1",
+          dishId: "dish-1",
+          dishVersionId: "v1",
+          // Persisted target: 4 (V1.0's own yield) x 1.5 scale = 6.
+          scaleFactor: 1.5,
+          sourceDishTitleSnapshot: "Weeknight Stir-Fry",
+          sourceDishKindSnapshot: "RECIPE",
+          sourceDishVersionLabelSnapshot: "V1.0",
+          isDeleted: false,
+        },
+      ],
+    });
+
+    await user.click(
+      screen.getByRole("button", { name: "Edit Weeknight Stir-Fry" }),
+    );
+
+    const servingsInput = await screen.findByLabelText("Servings");
+    expect(servingsInput).toHaveValue("6");
+
+    await user.click(screen.getByRole("combobox", { name: "Version" }));
+    await user.click(await screen.findByRole("option", { name: "V2.0" }));
+
+    // The persisted target (6) is preserved, never reset to the newly
+    // selected Version's own raw yield (8) — only the scale recomputes.
+    expect(servingsInput).toHaveValue("6");
+    expect(screen.getByText(/will be scaled by 0\.75×/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(updateGroceryListSource).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceId: "source-1",
+        targetVersionId: "v2",
+        scaleFactor: 0.75,
+      }),
+    );
   });
 });

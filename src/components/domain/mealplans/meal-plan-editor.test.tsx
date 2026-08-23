@@ -1,14 +1,24 @@
-import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MealPlanEditor } from "@/components/domain/mealplans/meal-plan-editor";
 import type { MealPlanEntryCandidate } from "@/lib/mealplans/queries";
+import type { DishVersionOption } from "@/lib/dishes/actions";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
 }));
 
-vi.mock("@/lib/mealplans/actions", () => ({
+const {
+  createMealPlan,
+  updateMealPlan,
+  addMealPlanEntry,
+  updateMealPlanEntry,
+  removeMealPlanEntry,
+  adoptNewerVersionInEntry,
+  addPlannedMeal,
+  removePlannedMeal,
+} = vi.hoisted(() => ({
   createMealPlan: vi.fn(),
   updateMealPlan: vi.fn(),
   addMealPlanEntry: vi.fn(),
@@ -17,6 +27,29 @@ vi.mock("@/lib/mealplans/actions", () => ({
   adoptNewerVersionInEntry: vi.fn(),
   addPlannedMeal: vi.fn(),
   removePlannedMeal: vi.fn(),
+}));
+
+vi.mock("@/lib/mealplans/actions", () => ({
+  createMealPlan,
+  updateMealPlan,
+  addMealPlanEntry,
+  updateMealPlanEntry,
+  removeMealPlanEntry,
+  adoptNewerVersionInEntry,
+  addPlannedMeal,
+  removePlannedMeal,
+}));
+
+const { listDishVersionOptions } = vi.hoisted(() => ({
+  listDishVersionOptions: vi.fn(async () => ({
+    status: "success" as const,
+    versions: [] as DishVersionOption[],
+    currentVersionId: null as string | null,
+  })),
+}));
+
+vi.mock("@/lib/dishes/actions", () => ({
+  listDishVersionOptions,
 }));
 
 function candidate(
@@ -55,6 +88,39 @@ function renderEditor(candidates: MealPlanEntryCandidate[]) {
     />,
   );
 }
+
+beforeEach(() => {
+  createMealPlan.mockReset();
+  addMealPlanEntry.mockReset();
+  listDishVersionOptions.mockReset();
+  createMealPlan.mockResolvedValue({
+    status: "success",
+    mealPlanId: "plan-1",
+  });
+  addMealPlanEntry.mockResolvedValue({ status: "success", entryId: "e1" });
+  // Matches the default `candidate()` fixture: dish-1's own current Version
+  // (V1.0, makes 4) plus a second, higher-yield Version (V2.0, makes 8).
+  listDishVersionOptions.mockResolvedValue({
+    status: "success",
+    versions: [
+      {
+        id: "version-1",
+        majorVersion: 1,
+        minorVersion: 0,
+        yieldQuantity: 4,
+        yieldUnit: "servings",
+      },
+      {
+        id: "version-2",
+        majorVersion: 2,
+        minorVersion: 0,
+        yieldQuantity: 8,
+        yieldUnit: "servings",
+      },
+    ],
+    currentVersionId: "version-1",
+  });
+});
 
 /**
  * Slice 25 redesign: the Add/Edit-meal modal is now a compact version of the
@@ -139,5 +205,69 @@ describe("MealPlanEditor Add-meal picker", () => {
 
     expect(await screen.findByText("Favorite Dish")).toBeInTheDocument();
     expect(screen.queryByText("Other Dish")).not.toBeInTheDocument();
+  });
+});
+
+describe("MealPlanEditor Add-meal picker — Version selection and yield sync", () => {
+  it("stages the selected Version on the draft entry, persisted on Save", async () => {
+    const user = userEvent.setup();
+    renderEditor([candidate()]);
+
+    await user.click(screen.getByRole("button", { name: "Add meal" }));
+    await user.click(
+      await screen.findByRole("radio", { name: /Weeknight Stir-Fry/ }),
+    );
+
+    // Switch away from the default (current) Version to a specific one.
+    await waitFor(() =>
+      expect(
+        screen.getByRole("combobox", { name: "Version" }),
+      ).not.toBeDisabled(),
+    );
+    await user.click(screen.getByRole("combobox", { name: "Version" }));
+    await user.click(await screen.findByRole("option", { name: "V2.0" }));
+
+    await user.click(screen.getByRole("button", { name: "Add meal" }));
+    await user.click(screen.getByRole("button", { name: "Create meal plan" }));
+
+    await waitFor(() => expect(addMealPlanEntry).toHaveBeenCalled());
+    expect(addMealPlanEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dishId: "dish-1",
+        dishVersionId: "version-2",
+      }),
+    );
+  });
+
+  it("preserves a user-chosen target yield across a Version switch, recalculating the scale from the newly selected Version's own yield", async () => {
+    const user = userEvent.setup();
+    renderEditor([candidate()]);
+
+    await user.click(screen.getByRole("button", { name: "Add meal" }));
+    await user.click(
+      await screen.findByRole("radio", { name: /Weeknight Stir-Fry/ }),
+    );
+
+    const targetYieldInput = await screen.findByLabelText("Target yield");
+    expect(screen.getByText("Makes 4 servings")).toBeInTheDocument();
+
+    await user.clear(targetYieldInput);
+    await user.type(targetYieldInput, "6");
+    expect(screen.getByText(/Scale recipe by 1\.5×/)).toBeInTheDocument();
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("combobox", { name: "Version" }),
+      ).not.toBeDisabled(),
+    );
+    await user.click(screen.getByRole("combobox", { name: "Version" }));
+    await user.click(await screen.findByRole("option", { name: "V2.0" }));
+
+    // Makes now reflects V2.0's own yield (8), the target (6) is
+    // preserved (never reset to the new Version's own yield), and the
+    // scale recomputes against the new Version — never stays at 1.5x.
+    expect(screen.getByText("Makes 8 servings")).toBeInTheDocument();
+    expect(targetYieldInput).toHaveValue(6);
+    expect(screen.getByText(/Scale recipe by 0\.75×/)).toBeInTheDocument();
   });
 });

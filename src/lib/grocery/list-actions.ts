@@ -13,13 +13,19 @@ import {
   reorderGroceryListItemsSchema,
   combineGroceryItemsSchema,
   refreshSourceSchema,
+  addGroceryListSourceSchema,
+  removeGroceryListSourceSchema,
+  updateGroceryListSourceSchema,
+  listSourceVersionOptionsSchema,
   selectGroceryItemVariantSchema,
   acknowledgeGroceryItemSyncSchema,
   listIdSchema,
   itemIdSchema,
   type ActionState,
 } from "@/lib/grocery/list-schema";
+import { listDishVersionYieldOptions } from "@/lib/grocery/queries";
 import type { GroceryListSourceRefreshPreview } from "@/lib/grocery/list-service";
+import type { DishVersionYieldOption } from "@/lib/grocery/queries";
 
 const LISTS_PATH = "/grocery-lists";
 
@@ -34,7 +40,11 @@ export type GenerateGroceryListActionState =
 export async function generateGroceryList(values: {
   title: string;
   plannedDate: Date;
-  sources: Array<{ dishId: string; scaleFactor: number }>;
+  sources: Array<{
+    dishId: string;
+    dishVersionId?: string;
+    scaleFactor: number;
+  }>;
 }): Promise<GenerateGroceryListActionState> {
   try {
     const userId = await requireUserId();
@@ -331,6 +341,81 @@ export async function applyGroceryListSourceRefresh(values: {
     );
     revalidateList(listId);
     return { status: "success" };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export async function addGroceryListSource(values: {
+  listId: string;
+  dishId: string;
+  scaleFactor: number;
+}): Promise<ActionState> {
+  try {
+    const userId = await requireUserId();
+    const { listId, dishId, scaleFactor } =
+      addGroceryListSourceSchema.parse(values);
+    await listService.addGroceryListSource(userId, listId, dishId, scaleFactor);
+    revalidateList(listId);
+    return { status: "success" };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export async function removeGroceryListSource(values: {
+  listId: string;
+  sourceId: string;
+}): Promise<ActionState> {
+  try {
+    const userId = await requireUserId();
+    const { listId, sourceId } = removeGroceryListSourceSchema.parse(values);
+    await listService.removeGroceryListSource(userId, listId, sourceId);
+    revalidateList(listId);
+    return { status: "success" };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+/** Detail page's "Edit meal" — a direct one-step Version + scale change, no
+ * diff preview (unlike Sync/refresh, which previews first). */
+export async function updateGroceryListSource(values: {
+  listId: string;
+  sourceId: string;
+  targetVersionId: string;
+  scaleFactor: number;
+}): Promise<ActionState> {
+  try {
+    const userId = await requireUserId();
+    const { listId, sourceId, targetVersionId, scaleFactor } =
+      updateGroceryListSourceSchema.parse(values);
+    await listService.applyGroceryListSourceRefresh(
+      userId,
+      listId,
+      sourceId,
+      targetVersionId,
+      scaleFactor,
+    );
+    revalidateList(listId);
+    return { status: "success" };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export type ListSourceVersionOptionsActionState =
+  | { status: "success"; versions: DishVersionYieldOption[] }
+  | { status: "error"; message: string };
+
+export async function listGrocerySourceVersionOptions(values: {
+  dishId: string;
+}): Promise<ListSourceVersionOptionsActionState> {
+  try {
+    const userId = await requireUserId();
+    const { dishId } = listSourceVersionOptionsSchema.parse(values);
+    const versions = await listDishVersionYieldOptions(userId, dishId);
+    return { status: "success", versions };
   } catch (error) {
     return { status: "error", message: toActionErrorMessage(error) };
   }

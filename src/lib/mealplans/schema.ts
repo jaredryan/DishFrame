@@ -63,6 +63,9 @@ const targetYieldQuantity = z
 
 export const addMealPlanEntrySchema = mealPlanIdSchema.extend({
   dishId: z.string().min(1),
+  // Explicit Version choice from the Add/Edit meal modal — defaults to the
+  // Dish's current Version when omitted.
+  dishVersionId: z.string().min(1).optional(),
   cookDate: z.coerce.date(),
   targetYieldQuantity,
   targetYieldUnit: z.string().trim().max(40).nullable().optional(),
@@ -123,6 +126,7 @@ export type PlannedMealDto = {
 export type MealPlanEntryDto = {
   id: string;
   dishId: string | null;
+  dishVersionId: string | null;
   dishKind: "RECIPE" | "PART";
   title: string;
   versionLabel: string;

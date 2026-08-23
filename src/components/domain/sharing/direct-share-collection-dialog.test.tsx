@@ -12,6 +12,39 @@ vi.mock("@/lib/sharing/actions", () => ({
     mockSendCollection(...args),
 }));
 
+const mockListDishVersionOptions = vi.fn();
+vi.mock("@/lib/dishes/actions", () => ({
+  listDishVersionOptions: (...args: unknown[]) =>
+    mockListDishVersionOptions(...args),
+}));
+
+// Distinct per-dish Version lists so a test can prove each selected item's
+// Version picker is independent — never one global Version applied to the
+// whole batch.
+const VERSIONS_BY_DISH_ID: Record<
+  string,
+  {
+    versions: { id: string; majorVersion: number; minorVersion: number }[];
+    currentVersionId: string;
+  }
+> = {
+  r1: {
+    versions: [
+      { id: "r1-v1", majorVersion: 1, minorVersion: 0 },
+      { id: "r1-v2", majorVersion: 2, minorVersion: 0 },
+    ],
+    currentVersionId: "r1-v1",
+  },
+  r2: {
+    versions: [{ id: "r2-v1", majorVersion: 1, minorVersion: 0 }],
+    currentVersionId: "r2-v1",
+  },
+  p1: {
+    versions: [{ id: "p1-v1", majorVersion: 1, minorVersion: 0 }],
+    currentVersionId: "p1-v1",
+  },
+};
+
 const ITEMS = [
   {
     id: "r1",
@@ -55,10 +88,21 @@ describe("DirectShareCollectionDialog", () => {
   beforeEach(() => {
     mockListShareableItems.mockReset();
     mockSendCollection.mockReset();
+    mockListDishVersionOptions.mockReset();
     mockListShareableItems.mockResolvedValue({
       status: "success",
       items: ITEMS,
     });
+    mockListDishVersionOptions.mockImplementation(
+      (_kind: unknown, dishId: string) => {
+        const entry = VERSIONS_BY_DISH_ID[dishId];
+        return Promise.resolve(
+          entry
+            ? { status: "success", ...entry }
+            : { status: "error", message: "Not found." },
+        );
+      },
+    );
   });
 
   it("is the generalized flow: `/share`'s Send opens with nothing preselected", async () => {
@@ -118,11 +162,57 @@ describe("DirectShareCollectionDialog", () => {
     expect(screen.getByRole("button", { name: "Review" })).toBeDisabled();
 
     await user.click(screen.getByLabelText("Select Recipe One"));
-    expect(screen.getByRole("button", { name: "Review" })).toBeEnabled();
+    // Review only enables once the newly-selected item's own Version picker
+    // has resolved (defaults to its current Version) — not immediately on
+    // selection.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Review" })).toBeEnabled(),
+    );
 
     await user.click(screen.getByRole("button", { name: "Review" }));
     expect(
       screen.getByText("person@example.invalid", { selector: "span" }),
     ).toBeInTheDocument();
+  });
+
+  it("sends each selected item with its own independently chosen Version, not one shared Version for the whole batch", async () => {
+    mockSendCollection.mockResolvedValue({
+      status: "success",
+      collectionId: "collection1",
+    });
+    const user = userEvent.setup();
+    render(<DirectShareCollectionDialog open onOpenChange={() => {}} />);
+    await waitFor(() =>
+      expect(screen.getByText("Recipe One")).toBeInTheDocument(),
+    );
+
+    await user.type(
+      screen.getByLabelText("Recipient's email"),
+      "person@example.invalid",
+    );
+    await user.click(screen.getByLabelText("Select Recipe One"));
+    await user.click(screen.getByLabelText("Select Recipe Two"));
+
+    // Both default to their own current Version once loaded.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Review" })).toBeEnabled(),
+    );
+
+    // Change only Recipe One's Version — Recipe Two's picker is left alone.
+    const versionTriggers = screen.getAllByRole("combobox");
+    await user.click(versionTriggers[0]);
+    await user.click(await screen.findByRole("option", { name: "V2.0" }));
+
+    await user.click(screen.getByRole("button", { name: "Review" }));
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(mockSendCollection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        items: expect.arrayContaining([
+          { dishId: "r1", dishVersionId: "r1-v2" },
+          { dishId: "r2", dishVersionId: "r2-v1" },
+        ]),
+      }),
+    );
   });
 });

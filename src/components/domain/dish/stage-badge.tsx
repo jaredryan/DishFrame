@@ -1,10 +1,8 @@
-import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
+import { SemanticChip } from "@/components/domain/dish/semantic-chip";
 import type { StageValue } from "@/lib/dishes/schema";
 
 // PRODUCT_SPEC.md §5.3 / BRANDING.md §5.3 — Stage is user-facing "Recipe
-// Status" language, with the evolution-violet/positive-green accents
-// BRANDING.md §6 assigns (Proven/Active read as "what works").
+// Status" language.
 export const STAGE_LABEL: Record<StageValue, string> = {
   IDEA: "Idea",
   EXPERIMENTAL: "Experimental",
@@ -13,20 +11,11 @@ export const STAGE_LABEL: Record<StageValue, string> = {
   ARCHIVED: "Archived",
 };
 
-// Design remediation pass: Active and Proven previously used the same
-// green family at two opacities, too close to read as distinct at a
-// glance. Active now uses the primary blue family (still an accessible,
-// on-brand accent — BRANDING.md §6's --primary *is* --brand-blue) to read
-// as "in main rotation," leaving green legible as Proven's own "what
-// works" meaning.
-const STAGE_CLASSNAME: Record<StageValue, string> = {
-  IDEA: "bg-muted text-muted-foreground",
-  EXPERIMENTAL: "bg-brand-violet/10 text-brand-violet-text",
-  PROVEN: "bg-brand-green/10 text-brand-green-text",
-  ACTIVE: "bg-primary/15 text-brand-blue-text",
-  ARCHIVED: "bg-muted text-muted-foreground",
-};
-
+/** Semantic chip-color pass: Stage always renders blue regardless of which
+ * Stage it is — the label text communicates the actual Stage, and blue
+ * consistently communicates "this chip is lifecycle Stage" (not a
+ * per-Stage color, which read as more differentiated meaning than Stage
+ * alone carries). */
 export function StageBadge({
   stage,
   className,
@@ -35,11 +24,8 @@ export function StageBadge({
   className?: string;
 }) {
   return (
-    <Badge
-      variant="outline"
-      className={cn("border-transparent", STAGE_CLASSNAME[stage], className)}
-    >
+    <SemanticChip semantic="blue" className={className}>
       {STAGE_LABEL[stage]}
-    </Badge>
+    </SemanticChip>
   );
 }

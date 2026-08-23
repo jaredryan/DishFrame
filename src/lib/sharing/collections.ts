@@ -148,12 +148,17 @@ export async function sendDirectShareCollection(
   senderId: string,
   input: SendDirectShareCollectionInput,
 ): Promise<{ collectionId: string }> {
-  const dishIds = [...new Set(input.dishIds)];
-  if (dishIds.length > DIRECT_SHARE_MAX_ITEMS) {
+  // Dedupe by dishId (last explicit Version choice for a given item wins) —
+  // the picker only ever produces one entry per selected item, this just
+  // guards defensively against a malformed/replayed request.
+  const itemByDishId = new Map(input.items.map((item) => [item.dishId, item]));
+  const items = [...itemByDishId.values()];
+  if (items.length > DIRECT_SHARE_MAX_ITEMS) {
     throw new ValidationError(
       `You can send at most ${DIRECT_SHARE_MAX_ITEMS} items at once.`,
     );
   }
+  const dishIds = items.map((item) => item.dishId);
 
   const recipientEmail = normalizeEmail(input.recipientEmail);
 
@@ -167,17 +172,27 @@ export async function sendDirectShareCollection(
 
   const dishes = await prisma.dish.findMany({
     where: { id: { in: dishIds }, ownerId: senderId },
-    select: { id: true, currentVersionId: true, currentTitle: true },
+    select: { id: true, currentTitle: true },
   });
   if (dishes.length !== dishIds.length) {
     throw new NotFoundError(
       "One or more selected items are not available to share.",
     );
   }
-  for (const dish of dishes) {
-    if (!dish.currentVersionId) {
+  const dishById = new Map(dishes.map((dish) => [dish.id, dish]));
+
+  // Each explicit Version choice must actually belong to its own Dish.
+  const chosenVersions = await prisma.dishVersion.findMany({
+    where: { id: { in: items.map((item) => item.dishVersionId) } },
+    select: { id: true, dishId: true },
+  });
+  const dishIdByVersionId = new Map(
+    chosenVersions.map((v) => [v.id, v.dishId]),
+  );
+  for (const item of items) {
+    if (dishIdByVersionId.get(item.dishVersionId) !== item.dishId) {
       throw new NotFoundError(
-        "One or more selected items have no saved content to share yet.",
+        "One or more selected items' chosen Versions are no longer available.",
       );
     }
   }
@@ -202,13 +217,15 @@ export async function sendDirectShareCollection(
 
   // Freeze every selected graph now, outside the transaction (pure reads) —
   // the exact content Preview/Accept will use, matching Slice 17's frozen-
-  // delivery guarantee per item.
+  // delivery guarantee per item. Each freezes from its own explicitly
+  // chosen Version, not necessarily the Dish's current one.
   const frozenChildren = await Promise.all(
-    dishes.map(async (dish) => {
-      const graph = await buildShareGraph(dish.id, dish.currentVersionId!);
+    items.map(async (item) => {
+      const dish = dishById.get(item.dishId)!;
+      const graph = await buildShareGraph(item.dishId, item.dishVersionId);
       return {
-        dishId: dish.id,
-        dishVersionId: dish.currentVersionId!,
+        dishId: item.dishId,
+        dishVersionId: item.dishVersionId,
         dishTitleSnapshot: dish.currentTitle ?? "Untitled",
         frozenGraph: serializeShareGraph(
           graph,

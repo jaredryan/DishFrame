@@ -66,6 +66,7 @@ export default async function EditMealPlanPage({
     entries: mealPlan.entries.map((entry) => ({
       id: entry.id,
       dishId: entry.dishId,
+      dishVersionId: entry.dishVersionId,
       dishKind: entry.sourceDishKindSnapshot,
       title: entry.sourceDishTitleSnapshot,
       versionLabel: entry.sourceDishVersionLabelSnapshot,

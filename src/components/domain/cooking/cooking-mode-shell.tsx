@@ -160,9 +160,6 @@ export function CookingModeShell({
   const [pendingUnitScale, setPendingUnitScale] = React.useState<number | null>(
     null,
   );
-  const [addTimerUnitId, setAddTimerUnitId] = React.useState<string | null>(
-    null,
-  );
   const [collapsedIngredientUnits, setCollapsedIngredientUnits] =
     React.useState<Set<string>>(new Set());
   const [collapsedInstructionUnits, setCollapsedInstructionUnits] =
@@ -411,16 +408,6 @@ export function CookingModeShell({
         checked: instructions.filter(checklistState.isChecked).length,
         total: instructions.length,
       },
-      timerChips: unitEffectiveTimers(unit).map((timer) => {
-        const live = liveTimers.get(timer.id);
-        return {
-          id: timer.id,
-          name: timer.name,
-          remainingSeconds: live?.remainingSeconds ?? timer.durationSeconds,
-          isExpired: live?.isExpired ?? false,
-          state: timer.state,
-        };
-      }),
     };
   });
   const railTimers: RailTimer[] = timerEntries.map(({ timer, unit }) => ({
@@ -471,11 +458,7 @@ export function CookingModeShell({
       setPendingUnitScale(unit.scaleFactor);
       setScalingUnitId(unit.id);
     },
-    addTimerUnitId,
-    onRequestAddTimer: setAddTimerUnitId,
-    onCancelAddTimer: () => setAddTimerUnitId(null),
     onTimerCreated: () => {
-      setAddTimerUnitId(null);
       router.refresh();
     },
     onSetUnitCompletion: handleSetUnitCompletion,
