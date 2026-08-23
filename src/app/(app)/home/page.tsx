@@ -15,6 +15,7 @@ export const metadata: Metadata = {
 const RECENTLY_UPDATED_LIMIT = 3;
 const MEAL_PLAN_LIMIT = 3;
 const GROCERY_LIST_LIMIT = 3;
+const ACTIVE_SESSION_LIMIT = 3;
 
 export default async function AppHomePage() {
   const session = await getServerSession();
@@ -50,7 +51,7 @@ export default async function AppHomePage() {
       </div>
 
       <HomeDashboard
-        activeSessions={sessions.active}
+        activeSessions={sessions.active.slice(0, ACTIVE_SESSION_LIMIT)}
         recentlyUpdated={recentlyUpdated}
         activeMealPlans={mealPlans.active.slice(0, MEAL_PLAN_LIMIT)}
         hasCompletedMealPlans={mealPlans.completed.length > 0}
