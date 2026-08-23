@@ -1,6 +1,8 @@
 "use client";
 
 import * as React from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Field, FieldLabel } from "@/components/ui/field";
 import {
   Select,
@@ -71,6 +73,124 @@ export function VersionPickerField({
   );
 }
 
+/**
+ * The richer Version-picker treatment established on the Recipe Version/
+ * Version History pages (`VersionSelector`): prev/next controls stepping
+ * sequentially through every saved Version, plus a Select that jumps to the
+ * latest minor of a chosen major line. `VersionSelector` itself navigates
+ * via routing to that page's own URL; this is the same interaction
+ * generalized to a plain value/callback picker for contexts with no
+ * corresponding route (Send, Publish, Cooking Setup). `versions` must
+ * already be ordered ascending by (majorVersion, minorVersion) — every
+ * caller here sources it from `listDishVersionYieldOptions`, which
+ * guarantees this.
+ */
+export function RichVersionPickerField({
+  id,
+  versions,
+  currentVersionId,
+  value,
+  onChangeAction,
+  disabled,
+  className,
+}: {
+  id?: string;
+  versions: VersionOption[];
+  currentVersionId?: string | null;
+  value: string | undefined;
+  onChangeAction: (versionId: string) => void;
+  disabled?: boolean;
+  className?: string;
+}) {
+  const activeIndex = versions.findIndex((v) => v.id === value);
+  const active = activeIndex >= 0 ? versions[activeIndex] : undefined;
+  const previous = activeIndex > 0 ? versions[activeIndex - 1] : null;
+  const next =
+    activeIndex >= 0 && activeIndex < versions.length - 1
+      ? versions[activeIndex + 1]
+      : null;
+
+  const latestPerMajor = new Map<number, VersionOption>();
+  for (const version of versions) {
+    latestPerMajor.set(version.majorVersion, version);
+  }
+  const majorLines = [...latestPerMajor.values()].sort(
+    (a, b) => a.majorVersion - b.majorVersion,
+  );
+
+  return (
+    <Field className={className}>
+      <FieldLabel htmlFor={id}>Version</FieldLabel>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="icon-sm"
+          disabled={disabled || !previous}
+          onClick={() => previous && onChangeAction(previous.id)}
+          aria-label={
+            previous
+              ? `Previous version, ${versionLabel(previous.majorVersion, previous.minorVersion)}`
+              : "No previous version"
+          }
+        >
+          <ChevronLeft aria-hidden="true" />
+        </Button>
+
+        <Select
+          value={active ? String(active.majorVersion) : undefined}
+          onValueChange={(majorValue) => {
+            const target = latestPerMajor.get(Number(majorValue));
+            if (target) onChangeAction(target.id);
+          }}
+          disabled={disabled || versions.length === 0}
+        >
+          <SelectTrigger
+            id={id}
+            aria-label="Jump to a major version line"
+            className="w-40"
+          >
+            <SelectValue placeholder="Select a Version" />
+          </SelectTrigger>
+          <SelectContent>
+            {majorLines.map((version) => (
+              <SelectItem
+                key={version.majorVersion}
+                value={String(version.majorVersion)}
+              >
+                {versionLabel(version.majorVersion, version.minorVersion)}
+                {version.id === currentVersionId ? " (current)" : ""}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Button
+          type="button"
+          variant="outline"
+          size="icon-sm"
+          disabled={disabled || !next}
+          onClick={() => next && onChangeAction(next.id)}
+          aria-label={
+            next
+              ? `Next version, ${versionLabel(next.majorVersion, next.minorVersion)}`
+              : "No next version"
+          }
+        >
+          <ChevronRight aria-hidden="true" />
+        </Button>
+
+        {active && (
+          <span className="text-muted-foreground text-sm">
+            {versionLabel(active.majorVersion, active.minorVersion)}
+            {active.id === currentVersionId ? " (current)" : ""}
+          </span>
+        )}
+      </div>
+    </Field>
+  );
+}
+
 type LoadState =
   | { status: "loading" }
   | { status: "error" }
@@ -80,28 +200,12 @@ type LoadState =
       currentVersionId: string | null;
     };
 
-/**
- * Fetches a Recipe/Part's Version list on demand (`listDishVersionOptions`)
- * and renders `VersionPickerField` against it — used wherever a picker
- * appears per selected item rather than backed by page-loaded data (Send,
- * Publish, Make-grocery-list, Add/Edit-meal). Defaults `value` to the
- * current Version once loaded, if the caller hasn't already picked one.
- */
-export function DishVersionPicker({
-  id,
-  kind,
-  dishId,
-  value,
-  onChangeAction,
-  className,
-}: {
-  id?: string;
-  kind: DishKindValue;
-  dishId: string;
-  value: string | null;
-  onChangeAction: (versionId: string) => void;
-  className?: string;
-}) {
+function useDishVersionOptions(
+  kind: DishKindValue,
+  dishId: string,
+  value: string | null,
+  onChangeAction: (versionId: string) => void,
+): LoadState {
   const [state, setState] = React.useState<LoadState>({ status: "loading" });
 
   React.useEffect(() => {
@@ -135,6 +239,33 @@ export function DishVersionPicker({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, value]);
 
+  return state;
+}
+
+/**
+ * Fetches a Recipe/Part's Version list on demand (`listDishVersionOptions`)
+ * and renders `VersionPickerField` against it — used wherever a picker
+ * appears per selected item rather than backed by page-loaded data. Defaults
+ * `value` to the current Version once loaded, if the caller hasn't already
+ * picked one.
+ */
+export function DishVersionPicker({
+  id,
+  kind,
+  dishId,
+  value,
+  onChangeAction,
+  className,
+}: {
+  id?: string;
+  kind: DishKindValue;
+  dishId: string;
+  value: string | null;
+  onChangeAction: (versionId: string) => void;
+  className?: string;
+}) {
+  const state = useDishVersionOptions(kind, dishId, value, onChangeAction);
+
   if (state.status !== "ready") {
     return (
       <VersionPickerField
@@ -153,6 +284,54 @@ export function DishVersionPicker({
 
   return (
     <VersionPickerField
+      id={id}
+      versions={state.versions}
+      currentVersionId={state.currentVersionId}
+      value={value ?? state.currentVersionId ?? undefined}
+      onChangeAction={onChangeAction}
+      className={className}
+    />
+  );
+}
+
+/**
+ * Same on-demand fetch as `DishVersionPicker`, rendering the richer
+ * `RichVersionPickerField` treatment instead — used by Send and Publish
+ * (`/share`), which reuse the Recipe Version/Version History experience's
+ * picker rather than the plain dropdown.
+ */
+export function RichDishVersionPicker({
+  id,
+  kind,
+  dishId,
+  value,
+  onChangeAction,
+  className,
+}: {
+  id?: string;
+  kind: DishKindValue;
+  dishId: string;
+  value: string | null;
+  onChangeAction: (versionId: string) => void;
+  className?: string;
+}) {
+  const state = useDishVersionOptions(kind, dishId, value, onChangeAction);
+
+  if (state.status !== "ready") {
+    return (
+      <RichVersionPickerField
+        id={id}
+        versions={[]}
+        value={undefined}
+        onChangeAction={() => {}}
+        disabled
+        className={className}
+      />
+    );
+  }
+
+  return (
+    <RichVersionPickerField
       id={id}
       versions={state.versions}
       currentVersionId={state.currentVersionId}

@@ -108,7 +108,7 @@ export function MealPlanView({ mealPlan }: { mealPlan: MealPlanDetailDto }) {
   );
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6">
+    <div className="mx-auto flex max-w-5xl flex-col gap-6">
       <Breadcrumbs
         items={[
           { label: "Meal Plans", href: "/meal-plans" },
@@ -190,7 +190,7 @@ export function MealPlanView({ mealPlan }: { mealPlan: MealPlanDetailDto }) {
             </Button>
           </div>
         ) : (
-          <ul className="flex flex-col gap-3">
+          <ul className="grid gap-3 md:grid-cols-2 md:items-start">
             {sortedEntries.map((entry) => (
               <ViewEntryCard
                 key={entry.id}
@@ -212,7 +212,7 @@ export function MealPlanView({ mealPlan }: { mealPlan: MealPlanDetailDto }) {
             No grocery lists generated yet.
           </p>
         ) : (
-          <ul className="flex flex-col gap-2">
+          <ul className="grid gap-2 md:grid-cols-2 md:items-start">
             {mealPlan.linkedGroceryLists.map((list) => (
               <li key={list.id}>
                 <Link

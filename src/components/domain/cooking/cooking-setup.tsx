@@ -24,7 +24,7 @@ import {
   computeOutputBasis,
 } from "@/components/domain/cooking/scale-control";
 import {
-  VersionPickerField,
+  RichVersionPickerField,
   type VersionOption,
 } from "@/components/domain/dish/version-picker-field";
 
@@ -204,7 +204,7 @@ export function CookingSetup({
         </p>
       </div>
 
-      <VersionPickerField
+      <RichVersionPickerField
         id="cooking-setup-version"
         versions={versions}
         currentVersionId={currentVersionId}

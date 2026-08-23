@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { ShareItemSelector } from "@/components/domain/sharing/share-item-selector";
 import { SelectableDishRow } from "@/components/domain/dish/selectable-dish-row";
-import { DishVersionPicker } from "@/components/domain/dish/version-picker-field";
+import { RichDishVersionPicker } from "@/components/domain/dish/version-picker-field";
 import {
   listShareableItemsForSender,
   sendDirectShareCollection,
@@ -21,7 +21,7 @@ import {
 import { DIRECT_SHARE_MAX_ITEMS } from "@/lib/sharing/schema";
 import type { ShareableItemSummary } from "@/lib/sharing/collections";
 
-type Step = "compose" | "review" | "sent";
+type Step = "select" | "configure" | "sent";
 
 /**
  * PRODUCT_SPEC.md §85 extension: the generalized Send flow — any mix of
@@ -32,6 +32,11 @@ type Step = "compose" | "review" | "sent";
  * `DirectShareSingleItemDialog` instead, locked to that one item (design
  * pass: the old preselect-into-this-selector behavior didn't actually
  * express "send this specific item").
+ *
+ * Two-step design pass: item selection (who + what) stays free of
+ * per-item Version configuration, which moves to its own step so it isn't
+ * mixed into the picker list. Send happens from that second step — there's
+ * no separate review step anymore.
  */
 export function DirectShareCollectionDialog({
   open,
@@ -40,7 +45,7 @@ export function DirectShareCollectionDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const [step, setStep] = React.useState<Step>("compose");
+  const [step, setStep] = React.useState<Step>("select");
   const [email, setEmail] = React.useState("");
   const [items, setItems] = React.useState<ShareableItemSummary[] | null>(null);
   const [itemsError, setItemsError] = React.useState<string | null>(null);
@@ -74,7 +79,7 @@ export function DirectShareCollectionDialog({
 
   function close() {
     onOpenChange(false);
-    setStep("compose");
+    setStep("select");
     setEmail("");
     setItems(null);
     setItemsError(null);
@@ -85,8 +90,8 @@ export function DirectShareCollectionDialog({
     setSendError(null);
   }
 
-  const canReview =
-    /\S+@\S+\.\S+/.test(email.trim()) &&
+  const canConfigure = /\S+@\S+\.\S+/.test(email.trim()) && selected.size > 0;
+  const canSend =
     selected.size > 0 &&
     [...selected].every((id) => selectedVersionByDishId[id]);
 
@@ -133,7 +138,9 @@ export function DirectShareCollectionDialog({
           <DialogDescription>
             {step === "sent"
               ? "Sent."
-              : "Choose who to send to and which items to include, then review before sending."}
+              : step === "configure"
+                ? "Choose a Version to send for each selected item."
+                : "Choose who to send to and which items to include."}
           </DialogDescription>
         </DialogHeader>
 
@@ -143,7 +150,7 @@ export function DirectShareCollectionDialog({
               Sent {selected.size} item{selected.size === 1 ? "" : "s"} to{" "}
               {email.trim()}.
             </p>
-          ) : step === "review" ? (
+          ) : step === "configure" ? (
             <div className="space-y-4">
               <div className="border-border rounded-lg border p-3 text-sm">
                 <p>
@@ -153,9 +160,47 @@ export function DirectShareCollectionDialog({
                   {selected.size} item{selected.size === 1 ? "" : "s"} selected
                 </p>
               </div>
-              {note.trim().length > 0 && (
-                <p className="text-sm italic">&ldquo;{note.trim()}&rdquo;</p>
-              )}
+
+              <div className="space-y-3">
+                {[...selected].map((dishId) => {
+                  const item = items?.find((i) => i.id === dishId);
+                  if (!item) return null;
+                  return (
+                    <div key={dishId} className="flex flex-col gap-2">
+                      <SelectableDishRow
+                        item={item}
+                        selectionControl="remove"
+                        onRemove={() => toggleSelected(dishId)}
+                      />
+                      <RichDishVersionPicker
+                        id={`send-version-${dishId}`}
+                        kind={item.kind}
+                        dishId={dishId}
+                        value={selectedVersionByDishId[dishId] ?? null}
+                        onChangeAction={(versionId) =>
+                          setSelectedVersionByDishId((prev) => ({
+                            ...prev,
+                            [dishId]: versionId,
+                          }))
+                        }
+                        className="pl-2"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="collection-share-note">Note (optional)</Label>
+                <Textarea
+                  id="collection-share-note"
+                  value={note}
+                  onChange={(event) => setNote(event.target.value)}
+                  maxLength={1000}
+                  rows={3}
+                />
+              </div>
+
               {sendError && (
                 <p role="alert" className="text-destructive-text text-sm">
                   {sendError}
@@ -191,55 +236,6 @@ export function DirectShareCollectionDialog({
                 onSelectAll={selectAll}
                 maxItems={DIRECT_SHARE_MAX_ITEMS}
               />
-
-              {selected.size > 0 && items && (
-                <div className="space-y-3">
-                  <Label>Selected — choose a Version to send for each</Label>
-                  {[...selected].map((dishId) => {
-                    const item = items.find((i) => i.id === dishId);
-                    if (!item) return null;
-                    return (
-                      <div key={dishId} className="flex flex-col gap-2">
-                        <SelectableDishRow
-                          item={item}
-                          selectionControl="remove"
-                          onRemove={() => toggleSelected(dishId)}
-                        />
-                        <DishVersionPicker
-                          id={`send-version-${dishId}`}
-                          kind={item.kind}
-                          dishId={dishId}
-                          value={selectedVersionByDishId[dishId] ?? null}
-                          onChangeAction={(versionId) =>
-                            setSelectedVersionByDishId((prev) => ({
-                              ...prev,
-                              [dishId]: versionId,
-                            }))
-                          }
-                          className="pl-2"
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              <div className="space-y-2">
-                <Label htmlFor="collection-share-note">Note (optional)</Label>
-                <Textarea
-                  id="collection-share-note"
-                  value={note}
-                  onChange={(event) => setNote(event.target.value)}
-                  maxLength={1000}
-                  rows={3}
-                />
-              </div>
-
-              {sendError && (
-                <p role="alert" className="text-destructive-text text-sm">
-                  {sendError}
-                </p>
-              )}
             </div>
           )}
         </div>
@@ -247,16 +243,16 @@ export function DirectShareCollectionDialog({
         <DialogFooter>
           {step === "sent" ? (
             <Button onClick={close}>Done</Button>
-          ) : step === "review" ? (
+          ) : step === "configure" ? (
             <>
               <Button
                 variant="outline"
-                onClick={() => setStep("compose")}
+                onClick={() => setStep("select")}
                 disabled={isPending}
               >
                 Back
               </Button>
-              <Button onClick={handleSend} disabled={isPending}>
+              <Button onClick={handleSend} disabled={!canSend || isPending}>
                 {isPending ? "Sending…" : "Send"}
               </Button>
             </>
@@ -266,10 +262,10 @@ export function DirectShareCollectionDialog({
                 Cancel
               </Button>
               <Button
-                onClick={() => setStep("review")}
-                disabled={!canReview || isPending}
+                onClick={() => setStep("configure")}
+                disabled={!canConfigure || isPending}
               >
-                Review
+                Next
               </Button>
             </>
           )}

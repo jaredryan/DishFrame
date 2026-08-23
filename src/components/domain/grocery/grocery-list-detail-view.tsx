@@ -368,23 +368,24 @@ export function GroceryListDetailView({
 
       <section className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="font-heading text-lg font-medium">Meals</h2>
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="flex min-w-0 items-center gap-1">
+            <h2 className="font-heading text-lg font-medium">Meals</h2>
             <TooltipIconButton
               label={mealsCollapsed ? "Expand Meals" : "Collapse Meals"}
               icon={mealsCollapsed ? ChevronDown : ChevronUp}
               onClick={() => setMealsCollapsed((v) => !v)}
             />
-            {!isCompleted && (
-              <Button
-                type="button"
-                size="sm"
-                onClick={() => setAddMealOpen(true)}
-              >
-                <Plus aria-hidden="true" /> Add meal
-              </Button>
-            )}
           </div>
+          {!isCompleted && (
+            <Button
+              type="button"
+              size="sm"
+              className="shrink-0"
+              onClick={() => setAddMealOpen(true)}
+            >
+              <Plus aria-hidden="true" /> Add meal
+            </Button>
+          )}
         </div>
         {!mealsCollapsed && (
           <div className="flex flex-col gap-2">
@@ -410,8 +411,8 @@ export function GroceryListDetailView({
 
       <section className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="font-heading text-lg font-medium">Groceries</h2>
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="flex min-w-0 items-center gap-1">
+            <h2 className="font-heading text-lg font-medium">Groceries</h2>
             <TooltipIconButton
               label={
                 groceriesCollapsed ? "Expand Groceries" : "Collapse Groceries"
@@ -419,16 +420,17 @@ export function GroceryListDetailView({
               icon={groceriesCollapsed ? ChevronDown : ChevronUp}
               onClick={() => setGroceriesCollapsed((v) => !v)}
             />
-            {!isCompleted && (
-              <Button
-                type="button"
-                size="sm"
-                onClick={() => setAddItemOpen(true)}
-              >
-                <Plus aria-hidden="true" /> Add item
-              </Button>
-            )}
           </div>
+          {!isCompleted && (
+            <Button
+              type="button"
+              size="sm"
+              className="shrink-0"
+              onClick={() => setAddItemOpen(true)}
+            >
+              <Plus aria-hidden="true" /> Add item
+            </Button>
+          )}
         </div>
 
         {!groceriesCollapsed && (

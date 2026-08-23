@@ -428,7 +428,7 @@ export function CookSessionsView({
   }
 
   return (
-    <div className="grid gap-6 xl:grid-cols-2 xl:items-start">
+    <div className="grid gap-6 md:grid-cols-2 md:items-start">
       <section className="flex flex-col gap-3">
         <h2 className="text-muted-foreground text-sm font-medium tracking-wide uppercase">
           Active

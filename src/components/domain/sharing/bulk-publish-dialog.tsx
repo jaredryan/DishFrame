@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/dialog";
 import { ShareItemSelector } from "@/components/domain/sharing/share-item-selector";
 import { SelectableDishRow } from "@/components/domain/dish/selectable-dish-row";
-import { DishVersionPicker } from "@/components/domain/dish/version-picker-field";
+import { RichDishVersionPicker } from "@/components/domain/dish/version-picker-field";
 import {
   listShareableItemsForSender,
   publishDishes,
@@ -254,7 +254,7 @@ export function BulkPublishDialog({
                           selectionControl="remove"
                           onRemove={() => toggleSelected(dishId)}
                         />
-                        <DishVersionPicker
+                        <RichDishVersionPicker
                           id={`publish-version-${dishId}`}
                           kind={item.kind}
                           dishId={dishId}

@@ -102,7 +102,7 @@ export function HomeDashboard({
   activeGroceryLists,
 }: HomeDashboardProps) {
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div className="grid gap-4 md:grid-cols-2">
       <SectionCard
         title="Continue cooking"
         icon={ChefHat}

@@ -152,7 +152,6 @@ export function RatingsSummaryPill({
   return (
     <DisclosurePill open={open} onClick={onClick}>
       <span className="flex items-center gap-1">
-        Ratings ·
         <Star
           className="size-3 fill-amber-500 text-amber-500 dark:fill-amber-400 dark:text-amber-400"
           aria-hidden="true"

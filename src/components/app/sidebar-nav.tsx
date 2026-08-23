@@ -17,11 +17,14 @@ export function SidebarNav({ user }: { user: AccountUser }) {
   const pathname = usePathname();
 
   return (
-    <aside className="border-sidebar-border bg-sidebar hidden w-60 shrink-0 flex-col border-r px-3 py-5 md:sticky md:top-0 md:flex md:h-screen md:self-start">
+    <aside className="border-sidebar-border bg-sidebar hidden w-60 shrink-0 flex-col border-r px-3 py-5 lg:sticky lg:top-0 lg:flex lg:h-dvh lg:self-start">
       <div className="px-2 pb-6">
         <Wordmark href="/home" />
       </div>
-      <nav aria-label="Primary" className="flex flex-col gap-1">
+      <nav
+        aria-label="Primary"
+        className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto"
+      >
         {APP_NAV_ITEMS.map(({ href, label, icon: Icon }) => {
           const isActive = pathname === href || pathname.startsWith(`${href}/`);
           return (
@@ -42,7 +45,7 @@ export function SidebarNav({ user }: { user: AccountUser }) {
           );
         })}
       </nav>
-      <div className="mt-auto flex flex-col gap-2 pt-4">
+      <div className="flex shrink-0 flex-col gap-2 pt-4">
         <div className="border-sidebar-border border-t" />
         <AccountMenu user={user} variant="sidebar" />
       </div>

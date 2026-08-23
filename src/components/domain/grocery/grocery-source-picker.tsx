@@ -233,7 +233,7 @@ export function GrocerySourcePickerPanel({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="flex max-h-[85vh] flex-col overflow-y-auto sm:max-w-md">
+      <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-md">
         <DialogHeader>
           <DialogTitle>New grocery list</DialogTitle>
           <DialogDescription>
@@ -242,147 +242,149 @@ export function GrocerySourcePickerPanel({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="grocery-list-title">Title</Label>
-          <Input
-            id="grocery-list-title"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            maxLength={120}
-          />
-        </div>
-
-        <Field>
-          <FieldLabel htmlFor="grocery-list-planned-date">Date</FieldLabel>
-          <DatePickerField
-            id="grocery-list-planned-date"
-            value={plannedDate}
-            onChange={setPlannedDate}
-            ariaLabel="Grocery list date"
-          />
-        </Field>
-
-        <div className="flex min-h-0 flex-col gap-2">
-          <Label>Recipes &amp; Parts</Label>
-          <div className="bg-popover sticky top-0 z-10 flex flex-col gap-2 pb-2">
-            <div className="relative">
-              <Search
-                className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2"
-                aria-hidden="true"
-              />
-              <Input
-                placeholder="Search"
-                className="pl-8"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-              />
-            </div>
-            <div role="tablist" className="border-border flex gap-1 border-b">
-              {PICKER_TABS.map((t) => (
-                <button
-                  key={t.value}
-                  type="button"
-                  role="tab"
-                  aria-selected={tab === t.value}
-                  onClick={() => setTab(t.value)}
-                  className={cn(
-                    "-mb-px cursor-pointer border-b-2 px-3 py-1.5 text-sm font-medium outline-none",
-                    tab === t.value
-                      ? "border-primary text-foreground"
-                      : "text-muted-foreground hover:text-foreground border-transparent",
-                  )}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
+        <div className="-mx-1 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-1">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="grocery-list-title">Title</Label>
+            <Input
+              id="grocery-list-title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              maxLength={120}
+            />
           </div>
 
-          {filteredCandidates.length === 0 ? (
-            <p className="text-muted-foreground py-4 text-center text-sm">
-              {candidates.length === 0
-                ? "You don't have any recipes or parts saved yet."
-                : "Nothing matches that search."}
-            </p>
-          ) : (
-            <div className="flex flex-col gap-1">
-              {filteredCandidates.map((candidate) => (
-                <SelectableDishRow
-                  key={candidate.dishId}
-                  item={candidateToSelectionItem(candidate)}
-                  selectionControl="checkbox"
-                  selected={selectedDishIds.includes(candidate.dishId)}
-                  onSelect={() => toggle(candidate.dishId)}
-                />
-              ))}
-            </div>
-          )}
-        </div>
+          <Field>
+            <FieldLabel htmlFor="grocery-list-planned-date">Date</FieldLabel>
+            <DatePickerField
+              id="grocery-list-planned-date"
+              value={plannedDate}
+              onChange={setPlannedDate}
+              ariaLabel="Grocery list date"
+            />
+          </Field>
 
-        {selectedDishIds.length > 0 && (
-          <div className="flex flex-col gap-3">
-            <Label>Selected</Label>
-            {selectedDishIds.map((dishId) => {
-              const candidate = candidatesById.get(dishId);
-              if (!candidate) return null;
-              const versions = versionsByDishId[dishId];
-              const selectedVersion = versions?.find(
-                (v) => v.id === selectedVersionByDishId[dishId],
-              );
-              return (
-                <div key={dishId} className="flex flex-col gap-2">
+          <div className="flex min-h-0 flex-col gap-2">
+            <Label>Recipes &amp; Parts</Label>
+            <div className="bg-popover sticky top-0 z-10 flex flex-col gap-2 pb-2">
+              <div className="relative">
+                <Search
+                  className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2"
+                  aria-hidden="true"
+                />
+                <Input
+                  placeholder="Search"
+                  className="pl-8"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                />
+              </div>
+              <div role="tablist" className="border-border flex gap-1 border-b">
+                {PICKER_TABS.map((t) => (
+                  <button
+                    key={t.value}
+                    type="button"
+                    role="tab"
+                    aria-selected={tab === t.value}
+                    onClick={() => setTab(t.value)}
+                    className={cn(
+                      "-mb-px cursor-pointer border-b-2 px-3 py-1.5 text-sm font-medium outline-none",
+                      tab === t.value
+                        ? "border-primary text-foreground"
+                        : "text-muted-foreground hover:text-foreground border-transparent",
+                    )}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {filteredCandidates.length === 0 ? (
+              <p className="text-muted-foreground py-4 text-center text-sm">
+                {candidates.length === 0
+                  ? "You don't have any recipes or parts saved yet."
+                  : "Nothing matches that search."}
+              </p>
+            ) : (
+              <div className="flex flex-col gap-1">
+                {filteredCandidates.map((candidate) => (
                   <SelectableDishRow
+                    key={candidate.dishId}
                     item={candidateToSelectionItem(candidate)}
-                    selectionControl="remove"
-                    onRemove={() => toggle(dishId)}
+                    selectionControl="checkbox"
+                    selected={selectedDishIds.includes(candidate.dishId)}
+                    onSelect={() => toggle(candidate.dishId)}
                   />
-                  {versionLoadErrors[dishId] ? (
-                    <p className="text-destructive-text pl-2 text-sm">
-                      {versionLoadErrors[dishId]}
-                    </p>
-                  ) : versions ? (
-                    <VersionPickerField
-                      id={`grocery-source-version-${dishId}`}
-                      versions={versions}
-                      value={selectedVersionByDishId[dishId]}
-                      onChangeAction={(versionId) =>
-                        setSelectedVersionByDishId((prev) => ({
-                          ...prev,
-                          [dishId]: versionId,
-                        }))
+                ))}
+              </div>
+            )}
+          </div>
+
+          {selectedDishIds.length > 0 && (
+            <div className="flex flex-col gap-3">
+              <Label>Selected</Label>
+              {selectedDishIds.map((dishId) => {
+                const candidate = candidatesById.get(dishId);
+                if (!candidate) return null;
+                const versions = versionsByDishId[dishId];
+                const selectedVersion = versions?.find(
+                  (v) => v.id === selectedVersionByDishId[dishId],
+                );
+                return (
+                  <div key={dishId} className="flex flex-col gap-2">
+                    <SelectableDishRow
+                      item={candidateToSelectionItem(candidate)}
+                      selectionControl="remove"
+                      onRemove={() => toggle(dishId)}
+                    />
+                    {versionLoadErrors[dishId] ? (
+                      <p className="text-destructive-text pl-2 text-sm">
+                        {versionLoadErrors[dishId]}
+                      </p>
+                    ) : versions ? (
+                      <VersionPickerField
+                        id={`grocery-source-version-${dishId}`}
+                        versions={versions}
+                        value={selectedVersionByDishId[dishId]}
+                        onChangeAction={(versionId) =>
+                          setSelectedVersionByDishId((prev) => ({
+                            ...prev,
+                            [dishId]: versionId,
+                          }))
+                        }
+                        className="pl-2"
+                      />
+                    ) : (
+                      <p className="text-muted-foreground pl-2 text-sm">
+                        Loading versions…
+                      </p>
+                    )}
+                    <DishYieldScalingField
+                      id={candidate.dishId}
+                      kindLabel={candidate.kind === "PART" ? "Part" : "Recipe"}
+                      yieldQuantity={
+                        selectedVersion?.yieldQuantity ?? candidate.yieldQuantity
+                      }
+                      yieldUnit={
+                        selectedVersion?.yieldUnit ?? candidate.yieldUnit
+                      }
+                      onScaleChange={(value) =>
+                        setScales((prev) => ({ ...prev, [dishId]: value }))
                       }
                       className="pl-2"
                     />
-                  ) : (
-                    <p className="text-muted-foreground pl-2 text-sm">
-                      Loading versions…
-                    </p>
-                  )}
-                  <DishYieldScalingField
-                    id={candidate.dishId}
-                    kindLabel={candidate.kind === "PART" ? "Part" : "Recipe"}
-                    yieldQuantity={
-                      selectedVersion?.yieldQuantity ?? candidate.yieldQuantity
-                    }
-                    yieldUnit={
-                      selectedVersion?.yieldUnit ?? candidate.yieldUnit
-                    }
-                    onScaleChange={(value) =>
-                      setScales((prev) => ({ ...prev, [dishId]: value }))
-                    }
-                    className="pl-2"
-                  />
-                </div>
-              );
-            })}
-          </div>
-        )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
-        {error && (
-          <p role="alert" className="text-destructive-text text-sm">
-            {error}
-          </p>
-        )}
+          {error && (
+            <p role="alert" className="text-destructive-text text-sm">
+              {error}
+            </p>
+          )}
+        </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>

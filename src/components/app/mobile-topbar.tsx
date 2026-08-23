@@ -22,7 +22,7 @@ export function MobileTopbar({ children }: { children?: React.ReactNode }) {
   const [open, setOpen] = React.useState(false);
 
   return (
-    <header className="border-border bg-background flex h-14 items-center justify-between border-b px-3 md:hidden">
+    <header className="border-border bg-background flex h-14 items-center justify-between border-b px-3 lg:hidden">
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetTrigger asChild>
           <Button variant="ghost" size="icon" aria-label="Open navigation">
@@ -61,7 +61,7 @@ export function MobileTopbar({ children }: { children?: React.ReactNode }) {
         </SheetContent>
       </Sheet>
 
-      <Wordmark className="md:hidden" />
+      <Wordmark className="lg:hidden" />
 
       <div className="flex items-center gap-2">{children}</div>
     </header>
