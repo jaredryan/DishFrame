@@ -1,11 +1,9 @@
 import * as React from "react";
-import { ChevronDown, ChevronUp, Timer as TimerIcon } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { formatCountdown } from "@/lib/cooking/timer-math";
 import { StartTimerDialog } from "@/components/domain/cooking/start-timer-dialog";
 import {
-  NavList,
-  TimerList,
+  NavHeader,
+  NavSectionList,
+  TimersTray,
   RecipePanel,
   SectionPanel,
   type CookingLayoutProps,
@@ -39,104 +37,40 @@ export function TabletCookingLayout(props: CookingLayoutProps) {
 
   return (
     <div className="flex h-dvh w-full overflow-hidden">
-      <div className="border-border bg-card relative flex h-full w-64 shrink-0 flex-col border-r">
+      <div className="border-border bg-card flex h-full w-64 shrink-0 flex-col border-r">
+        <div className="shrink-0 p-3 pb-0">
+          <NavHeader
+            dishTitle={dishTitle}
+            selectedDestination={selectedDestination}
+            onSelectDestination={onSelectDestination}
+          />
+        </div>
         <nav
           aria-label="Cooking navigation"
-          className="flex flex-1 flex-col gap-1 overflow-y-auto p-3"
+          className="min-h-0 flex-1 overflow-y-auto p-3"
         >
-          <NavList
-            dishTitle={dishTitle}
+          <NavSectionList
             selectedDestination={selectedDestination}
             onSelectDestination={onSelectDestination}
             unitViewModels={unitViewModels}
           />
         </nav>
 
-        {timersExpanded && (
-          <div className="border-border bg-card absolute bottom-full left-0 z-20 flex max-h-[60vh] w-full flex-col gap-2 overflow-y-auto border-t p-3 shadow-lg">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
-                Timers
-              </h2>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={() => setTimersExpanded(false)}
-                aria-label="Collapse timers"
-              >
-                <ChevronDown className="size-4" aria-hidden="true" />
-              </Button>
-            </div>
-            {isActive && (
-              <Button size="sm" onClick={() => setTimerModalOpen(true)}>
-                <TimerIcon className="size-4" aria-hidden="true" />
-                Start timer
-              </Button>
-            )}
-            <TimerList
-              timers={railTimers}
-              isActive={isActive}
-              liveTimers={liveTimers}
-              timerActions={timerActions}
-            />
-          </div>
-        )}
-
-        <button
-          type="button"
-          onClick={() => setTimersExpanded((v) => !v)}
-          aria-expanded={timersExpanded}
-          className={`border-border flex shrink-0 flex-col gap-1.5 border-t p-3 text-left ${
+        <div
+          className={`border-border shrink-0 border-t ${
             hasExpiredTimer ? "bg-brand-orange/10" : ""
           }`}
         >
-          <span className="flex items-center justify-between gap-2">
-            <span className="flex items-center gap-1.5">
-              <TimerIcon
-                className={`size-4 shrink-0 ${hasExpiredTimer ? "text-brand-orange-text" : "text-muted-foreground"}`}
-                aria-hidden="true"
-              />
-              <span className="text-foreground text-sm font-medium">
-                Timers
-              </span>
-            </span>
-            {timersExpanded ? (
-              <ChevronDown className="size-4 shrink-0" aria-hidden="true" />
-            ) : (
-              <ChevronUp className="size-4 shrink-0" aria-hidden="true" />
-            )}
-          </span>
-          {railTimers.length === 0 ? (
-            <span className="text-muted-foreground text-xs">
-              No active timers
-            </span>
-          ) : (
-            <span className="flex flex-wrap gap-1">
-              {railTimers.map(({ timer }) => {
-                const live = liveTimers.get(timer.id);
-                const expired = live?.isExpired ?? false;
-                return (
-                  <span
-                    key={timer.id}
-                    className={`rounded-full border px-1.5 py-0.5 text-[10px] font-medium tabular-nums ${
-                      expired
-                        ? "border-brand-orange bg-brand-orange/10 text-brand-orange-text animate-pulse"
-                        : timer.state === "RUNNING"
-                          ? "border-brand-orange/50 text-brand-orange-text"
-                          : "border-border text-muted-foreground"
-                    }`}
-                  >
-                    {expired
-                      ? "Time's up"
-                      : formatCountdown(
-                          live?.remainingSeconds ?? timer.durationSeconds,
-                        )}
-                  </span>
-                );
-              })}
-            </span>
-          )}
-        </button>
+          <TimersTray
+            railTimers={railTimers}
+            isActive={isActive}
+            liveTimers={liveTimers}
+            timerActions={timerActions}
+            expanded={timersExpanded}
+            onToggleExpanded={() => setTimersExpanded((v) => !v)}
+            onStartTimer={() => setTimerModalOpen(true)}
+          />
+        </div>
       </div>
 
       <main className="flex-1 overflow-y-auto">

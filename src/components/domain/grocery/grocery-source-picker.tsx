@@ -21,7 +21,7 @@ import {
   SelectableDishRow,
   type DishSelectionItem,
 } from "@/components/domain/dish/selectable-dish-row";
-import { VersionPickerField } from "@/components/domain/dish/version-picker-field";
+import { RichVersionPickerField } from "@/components/domain/dish/version-picker-field";
 import { DisabledActionHint } from "@/components/app/disabled-action-hint";
 import {
   generateGroceryList,
@@ -342,7 +342,7 @@ export function GrocerySourcePickerPanel({
                         {versionLoadErrors[dishId]}
                       </p>
                     ) : versions ? (
-                      <VersionPickerField
+                      <RichVersionPickerField
                         id={`grocery-source-version-${dishId}`}
                         versions={versions}
                         value={selectedVersionByDishId[dishId]}

@@ -92,6 +92,7 @@ const baseProps = {
   dishTitle: "Test Bowl",
   dishKind: "RECIPE" as const,
   versionLabel: "V1",
+  versionImageAssetId: null,
   addableUnits: [],
   sessionScaleFactor: 1,
   sourceOutputQuantity: null,

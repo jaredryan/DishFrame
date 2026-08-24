@@ -118,6 +118,7 @@ export function CookingModeShell({
   dishTitle,
   dishKind,
   versionLabel,
+  versionImageAssetId,
   units,
   addableUnits,
   sessionScaleFactor,
@@ -137,6 +138,7 @@ export function CookingModeShell({
   dishTitle: string;
   dishKind: DishKindValue | null;
   versionLabel: string;
+  versionImageAssetId: string | null;
   units: CookingModeUnit[];
   addableUnits: AddableUnit[];
   sessionScaleFactor: number;
@@ -423,6 +425,7 @@ export function CookingModeShell({
     dishTitle,
     dishKind,
     versionLabel,
+    versionImageAssetId,
     statusLabel,
     hasReview,
     planActiveUnits: activeUnits as PlanUnit[],

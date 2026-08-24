@@ -2,6 +2,8 @@ import * as React from "react";
 import Link from "next/link";
 import {
   Check,
+  ChevronDown,
+  ChevronUp,
   CircleCheck,
   CircleStop,
   SlidersHorizontal,
@@ -9,6 +11,7 @@ import {
   Undo2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { formatCountdown } from "@/lib/cooking/timer-math";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
 import { CoachMark } from "@/components/onboarding/coach-mark";
 import {
@@ -43,6 +46,7 @@ export type CookingLayoutProps = {
   dishTitle: string;
   dishKind: DishKindValue | null;
   versionLabel: string;
+  versionImageAssetId: string | null;
   statusLabel: string;
   hasReview: boolean;
   planActiveUnits: PlanUnit[];
@@ -84,6 +88,7 @@ export function DesktopCookingLayout({
   dishTitle,
   dishKind,
   versionLabel,
+  versionImageAssetId,
   statusLabel,
   hasReview,
   planActiveUnits,
@@ -141,6 +146,7 @@ export function DesktopCookingLayout({
               dishTitle={dishTitle}
               dishKind={dishKind}
               versionLabel={versionLabel}
+              versionImageAssetId={versionImageAssetId}
               statusLabel={statusLabel}
               hasReview={hasReview}
               completedUnitsCount={completedUnitsCount}
@@ -221,31 +227,37 @@ function NavRail({
   unitViewModels: UnitViewModel[];
 }) {
   return (
-    <nav
-      aria-label="Cooking navigation"
-      className="border-border bg-card flex h-full w-52 shrink-0 flex-col gap-1 overflow-y-auto border-r p-3 xl:w-60"
-    >
-      <NavList
-        dishTitle={dishTitle}
-        selectedDestination={selectedDestination}
-        onSelectDestination={onSelectDestination}
-        unitViewModels={unitViewModels}
-      />
-    </nav>
+    <div className="border-border bg-card flex h-full w-52 shrink-0 flex-col border-r xl:w-60">
+      <div className="shrink-0 p-3 pb-0">
+        <NavHeader
+          dishTitle={dishTitle}
+          selectedDestination={selectedDestination}
+          onSelectDestination={onSelectDestination}
+        />
+      </div>
+      <nav
+        aria-label="Cooking navigation"
+        className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-3"
+      >
+        <NavSectionList
+          selectedDestination={selectedDestination}
+          onSelectDestination={onSelectDestination}
+          unitViewModels={unitViewModels}
+        />
+      </nav>
+    </div>
   );
 }
 
-/** The Recipe destination button + Section list, without a `<nav>` wrapper — each layout supplies its own. */
-export function NavList({
+/** The sticky Recipe identity button — pinned at the top of the nav rail, above the scrollable Section list. */
+export function NavHeader({
   dishTitle,
   selectedDestination,
   onSelectDestination,
-  unitViewModels,
 }: {
   dishTitle: string;
   selectedDestination: string | null;
   onSelectDestination: (destination: string | null) => void;
-  unitViewModels: UnitViewModel[];
 }) {
   return (
     <>
@@ -262,43 +274,85 @@ export function NavList({
         {dishTitle}
       </button>
       <div className="border-border my-1 border-t" />
-      <ul className="flex flex-col gap-1">
-        {unitViewModels.map(({ unit, instructionProgress }) => {
-          const isSelected = unit.id === selectedDestination;
-          return (
-            <li key={unit.id}>
-              <button
-                type="button"
-                onClick={() => onSelectDestination(unit.id)}
-                aria-current={isSelected}
-                className={`flex w-full cursor-pointer flex-col gap-1 rounded-lg border px-3 py-2 text-left transition-colors ${
-                  isSelected
-                    ? "border-primary bg-primary/5"
-                    : "hover:bg-muted border-transparent"
-                }`}
-              >
-                <span className="flex items-center justify-between gap-2">
-                  <span className="text-foreground truncate text-sm font-medium">
-                    {unit.label}
-                  </span>
-                  <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
-                    {unit.completedAt ? (
-                      <Check
-                        className="text-brand-green-text size-3.5"
-                        aria-hidden="true"
-                      />
-                    ) : instructionProgress.total > 0 ? (
-                      `${instructionProgress.checked}/${instructionProgress.total}`
-                    ) : (
-                      "—"
-                    )}
-                  </span>
+    </>
+  );
+}
+
+/** The scrollable Section/Part list, without the Recipe header — pair with `NavHeader` in a sticky-top/scrollable-middle rail. */
+export function NavSectionList({
+  selectedDestination,
+  onSelectDestination,
+  unitViewModels,
+}: {
+  selectedDestination: string | null;
+  onSelectDestination: (destination: string | null) => void;
+  unitViewModels: UnitViewModel[];
+}) {
+  return (
+    <ul className="flex flex-col gap-1">
+      {unitViewModels.map(({ unit, instructionProgress }) => {
+        const isSelected = unit.id === selectedDestination;
+        return (
+          <li key={unit.id}>
+            <button
+              type="button"
+              onClick={() => onSelectDestination(unit.id)}
+              aria-current={isSelected}
+              className={`flex w-full cursor-pointer flex-col gap-1 rounded-lg border px-3 py-2 text-left transition-colors ${
+                isSelected
+                  ? "border-primary bg-primary/5"
+                  : "hover:bg-muted border-transparent"
+              }`}
+            >
+              <span className="flex items-center justify-between gap-2">
+                <span className="text-foreground truncate text-sm font-medium">
+                  {unit.label}
                 </span>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
+                <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
+                  {unit.completedAt ? (
+                    <Check
+                      className="text-brand-green-text size-3.5"
+                      aria-hidden="true"
+                    />
+                  ) : instructionProgress.total > 0 ? (
+                    `${instructionProgress.checked}/${instructionProgress.total}`
+                  ) : (
+                    "—"
+                  )}
+                </span>
+              </span>
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** The Recipe destination button + Section list, without a `<nav>` wrapper — used where header and list scroll together (e.g. the mobile drawer). Desktop/tablet rails use `NavHeader`/`NavSectionList` separately so only the middle region scrolls. */
+export function NavList({
+  dishTitle,
+  selectedDestination,
+  onSelectDestination,
+  unitViewModels,
+}: {
+  dishTitle: string;
+  selectedDestination: string | null;
+  onSelectDestination: (destination: string | null) => void;
+  unitViewModels: UnitViewModel[];
+}) {
+  return (
+    <>
+      <NavHeader
+        dishTitle={dishTitle}
+        selectedDestination={selectedDestination}
+        onSelectDestination={onSelectDestination}
+      />
+      <NavSectionList
+        selectedDestination={selectedDestination}
+        onSelectDestination={onSelectDestination}
+        unitViewModels={unitViewModels}
+      />
     </>
   );
 }
@@ -310,6 +364,7 @@ export function RecipePanel({
   dishTitle,
   dishKind,
   versionLabel,
+  versionImageAssetId,
   statusLabel,
   hasReview,
   completedUnitsCount,
@@ -330,6 +385,7 @@ export function RecipePanel({
   dishTitle: string;
   dishKind: DishKindValue | null;
   versionLabel: string;
+  versionImageAssetId: string | null;
   statusLabel: string;
   hasReview: boolean;
   completedUnitsCount: number;
@@ -376,6 +432,17 @@ export function RecipePanel({
             ` · ${completedUnitsCount}/${totalUnitsCount} done`}
         </p>
       </div>
+
+      {versionImageAssetId && (
+        <div className="border-border bg-muted relative aspect-video max-h-72 w-full overflow-hidden rounded-lg border">
+          {/* eslint-disable-next-line @next/next/no-img-element -- private, authenticated route, not a static/optimizable asset */}
+          <img
+            src={`/api/images/${versionImageAssetId}`}
+            alt=""
+            className="absolute inset-0 size-full object-cover"
+          />
+        </div>
+      )}
 
       {isActive && (
         <CoachMark guideKey="cooking-session" title="Cooking Sessions">
@@ -568,9 +635,9 @@ function TimerRail({
   return (
     <aside
       aria-label="Active timers"
-      className="border-border bg-card flex h-full w-60 shrink-0 flex-col gap-2 overflow-y-auto border-l p-3 xl:w-72"
+      className="border-border bg-card flex h-full w-60 shrink-0 flex-col border-l xl:w-72"
     >
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex shrink-0 items-center justify-between gap-2 p-3 pb-2">
         <h2 className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
           Timers
         </h2>
@@ -581,13 +648,141 @@ function TimerRail({
           </Button>
         )}
       </div>
-      <TimerList
-        timers={timers}
-        isActive={isActive}
-        liveTimers={liveTimers}
-        timerActions={timerActions}
-      />
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+        <TimerList
+          timers={timers}
+          isActive={isActive}
+          liveTimers={liveTimers}
+          timerActions={timerActions}
+        />
+      </div>
     </aside>
+  );
+}
+
+/**
+ * The Timers header/trigger row, collapsed chip summary, and expandable
+ * (grid-rows-animated, capped ~70vh, internally scrollable) timer list —
+ * shared by the tablet (docked in the left rail) and mobile (fixed to the
+ * viewport bottom) layouts. Each caller supplies its own outer container
+ * for placement; this owns the shared functionality and styling.
+ */
+export function TimersTray({
+  railTimers,
+  isActive,
+  liveTimers,
+  timerActions,
+  expanded,
+  onToggleExpanded,
+  onStartTimer,
+}: {
+  railTimers: RailTimer[];
+  isActive: boolean;
+  liveTimers: Map<string, LiveTimerState>;
+  timerActions: TimerActions;
+  expanded: boolean;
+  onToggleExpanded: () => void;
+  onStartTimer: () => void;
+}) {
+  const hasExpiredTimer = railTimers.some(
+    ({ timer }) => liveTimers.get(timer.id)?.isExpired,
+  );
+
+  return (
+    <>
+      <div className="flex items-center justify-between gap-2 px-4 pt-3">
+        <button
+          type="button"
+          onClick={onToggleExpanded}
+          aria-expanded={expanded}
+          className="flex min-w-0 items-center gap-1.5 text-left"
+        >
+          <TimerIcon
+            className={`size-4 shrink-0 ${hasExpiredTimer ? "text-brand-orange-text" : "text-muted-foreground"}`}
+            aria-hidden="true"
+          />
+          <span className="text-foreground text-sm font-medium">Timers</span>
+          {expanded ? (
+            <ChevronDown
+              className="text-muted-foreground size-4 shrink-0"
+              aria-hidden="true"
+            />
+          ) : (
+            <ChevronUp
+              className="text-muted-foreground size-4 shrink-0"
+              aria-hidden="true"
+            />
+          )}
+        </button>
+
+        {isActive && (
+          <Button type="button" size="sm" onClick={onStartTimer}>
+            <TimerIcon className="size-4" aria-hidden="true" />
+            Start timer
+          </Button>
+        )}
+      </div>
+
+      <button
+        type="button"
+        onClick={onToggleExpanded}
+        aria-expanded={expanded}
+        className="block w-full px-4 pt-1.5 pb-3 text-left"
+      >
+        {railTimers.length === 0 ? (
+          <span className="text-muted-foreground text-xs">
+            No active timers
+          </span>
+        ) : (
+          <span className="flex flex-wrap gap-1">
+            {railTimers.map(({ timer, sectionLabel }) => {
+              const live = liveTimers.get(timer.id);
+              const expired = live?.isExpired ?? false;
+              return (
+                <span
+                  key={timer.id}
+                  className={`flex max-w-40 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${
+                    expired
+                      ? "border-brand-orange bg-brand-orange/10 text-brand-orange-text animate-pulse"
+                      : timer.state === "RUNNING"
+                        ? "border-brand-orange/50 text-brand-orange-text"
+                        : "border-border text-muted-foreground"
+                  }`}
+                >
+                  <span className="truncate">
+                    {sectionLabel} · {timer.name}
+                  </span>
+                  <span className="shrink-0 tabular-nums">
+                    {expired
+                      ? "Time's up"
+                      : formatCountdown(
+                          live?.remainingSeconds ?? timer.durationSeconds,
+                        )}
+                  </span>
+                </span>
+              );
+            })}
+          </span>
+        )}
+      </button>
+
+      <div
+        className={`grid transition-[grid-template-rows] duration-300 ease-out ${
+          expanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+        }`}
+      >
+        <div className="overflow-hidden">
+          <div className="border-border max-h-[70vh] overflow-y-auto border-t px-4 py-3">
+            <TimerList
+              timers={railTimers}
+              isActive={isActive}
+              liveTimers={liveTimers}
+              timerActions={timerActions}
+            />
+          </div>
+        </div>
+      </div>
+    </>
   );
 }
 

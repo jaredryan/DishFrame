@@ -54,6 +54,7 @@ import {
 import { TooltipIconButton } from "@/components/domain/dish/reorder-buttons";
 import { SelectableDishRow } from "@/components/domain/dish/selectable-dish-row";
 import { DishYieldScalingField } from "@/components/domain/grocery/dish-yield-scaling-field";
+import { RichVersionPickerField } from "@/components/domain/dish/version-picker-field";
 import {
   PICKER_TABS,
   candidateToSelectionItem,
@@ -1019,24 +1020,12 @@ function EditMealDialog({
             <p className="text-muted-foreground text-sm">Loading versions…</p>
           )}
           {versions && (
-            <Field>
-              <FieldLabel htmlFor="edit-meal-version">Version</FieldLabel>
-              <Select
-                value={selectedVersionId}
-                onValueChange={setSelectedVersionId}
-              >
-                <SelectTrigger id="edit-meal-version" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {versions.map((v) => (
-                    <SelectItem key={v.id} value={v.id}>
-                      V{v.majorVersion}.{v.minorVersion}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
+            <RichVersionPickerField
+              id="edit-meal-version"
+              versions={versions}
+              value={selectedVersionId}
+              onChangeAction={setSelectedVersionId}
+            />
           )}
           {selectedVersion && (
             <DishYieldScalingField

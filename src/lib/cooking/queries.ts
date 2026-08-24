@@ -64,7 +64,7 @@ export const getSessionSourceSummary = cache(
       }),
       prisma.dishVersion.findFirst({
         where: { id: dishVersionId, dishId },
-        select: { majorVersion: true, minorVersion: true },
+        select: { majorVersion: true, minorVersion: true, imageAssetId: true },
       }),
     ]);
     return {
@@ -73,6 +73,7 @@ export const getSessionSourceSummary = cache(
       versionLabel: version
         ? versionLabel(version.majorVersion, version.minorVersion)
         : "—",
+      versionImageAssetId: version?.imageAssetId ?? null,
     };
   },
 );

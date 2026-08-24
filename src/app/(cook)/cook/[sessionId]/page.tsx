@@ -188,6 +188,7 @@ export default async function CookingModePage({
       dishTitle={sourceSummary.dishTitle}
       dishKind={sourceSummary.dishKind}
       versionLabel={sourceSummary.versionLabel}
+      versionImageAssetId={sourceSummary.versionImageAssetId}
       units={units}
       addableUnits={addableUnits}
       sessionScaleFactor={sessionMultiplier}

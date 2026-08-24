@@ -47,7 +47,7 @@ import {
   SelectableDishRow,
   type DishSelectionItem,
 } from "@/components/domain/dish/selectable-dish-row";
-import { VersionPickerField } from "@/components/domain/dish/version-picker-field";
+import { RichVersionPickerField } from "@/components/domain/dish/version-picker-field";
 import {
   listDishVersionOptions,
   type DishVersionOption,
@@ -1686,14 +1686,13 @@ function MealPickerModal({
                     {dishVersionsError}
                   </p>
                 ) : (
-                  <VersionPickerField
+                  <RichVersionPickerField
                     id="meal-modal-version"
                     versions={dishVersions ?? []}
                     currentVersionId={currentVersionId}
                     value={selectedVersionId ?? undefined}
                     onChangeAction={selectVersion}
                     disabled={!dishVersions}
-                    placeholder={dishVersions ? undefined : "Loading…"}
                   />
                 )}
 
