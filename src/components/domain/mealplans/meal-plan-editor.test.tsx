@@ -221,10 +221,12 @@ describe("MealPlanEditor Add-meal picker — Version selection and yield sync", 
     // Switch away from the default (current) Version to a specific one.
     await waitFor(() =>
       expect(
-        screen.getByRole("combobox", { name: "Version" }),
+        screen.getByRole("combobox", { name: "Jump to a major version line" }),
       ).not.toBeDisabled(),
     );
-    await user.click(screen.getByRole("combobox", { name: "Version" }));
+    await user.click(
+      screen.getByRole("combobox", { name: "Jump to a major version line" }),
+    );
     await user.click(await screen.findByRole("option", { name: "V2.0" }));
 
     await user.click(screen.getByRole("button", { name: "Add meal" }));
@@ -257,10 +259,12 @@ describe("MealPlanEditor Add-meal picker — Version selection and yield sync", 
 
     await waitFor(() =>
       expect(
-        screen.getByRole("combobox", { name: "Version" }),
+        screen.getByRole("combobox", { name: "Jump to a major version line" }),
       ).not.toBeDisabled(),
     );
-    await user.click(screen.getByRole("combobox", { name: "Version" }));
+    await user.click(
+      screen.getByRole("combobox", { name: "Jump to a major version line" }),
+    );
     await user.click(await screen.findByRole("option", { name: "V2.0" }));
 
     // Makes now reflects V2.0's own yield (8), the target (6) is

@@ -413,7 +413,9 @@ describe("GroceryListDetailView — Edit meal Version/yield recalculation", () =
     const servingsInput = await screen.findByLabelText("Servings");
     expect(servingsInput).toHaveValue("6");
 
-    await user.click(screen.getByRole("combobox", { name: "Version" }));
+    await user.click(
+      screen.getByRole("combobox", { name: "Jump to a major version line" }),
+    );
     await user.click(await screen.findByRole("option", { name: "V2.0" }));
 
     // The persisted target (6) is preserved, never reset to the newly

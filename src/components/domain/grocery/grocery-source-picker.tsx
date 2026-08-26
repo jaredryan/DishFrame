@@ -363,7 +363,8 @@ export function GrocerySourcePickerPanel({
                       id={candidate.dishId}
                       kindLabel={candidate.kind === "PART" ? "Part" : "Recipe"}
                       yieldQuantity={
-                        selectedVersion?.yieldQuantity ?? candidate.yieldQuantity
+                        selectedVersion?.yieldQuantity ??
+                        candidate.yieldQuantity
                       }
                       yieldUnit={
                         selectedVersion?.yieldUnit ?? candidate.yieldUnit

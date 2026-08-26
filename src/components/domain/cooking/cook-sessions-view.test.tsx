@@ -106,7 +106,7 @@ describe("CookCompletedSessionCard", () => {
     const user = userEvent.setup();
     render(<CookCompletedSessionCard session={completedSession} />);
 
-    const ratingsButton = screen.getByRole("button", { name: /Ratings/ });
+    const ratingsButton = screen.getByRole("button", { name: /4\.5/ });
     expect(ratingsButton).toHaveTextContent("4.5");
     expect(screen.queryByText("Mom")).not.toBeInTheDocument();
 

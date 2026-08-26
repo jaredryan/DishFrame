@@ -702,10 +702,10 @@ describe("CookingModeShell — scaling dialogs (retargeted to the desktop tree)"
     );
     const main = desktopMain();
 
-    // "Scale session" lives in the Recipe destination, not the Section.
-    await user.click(
-      within(desktopNav()).getByRole("button", { name: "Test Bowl" }),
-    );
+    // "Scale session" lives in the Recipe destination, not the Section. The
+    // Recipe-root nav button sits above the scrollable `<nav>` list (sticky
+    // header), so it's queried unscoped rather than via desktopNav().
+    await user.click(screen.getByRole("button", { name: "Test Bowl" }));
     await user.click(
       within(main).getByRole("button", { name: /scale session/i }),
     );

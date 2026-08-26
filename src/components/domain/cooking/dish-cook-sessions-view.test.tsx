@@ -149,7 +149,7 @@ describe("DishCompletedSessionCard", () => {
     const user = userEvent.setup();
     render(<DishCompletedSessionCard session={fullReviewSession} />);
 
-    const ratingsButton = screen.getByRole("button", { name: /Ratings/ });
+    const ratingsButton = screen.getByRole("button", { name: /4\.5/ });
     expect(ratingsButton).toHaveTextContent("4.5");
     expect(ratingsButton).toHaveTextContent("(2)");
     expect(screen.queryByText("Mom")).not.toBeInTheDocument();
@@ -199,7 +199,7 @@ describe("DishCompletedSessionCard", () => {
       <DishCompletedSessionCard session={fullReviewSession} />,
     );
 
-    await user.click(screen.getByRole("button", { name: /Ratings/ }));
+    await user.click(screen.getByRole("button", { name: /4\.5/ }));
     expect(screen.getByText("Mom")).toBeInTheDocument();
     expect(screen.queryByText("Full recipe")).not.toBeInTheDocument();
 

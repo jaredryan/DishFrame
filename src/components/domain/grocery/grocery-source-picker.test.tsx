@@ -129,7 +129,9 @@ describe("GrocerySourcePicker", () => {
     // Switch to V2.0 (makes 8) — the target (6) must be preserved, not
     // reset to the new Version's own yield, and the scale must recompute
     // against the new Version (6 / 8 = 0.75x), never staying at 1.5x.
-    await user.click(screen.getByRole("combobox", { name: "Version" }));
+    await user.click(
+      screen.getByRole("combobox", { name: "Jump to a major version line" }),
+    );
     await user.click(await screen.findByRole("option", { name: "V2.0" }));
 
     expect(servingsInput).toHaveValue("6");

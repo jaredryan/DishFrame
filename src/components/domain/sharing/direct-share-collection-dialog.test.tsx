@@ -153,23 +153,20 @@ describe("DirectShareCollectionDialog", () => {
       expect(screen.getByText("Recipe One")).toBeInTheDocument(),
     );
 
-    expect(screen.getByRole("button", { name: "Review" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
 
     await user.type(
       screen.getByLabelText("Recipient's email"),
       "person@example.invalid",
     );
-    expect(screen.getByRole("button", { name: "Review" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
 
     await user.click(screen.getByLabelText("Select Recipe One"));
-    // Review only enables once the newly-selected item's own Version picker
-    // has resolved (defaults to its current Version) — not immediately on
-    // selection.
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Review" })).toBeEnabled(),
+      expect(screen.getByRole("button", { name: "Next" })).toBeEnabled(),
     );
 
-    await user.click(screen.getByRole("button", { name: "Review" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
     expect(
       screen.getByText("person@example.invalid", { selector: "span" }),
     ).toBeInTheDocument();
@@ -193,17 +190,18 @@ describe("DirectShareCollectionDialog", () => {
     await user.click(screen.getByLabelText("Select Recipe One"));
     await user.click(screen.getByLabelText("Select Recipe Two"));
 
-    // Both default to their own current Version once loaded.
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Review" })).toBeEnabled(),
+      expect(screen.getByRole("button", { name: "Next" })).toBeEnabled(),
     );
+    await user.click(screen.getByRole("button", { name: "Next" }));
 
     // Change only Recipe One's Version — Recipe Two's picker is left alone.
-    const versionTriggers = screen.getAllByRole("combobox");
+    // Both default to their own current Version once loaded.
+    const versionTriggers = await screen.findAllByRole("combobox");
+    await waitFor(() => expect(versionTriggers[0]).not.toBeDisabled());
     await user.click(versionTriggers[0]);
     await user.click(await screen.findByRole("option", { name: "V2.0" }));
 
-    await user.click(screen.getByRole("button", { name: "Review" }));
     await user.click(screen.getByRole("button", { name: "Send" }));
 
     expect(mockSendCollection).toHaveBeenCalledWith(
