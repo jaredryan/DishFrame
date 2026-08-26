@@ -141,6 +141,7 @@ export function ImageField({ dishId }: { dishId: string | null }) {
       <input
         ref={inputRef}
         type="file"
+        aria-label="Upload photo"
         accept={ALLOWED_IMAGE_CONTENT_TYPES.join(",")}
         className="sr-only"
         onChange={handleFileChange}

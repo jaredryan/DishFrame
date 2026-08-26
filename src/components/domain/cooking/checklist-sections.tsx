@@ -29,6 +29,12 @@ function ChecklistRow({
   // halfway down the text; ingredients stay centered since they're
   // reliably single-line.
   const isInstruction = index != null;
+  const rowLabel =
+    item.kind === "INGREDIENT"
+      ? [item.displayQuantity, item.displayUnit, item.displayText]
+          .filter(Boolean)
+          .join(" ")
+      : item.displayText;
   return (
     <label
       className={`hover:bg-muted/40 -mx-1 flex cursor-pointer rounded-md px-1 ${isInstruction ? "items-start" : "items-center"}`}
@@ -37,6 +43,7 @@ function ChecklistRow({
         checked={checked}
         disabled={disabled}
         onCheckedChange={(next) => onToggle(next === true)}
+        aria-label={rowLabel}
         className={`mr-3 size-5 shrink-0 ${isInstruction ? "mt-0.5" : ""}`}
       />
       {index != null && (

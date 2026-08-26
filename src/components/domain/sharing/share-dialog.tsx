@@ -110,7 +110,7 @@ export function ShareDialog({
                 value={mode}
                 onValueChange={(value) => setMode(value as ShareLinkModeValue)}
               >
-                <SelectTrigger className="w-full">
+                <SelectTrigger className="w-full" aria-label="Mode">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -128,6 +128,7 @@ export function ShareDialog({
                 id="share-show-name"
                 checked={showCreatorName}
                 onCheckedChange={setShowCreatorName}
+                aria-label="Show my name"
               />
             </div>
 

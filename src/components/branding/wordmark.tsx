@@ -21,7 +21,7 @@ export function Wordmark({
     >
       {showMark && <DishFrameMark className="size-6" />}
       <span>
-        Dish<span className="text-primary">Frame</span>
+        Dish<span className="text-brand-blue-text">Frame</span>
       </span>
     </Link>
   );

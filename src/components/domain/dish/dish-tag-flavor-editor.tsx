@@ -96,7 +96,11 @@ export function DishTagFlavorEditor({
           Tags & Flavors
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-72 max-w-none" align="start">
+      <PopoverContent
+        className="w-72 max-w-none"
+        align="start"
+        aria-label="Tags & Flavors"
+      >
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
             <p className="text-foreground text-sm font-medium">Tags</p>
@@ -114,6 +118,7 @@ export function DishTagFlavorEditor({
                     <Checkbox
                       checked={tagIds.includes(tag.id)}
                       onCheckedChange={() => toggle(tagIds, tag.id, setTagIds)}
+                      aria-label={tag.displayName}
                     />
                     {tag.displayName}
                   </Label>
@@ -142,6 +147,7 @@ export function DishTagFlavorEditor({
                       onCheckedChange={() =>
                         toggle(flavorProfileIds, value.id, setFlavorProfileIds)
                       }
+                      aria-label={value.displayName}
                     />
                     {value.displayName}
                   </Label>

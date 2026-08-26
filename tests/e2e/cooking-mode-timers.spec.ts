@@ -120,7 +120,9 @@ test.describe("Cooking Mode: unit switching, progress, and simultaneous timers",
     const timerDialog = page.getByRole("dialog", { name: "Start a timer" });
     await timerDialog.getByLabel("Name").fill("Rice");
     await timerDialog.getByLabel("Minutes").fill("10");
-    await timerDialog.getByRole("button", { name: "Start", exact: true }).click();
+    await timerDialog
+      .getByRole("button", { name: "Start", exact: true })
+      .click();
     await expect(timerRail.getByText(/Rice/)).toBeVisible();
 
     // --- Switch to "Sear" in one click via the left nav: check its
@@ -134,7 +136,9 @@ test.describe("Cooking Mode: unit switching, progress, and simultaneous timers",
       .click();
     await timerDialog.getByLabel("Name").fill("Sauce");
     await timerDialog.getByLabel("Minutes").fill("5");
-    await timerDialog.getByRole("button", { name: "Start", exact: true }).click();
+    await timerDialog
+      .getByRole("button", { name: "Start", exact: true })
+      .click();
 
     // Both timers are simultaneously visible and controllable in the rail,
     // regardless of which Section is currently selected.

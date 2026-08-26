@@ -716,7 +716,11 @@ export function DishEditor({
                         value={field.value}
                         onValueChange={field.onChange}
                       >
-                        <SelectTrigger id="dish-stage" className="w-full">
+                        <SelectTrigger
+                          id="dish-stage"
+                          className="w-full"
+                          aria-label={`${kindLabel} stage`}
+                        >
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -864,7 +868,11 @@ export function DishEditor({
                           field.onChange(value === "UNSET" ? null : value)
                         }
                       >
-                        <SelectTrigger id="dish-difficulty" className="w-36">
+                        <SelectTrigger
+                          id="dish-difficulty"
+                          className="w-36"
+                          aria-label="Difficulty"
+                        >
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>

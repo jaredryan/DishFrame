@@ -267,7 +267,7 @@ export function NavHeader({
         aria-current={selectedDestination === null}
         className={`cursor-pointer truncate rounded-lg px-3 py-2 text-left text-sm font-semibold ${
           selectedDestination === null
-            ? "bg-primary/10 text-primary"
+            ? "bg-primary/5 text-primary"
             : "text-foreground hover:bg-muted"
         }`}
       >

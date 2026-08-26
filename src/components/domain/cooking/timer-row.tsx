@@ -57,7 +57,7 @@ export function TimerRow({
           aria-hidden="true"
         />
         <p className="text-foreground min-w-0 flex-1 truncate text-sm font-medium">
-          {sectionLabel && (
+          {sectionLabel && sectionLabel !== timer.name && (
             <span className="text-muted-foreground font-normal">
               {sectionLabel}
               {" · "}

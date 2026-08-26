@@ -50,7 +50,11 @@ export function PreferencesForm({
               })
             }
           >
-            <SelectTrigger id="measurementSystem" className="w-full">
+            <SelectTrigger
+              id="measurementSystem"
+              className="w-full"
+              aria-label="Measurement system"
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -72,7 +76,11 @@ export function PreferencesForm({
               })
             }
           >
-            <SelectTrigger id="fractionOrDecimal" className="w-full">
+            <SelectTrigger
+              id="fractionOrDecimal"
+              className="w-full"
+              aria-label="Quantities"
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -94,7 +102,11 @@ export function PreferencesForm({
               })
             }
           >
-            <SelectTrigger id="primaryRatingDisplay" className="w-full sm:w-64">
+            <SelectTrigger
+              id="primaryRatingDisplay"
+              className="w-full sm:w-64"
+              aria-label="Primary rating"
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -118,6 +130,7 @@ export function PreferencesForm({
           onCheckedChange={(checked) =>
             save({ ...values, timerSoundEnabled: checked })
           }
+          aria-label="Timer sound"
         />
       </div>
 
@@ -134,6 +147,7 @@ export function PreferencesForm({
           onCheckedChange={(checked) =>
             save({ ...values, reviewPromptEnabled: checked })
           }
+          aria-label="Review prompt"
         />
       </div>
 

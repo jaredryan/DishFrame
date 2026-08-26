@@ -86,6 +86,7 @@ export function VersionLineRow({
           size="icon-sm"
           disabled={!target}
           asChild={!!target}
+          aria-label={target ? undefined : label}
         >
           {target ? (
             <Link href={hrefForVersionAction(target.id)} aria-label={label}>

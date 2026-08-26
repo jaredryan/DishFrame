@@ -93,7 +93,7 @@ export function ActiveCookSessionCard({
           <StaticPill
             className={
               isStale(session.startedAt)
-                ? "border-orange-500/40 text-orange-600 dark:text-orange-400"
+                ? "border-brand-orange/40 text-brand-orange-text"
                 : undefined
             }
           >

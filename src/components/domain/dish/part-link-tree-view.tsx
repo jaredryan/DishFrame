@@ -50,9 +50,9 @@ export function PartLinkTreeView({
   const header = (
     <div className="flex items-start justify-between gap-2">
       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-        <h4 className={CONTENT_CARD_TITLE_CLASS}>
+        <h2 className={CONTENT_CARD_TITLE_CLASS}>
           {tree.title ?? "Untitled part"}
-        </h4>
+        </h2>
         <SemanticChip semantic="neutral">Part</SemanticChip>
         <SemanticChip semantic="purple" className="tabular-nums">
           {tree.versionLabel}

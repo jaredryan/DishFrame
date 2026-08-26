@@ -63,13 +63,18 @@ export function FilterPopover({
           />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-56 max-w-none" align="start">
+      <PopoverContent
+        className="w-56 max-w-none"
+        align="start"
+        aria-label={`${label} filter`}
+      >
         {specialOption && (
           <>
             <Label className="flex cursor-pointer items-center gap-2 pb-1.5 text-sm font-normal">
               <Checkbox
                 checked={specialOption.checked}
                 onCheckedChange={specialOption.onToggle}
+                aria-label={specialOption.label}
               />
               {specialOption.label}
             </Label>
@@ -90,6 +95,7 @@ export function FilterPopover({
                 <Checkbox
                   checked={selectedSet.has(option.value)}
                   onCheckedChange={() => onToggleAction(option.value)}
+                  aria-label={option.label}
                 />
                 {option.label}
               </Label>

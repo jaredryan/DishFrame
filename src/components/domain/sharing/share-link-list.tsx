@@ -137,6 +137,7 @@ function ShareLinkRow({ link }: { link: ShareLinkSummary }) {
             checked={link.showCreatorName}
             disabled={isPending}
             onCheckedChange={handleToggleAttribution}
+            aria-label="Show my name on shared page"
           />
         </div>
       )}

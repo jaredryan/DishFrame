@@ -254,7 +254,11 @@ export function NutritionFields() {
                     }
                   }}
                 >
-                  <SelectTrigger id="nutrition-basis" className="w-56">
+                  <SelectTrigger
+                    id="nutrition-basis"
+                    className="w-56"
+                    aria-label="Basis"
+                  >
                     <SelectValue placeholder="Not set" />
                   </SelectTrigger>
                   <SelectContent>
