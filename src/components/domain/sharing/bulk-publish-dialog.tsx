@@ -227,7 +227,7 @@ export function BulkPublishDialog({
                     setMode(value as ShareLinkModeValue)
                   }
                 >
-                  <SelectTrigger className="w-full">
+                  <SelectTrigger className="w-full" aria-label="Mode">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -279,6 +279,7 @@ export function BulkPublishDialog({
                   id="bulk-publish-show-name"
                   checked={showCreatorName}
                   onCheckedChange={setShowCreatorName}
+                  aria-label="Show my name"
                 />
               </div>
 

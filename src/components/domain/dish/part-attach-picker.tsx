@@ -258,7 +258,7 @@ export function PartAttachPicker({
                   value={chosenVersionId ?? undefined}
                   onValueChange={setChosenVersionId}
                 >
-                  <SelectTrigger className="w-full">
+                  <SelectTrigger className="w-full" aria-label="Version">
                     <SelectValue placeholder="Version" />
                   </SelectTrigger>
                   <SelectContent>

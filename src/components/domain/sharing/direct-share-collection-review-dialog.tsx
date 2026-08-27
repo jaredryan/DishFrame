@@ -151,6 +151,7 @@ export function DirectShareCollectionReviewDialog({
                         <Checkbox
                           checked={selected.has(child.id)}
                           onCheckedChange={() => toggle(child.id)}
+                          aria-label={child.dishTitleSnapshot}
                         />
                         <span className="font-medium">
                           {child.dishTitleSnapshot}

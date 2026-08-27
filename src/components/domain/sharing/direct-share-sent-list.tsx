@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { SemanticChip } from "@/components/domain/dish/semantic-chip";
 import { cancelDirectShareCollection } from "@/lib/sharing/actions";
 import type { DirectShareStatusValue } from "@/lib/sharing/schema";
 import type { SentItemView, SentShareChild } from "@/lib/sharing/view-model";
@@ -64,9 +65,11 @@ function SentSingleCard({
         <p className="min-w-0 font-medium break-words">
           {item.dishTitleSnapshot}
         </p>
-        <Badge variant={item.status === "PENDING" ? "outline" : "secondary"}>
-          {STATUS_LABEL[item.status]}
-        </Badge>
+        {item.status === "PENDING" ? (
+          <SemanticChip semantic="blue">{STATUS_LABEL[item.status]}</SemanticChip>
+        ) : (
+          <Badge variant="secondary">{STATUS_LABEL[item.status]}</Badge>
+        )}
       </div>
       <div className="text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
         <span className="min-w-0 break-words">
@@ -178,11 +181,13 @@ function SentGroupCard({
               <span className="min-w-0 break-words">
                 {child.dishTitleSnapshot}
               </span>
-              <Badge
-                variant={child.status === "PENDING" ? "outline" : "secondary"}
-              >
-                {STATUS_LABEL[child.status]}
-              </Badge>
+              {child.status === "PENDING" ? (
+                <SemanticChip semantic="blue">
+                  {STATUS_LABEL[child.status]}
+                </SemanticChip>
+              ) : (
+                <Badge variant="secondary">{STATUS_LABEL[child.status]}</Badge>
+              )}
             </li>
           ))}
         </ul>

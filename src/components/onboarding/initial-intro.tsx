@@ -141,6 +141,7 @@ export function InitialIntro({
                     <SelectTrigger
                       id="intro-measurement-system"
                       className="w-full"
+                      aria-label="Measurement system"
                     >
                       <SelectValue />
                     </SelectTrigger>
@@ -166,6 +167,7 @@ export function InitialIntro({
                     <SelectTrigger
                       id="intro-fraction-or-decimal"
                       className="w-full"
+                      aria-label="Quantities"
                     >
                       <SelectValue />
                     </SelectTrigger>
@@ -185,6 +187,7 @@ export function InitialIntro({
                   onCheckedChange={(checked) =>
                     save({ ...preferences, timerSoundEnabled: checked })
                   }
+                  aria-label="Timer sound"
                 />
               </div>
 
@@ -198,6 +201,7 @@ export function InitialIntro({
                   onCheckedChange={(checked) =>
                     save({ ...preferences, reviewPromptEnabled: checked })
                   }
+                  aria-label="Ask for a review after cooking"
                 />
               </div>
             </div>

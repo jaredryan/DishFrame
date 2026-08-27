@@ -19,7 +19,6 @@ import {
   NutritionSummary,
   toNutritionSummaryData,
 } from "@/components/domain/dish/nutrition-summary";
-import { CookingHistoryDialog } from "@/components/domain/dish/cooking-history-dialog";
 import { FavoriteToggle } from "@/components/domain/dish/favorite-toggle";
 import { DishTagFlavorEditor } from "@/components/domain/dish/dish-tag-flavor-editor";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
@@ -37,7 +36,7 @@ import {
   resolvePartLinkTrees,
   type PartLinkTree,
 } from "@/lib/sections/service";
-import { getLastCookedAt, getPartCookingHistory } from "@/lib/cooking/queries";
+import { getLastCookedAt } from "@/lib/cooking/queries";
 import {
   getRatingSummary,
   computePrincipalRating,
@@ -116,14 +115,11 @@ export async function DishDetailView({
 
   // Slice 9: principal rating (§36.4/§49.1-49.3), Last cooked (§41), and the
   // "Starting point" inherited-context block for a duplicate (§19.4) — all
-  // read-time aggregates, never cached. SLICE_9.md correction pass: cooking
-  // history (§41.4/§41.5) is also only meaningful for a Part — a Recipe's
-  // own session list isn't surfaced here.
+  // read-time aggregates, never cached.
   const [
     preference,
     ratingSummary,
     lastCookedAt,
-    cookingHistory,
     tagOptions,
     flavorProfileOptions,
     versionSummaries,
@@ -134,9 +130,6 @@ export async function DishDetailView({
     }),
     getRatingSummary(dish.id, dish.currentVersionId),
     getLastCookedAt(dish.ownerId, dish.id, kind),
-    kind === "PART"
-      ? getPartCookingHistory(dish.ownerId, dish.id)
-      : Promise.resolve([]),
     listTags(dish.ownerId),
     listFlavorProfileValues(dish.ownerId),
     listDishVersionSummaries(dish.id),
@@ -152,10 +145,6 @@ export async function DishDetailView({
   const flavorProfileNames = dish.flavorProfiles.map(
     (f) => f.flavorProfileValue.displayName,
   );
-  const cookingHistoryEvents = cookingHistory.map((event) => ({
-    ...event,
-    endedAt: event.endedAt.toISOString(),
-  }));
   const principalRating = computePrincipalRating(
     ratingSummary,
     dish.currentVersionId,
@@ -305,9 +294,6 @@ export async function DishDetailView({
           <History className="size-3" aria-hidden="true" />
           Last cooked {lastCookedAt.toLocaleDateString()}
         </SemanticChip>
-      )}
-      {kind === "PART" && cookingHistoryEvents.length > 0 && (
-        <CookingHistoryDialog events={cookingHistoryEvents} />
       )}
       {effectiveYieldQuantity != null && (
         <SemanticChip semantic="orange">

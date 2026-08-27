@@ -20,7 +20,10 @@ import { Input } from "@/components/ui/input";
 import { Field, FieldLabel, FieldError } from "@/components/ui/field";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { Badge } from "@/components/ui/badge";
-import { SemanticChip } from "@/components/domain/dish/semantic-chip";
+import {
+  SemanticChip,
+  type ChipSemantic,
+} from "@/components/domain/dish/semantic-chip";
 import {
   Popover,
   PopoverContent,
@@ -104,6 +107,13 @@ const STATUS_LABEL: Record<string, string> = {
   IN_PROGRESS: "In progress",
   COOKED: "Cooked",
   SKIPPED: "Skipped",
+};
+
+const STATUS_SEMANTIC: Record<string, ChipSemantic> = {
+  PLANNED: "blue",
+  IN_PROGRESS: "orange",
+  COOKED: "green",
+  SKIPPED: "neutral",
 };
 
 function dateOnly(iso: string): string {
@@ -917,7 +927,7 @@ function DraftEntryCard({
           </span>
         </p>
         <div className="flex flex-wrap items-center gap-1.5">
-          <Badge variant="secondary">Planned</Badge>
+          <SemanticChip semantic="blue">Planned</SemanticChip>
           <Badge variant="outline" className="gap-1">
             <CalendarDays className="size-3" aria-hidden="true" />
             {formatDateOnly(entry.cookDate)}
@@ -974,13 +984,6 @@ function EditEntryCard({
     entry.targetYieldQuantity,
     entry.plannedMeals,
   );
-  const statusVariant =
-    entry.status === "COOKED"
-      ? "default"
-      : entry.status === "SKIPPED"
-        ? "outline"
-        : "secondary";
-
   return (
     <li className="border-border bg-card flex items-center justify-between gap-3 rounded-lg border p-4">
       <div className="flex min-w-0 flex-1 flex-col gap-2">
@@ -991,9 +994,9 @@ function EditEntryCard({
           </span>
         </p>
         <div className="flex flex-wrap items-center gap-1.5">
-          <Badge variant={statusVariant}>
+          <SemanticChip semantic={STATUS_SEMANTIC[entry.status] ?? "neutral"}>
             {STATUS_LABEL[entry.status] ?? entry.status}
-          </Badge>
+          </SemanticChip>
           <Badge variant="outline" className="gap-1">
             <CalendarDays className="size-3" aria-hidden="true" />
             {formatDateOnly(entry.cookDate)}

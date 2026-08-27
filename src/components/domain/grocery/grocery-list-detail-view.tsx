@@ -1182,6 +1182,7 @@ function GroceryItemRow({
           <Checkbox
             checked={combineSelected}
             onCheckedChange={onCombineToggle}
+            aria-label={`Select ${item.name} to combine`}
           />
         ) : (
           <Checkbox
@@ -1240,6 +1241,7 @@ function GroceryItemRow({
                   <SelectTrigger
                     id={`category-${item.id}`}
                     className="h-7 w-40 text-xs"
+                    aria-label="Category"
                   >
                     <SelectValue placeholder="Category" />
                   </SelectTrigger>
@@ -1466,7 +1468,11 @@ function AddItemDialog({
           <div className="flex flex-col gap-1">
             <Label htmlFor="manual-item-category">Category</Label>
             <Select name="categoryId">
-              <SelectTrigger id="manual-item-category" className="w-full">
+              <SelectTrigger
+                id="manual-item-category"
+                className="w-full"
+                aria-label="Category"
+              >
                 <SelectValue placeholder="Category (auto)" />
               </SelectTrigger>
               <SelectContent>
@@ -1568,6 +1574,7 @@ function EditGroceryListDialog({
               id="edit-grocery-list-active"
               checked={isActive}
               onCheckedChange={setIsActive}
+              aria-label="Active"
             />
           </div>
           {error && (

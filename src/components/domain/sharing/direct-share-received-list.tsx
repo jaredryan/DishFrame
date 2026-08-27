@@ -6,6 +6,7 @@ import Link from "next/link";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { SemanticChip } from "@/components/domain/dish/semantic-chip";
 import { acceptDirectShare, declineDirectShare } from "@/lib/sharing/actions";
 import {
   useDirectSharePreview,
@@ -103,9 +104,11 @@ function ReceivedSingleCard({
         <p className="min-w-0 font-medium break-words">
           {item.dishTitleSnapshot}
         </p>
-        <Badge variant={item.status === "PENDING" ? "outline" : "secondary"}>
-          {STATUS_LABEL[item.status]}
-        </Badge>
+        {item.status === "PENDING" ? (
+          <SemanticChip semantic="blue">{STATUS_LABEL[item.status]}</SemanticChip>
+        ) : (
+          <Badge variant="secondary">{STATUS_LABEL[item.status]}</Badge>
+        )}
       </div>
       <p className="text-muted-foreground text-sm break-words">
         From {item.senderName} · {formatDate(item.createdAt)}
@@ -188,9 +191,11 @@ function ReceivedGroupCard({
     <li className="border-border bg-card space-y-2 rounded-lg border p-4">
       <div className="flex items-center justify-between gap-2">
         <p className="min-w-0 font-medium break-words">{item.senderName}</p>
-        <Badge variant={pendingCount > 0 ? "outline" : "secondary"}>
-          {pendingCount > 0 ? `${pendingCount} pending` : "Resolved"}
-        </Badge>
+        {pendingCount > 0 ? (
+          <SemanticChip semantic="blue">{pendingCount} pending</SemanticChip>
+        ) : (
+          <Badge variant="secondary">Resolved</Badge>
+        )}
       </div>
       <p className="text-muted-foreground text-sm break-words">
         {item.children.length} item{item.children.length === 1 ? "" : "s"} ·{" "}
@@ -242,11 +247,15 @@ function ReceivedGroupCard({
                       dishId={child.createdDishId}
                     />
                   )}
-                <Badge
-                  variant={child.status === "PENDING" ? "outline" : "secondary"}
-                >
-                  {STATUS_LABEL[child.status]}
-                </Badge>
+                {child.status === "PENDING" ? (
+                  <SemanticChip semantic="blue">
+                    {STATUS_LABEL[child.status]}
+                  </SemanticChip>
+                ) : (
+                  <Badge variant="secondary">
+                    {STATUS_LABEL[child.status]}
+                  </Badge>
+                )}
               </div>
             </li>
           ))}

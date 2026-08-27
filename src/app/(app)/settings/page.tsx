@@ -17,6 +17,15 @@ export const metadata: Metadata = {
   title: "Settings",
 };
 
+const JUMP_LINKS = [
+  { label: "Appearance", href: "#appearance" },
+  { label: "Preferences", href: "#preferences" },
+  { label: "Tasters", href: "#tasters" },
+  { label: "Tags", href: "#tags" },
+  { label: "Flavor Profiles", href: "#flavor-profiles" },
+  { label: "Grocery Categories", href: "#grocery-categories" },
+];
+
 export default async function SettingsPage() {
   const session = await getServerSession();
   if (!session) {
@@ -57,7 +66,25 @@ export default async function SettingsPage() {
       descriptionClassName="text-muted-foreground mt-2"
       width="narrow"
     >
-      <section className="flex flex-col gap-4">
+      <div>
+        <h2 className="font-heading text-foreground text-lg font-semibold">
+          Jump to
+        </h2>
+        <ul className="mt-4 flex flex-wrap gap-2">
+          {JUMP_LINKS.map(({ label, href }) => (
+            <li key={href}>
+              <a
+                href={href}
+                className="border-border bg-card hover:bg-muted text-foreground block rounded-lg border px-3 py-1.5 text-sm"
+              >
+                {label}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <section id="appearance" className="flex scroll-mt-6 flex-col gap-4">
         <h2 className="text-foreground text-lg font-semibold">Appearance</h2>
         <div className="border-border bg-card flex flex-col gap-4 rounded-xl border p-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -70,7 +97,7 @@ export default async function SettingsPage() {
         </div>
       </section>
 
-      <section className="flex flex-col gap-4">
+      <section id="preferences" className="flex scroll-mt-6 flex-col gap-4">
         <h2 className="text-foreground text-lg font-semibold">Preferences</h2>
         <div className="border-border bg-card rounded-xl border p-5">
           <PreferencesForm
@@ -95,7 +122,7 @@ export default async function SettingsPage() {
         </div>
       </section>
 
-      <section className="flex flex-col gap-4">
+      <section id="tags" className="flex scroll-mt-6 flex-col gap-4">
         <h2 className="text-foreground text-lg font-semibold">Tags</h2>
         <p className="text-muted-foreground -mt-2 text-sm">
           Your own organizing labels — used for filtering Recipes and Parts.
@@ -105,7 +132,10 @@ export default async function SettingsPage() {
         </div>
       </section>
 
-      <section className="flex flex-col gap-4">
+      <section
+        id="flavor-profiles"
+        className="flex scroll-mt-6 flex-col gap-4"
+      >
         <h2 className="text-foreground text-lg font-semibold">
           Flavor Profiles
         </h2>
@@ -118,7 +148,10 @@ export default async function SettingsPage() {
         </div>
       </section>
 
-      <section className="flex flex-col gap-4">
+      <section
+        id="grocery-categories"
+        className="flex scroll-mt-6 flex-col gap-4"
+      >
         <h2 className="text-foreground text-lg font-semibold">
           Grocery Categories
         </h2>

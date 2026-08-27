@@ -172,6 +172,7 @@ export function IngredientFields({
                       shouldDirty: true,
                     })
                   }
+                  aria-label="Optional"
                 />
                 Optional
               </label>
@@ -183,6 +184,7 @@ export function IngredientFields({
                       shouldDirty: true,
                     })
                   }
+                  aria-label="Approximate"
                 />
                 Approximate
               </label>

@@ -231,6 +231,7 @@ export function PartUsagePanel({
                     onCheckedChange={() =>
                       toggleSelection(usage.containerDishId)
                     }
+                    aria-label={`Update ${usage.containerTitle}`}
                   />
                   <span>
                     <span className="font-medium">{usage.containerTitle}</span>{" "}

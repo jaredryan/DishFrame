@@ -107,7 +107,7 @@ export function AmountModeField({
           value={mode}
           onValueChange={(value) => onModeChange(value as AmountMode)}
         >
-          <SelectTrigger id={modeId} className="w-full">
+          <SelectTrigger id={modeId} className="w-full" aria-label="Amount">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

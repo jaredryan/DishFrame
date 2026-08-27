@@ -239,6 +239,7 @@ export function DishDetailActions({
                 <ChefHat /> Cooking history
               </Link>
             </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => setOpenDialog("duplicate")}>
               <Copy /> Duplicate
             </DropdownMenuItem>
@@ -256,6 +257,7 @@ export function DishDetailActions({
                 <Printer /> Print
               </Link>
             </DropdownMenuItem>
+            <DropdownMenuSeparator />
             {stage === "ARCHIVED" ? (
               <DropdownMenuItem onSelect={() => setOpenDialog("restore")}>
                 <RotateCcw /> Restore
@@ -322,7 +324,7 @@ export function DishDetailActions({
               setRestoreStage(value as RestorableStageValue)
             }
           >
-            <SelectTrigger className="w-full">
+            <SelectTrigger className="w-full" aria-label={`${label} status`}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -398,7 +400,11 @@ export function DishDetailActions({
               value={exportVersionValue}
               onValueChange={setExportVersionValue}
             >
-              <SelectTrigger id="export-version-select" className="w-full">
+              <SelectTrigger
+                id="export-version-select"
+                className="w-full"
+                aria-label="Version"
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

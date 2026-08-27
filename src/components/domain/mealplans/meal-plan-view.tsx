@@ -9,8 +9,11 @@ import { Input } from "@/components/ui/input";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { DatePickerField } from "@/components/ui/date-picker-field";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
-import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  SemanticChip,
+  type ChipSemantic,
+} from "@/components/domain/dish/semantic-chip";
 import {
   Tooltip,
   TooltipContent,
@@ -66,6 +69,13 @@ const STATUS_LABEL: Record<string, string> = {
   IN_PROGRESS: "In progress",
   COOKED: "Cooked",
   SKIPPED: "Skipped",
+};
+
+const STATUS_SEMANTIC: Record<string, ChipSemantic> = {
+  PLANNED: "blue",
+  IN_PROGRESS: "orange",
+  COOKED: "green",
+  SKIPPED: "neutral",
 };
 
 export function MealPlanView({ mealPlan }: { mealPlan: MealPlanDetailDto }) {
@@ -447,17 +457,9 @@ function ViewEntryCard({
             </p>
           )}
         </div>
-        <Badge
-          variant={
-            entry.status === "COOKED"
-              ? "default"
-              : entry.status === "SKIPPED"
-                ? "outline"
-                : "secondary"
-          }
-        >
+        <SemanticChip semantic={STATUS_SEMANTIC[entry.status] ?? "neutral"}>
           {STATUS_LABEL[entry.status] ?? entry.status}
-        </Badge>
+        </SemanticChip>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -573,6 +575,7 @@ function GenerateGroceryListDialog({
                   <Checkbox
                     checked={selectedIds.includes(entry.id)}
                     onCheckedChange={() => toggle(entry.id)}
+                    aria-label={entry.title}
                   />
                   {entry.title} ({formatDateOnly(entry.cookDate)})
                 </label>

@@ -390,7 +390,11 @@ export function SessionReviewForm({
                   setSelectedStage(v as RestorableStageValue)
                 }
               >
-                <SelectTrigger id="change-stage-select" className="w-full">
+                <SelectTrigger
+                  id="change-stage-select"
+                  className="w-full"
+                  aria-label={`${label} stage`}
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -490,6 +494,7 @@ export function SessionReviewForm({
                     onCheckedChange={(checked) =>
                       toggleIncludedUnit(unit.id, checked === true)
                     }
+                    aria-label={unit.label}
                   />
                   <Label
                     htmlFor={checkboxId}

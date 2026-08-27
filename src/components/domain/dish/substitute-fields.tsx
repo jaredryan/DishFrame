@@ -88,6 +88,7 @@ export function SubstituteFields({
               shouldDirty: true,
             })
           }
+          aria-label="Approximate"
         />
         Approximate
       </label>

@@ -102,7 +102,7 @@ function ShareLinkRow({ link }: { link: ShareLinkSummary }) {
             <Badge variant="secondary">Disabled</Badge>
           )}
           {lifecycle === "expired" && (
-            <Badge variant="secondary">Expired</Badge>
+            <Badge variant="destructive">Expired</Badge>
           )}
         </div>
       </div>
