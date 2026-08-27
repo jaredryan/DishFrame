@@ -20,7 +20,7 @@ export function CookMoment({ className }: { className?: string }) {
           <span className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
             Cooking Mode
           </span>
-          <ChefHat className="text-brand-orange size-4" aria-hidden="true" />
+          <ChefHat className="text-brand-green size-4" aria-hidden="true" />
         </div>
         <div className="flex flex-col gap-2">
           {STEPS.map((step) => (

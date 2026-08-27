@@ -27,7 +27,7 @@ export function PlanMoment({ className }: { className?: string }) {
             This week
           </span>
           <CalendarDays
-            className="text-brand-green size-4"
+            className="text-brand-orange size-4"
             aria-hidden="true"
           />
         </div>
@@ -38,7 +38,7 @@ export function PlanMoment({ className }: { className?: string }) {
               className={cn(
                 "flex size-8 items-center justify-center rounded-full text-xs font-semibold",
                 d.planned
-                  ? "bg-brand-green/15 text-brand-green-text"
+                  ? "bg-brand-orange/15 text-brand-orange-text"
                   : "bg-surface-subtle text-muted-foreground",
               )}
             >

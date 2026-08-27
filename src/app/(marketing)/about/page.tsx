@@ -14,7 +14,7 @@ import {
 
 // PROTOTYPE: pairs with AboutFrameworkThreadSegment below — remove both
 // (and this accents array) if this doesn't earn its place.
-const THREAD_ACCENTS: ThreadAccent[] = ["blue", "green", "orange", "violet"];
+const THREAD_ACCENTS: ThreadAccent[] = ["blue", "orange", "green", "violet"];
 
 export const metadata: Metadata = {
   title: "About",
@@ -42,7 +42,7 @@ const PROBLEMS = [
   },
   {
     number: "2",
-    accent: "green" as const,
+    accent: "orange" as const,
     title: "Hard to improve and keep updated",
     body: "Cooking can be experimental. There was no easy way to track how each experiment and piece of feedback panned out. The usual choices were to overwrite the old Recipe, scatter more observations into separate notes, or try to recall what happened last time. Repeated Parts made this worse. If the white rice, sauce, or topping changed, every Recipe using it had to be edited separately.",
     response:
@@ -58,9 +58,9 @@ const PROBLEM_STYLES = {
     numeral: "text-brand-blue-text/65",
     callout: "border-primary bg-primary/5 text-foreground",
   },
-  green: {
-    numeral: "text-brand-green-text/65",
-    callout: "border-brand-green bg-brand-green/5 text-foreground",
+  orange: {
+    numeral: "text-brand-orange-text/65",
+    callout: "border-brand-orange bg-brand-orange/5 text-foreground",
   },
 };
 
@@ -75,16 +75,16 @@ const STEPS = [
   },
   {
     title: "Plan the week ahead",
-    accent: "text-brand-green",
-    ring: "border-brand-green bg-brand-green/10",
+    accent: "text-brand-orange",
+    ring: "border-brand-orange bg-brand-orange/10",
     icon: CalendarDays,
     body: "Meal Plans turn the Recipes you already trust into a week you can actually follow. Choose what you want to cook, place each one into the days ahead, and DishFrame turns the plan into a single Grocery List — no rebuilding the list by hand, no double-checking what's already accounted for.",
     Visual: PlanMoment,
   },
   {
     title: "Cook without losing your place",
-    accent: "text-brand-orange",
-    ring: "border-brand-orange bg-brand-orange/10",
+    accent: "text-brand-green",
+    ring: "border-brand-green bg-brand-green/10",
     icon: ChefHat,
     body: "Cooking Setup lets you choose which Sections you're making today and gather what you need before you start. Cooking Mode then keeps that plan close while you work — clear steps, checkoffs, and timers grouped by the part of the dish you're actually preparing, so you're never scrolling back through a wall of text to find where you left off.",
     Visual: CookMoment,

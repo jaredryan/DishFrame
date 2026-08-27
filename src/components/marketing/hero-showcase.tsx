@@ -58,7 +58,7 @@ const STATES: {
     heading: "Stay focused in the kitchen.",
     description:
       "Cooking Mode keeps the current step, timers, and checkoffs close at hand.",
-    accent: "green",
+    accent: "orange",
     visualLabel:
       "Cooking Mode showing the Sauce section complete, Chicken as the current section with a running timer, and Rice waiting next, with step progress shown.",
     Visual: HeroCookingVisual,
@@ -69,7 +69,7 @@ const STATES: {
     heading: "Update it once.",
     description:
       "Improve a shared Part once, and every recipe that uses it stays current.",
-    accent: "orange",
+    accent: "green",
     visualLabel:
       "A shared White Rice part connected to three recipes, with the update applied to all three.",
     Visual: HeroPartsVisual,

@@ -105,7 +105,9 @@ function ReceivedSingleCard({
           {item.dishTitleSnapshot}
         </p>
         {item.status === "PENDING" ? (
-          <SemanticChip semantic="blue">{STATUS_LABEL[item.status]}</SemanticChip>
+          <SemanticChip semantic="blue">
+            {STATUS_LABEL[item.status]}
+          </SemanticChip>
         ) : (
           <Badge variant="secondary">{STATUS_LABEL[item.status]}</Badge>
         )}

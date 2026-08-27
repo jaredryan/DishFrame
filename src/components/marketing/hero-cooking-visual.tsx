@@ -21,7 +21,7 @@ export function HeroCookingVisual({ className }: { className?: string }) {
         <span className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
           Cooking Mode
         </span>
-        <ChefHat className="text-brand-green size-4" />
+        <ChefHat className="text-brand-orange size-4" />
       </div>
       <p className="font-heading text-foreground text-sm font-semibold">
         Now cooking: Chicken
@@ -34,7 +34,7 @@ export function HeroCookingVisual({ className }: { className?: string }) {
               "border-border bg-surface-subtle flex items-center gap-2.5 rounded-lg border border-l-[3px] px-3 py-2.5",
               step.state === "done" && "border-l-brand-green",
               step.state === "active" &&
-                "border-l-brand-green bg-brand-green/5",
+                "border-l-brand-orange bg-brand-orange/5",
               step.state === "queued" && "border-l-border",
             )}
           >
@@ -42,7 +42,7 @@ export function HeroCookingVisual({ className }: { className?: string }) {
               <CheckCircle2 className="text-brand-green size-4 shrink-0" />
             )}
             {step.state === "active" && (
-              <Timer className="text-brand-green-text size-4 shrink-0" />
+              <Timer className="text-brand-orange-text size-4 shrink-0" />
             )}
             {step.state === "queued" && (
               <span
@@ -54,7 +54,7 @@ export function HeroCookingVisual({ className }: { className?: string }) {
               {step.label}
             </span>
             {step.state === "active" && (
-              <span className="text-brand-green-text text-[11px] font-medium">
+              <span className="text-brand-orange-text text-[11px] font-medium">
                 6:30 left
               </span>
             )}
@@ -63,7 +63,7 @@ export function HeroCookingVisual({ className }: { className?: string }) {
       </div>
       <div className="flex items-center gap-2">
         <div className="bg-border h-1.5 flex-1 overflow-hidden rounded-full">
-          <div className="bg-brand-green h-full w-2/3 rounded-full" />
+          <div className="bg-brand-orange h-full w-2/3 rounded-full" />
         </div>
         <span className="text-muted-foreground text-xs tabular-nums">
           Step 2 of 3

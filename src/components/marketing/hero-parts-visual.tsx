@@ -13,15 +13,15 @@ export function HeroPartsVisual({ className }: { className?: string }) {
         className,
       )}
     >
-      <span className="bg-brand-orange/10 text-brand-orange-text inline-flex w-fit items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium">
+      <span className="bg-brand-green/10 text-brand-green-text inline-flex w-fit items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium">
         <Link2 className="size-3" />
         Reusable Part
       </span>
-      <div className="border-brand-orange/30 bg-surface-subtle rounded-xl border p-3.5">
+      <div className="border-brand-green/30 bg-surface-subtle rounded-xl border p-3.5">
         <p className="font-heading text-foreground text-sm font-semibold">
           White Rice
         </p>
-        <p className="text-brand-orange-text mt-0.5 text-xs font-medium">
+        <p className="text-brand-green-text mt-0.5 text-xs font-medium">
           Updated just now
         </p>
       </div>
@@ -29,12 +29,12 @@ export function HeroPartsVisual({ className }: { className?: string }) {
         {RECIPES.map((name) => (
           <div key={name} className="flex items-center gap-2.5">
             <span
-              className="bg-brand-orange/40 h-px w-4 shrink-0"
+              className="bg-brand-green/40 h-px w-4 shrink-0"
               aria-hidden="true"
             />
             <span className="border-border bg-surface-subtle text-foreground flex flex-1 items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm font-medium">
               {name}
-              <RefreshCw className="text-brand-orange-text size-3.5 shrink-0" />
+              <RefreshCw className="text-brand-green-text size-3.5 shrink-0" />
             </span>
           </div>
         ))}

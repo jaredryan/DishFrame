@@ -6,8 +6,8 @@ import { ClosingCta } from "@/components/marketing/closing-cta";
 
 const FRAMEWORK_STEPS = [
   { label: "Build", accent: "blue" as const },
-  { label: "Plan", accent: "green" as const },
-  { label: "Cook", accent: "orange" as const },
+  { label: "Plan", accent: "orange" as const },
+  { label: "Cook", accent: "green" as const },
   { label: "Improve", accent: "violet" as const },
 ];
 
@@ -21,15 +21,15 @@ const TIMELINE = [
   },
   {
     title: "Plan the week ahead",
-    accent: "text-brand-green",
-    ring: "border-brand-green bg-brand-green/10",
+    accent: "text-brand-orange",
+    ring: "border-brand-orange bg-brand-orange/10",
     icon: CalendarDays,
     body: "Choose what you want to cook, place it into the week, and turn the plan into a Grocery List without rebuilding everything by hand.",
   },
   {
     title: "Cook without losing your place",
-    accent: "text-brand-orange",
-    ring: "border-brand-orange bg-brand-orange/10",
+    accent: "text-brand-green",
+    ring: "border-brand-green bg-brand-green/10",
     icon: Timer,
     body: "Cooking Setup and Cooking Mode keep sections, checkoffs, and timers close at hand, so the information you need stays with the step you're on instead of buried in one long block of text.",
   },

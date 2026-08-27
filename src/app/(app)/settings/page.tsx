@@ -132,10 +132,7 @@ export default async function SettingsPage() {
         </div>
       </section>
 
-      <section
-        id="flavor-profiles"
-        className="flex scroll-mt-6 flex-col gap-4"
-      >
+      <section id="flavor-profiles" className="flex scroll-mt-6 flex-col gap-4">
         <h2 className="text-foreground text-lg font-semibold">
           Flavor Profiles
         </h2>
