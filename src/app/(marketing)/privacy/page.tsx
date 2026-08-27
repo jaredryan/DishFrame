@@ -5,7 +5,7 @@ import { LegalLayout } from "@/components/marketing/legal-page";
 export const metadata: Metadata = {
   title: "Privacy Policy",
   description:
-    "What information DishFrame collects, why it's used, and how to export or delete your account data.",
+    "What information DishFrame collects, how sharing works, and how to export or delete your account data.",
   alternates: {
     canonical: "/privacy",
   },
@@ -13,7 +13,7 @@ export const metadata: Metadata = {
     url: "/privacy",
     title: "Privacy Policy | DishFrame",
     description:
-      "What information DishFrame collects, why it's used, and how to export or delete your account data.",
+      "What information DishFrame collects, how sharing works, and how to export or delete your account data.",
   },
 };
 
@@ -21,8 +21,8 @@ export default function PrivacyPage() {
   return (
     <LegalLayout
       title="Privacy Policy"
-      effectiveDate="August 5, 2026"
-      intro="DishFrame is a personal cooking framework built and operated as a small, independent software product. This page explains what information DishFrame collects, why, and how you can export or delete it."
+      effectiveDate="August 27, 2026"
+      intro="DishFrame is a personal cooking framework built and operated as a small, independent software product. This page explains what information DishFrame collects, why, how it may be shared when you choose to use DishFrame's sharing features, and how you can export or delete it."
     >
       <section>
         <h2>Information collected through sign-in</h2>
@@ -40,12 +40,19 @@ export default function PrivacyPage() {
           DishFrame stores the content you create in order to provide the
           product, including Recipes, Parts, Recipe Versions, Cooking Sessions,
           notes, ratings, Reviews, Tasters, Meal Plans, grocery lists, tags, and
-          preferences. This content is private to your account by default —
-          there is currently no way to make it publicly visible.
+          preferences.
+        </p>
+        <p>
+          Your content is private to your account by default. DishFrame only
+          makes content available to other people when you choose to use its
+          direct-sharing or public-link publishing features.
         </p>
         <p>
           Images you upload are stored using Vercel Blob, a cloud file storage
-          service, and are served only to authorized requests.
+          service. Images associated with private content are used within your
+          DishFrame account. If you choose to publish content through a public
+          link, images included with that published content may also be visible
+          through that link.
         </p>
       </section>
 
@@ -63,7 +70,36 @@ export default function PrivacyPage() {
         <p>
           A recipient who accepts a shared Recipe or Part receives their own
           independent copy. Later changes you make to your original do not
-          affect their copy, and later changes they make do not affect yours.
+          affect their copy, and later changes they make do not affect yours. If
+          you later delete your original content or your DishFrame account, a
+          copy that another user already accepted remains part of that
+          user&rsquo;s account.
+        </p>
+      </section>
+
+      <section>
+        <h2>Public links</h2>
+        <p>
+          You can choose to publish a Recipe or Part through a public DishFrame
+          link. Anyone who has access to that link may be able to view the
+          published content without signing in to DishFrame.
+        </p>
+        <p>
+          Depending on the options you choose when publishing, a public link may
+          show either a fixed Version of the content or the current Version as
+          it changes over time. You may also choose whether your creator name is
+          shown with the publication.
+        </p>
+        <p>
+          Public links can be revoked, and some links may be configured to
+          expire. Revoking or allowing a link to expire prevents continued
+          access through that DishFrame link, but DishFrame cannot undo copies,
+          screenshots, downloads, or other use of information that someone may
+          already have viewed outside DishFrame.
+        </p>
+        <p>
+          Public publication is always optional. Content that you do not choose
+          to share or publish remains private to your account.
         </p>
       </section>
 
@@ -114,9 +150,13 @@ export default function PrivacyPage() {
         <h2>Exporting your data</h2>
         <p>
           You can download a structured export of your own account data —
-          Recipes, Parts, Versions, Cooking Sessions, and related content — as a
-          JSON file from your account settings at any time. This export does not
-          currently include image files.
+          including Recipes, Parts, Versions, Cooking Sessions, related content,
+          and metadata about active public publications — as a JSON file from
+          your account settings at any time.
+        </p>
+        <p>
+          Public-link secrets are not included in the export. The export also
+          does not currently include image files.
         </p>
       </section>
 
@@ -126,15 +166,19 @@ export default function PrivacyPage() {
           You can permanently delete your account from your account settings.
           Deleting your account removes your Recipes, Parts, Versions, Cooking
           Sessions, Reviews, Tasters, ratings, grocery lists, Meal Plans,
-          images, share links, pending shares, and preferences from DishFrame.
+          images, public share links, pending direct shares, and preferences
+          from DishFrame.
         </p>
         <p>
           Database records are removed immediately as part of account deletion.
           Uploaded image files are deleted from storage on a best-effort basis
           immediately afterward, which may take a short time to complete fully.
-          If another DishFrame user has already accepted an independent copy of
-          something you shared, that copy remains theirs and is not deleted with
-          your account.
+        </p>
+        <p>
+          Public links associated with your account stop being available once
+          their underlying DishFrame records are removed. If another DishFrame
+          user has already accepted an independent copy of something you shared,
+          that copy remains theirs and is not deleted with your account.
         </p>
       </section>
 
