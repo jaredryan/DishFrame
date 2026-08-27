@@ -1,239 +1,203 @@
 # DishFrame — TODO
 
 Durable tracking of genuinely unfinished, deferred, or open work. This is
-the one temporary planning/status document in `docs/` — everything else
-in `docs/` is a living reference document (see `PRODUCT_SPEC.md`,
-`BRANDING.md`, `PRODUCT_ROADMAP.md`, `ARCHITECTURE_PROPOSAL.md`,
-`BUILD_PLAN.md`). Update this file as items are completed or as new
-deferred work is identified — it is not a one-time snapshot.
+the one temporary planning/status document in `docs/`; the other docs are
+living reference documents. Update this file as work is completed or new
+deferred work is identified.
 
 Production URL: `https://dish-frame.vercel.app`
 
 ---
 
-## A. Open product/design decisions needing owner input
+## A. Current finish line
+
+### 1. Meal Plans / Grocery Lists
+
+Complete the remaining hands-on product/design review before treating these
+flows as stable:
 
 - **Meal-Plan grocery-generation UI scope.** Whole-plan-only (current
-  behavior) vs. exposing a selected-entries/date-range picker — the
-  service layer already supports the latter, just not the UI.
-- **Grocery pre-generation customization.** Optional-ingredient/substitute
-  customization is currently post-generation only (via the generated
-  list's own UI); there's no pre-generation per-ingredient step at the
-  source-selection screen. Open product-scope choice, not yet checked in
-  on with the owner.
-- **Contact page topic-selector field** — deliberately deferred, not
-  added (would touch schema, email template, and action together). Still
-  a "maybe later" if wanted.
-- **Meal Plan yield-unit pluralization.** "Makes 1 servings" doesn't
-  pluralize — a pre-existing, consistent convention across the whole app
-  (same non-pluralized interpolation exists on the canonical Recipe/Part
-  detail page), not an isolated typo. Needs a decision on whether yield
-  units should carry singular/plural forms before fixing broadly.
+  behavior) vs. exposing the selected-entries/date-range capability already
+  supported by the service layer.
+- **Grocery pre-generation customization.** Decide whether
+  optional-ingredient/substitute choices should remain post-generation only
+  or gain a pre-generation step.
+- **Removed-item resync behavior.** Revisit whether a manually removed
+  optional grocery item should be remembered/suppressed instead of
+  reappearing after an unrelated Meal-Plan resync while its producing entry
+  remains live.
+- **`Sync now` discoverability.** Judge during the Meal Plan review whether
+  the affordance is sufficiently obvious when nothing visibly looks stale.
+- **Yield-unit pluralization.** Decide whether the broader yield model should
+  support singular/plural forms rather than special-casing strings such as
+  `Makes 1 servings`.
+- Finish any remaining design/functionality polish discovered through normal
+  use of Meal Plans and Grocery Lists.
 
-(Account/Dish export's restore/import semantics — previously open here —
-are resolved as a deliberately deferred standalone feature; see section H's
-"Structured Dish/account JSON restore/import.")
+### 2. Remaining E2E / manual QA
 
-## B. Known gaps and small fixes (no owner decision needed)
+After Meal Plans and Grocery Lists stabilize:
 
-(none open right now)
+- Add/complete Playwright coverage for account deletion,
+  onboarding-adjacent areas, and the Meal Plans/Grocery Lists UI. Server-side
+  outcomes already have integration coverage.
+- Run the Slice 22 multi-recipe sharing production checklist:
+  - real two-account Google-sign-in smoke test for claim-on-signup +
+    `/share` reconciliation;
+  - ~12-recipe family-sized collection timing;
+  - 50-recipe maximum-size stress check for Vercel/Neon timeout and
+    all-or-nothing behavior;
+  - seeded-state visual/UX review of collection dialogs and Sent/Received.
+  If the 50-item test exposes share-graph performance problems, revisit the
+  currently sequential sibling-PartLink traversal rather than weakening the
+  atomicity guarantee.
+- Real-device barcode scanning on iOS Safari and Android Chrome: permission
+  allow/deny, immediate close during startup, stream/camera shutdown after
+  success/cancel/timeout/close, recognized/unrecognized barcode, and
+  no-camera desktop fallback.
+- Account/security manual checks: multi-device session listing/revocation,
+  sign out all other sessions, stale-session reauthentication, disposable
+  account deletion, survival of another user's accepted copy/shared image,
+  and sender rendering after recipient-account deletion.
+- Chrome/Safari Print Preview and Save-as-PDF: Letter vs. A4, long/nested-Part
+  page breaks, Safari `@page` margin quirks.
+- Cuisine `<datalist>` dropdown: cross-browser visual acceptability check.
+- Consider a documented empty/first-run QA seed account as a standing fixture.
 
-## C. Test debt
+Direct-sharing accept/decline/sender-cancel E2E coverage already exists and
+has been exercised as part of owner-run verification.
 
-- No Playwright/E2E coverage exists for: account deletion
-  (destructive/session-ending flow), several onboarding-adjacent areas,
-  and the Meal Plans/Grocery Lists UI generally — integration tests cover
-  the server-side outcomes; manual click-throughs were recommended as a
-  stand-in before production reliance. (Direct-sharing's own
-  accept/decline/sender-cancel flows now have E2E coverage —
-  `tests/e2e/direct-sharing.spec.ts`, added in the 2026-08-27 second
-  follow-up; see `CODE_AUDIT.md`. Written, not yet run by the owner.)
+### 3. Recipe Gallery migration
 
-## D. Manual QA still to run
+Move the existing ~40 Recipe Gallery recipes into DishFrame.
 
-- **Slice 22 (multi-Recipe sharing) production checklist**, none of
-  which has been exercised yet: a real two-account Google-sign-in smoke
-  test proving claim-on-signup + `/share` reconciliation works live; a
-  ~12-Recipe "family-sized" collection send/accept timing check; a
-  50-Recipe maximum-size stress check for Vercel/Neon timeout and
-  all-or-nothing behavior (if unsafe, lower the product max to ~20–25
-  rather than weaken the atomicity guarantee); a general seeded-state
-  visual/UX review of the collection dialogs and Sent/Received sections.
-- Barcode scanning on real iOS Safari and Android Chrome: camera
-  permission allow/deny, immediate dialog close during scanner startup,
-  camera indicator/stream stopping after success/cancel/timeout/close, a
-  recognized and unrecognized retail barcode, no-camera desktop fallback.
-- Account/security, manual-only (not seedable): multi-device session
-  listing/revocation, "sign out all other sessions," stale-session
-  (~24h) reauthentication prompts, disposable-account deletion and
-  survival of another user's accepted copy/shared image, sender-facing
-  rendering of a canceled share after the recipient's account is
-  deleted.
-- Chrome/Safari real Print Preview and Save-as-PDF: Letter vs. A4,
-  long/nested-Part page breaks, Safari `@page` margin quirks.
-- `/meal-plans`'s "Sync now" affordance discoverability — is it obvious
-  enough, or does it read as a dead button when nothing looks stale?
-  Judge manually during a review pass.
-- Consider adding a documented "empty"/first-run counterpart QA seed
-  account as a standing fixture — the Slice 21 structural/empty-state
-  audits could only reach empty states via a manually-created throwaway
-  account.
-- Cuisine combobox's browser-native `<datalist>` dropdown styling needs a
-  cross-browser acceptability check — genuine cross-browser visual
-  judgment, not a speculative code fix.
+Preferred workflow: normalize each source recipe into a predictable
+DishFrame-friendly text structure before using the existing
+`/recipes/import` paste-and-review flow, rather than relying on heterogeneous
+source formatting to parse consistently. This is a one-time content migration;
+it does not require building a dedicated Recipe Gallery importer.
 
-## E. Accepted edge cases (not bugs — logged so they aren't rediscovered)
+## B. Accepted limitations / scale assumptions
 
-- A manually-removed optional grocery item can reappear after a later
-  unrelated Meal-Plan resync if the producing entry is still live and
-  untouched (`applyGroceryListSourceRefresh`'s "added" fold-in has no
-  memory of deliberate removal). Pre-existing since Slice 12, not a
-  regression.
+These are not active bugs. Keep them here so they are not repeatedly
+rediscovered as cleanup work.
+
 - Print output does not show source-recipe provenance for an
-  accepted/imported copy — explicitly out of scope, not a bug.
-- Client-to-client callback props (`onRemove`, `onDetach`, etc.) trigger a
+  accepted/imported copy; explicitly out of scope.
+- Client-to-client callback props (`onRemove`, `onDetach`, etc.) can trigger a
   false-positive "props must be serializable" warning from the Next.js TS
-  plugin — a known framework/tooling false positive, not a real defect;
-  not worth contorting component architecture to silence.
+  plugin; do not contort component architecture to silence it.
+- `ingredient-gather.ts` can re-walk the same Dish/Part ingredient tree across
+  separate calls (for example, multiple Meal Plan entries referencing the
+  same Part). Revisit only if profiling or Meal Plan use shows meaningful
+  latency.
+- `queryDishLibrary` currently fetches the matching library set and
+  ranks/sorts in memory. This is acceptable at personal-library scale; revisit
+  only if real library sizes grow enough to make it measurable.
 
-## F. Deployment / infrastructure follow-ups
+## C. Deployment / launch follow-ups
 
-Immediate manual checks after any redeploy:
+### Search launch
 
-- Confirm `robots.txt` allows `/`, `/about`, `/contact`, `/privacy`,
-  `/terms`, disallows the signed-in app and `/api/*`, and references the
-  production sitemap. (Source-code correctness audited 2026-08-27 — see
-  `robots.ts`/`sitemap.ts` and the `(cook)`/`(share)` layout `noindex`
-  metadata; this is the eventual live-production spot-check, still
-  owner-run.)
-- Confirm `sitemap.xml` lists the public routes at the production
-  origin.
-- Spot-check homepage JSON-LD, canonical tags, the Open Graph image (via
-  a social-share debugger), the branded 404 page, and `noindex` on
-  private routes (e.g. `/sign-in`) and on public share links (`/s/*`).
-- Check production runtime/build logs after any change to the
-  route-level metadata files (`sitemap.xml`, `robots.txt`,
-  `manifest.webmanifest`, icons, OG images).
-- Set `CRON_SECRET` as a Vercel project env var (see `.env.example`) and
-  confirm the `cleanup-orphan-images` Vercel Cron entry (`vercel.json`)
-  is registered and firing — check the Vercel dashboard's Cron Jobs tab
-  after the first deploy, since a missing/misconfigured `CRON_SECRET`
-  makes the endpoint 503 rather than fail loudly.
+Production metadata/crawler behavior, sitemap, canonicals, JSON-LD, public and
+private `noindex` behavior, Open Graph presentation, the branded 404, and the
+orphan-image Cron were source-audited and live-checked on 2026-08-27. The
+production `cleanup-orphan-images` Cron is configured with `CRON_SECRET` and
+successfully completed a manual production invocation.
 
-Search launch:
+Still open:
 
-- Add the production URL as a property in Google Search Console, submit
-  the sitemap, and check indexing status once public copy/structure have
-  stabilized.
-- Repeat for the final custom domain once attached (Search Console
-  properties are origin-specific).
+- Add `https://dish-frame.vercel.app` to Google Search Console, submit the
+  sitemap, and check indexing status when desired.
+- Repeat Search Console setup for a future custom domain, since properties are
+  origin-specific.
 
-Custom domain (not yet attached):
+### Custom domain (only if/when wanted)
 
-- Choose/purchase a domain, attach it in Vercel, decide apex vs. `www`.
-- Update `NEXT_PUBLIC_APP_URL`, `BETTER_AUTH_URL`, Better Auth trusted
-  origins, and the Google OAuth authorized origin/redirect URI.
-- Re-verify canonical tags, OG URLs, sitemap, and `robots.txt` after
-  redeploying; add the domain to Search Console; preserve redirects from
-  `dish-frame.vercel.app`.
+- Choose/purchase a domain, attach it in Vercel, and decide apex vs. `www`.
+- Update `NEXT_PUBLIC_APP_URL`, `BETTER_AUTH_URL`, Better Auth trusted origins,
+  and Google OAuth authorized origin/redirect URI.
+- Re-verify canonicals, OG URLs, sitemap, and `robots.txt`; preserve redirects
+  from `dish-frame.vercel.app`.
 
-Resend domain upgrade (optional; email already works via
-`onboarding@resend.dev`):
+### Resend domain upgrade (optional)
+
+Email currently works through `onboarding@resend.dev`.
 
 - Verify a DishFrame-owned domain in Resend, configure SPF/DKIM, replace
-  `CONTACT_FROM_EMAIL`, retest the contact form's `replyTo`.
+  `CONTACT_FROM_EMAIL`, and retest the contact form's `replyTo`.
 
-Security hardening:
+### Security hardening for broader public use
 
-- Evaluate a report-only CSP first (`Content-Security-Policy-Report-Only`)
-  — only the conservative headers (`X-Content-Type-Options`,
-  `Referrer-Policy`, `Permissions-Policy`, no `X-Powered-By`) ship today.
-  Enforce only after a report-only period shows no unexpected
-  violations.
-- Review dependency vulnerabilities periodically (`pnpm audit` or
-  Vercel/GitHub's automated alerts).
-- Revisit Better Auth's session-cookie configuration (30-day sessions, no
-  device limit — chosen as proportionate to a personal/family product)
-  if the product ever opens beyond personal/family use.
-- Consider durable rate limiting for `/api/*` and the contact form once
-  real public traffic warrants it (the honeypot + time-trap on the
-  contact form is a spam deterrent, not a hard security boundary).
+- Evaluate a report-only CSP before enforcing one.
+- Review dependency vulnerabilities periodically (`pnpm audit` and/or
+  Vercel/GitHub alerts).
+- Revisit Better Auth's current 30-day/no-device-limit session policy if the
+  product opens beyond personal/family use.
+- Add durable rate limiting for `/api/*` and the contact form if real public
+  traffic warrants it.
 
-Monitoring/analytics (optional, install only once there's a concrete
-need): Vercel Web Analytics, error monitoring (e.g. Sentry), uptime
-monitoring for the production URL and `/api/health`, Neon usage/compute
-alerts, Resend delivery monitoring.
+### Monitoring / analytics (optional)
 
-Preview/environment isolation:
+Only add once there is a concrete need: Vercel Web Analytics, error monitoring
+such as Sentry, uptime monitoring for production and `/api/health`, Neon
+usage/compute alerts, or Resend delivery monitoring.
 
-- Separate Neon branch/database for Vercel Preview deployments, with
-  Preview `DATABASE_URL`/`DIRECT_URL` scoped accordingly.
-- Decide a preview OAuth strategy (Preview URLs are already trusted via
-  `VERCEL_URL` in `src/lib/auth/auth.ts`, but aren't individually
-  registered with Google).
-- Decide preview Resend restrictions so preview traffic can't send from
-  the production sender identity or notify the real `CONTACT_TO_EMAIL`.
+### Preview/environment isolation (future)
 
-## G. Legal
+- Separate Neon branch/database for Vercel Preview deployments.
+- Decide a preview OAuth strategy.
+- Prevent preview Resend traffic from using the production sender identity or
+  notifying the real `CONTACT_TO_EMAIL`.
 
-`/privacy` and `/terms` exist and are grounded in the actual
-implementation (see `BRANDING.md` "Privacy and Terms"), but **neither has
-had professional legal review** — required before any broad commercial
-launch. Also still open: a cookie disclosure (only if/when analytics is
-added, per Monitoring above).
+## D. Legal before broad commercial launch
 
-## H. Tier 3 / post-launch product ideas (optional, not committed)
+`/privacy` and `/terms` exist and are grounded in the implementation, but
+neither has had professional legal review. Obtain review before any broad
+commercial launch.
 
-Dependent on future product decisions — see `PRODUCT_ROADMAP.md` §8 for
-the full list and rationale. Not scoped into any slice:
+Add cookie disclosure only if/when analytics or other tooling makes one
+necessary.
 
-- **Structured Dish/account JSON restore/import.** The structured
-  Dish/account JSON export (`importExport/export-dto.ts`) exists, but
-  there is deliberately no restore/import path for that format yet. As
-  established during the 2026-08-27 export audit follow-up, building one
-  is a real, standalone project (Dish/Version/PartLink id-remapping,
-  Tasters, Cooking history, Grocery Lists, Meal Plans, preferences), not
-  an accidental omission. A future restore feature should do a
-  non-destructive restore into fresh ids,
-  remap relationships rather than assume the originals still exist, and
-  recreate any active public-publication state with fresh tokens/links.
-  Direct-sharing relationships (sender/recipient identity) are
-  intentionally not portable — they don't get reconstructed on restore.
-- Offline recipe viewing, offline cooking mode, a service worker,
-  background sync, wake lock, and timer persistence across
-  navigation/refresh remain undone — dependent on a future cooking-mode
-  specification. (Installable-PWA basics — the web app manifest and
-  home-screen/maskable icons tuned for standalone use — already shipped;
-  see "Final brand assets" under section F.)
-- Rotation/meal-planning insights, recipe/cooking statistics, website
-  recipe import, automatic ingredient-level nutrition calculation,
-  native mobile app, public directory enhancements, advanced cooking
-  scheduling, OCR recipe import.
-- Recipe Gallery-specific importer (the generic paste-and-review importer
-  at `/recipes/import` is the deliberate interim substitute — no
-  `/parts/import` equivalent exists either).
+## E. Tier 3 / future product ideas
 
-## I. Future audit
+Optional and not committed. See `PRODUCT_ROADMAP.md` for broader rationale.
 
-- **A comprehensive engineering/code-quality audit of the whole repository
-  is done** (2026-08-27, see `CODE_AUDIT.md`) — Recipe/Part core, Cooking
-  Mode, Meal Plans, Grocery Lists, Sharing/Export, shared infra/auth, and
-  tooling/tests/CI/deps were all covered, findings fixed, and a 2026-08-27
-  follow-up pass resolved the three items that needed a product decision
-  (MATERIALIZED PartLink fidelity, the grocery sync-flag gap, and
-  publication state in export — the narrower follow-up item that surfaced
-  while implementing the last of these, the export format's missing
-  restore/import path, has since been resolved as a deliberately deferred
-  Tier 3 feature; see section H). Don't schedule another full-repo
-  engineering audit from scratch; a future pass should scope itself to
-  whatever materially changed since, or to a specific area of concern.
-- The public pages and already-completed top-level authenticated pages
-  have also already received a design/UX/accessibility review
-  (architecture/performance, code-hygiene, reliability/data-integrity,
-  Lighthouse, and accessibility) — don't independently redo that work
-  later unless those pages or their shared implementation have materially
-  changed.
-- What remains open is narrower: once the remaining logged-in flows finish
-  their own design/UX review, do only the necessary regression/
-  reintegration check of previously audited shared code they touch — not
-  a repeat of either audit above.
+- **Structured Dish/account JSON restore/import.** Structured export exists,
+  but restore is deliberately deferred as a standalone feature. A future
+  implementation should restore non-destructively into fresh IDs, remap
+  relationships, recreate active public-publication state with fresh
+  tokens/links, and not reconstruct direct-sharing sender/recipient
+  relationships.
+- **Contact-page topic selector.** Deliberately deferred; adding it would touch
+  schema, email template, and action together.
+- Offline recipe viewing / Cooking Mode, service worker, background sync, wake
+  lock, and timer persistence across navigation/refresh.
+- Rotation/meal-planning insights, recipe/cooking statistics, website recipe
+  import, automatic ingredient-level nutrition calculation, native mobile
+  app, public-directory enhancements, advanced cooking scheduling, and OCR
+  recipe import.
+- Recipe Gallery-specific importer. The generic paste-and-review importer is
+  the deliberate current substitute; the one-time Recipe Gallery migration
+  above does not by itself justify a dedicated importer. No `/parts/import`
+  equivalent exists either.
+
+## F. Future audit / review guardrail
+
+A comprehensive repository-wide engineering/code-quality audit was completed
+on **2026-08-27**, covering recipe/Part core, Cooking Mode, Meal Plans/Grocery
+Lists, Sharing/Export, shared infrastructure/auth, tooling/tests/CI, migrations,
+and related tests. All actionable findings were resolved or transferred into
+this TODO. Subsequent targeted follow-ups also closed the orphan-image cleanup,
+metadata/crawler, export/version-scaling, direct-sharing E2E, and related
+correctness gaps.
+
+**Do not schedule another broad repository audit from scratch unless DishFrame's
+architecture or major subsystems materially change.** Future engineering
+reviews should target the areas that changed or a concrete observed concern.
+
+The public pages and already-completed top-level authenticated pages have also
+received design/UX/accessibility review. Once Meal Plans and Grocery Lists
+finish their remaining review, do only targeted regression/reintegration checks
+for shared code they materially changed rather than repeating the earlier
+audits.
