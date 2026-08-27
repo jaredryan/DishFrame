@@ -14,11 +14,11 @@ for (const file of [".env.local", ".env"]) {
   }
 }
 
-// DATABASE_URL / DIRECT_URL are optional here on purpose: `prisma generate`
-// must keep working before Neon credentials exist (see README "Remaining
-// setup"). Commands that need a live database (migrate, studio) still read
-// these from the environment and fail with Prisma's normal connection error
-// if they're unset.
+// DATABASE_URL / SHADOW_DATABASE_URL are optional here on purpose: `prisma
+// generate` must keep working before Neon credentials exist (see README
+// "Remaining setup"). Commands that need a live database (migrate, studio)
+// still read these from the environment and fail with Prisma's normal
+// connection error if they're unset.
 export default defineConfig({
   schema: "prisma/schema.prisma",
   migrations: {
@@ -26,6 +26,12 @@ export default defineConfig({
   },
   datasource: {
     url: process.env.DATABASE_URL,
-    shadowDatabaseUrl: process.env.DIRECT_URL,
+    // Only set when explicitly provided — `migrate deploy` never needs a
+    // shadow database, and eagerly wiring one up (e.g. reusing DIRECT_URL)
+    // makes Prisma validate it even for commands that don't touch it,
+    // breaking whenever DATABASE_URL and that other var happen to match
+    // (as they legitimately do in CI, where there's no separate Neon
+    // "direct" endpoint).
+    shadowDatabaseUrl: process.env.SHADOW_DATABASE_URL,
   },
 });

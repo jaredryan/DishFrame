@@ -36,7 +36,7 @@ async function main() {
       "[seed-session] Refusing to run: DATABASE_DRIVER is not 'pg'. " +
         "This script creates and deletes real rows and must only run against " +
         "a disposable local/CI Postgres (see docker-compose.yml), never Neon. " +
-        "Export DATABASE_URL/DIRECT_URL/DATABASE_DRIVER=pg before running this spec.",
+        "Export DATABASE_URL/SHADOW_DATABASE_URL/DATABASE_DRIVER=pg before running this spec.",
     );
     process.exit(1);
   }

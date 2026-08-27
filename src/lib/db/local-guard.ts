@@ -4,7 +4,7 @@ const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1"]);
 
 type LocalDatabaseEnv = {
   DATABASE_URL?: string;
-  DIRECT_URL?: string;
+  SHADOW_DATABASE_URL?: string;
   DATABASE_DRIVER?: string;
 };
 
@@ -12,9 +12,9 @@ type LocalDatabaseEnv = {
  * Refuses to proceed unless the environment unambiguously targets the
  * disposable local/CI Postgres (docker-compose.yml) — never Neon,
  * production, or an unrecognized remote database. Checked on both
- * DATABASE_URL and DIRECT_URL, and never on DATABASE_DRIVER alone: a
- * misconfigured .env.production-access.local override could otherwise
- * set DATABASE_DRIVER=pg while pointing at a real Neon host.
+ * DATABASE_URL and SHADOW_DATABASE_URL, and never on DATABASE_DRIVER
+ * alone: a misconfigured .env.production-access.local override could
+ * otherwise set DATABASE_DRIVER=pg while pointing at a real Neon host.
  */
 export function assertLocalDatabaseEnv(vars: LocalDatabaseEnv): void {
   if (vars.DATABASE_DRIVER !== "pg") {
@@ -26,7 +26,7 @@ export function assertLocalDatabaseEnv(vars: LocalDatabaseEnv): void {
 
   for (const [name, value] of [
     ["DATABASE_URL", vars.DATABASE_URL],
-    ["DIRECT_URL", vars.DIRECT_URL],
+    ["SHADOW_DATABASE_URL", vars.SHADOW_DATABASE_URL],
   ] as const) {
     if (!value) {
       throw new Error(`Refusing to run: ${name} is not set.`);

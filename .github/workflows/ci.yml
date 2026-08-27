@@ -12,9 +12,10 @@ env:
   NEXT_PUBLIC_APP_URL: http://localhost:3000
   # Disposable service-container Postgres — never the real Neon database.
   # See src/lib/db/adapter.ts and docker-compose.yml for the local-dev equivalent.
+  # No SHADOW_DATABASE_URL: `prisma migrate deploy` (used below) never needs
+  # a shadow database — only `migrate dev`/`migrate reset` do.
   DATABASE_DRIVER: pg
   DATABASE_URL: postgresql://postgres:postgres@localhost:5432/dishframe
-  DIRECT_URL: postgresql://postgres:postgres@localhost:5432/dishframe
 
 jobs:
   ci:

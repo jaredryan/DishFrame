@@ -16,7 +16,8 @@ vi.mock("pg", () => ({
 
 const LOCAL = {
   DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/dishframe",
-  DIRECT_URL: "postgresql://postgres:postgres@localhost:5432/dishframe_shadow",
+  SHADOW_DATABASE_URL:
+    "postgresql://postgres:postgres@localhost:5432/dishframe_shadow",
   DATABASE_DRIVER: "pg",
 };
 
@@ -77,11 +78,12 @@ describe("assertLocalDatabaseEnv", () => {
     ).toThrow(/DATABASE_URL/);
   });
 
-  it("rejects DIRECT_URL pointing somewhere non-local even if DATABASE_URL is local", () => {
+  it("rejects SHADOW_DATABASE_URL pointing somewhere non-local even if DATABASE_URL is local", () => {
     expect(() =>
       assertLocalDatabaseEnv({
         ...LOCAL,
-        DIRECT_URL: "postgresql://user:pw@db.example.com:5432/dishframe_shadow",
+        SHADOW_DATABASE_URL:
+          "postgresql://user:pw@db.example.com:5432/dishframe_shadow",
       }),
     ).toThrow(/local/i);
   });
