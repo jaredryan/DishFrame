@@ -15,6 +15,17 @@ describe("NotFoundContent", () => {
     );
   });
 
+  it("renders the DishFrame mark and default copy", () => {
+    const { container } = render(<NotFoundContent homeHref="/home" />);
+    expect(
+      screen.getByText("Looks like this page is missing."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Check the address, or head back home."),
+    ).toBeInTheDocument();
+    expect(container.querySelector("img")).toBeInTheDocument();
+  });
+
   it("renders a custom description when given one", () => {
     render(
       <NotFoundContent

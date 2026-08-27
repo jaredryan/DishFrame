@@ -28,12 +28,14 @@ export function DirectShareSingleItemDialog({
   open,
   onOpenChange,
   dishId,
+  dishVersionId,
   dishKind,
   dishTitle,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   dishId: string;
+  dishVersionId: string;
   dishKind: DishKindValue;
   dishTitle: string;
 }) {
@@ -58,7 +60,7 @@ export function DirectShareSingleItemDialog({
     startTransition(async () => {
       const result = await sendDirectShareCollection({
         recipientEmail: email,
-        dishIds: [dishId],
+        items: [{ dishId, dishVersionId }],
         note: note.trim().length > 0 ? note.trim() : null,
       });
       if (result.status === "error") {

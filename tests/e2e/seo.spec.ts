@@ -6,7 +6,7 @@ test("unknown routes render the branded 404 page", async ({ page }) => {
   await expect(
     page.getByRole("heading", {
       level: 1,
-      name: "This page could not be found.",
+      name: "Looks like this page is missing.",
     }),
   ).toBeVisible();
   await expect(page.getByRole("link", { name: "Return home" })).toBeVisible();

@@ -99,11 +99,21 @@ export async function reorderGroceryCategories(
   orderedIds: string[],
 ) {
   const owned = await prisma.groceryCategory.findMany({
-    where: { ownerId, id: { in: orderedIds } },
+    where: { ownerId },
     select: { id: true },
   });
-  if (owned.length !== orderedIds.length) {
-    throw new ConflictError("One or more categories could not be found.");
+  const ownedIds = new Set(owned.map((category) => category.id));
+  const submittedIds = new Set(orderedIds);
+
+  const isExactlyTheOwnedSet =
+    orderedIds.length === submittedIds.size && // no duplicate ids submitted
+    submittedIds.size === ownedIds.size && // nothing omitted, nothing extra
+    orderedIds.every((id) => ownedIds.has(id)); // no foreign/nonexistent ids
+
+  if (!isExactlyTheOwnedSet) {
+    throw new ConflictError(
+      "The submitted order does not match your current Grocery Categories.",
+    );
   }
 
   await prisma.$transaction(

@@ -436,6 +436,99 @@ async function recomputeItemAggregate(
   });
 }
 
+type CombinableCandidateItem = {
+  id: string;
+  position: number;
+  contributions: ContributionRow[];
+};
+
+/**
+ * Shared "fold an Added ingredient occurrence into a combinable existing
+ * item, else create a new one" step used by both `applyGroceryListSourceRefresh`
+ * and `addGroceryListSource`'s Added-case loops. `candidates` is the list's
+ * current items, fetched once by the caller before the loop starts, and is
+ * mutated in place here so a later occurrence in the same loop can combine
+ * into an item this function just created — without re-querying every
+ * `GroceryListItem` on every iteration.
+ */
+async function foldOccurrenceIntoGroceryList(
+  tx: Prisma.TransactionClient,
+  params: {
+    listId: string;
+    sourceId: string;
+    occurrence: ResolvedIngredientOccurrence;
+    categoryByNormalizedName: Map<string, string>;
+    fallbackCategoryId: string;
+    candidates: CombinableCandidateItem[];
+  },
+): Promise<void> {
+  const {
+    listId,
+    sourceId,
+    occurrence,
+    categoryByNormalizedName,
+    fallbackCategoryId,
+    candidates,
+  } = params;
+
+  const combinable = candidates.find(
+    (candidate) =>
+      candidate.contributions[0] &&
+      canCombine(
+        contributionToCombinable(candidate.contributions[0]),
+        toCombinable("new", occurrence),
+      ),
+  );
+
+  let target: CombinableCandidateItem;
+  if (combinable) {
+    target = combinable;
+  } else {
+    const maxPosition = candidates.reduce(
+      (max, c) => Math.max(max, c.position),
+      -1,
+    );
+    const created = await tx.groceryListItem.create({
+      data: {
+        groceryListId: listId,
+        categoryId:
+          categoryByNormalizedName.get(
+            normalizedIngredientName(occurrence.originalName),
+          ) ?? fallbackCategoryId,
+        name: occurrence.originalName,
+        isOptional: occurrence.isOptional,
+        isManual: false,
+        position: maxPosition + 1,
+      },
+    });
+    target = { id: created.id, position: created.position, contributions: [] };
+    candidates.push(target);
+  }
+
+  const contribution = await tx.groceryItemContribution.create({
+    data: {
+      groceryListItemId: target.id,
+      groceryListSourceId: sourceId,
+      ingredientLineageId: occurrence.ingredientLineageId,
+      originalName: occurrence.originalName,
+      quantityDecimal: occurrence.quantity,
+      quantityText:
+        occurrence.displayText ??
+        formatGroceryQuantityText(
+          occurrence.quantity,
+          occurrence.quantityEnd,
+          occurrence.isApproximate,
+        ),
+      unit: occurrence.unit,
+      isOptional: occurrence.isOptional,
+      ...substituteSnapshotFields(occurrence.substitute),
+    },
+  });
+  target.contributions = [contribution];
+
+  await recomputeItemAggregate(tx, target.id);
+}
+
 // ---------------------------------------------------------------------------
 // Item mutations
 // ---------------------------------------------------------------------------
@@ -1037,7 +1130,10 @@ export async function applyGroceryListSourceRefresh(
       await recomputeItemAggregate(tx, existing.groceryListItemId);
     }
 
-    // Added — fold into an existing combinable item, else create a new one
+    // Added — fold into an existing combinable item, else create a new one.
+    // Candidates are fetched once, then updated in place as this loop
+    // creates new items, instead of re-querying every list item per
+    // occurrence.
     const fallbackCategory = await getOwnedFallbackCategory(ownerId);
     const memories = await tx.ingredientCategoryMemory.findMany({
       where: { ownerId },
@@ -1045,64 +1141,28 @@ export async function applyGroceryListSourceRefresh(
     const categoryByNormalizedName = new Map(
       memories.map((m) => [m.normalizedIngredientName, m.groceryCategoryId]),
     );
-    for (const [lineageId, occurrence] of freshByLineage) {
-      if (existingByLineage.has(lineageId)) continue;
-
-      const candidateItems = await tx.groceryListItem.findMany({
+    const candidates: CombinableCandidateItem[] = await tx.groceryListItem
+      .findMany({
         where: { groceryListId: listId },
         include: { contributions: { take: 1 } },
-      });
-      const combinable = candidateItems.find(
-        (candidate) =>
-          candidate.contributions[0] &&
-          canCombine(
-            contributionToCombinable(candidate.contributions[0]),
-            toCombinable("new", occurrence),
-          ),
+      })
+      .then((items) =>
+        items.map((item) => ({
+          id: item.id,
+          position: item.position,
+          contributions: item.contributions,
+        })),
       );
-
-      const maxPosition = await tx.groceryListItem.aggregate({
-        where: { groceryListId: listId },
-        _max: { position: true },
+    for (const [lineageId, occurrence] of freshByLineage) {
+      if (existingByLineage.has(lineageId)) continue;
+      await foldOccurrenceIntoGroceryList(tx, {
+        listId,
+        sourceId,
+        occurrence,
+        categoryByNormalizedName,
+        fallbackCategoryId: fallbackCategory.id,
+        candidates,
       });
-      const targetItemId =
-        combinable?.id ??
-        (
-          await tx.groceryListItem.create({
-            data: {
-              groceryListId: listId,
-              categoryId:
-                categoryByNormalizedName.get(
-                  normalizedIngredientName(occurrence.originalName),
-                ) ?? fallbackCategory.id,
-              name: occurrence.originalName,
-              isOptional: occurrence.isOptional,
-              isManual: false,
-              position: (maxPosition._max.position ?? -1) + 1,
-            },
-          })
-        ).id;
-
-      await tx.groceryItemContribution.create({
-        data: {
-          groceryListItemId: targetItemId,
-          groceryListSourceId: sourceId,
-          ingredientLineageId: occurrence.ingredientLineageId,
-          originalName: occurrence.originalName,
-          quantityDecimal: occurrence.quantity,
-          quantityText:
-            occurrence.displayText ??
-            formatGroceryQuantityText(
-              occurrence.quantity,
-              occurrence.quantityEnd,
-              occurrence.isApproximate,
-            ),
-          unit: occurrence.unit,
-          isOptional: occurrence.isOptional,
-          ...substituteSnapshotFields(occurrence.substitute),
-        },
-      });
-      await recomputeItemAggregate(tx, targetItemId);
     }
 
     await tx.groceryListSource.update({
@@ -1177,62 +1237,27 @@ export async function addGroceryListSource(
       },
     });
 
-    for (const occurrence of occurrences) {
-      const candidateItems = await tx.groceryListItem.findMany({
+    const candidates: CombinableCandidateItem[] = await tx.groceryListItem
+      .findMany({
         where: { groceryListId: listId },
         include: { contributions: { take: 1 } },
-      });
-      const combinable = candidateItems.find(
-        (candidate) =>
-          candidate.contributions[0] &&
-          canCombine(
-            contributionToCombinable(candidate.contributions[0]),
-            toCombinable("new", occurrence),
-          ),
+      })
+      .then((items) =>
+        items.map((item) => ({
+          id: item.id,
+          position: item.position,
+          contributions: item.contributions,
+        })),
       );
-
-      const maxPosition = await tx.groceryListItem.aggregate({
-        where: { groceryListId: listId },
-        _max: { position: true },
+    for (const occurrence of occurrences) {
+      await foldOccurrenceIntoGroceryList(tx, {
+        listId,
+        sourceId: sourceRow.id,
+        occurrence,
+        categoryByNormalizedName,
+        fallbackCategoryId: fallbackCategory.id,
+        candidates,
       });
-      const targetItemId =
-        combinable?.id ??
-        (
-          await tx.groceryListItem.create({
-            data: {
-              groceryListId: listId,
-              categoryId:
-                categoryByNormalizedName.get(
-                  normalizedIngredientName(occurrence.originalName),
-                ) ?? fallbackCategory.id,
-              name: occurrence.originalName,
-              isOptional: occurrence.isOptional,
-              isManual: false,
-              position: (maxPosition._max.position ?? -1) + 1,
-            },
-          })
-        ).id;
-
-      await tx.groceryItemContribution.create({
-        data: {
-          groceryListItemId: targetItemId,
-          groceryListSourceId: sourceRow.id,
-          ingredientLineageId: occurrence.ingredientLineageId,
-          originalName: occurrence.originalName,
-          quantityDecimal: occurrence.quantity,
-          quantityText:
-            occurrence.displayText ??
-            formatGroceryQuantityText(
-              occurrence.quantity,
-              occurrence.quantityEnd,
-              occurrence.isApproximate,
-            ),
-          unit: occurrence.unit,
-          isOptional: occurrence.isOptional,
-          ...substituteSnapshotFields(occurrence.substitute),
-        },
-      });
-      await recomputeItemAggregate(tx, targetItemId);
     }
   });
 }
@@ -1440,7 +1465,7 @@ export type MealPlanContributionEntry = {
   targetYieldQuantity: Prisma.Decimal | null;
 };
 
-type PendingMealPlanContribution = {
+export type PendingMealPlanContribution = {
   mealPlanEntryId: string;
   occurrence: ResolvedIngredientOccurrence;
 };
@@ -1453,8 +1478,13 @@ type PendingMealPlanContribution = {
  * `dishVersionId` null) or whose target Version no longer exists
  * contributes nothing, silently — the caller decides whether an empty
  * result overall is an error.
+ *
+ * Exported so `mealplans/service.ts#resyncLinkedLists` can compute this once
+ * per mutation and pass the same result to every linked list's resync,
+ * rather than each list independently re-walking the (potentially large)
+ * ingredient tree for identical entries.
  */
-async function collectMealPlanOccurrences(
+export async function collectMealPlanOccurrences(
   ownerId: string,
   entries: MealPlanContributionEntry[],
 ): Promise<PendingMealPlanContribution[]> {
@@ -1693,14 +1723,17 @@ export async function resyncGroceryListFromMealPlan(
   tx: Prisma.TransactionClient,
   ownerId: string,
   groceryListId: string,
-  entries: MealPlanContributionEntry[],
+  /** Every linked list's resync diffs against the same live entry set within
+   * one mutation — precompute with `collectMealPlanOccurrences` once in the
+   * caller and pass the same result to each list, rather than re-walking
+   * identical entries per list. */
+  fresh: PendingMealPlanContribution[],
 ): Promise<void> {
   const list = await tx.groceryList.findFirst({
     where: { id: groceryListId, ownerId, mode: "MEAL_PLAN_LINKED" },
   });
   if (!list || list.completedAt != null) return;
 
-  const fresh = await collectMealPlanOccurrences(ownerId, entries);
   const freshByKey = new Map(
     fresh
       .filter((f) => f.occurrence.ingredientLineageId)
@@ -1788,12 +1821,29 @@ export async function resyncGroceryListFromMealPlan(
         occurrence.quantityEnd,
         occurrence.isApproximate,
       );
+    // Code-audit correctness fix (2026-08-27): a contribution's SUBSTITUTE
+    // snapshot is real synced data, not a display-only detail — comparing
+    // only the primary fields let a substitute-only change (or the
+    // substitute disappearing entirely, reverting `selectedVariant` back to
+    // PRIMARY below) go completely undetected whenever the primary fields
+    // happened to stay the same, silently leaving the item `ACTIVE`
+    // (`UNCHANGED` once aggregated) even though its actual synced content
+    // materially changed. Comparing both snapshots — regardless of which
+    // one is currently selected/displayed — matches every other "did the
+    // synced source change" check in this module.
+    const freshSubstituteFields = substituteSnapshotFields(
+      occurrence.substitute,
+    );
     const differsFromStoredLive =
       existing.state === "REMOVED" ||
       existing.originalName !== occurrence.originalName ||
       existing.quantityText !== toQuantityText ||
       existing.unit !== occurrence.unit ||
-      existing.isOptional !== occurrence.isOptional;
+      existing.isOptional !== occurrence.isOptional ||
+      existing.substituteName !== freshSubstituteFields.substituteName ||
+      existing.substituteQuantityText !==
+        freshSubstituteFields.substituteQuantityText ||
+      existing.substituteUnit !== freshSubstituteFields.substituteUnit;
     const stickyUnacknowledgedChange =
       existing.state === "CHANGED" && existing.acknowledgedAt === null;
     // A currently-SUBSTITUTE selection reverts to PRIMARY only when the
@@ -1812,7 +1862,7 @@ export async function resyncGroceryListFromMealPlan(
         quantityText: toQuantityText,
         unit: occurrence.unit,
         isOptional: occurrence.isOptional,
-        ...substituteSnapshotFields(occurrence.substitute),
+        ...freshSubstituteFields,
         selectedVariant: nextVariant,
         ...(stickyUnacknowledgedChange
           ? // Stay CHANGED; keep the original unseen previous-value
@@ -1847,47 +1897,64 @@ export async function resyncGroceryListFromMealPlan(
     memories.map((m) => [m.normalizedIngredientName, m.groceryCategoryId]),
   );
 
+  // Candidates are fetched once, then updated in place as this loop creates
+  // new items, instead of re-querying every list item per added occurrence.
+  const candidateItems: CombinableCandidateItem[] = await tx.groceryListItem
+    .findMany({
+      where: { groceryListId, isManual: false },
+      include: { contributions: { take: 1 } },
+    })
+    .then((items) =>
+      items.map((item) => ({
+        id: item.id,
+        position: item.position,
+        contributions: item.contributions.filter((c) => c.state !== "REMOVED"),
+      })),
+    );
+
   for (const [key, freshEntry] of freshByKey) {
     if (existingByKey.has(key)) continue;
     const occurrence = freshEntry.occurrence;
 
-    const candidateItems = await tx.groceryListItem.findMany({
-      where: { groceryListId, isManual: false },
-      include: { contributions: { take: 1 } },
-    });
     const combinable = candidateItems.find(
       (candidate) =>
         candidate.contributions[0] &&
-        candidate.contributions[0].state !== "REMOVED" &&
         canCombine(
           contributionToCombinable(candidate.contributions[0]),
           toCombinable("new", occurrence),
         ),
     );
 
-    const maxPosition = await tx.groceryListItem.aggregate({
-      where: { groceryListId },
-      _max: { position: true },
-    });
-    const targetItemId =
-      combinable?.id ??
-      (
-        await tx.groceryListItem.create({
-          data: {
-            groceryListId,
-            categoryId:
-              categoryByNormalizedName.get(
-                normalizedIngredientName(occurrence.originalName),
-              ) ?? fallbackCategory.id,
-            name: occurrence.originalName,
-            isOptional: occurrence.isOptional,
-            isManual: false,
-            position: (maxPosition._max.position ?? -1) + 1,
-          },
-        })
-      ).id;
+    let targetItemId: string;
+    if (combinable) {
+      targetItemId = combinable.id;
+    } else {
+      const maxPosition = candidateItems.reduce(
+        (max, c) => Math.max(max, c.position),
+        -1,
+      );
+      const created = await tx.groceryListItem.create({
+        data: {
+          groceryListId,
+          categoryId:
+            categoryByNormalizedName.get(
+              normalizedIngredientName(occurrence.originalName),
+            ) ?? fallbackCategory.id,
+          name: occurrence.originalName,
+          isOptional: occurrence.isOptional,
+          isManual: false,
+          position: maxPosition + 1,
+        },
+      });
+      targetItemId = created.id;
+      candidateItems.push({
+        id: created.id,
+        position: created.position,
+        contributions: [],
+      });
+    }
 
-    await tx.groceryItemContribution.create({
+    const contribution = await tx.groceryItemContribution.create({
       data: {
         groceryListItemId: targetItemId,
         mealPlanEntryId: freshEntry.mealPlanEntryId,
@@ -1906,6 +1973,8 @@ export async function resyncGroceryListFromMealPlan(
         ...substituteSnapshotFields(occurrence.substitute),
       },
     });
+    const target = candidateItems.find((c) => c.id === targetItemId)!;
+    target.contributions = [contribution];
     touchedItemIds.add(targetItemId);
   }
 

@@ -41,13 +41,22 @@ async function main() {
     process.exit(1);
   }
 
-  async function login(withIntro: boolean) {
+  async function login(withIntro: boolean, name?: string) {
     const ctx = await testAuth.$context;
     const helpers = ctx.test;
 
+    // Code-audit fix (2026-08-27, second follow-up): an optional third CLI
+    // arg lets a spec seed two distinguishable accounts (a sender and a
+    // recipient, for the direct-sharing accept/decline/cancel E2E coverage)
+    // — every prior caller passes at most two args (`login [with-intro]`),
+    // so this stays backward compatible. The email is returned below
+    // (previously only `userId`/`cookies` were) so a two-account spec can
+    // address the other account by email in the Send dialog's recipient
+    // field.
+    const email = `e2e-${Date.now()}-${Math.random().toString(36).slice(2)}@example.invalid`;
     const user = helpers.createUser({
-      name: "E2E Test User",
-      email: `e2e-${Date.now()}-${Math.random().toString(36).slice(2)}@example.invalid`,
+      name: name ?? "E2E Test User",
+      email,
     });
     const saved = await helpers.saveUser(user);
 
@@ -76,23 +85,23 @@ async function main() {
     }
 
     const cookies = await helpers.getCookies({ userId: saved.id });
-    process.stdout.write(JSON.stringify({ userId: saved.id, cookies }));
+    process.stdout.write(JSON.stringify({ userId: saved.id, email, cookies }));
   }
 
   async function cleanup(userId: string) {
     await prisma.user.delete({ where: { id: userId } }).catch(() => {});
   }
 
-  const [, , command, arg] = process.argv;
+  const [, , command, arg, nameArg] = process.argv;
 
   const run =
     command === "login"
-      ? login(arg === "with-intro")
+      ? login(arg === "with-intro", nameArg)
       : command === "cleanup" && arg
         ? cleanup(arg)
         : Promise.reject(
             new Error(
-              `Usage: seed-session.ts login [with-intro]|cleanup <userId>`,
+              `Usage: seed-session.ts login [with-intro] [name]|cleanup <userId>`,
             ),
           );
 

@@ -15,13 +15,21 @@ import type { DishKindValue } from "@/lib/dishes/schema";
  * is the export side of the same `importExport` module
  * (PRODUCT_SPEC.md §55).
  *
- * Deliberately excludes `ShareLink`/`DirectShare`: no sharing creation
- * service or UI exists anywhere in this codebase yet (Tier 2, Slice 16) —
- * the same reasoning `src/app/api/images/[assetId]/route.ts` already
- * documents for its own share-token branch. Flagged here for the same
- * reason: Slice 16 should add a sharing section to `buildAccountBackupDto`
- * (§55.1's "sharing and publication configuration where relevant"), not
- * discover it's missing.
+ * Code-audit correction (2026-08-27): a prior version of this comment said
+ * `ShareLink`/`DirectShare` were deliberately excluded because no sharing
+ * creation service existed yet — that premise is long since false (Slices
+ * 16-22 built the full public-link and direct-share features). The current,
+ * settled scope is: an item's **active public ShareLink/publication state**
+ * (mode, the fixed-version target, `showCreatorName`, `expiresAt`,
+ * `createdAt`) is included below (`activePublicationsForDish`/
+ * `activePublicationsByDishId`) so a backup can represent "this item is
+ * currently published" — but the raw `tokenId` (the secret half of a public
+ * URL) is never included, by construction, same as every other credential
+ * this module excludes. `DirectShare`/`DirectShareCollection` (sends to
+ * another account, acceptance/decline history, recipient relationships)
+ * remain deliberately excluded — those are social/recipient-relationship
+ * state, not "is this item published," and restoring a backup must never
+ * resurrect a relationship with another account.
  */
 
 export const exportTierValues = [
@@ -38,7 +46,14 @@ export type ExportTierValue = (typeof exportTierValues)[number];
 // need to distinguish.
 const DISH_EXPORT_FORMAT = "dishframe.dish-export";
 const ACCOUNT_EXPORT_FORMAT = "dishframe.account-export";
-const CURRENT_EXPORT_FORMAT_VERSION = 1;
+// v2 (2026-08-27): added `activePublications` to each exported Dish — see
+// the module doc comment above. A payload at v1 simply has no
+// `activePublications` field; a future importer should treat its absence as
+// "no active publications" rather than an error. (Same-day naming
+// refinement: the field was briefly called `publications` before any
+// importer/consumer existed — corrected in place rather than bumping to v3,
+// since nothing has ever consumed the v2 shape yet.)
+const CURRENT_EXPORT_FORMAT_VERSION = 2;
 
 export const versionModeValues = ["SINGLE", "ALL"] as const;
 export type VersionModeValue = (typeof versionModeValues)[number];
@@ -245,6 +260,113 @@ export function versionContentDto(version: ExportVersionRow) {
 }
 
 // ---------------------------------------------------------------------------
+// Publication state (active public ShareLinks only — never DirectShare)
+// ---------------------------------------------------------------------------
+
+/**
+ * One active public ShareLink on an exported item. Never includes `tokenId`
+ * (the secret half of the public URL) or the frozen snapshot content itself
+ * — restoring this is meant to recreate the *fact* of being published
+ * (mode, fixed-version target, non-secret settings), with a brand-new
+ * secure token/URL generated at restore time by calling the real sharing
+ * service (`sharing/service.ts#createShareLink`), never by resurrecting the
+ * original credential.
+ */
+export type DishPublicationDto = {
+  mode: "CURRENT" | "FIXED_SNAPSHOT";
+  /** Set only for `FIXED_SNAPSHOT` — which exact Version this publication is
+   * pinned to, by label (not id — ids aren't portable across a restore). */
+  fixedVersionLabel: string | null;
+  showCreatorName: boolean;
+  expiresAt: Date | null;
+  createdAt: Date;
+};
+
+const activePublicationSelect = {
+  mode: true,
+  showCreatorName: true,
+  expiresAt: true,
+  createdAt: true,
+  fixedDishVersion: {
+    select: { majorVersion: true, minorVersion: true },
+  },
+} as const;
+
+type ActivePublicationRow = {
+  mode: "CURRENT" | "FIXED_SNAPSHOT";
+  showCreatorName: boolean;
+  expiresAt: Date | null;
+  createdAt: Date;
+  fixedDishVersion: { majorVersion: number; minorVersion: number } | null;
+};
+
+function toDishPublicationDto(row: ActivePublicationRow): DishPublicationDto {
+  return {
+    mode: row.mode,
+    fixedVersionLabel: row.fixedDishVersion
+      ? versionLabel(
+          row.fixedDishVersion.majorVersion,
+          row.fixedDishVersion.minorVersion,
+        )
+      : null,
+    showCreatorName: row.showCreatorName,
+    expiresAt: row.expiresAt,
+    createdAt: row.createdAt,
+  };
+}
+
+/** A ShareLink with a future `expiresAt` is still active; `revokedAt` is
+ * filtered at the query itself. Matches `resolvePublicShare`'s own
+ * active-link definition (`sharing/service.ts`). */
+function isNotExpired(row: { expiresAt: Date | null }): boolean {
+  return row.expiresAt == null || row.expiresAt.getTime() > Date.now();
+}
+
+async function activePublicationsForDish(
+  dishId: string,
+): Promise<DishPublicationDto[]> {
+  const links = await prisma.shareLink.findMany({
+    where: {
+      revokedAt: null,
+      OR: [{ currentDishId: dishId }, { fixedDishId: dishId }],
+    },
+    orderBy: { createdAt: "asc" },
+    select: activePublicationSelect,
+  });
+  return links.filter(isNotExpired).map(toDishPublicationDto);
+}
+
+/** Batched sibling of `activePublicationsForDish` for `buildAccountBackupDto`
+ * — one query for every one of the owner's active ShareLinks, grouped by
+ * dishId, instead of one query per exported Dish. */
+async function activePublicationsByDishId(
+  ownerId: string,
+): Promise<Map<string, DishPublicationDto[]>> {
+  const links = await prisma.shareLink.findMany({
+    where: { ownerId, revokedAt: null },
+    orderBy: { createdAt: "asc" },
+    select: {
+      ...activePublicationSelect,
+      currentDishId: true,
+      fixedDishId: true,
+    },
+  });
+  const byDishId = new Map<string, DishPublicationDto[]>();
+  for (const link of links) {
+    if (!isNotExpired(link)) continue;
+    // `onDelete: SetNull` on both dish relations means a link can outlive
+    // its target Dish — nothing to attach it to in that case.
+    const dishId =
+      link.mode === "CURRENT" ? link.currentDishId : link.fixedDishId;
+    if (!dishId) continue;
+    const list = byDishId.get(dishId) ?? [];
+    list.push(toDishPublicationDto(link));
+    byDishId.set(dishId, list);
+  }
+  return byDishId;
+}
+
+// ---------------------------------------------------------------------------
 // Item export (§55.2-§55.6) — one Recipe or Part, tiered privacy
 // ---------------------------------------------------------------------------
 
@@ -436,6 +558,7 @@ export async function buildDishExportDto(
     ratings.length > 0
       ? ratings.reduce((sum, r) => sum + r.value, 0) / ratings.length
       : null;
+  const activePublications = await activePublicationsForDish(dish.id);
 
   return {
     format: DISH_EXPORT_FORMAT,
@@ -469,6 +592,7 @@ export async function buildDishExportDto(
     versions: exportedVersions.map(versionContentDto),
     aggregateRating,
     ratingCount: ratings.length,
+    activePublications,
     ...(tier === "DETAILED" || tier === "FULL_PRIVATE_HISTORY"
       ? await buildDetailedEvidence(dish.id, versionFilterId)
       : {}),
@@ -485,8 +609,11 @@ export async function buildDishExportDto(
 /**
  * Excludes, by never querying them at all: `User`/`Account`/`Session`/
  * `Verification` (passwords, provider credentials, active session tokens)
- * and `ShareLink`/`DirectShare` (raw share-link tokens — also not yet
- * reachable by any creation path, see this file's module doc comment).
+ * and `DirectShare`/`DirectShareCollection` (sends to another account,
+ * acceptance history, recipient relationships — see the module doc comment
+ * above). Each Dish's active public-ShareLink state, if any, is included via
+ * `activePublicationsByDishId` — see that function and `DishPublicationDto`
+ * for exactly what is and isn't included.
  */
 export async function buildAccountBackupDto(ownerId: string) {
   const dishes = await prisma.dish.findMany({
@@ -634,6 +761,7 @@ export async function buildAccountBackupDto(ownerId: string) {
   });
 
   const tasterNameById = new Map(tasters.map((t) => [t.id, t.name] as const));
+  const publicationsByDishId = await activePublicationsByDishId(ownerId);
 
   return {
     format: ACCOUNT_EXPORT_FORMAT,
@@ -679,6 +807,7 @@ export async function buildAccountBackupDto(ownerId: string) {
       createdAt: dish.createdAt,
       updatedAt: dish.updatedAt,
       versions: dish.versions.map(versionContentDto),
+      activePublications: publicationsByDishId.get(dish.id) ?? [],
     })),
     cookingSessions: sessions.map((session) => ({
       dishId: session.dishId,

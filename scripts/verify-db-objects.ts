@@ -60,6 +60,7 @@ const PROTECTED_INDEXES = [
   "one_active_session_per_dish",
   "one_fallback_category_per_user",
   "one_pending_direct_share_per_sender_dish_recipient_email",
+  "direct_share_frozen_image_asset_ids_gin_idx",
 ] as const;
 
 async function main() {

@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth/session";
-import { getOwnedMealPlanOrThrow } from "@/lib/mealplans/queries";
+import {
+  getOwnedMealPlanOrThrow,
+  toMealPlanDetailDto,
+} from "@/lib/mealplans/queries";
 import { NotFoundError } from "@/lib/errors";
-import { decimalToNumber } from "@/lib/dishes/format";
 import { MealPlanView } from "@/components/domain/mealplans/meal-plan-view";
-import type { MealPlanDetailDto } from "@/lib/mealplans/schema";
 
 export async function generateMetadata({
   params,
@@ -41,39 +42,5 @@ export default async function MealPlanViewPage({
     throw error;
   }
 
-  const dto: MealPlanDetailDto = {
-    id: mealPlan.id,
-    title: mealPlan.title,
-    startDate: mealPlan.startDate.toISOString(),
-    endDate: mealPlan.endDate.toISOString(),
-    notes: mealPlan.notes,
-    entries: mealPlan.entries.map((entry) => ({
-      id: entry.id,
-      dishId: entry.dishId,
-      dishVersionId: entry.dishVersionId,
-      dishKind: entry.sourceDishKindSnapshot,
-      title: entry.sourceDishTitleSnapshot,
-      versionLabel: entry.sourceDishVersionLabelSnapshot,
-      cookDate: entry.cookDate.toISOString(),
-      targetYieldQuantity: decimalToNumber(entry.targetYieldQuantity),
-      targetYieldUnit: entry.targetYieldUnit,
-      note: entry.note,
-      status: entry.status,
-      linkedSessionId: entry.linkedSessionId,
-      plannedMeals: entry.plannedMeals.map((meal) => ({
-        id: meal.id,
-        label: meal.label,
-        date: meal.date.toISOString(),
-        servings: decimalToNumber(meal.servings) ?? 0,
-      })),
-    })),
-    linkedGroceryLists: mealPlan.linkedGroceryLists.map((list) => ({
-      id: list.id,
-      title: list.title,
-      mode: list.mode,
-      completedAt: list.completedAt?.toISOString() ?? null,
-    })),
-  };
-
-  return <MealPlanView mealPlan={dto} />;
+  return <MealPlanView mealPlan={toMealPlanDetailDto(mealPlan)} />;
 }

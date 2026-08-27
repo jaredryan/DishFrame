@@ -16,10 +16,7 @@ import { DirectShareCollectionReviewDialog } from "@/components/domain/sharing/d
 import { dishBasePath } from "@/components/domain/dish/dish-card";
 import type { DirectShareStatusValue } from "@/lib/sharing/schema";
 import type { DishKindValue } from "@/lib/dishes/schema";
-import type {
-  ReceivedItemView,
-  ReceivedShareChild,
-} from "@/lib/sharing/view-model";
+import { statusCounts, type ReceivedItemView } from "@/lib/sharing/view-model";
 
 const STATUS_LABEL: Record<DirectShareStatusValue, string> = {
   PENDING: "Pending",
@@ -167,16 +164,6 @@ function ReceivedSingleCard({
       )}
     </li>
   );
-}
-
-function statusCounts(
-  children: ReceivedShareChild[],
-): Partial<Record<DirectShareStatusValue, number>> {
-  const counts: Partial<Record<DirectShareStatusValue, number>> = {};
-  for (const child of children) {
-    counts[child.status] = (counts[child.status] ?? 0) + 1;
-  }
-  return counts;
 }
 
 function ReceivedGroupCard({

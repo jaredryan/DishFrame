@@ -8,6 +8,7 @@ import {
 } from "@/lib/importExport/export-dto";
 import { parsePastedRecipe } from "@/lib/importExport/paste-parser";
 import * as dishService from "@/lib/dishes/service";
+import * as sharingService from "@/lib/sharing/service";
 import { NotFoundError } from "@/lib/errors";
 import type { DishContentInput } from "@/lib/dishes/schema";
 
@@ -388,12 +389,13 @@ describe("importExport service", () => {
     const backup = await buildAccountBackupDto(owner.id);
 
     expect(backup.format).toBe("dishframe.account-export");
-    expect(backup.formatVersion).toBe(1);
+    expect(backup.formatVersion).toBe(2);
     expect(backup.exportedAt).toBeInstanceOf(Date);
     expect(backup.scope).toEqual({ exportType: "ACCOUNT" });
     expect(backup.dishes).toHaveLength(1);
     expect(backup.dishes[0].title).toBe("Ginger Soy Bowl");
     expect(backup.dishes[0].versions).toHaveLength(2);
+    expect(backup.dishes[0].activePublications).toEqual([]);
     expect(backup.tasters.map((t) => t.name)).toContain("Dad");
     expect(backup.cookingSessions).toHaveLength(1);
     expect(backup.cookingSessions[0].cookingNotes).toBe(
@@ -412,6 +414,127 @@ describe("importExport service", () => {
     expect(serialized).not.toMatch(
       /"password"|"accessToken"|"refreshToken"|"idToken"|"token"/,
     );
+  });
+
+  // Code-audit correction (2026-08-27): account/Dish export now represents
+  // an item's active public-ShareLink state (not direct-share/social state)
+  // so a backup can recreate "this item is published" — see export-dto.ts's
+  // module doc comment for the full rationale.
+  it("includes an active CURRENT-mode publication in the account backup, with no raw token", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+    const dishId = await dishService.createDish(user.id, "RECIPE", content());
+
+    await sharingService.createShareLink(user.id, {
+      dishId,
+      mode: "CURRENT",
+      showCreatorName: true,
+    });
+
+    const backup = await buildAccountBackupDto(user.id);
+    expect(backup.dishes).toHaveLength(1);
+    expect(backup.dishes[0].activePublications).toEqual([
+      {
+        mode: "CURRENT",
+        fixedVersionLabel: null,
+        showCreatorName: true,
+        expiresAt: null,
+        createdAt: expect.any(Date),
+      },
+    ]);
+
+    const shareLink = await prisma.shareLink.findFirstOrThrow({
+      where: { currentDishId: dishId },
+    });
+    const serialized = JSON.stringify(backup);
+    expect(serialized).not.toContain(shareLink.tokenId);
+  });
+
+  it("includes an active FIXED_SNAPSHOT publication with its version label, and excludes a revoked one", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+    const dishId = await dishService.createDish(user.id, "RECIPE", content());
+    const dish = await prisma.dish.findUniqueOrThrow({ where: { id: dishId } });
+    const v1Id = dish.currentVersionId!;
+    await bumpMajorVersion(user.id, dishId, v1Id);
+
+    const { shareLinkId } = await sharingService.createShareLink(user.id, {
+      dishId,
+      mode: "FIXED_SNAPSHOT",
+      versionId: v1Id,
+      showCreatorName: false,
+    });
+    // A separately revoked publication must not appear at all.
+    const revoked = await sharingService.createShareLink(user.id, {
+      dishId,
+      mode: "FIXED_SNAPSHOT",
+      showCreatorName: false,
+    });
+    await sharingService.revokeShareLink(user.id, revoked.shareLinkId);
+
+    const exported = await buildDishExportDto(
+      user.id,
+      dishId,
+      "RECIPE",
+      "STANDARD",
+      { mode: "SINGLE", versionId: v1Id },
+    );
+    expect(exported.activePublications).toEqual([
+      {
+        mode: "FIXED_SNAPSHOT",
+        fixedVersionLabel: "V1.0",
+        showCreatorName: false,
+        expiresAt: null,
+        createdAt: expect.any(Date),
+      },
+    ]);
+
+    const backup = await buildAccountBackupDto(user.id);
+    expect(backup.dishes[0].activePublications).toHaveLength(1);
+    expect(backup.dishes[0].activePublications[0].fixedVersionLabel).toBe(
+      "V1.0",
+    );
+
+    const activeLink = await prisma.shareLink.findUniqueOrThrow({
+      where: { id: shareLinkId },
+    });
+    const serialized = JSON.stringify(backup);
+    expect(serialized).not.toContain(activeLink.tokenId);
+  });
+
+  it("never serializes DirectShare/DirectShareCollection state", async () => {
+    const sender = await createTestUser();
+    const recipient = await createTestUser();
+    userId = sender.id;
+    otherUserId = recipient.id;
+    const dishId = await dishService.createDish(sender.id, "RECIPE", content());
+    const dish = await prisma.dish.findUniqueOrThrow({ where: { id: dishId } });
+
+    const collection = await prisma.directShareCollection.create({
+      data: {
+        senderId: sender.id,
+        recipientId: recipient.id,
+        recipientLookup: recipient.email,
+      },
+    });
+    await prisma.directShare.create({
+      data: {
+        senderId: sender.id,
+        recipientId: recipient.id,
+        recipientLookup: recipient.email,
+        dishId,
+        dishVersionId: dish.currentVersionId!,
+        dishTitleSnapshot: "Ginger Soy Bowl",
+        collectionId: collection.id,
+      },
+    });
+
+    const backup = await buildAccountBackupDto(sender.id);
+    expect(backup).not.toHaveProperty("directShares");
+    expect(backup).not.toHaveProperty("directShareCollections");
+    const serialized = JSON.stringify(backup);
+    expect(serialized).not.toContain(recipient.email);
+    expect(serialized).not.toContain("recipientLookup");
   });
 
   it("individual export defaults to the current Version, scoping content, aggregate rating, and evidence to it", async () => {
@@ -480,7 +603,7 @@ describe("importExport service", () => {
     );
 
     expect(exported.format).toBe("dishframe.dish-export");
-    expect(exported.formatVersion).toBe(1);
+    expect(exported.formatVersion).toBe(2);
     expect(exported.exportedAt).toBeInstanceOf(Date);
     expect(exported.scope).toEqual({
       exportType: "RECIPE",

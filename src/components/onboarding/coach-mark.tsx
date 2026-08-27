@@ -34,23 +34,28 @@ export function CoachMark({
     <div
       role="note"
       className={
-        "border-brand-green/30 bg-brand-green/5 relative flex flex-col gap-1.5 rounded-xl border p-4 pr-10 text-sm" +
+        "border-brand-green/30 bg-brand-green/5 flex flex-col gap-2 rounded-xl border p-4 text-sm" +
         (className ? ` ${className}` : "")
       }
     >
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-sm"
-        className="absolute top-2 right-2"
-        aria-label={`Dismiss: ${title}`}
-        onClick={() => markGuide(guideKey, "dismissed")}
-      >
-        <X aria-hidden="true" />
-      </Button>
-      <div className="text-foreground flex items-center gap-2 font-semibold">
-        <Lightbulb className="size-4 shrink-0" aria-hidden="true" />
-        {title}
+      <div className="flex items-start justify-between gap-3">
+        <div className="text-foreground flex items-start gap-2 font-semibold">
+          <Lightbulb
+            className="size-4 shrink-0 translate-y-0.5"
+            aria-hidden="true"
+          />
+          <span>{title}</span>
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="-mt-1 -mr-1 shrink-0"
+          aria-label={`Dismiss: ${title}`}
+          onClick={() => markGuide(guideKey, "dismissed")}
+        >
+          <X aria-hidden="true" />
+        </Button>
       </div>
       <div className="text-muted-foreground">{children}</div>
       <div>

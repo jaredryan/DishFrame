@@ -194,22 +194,6 @@ export async function getSessionEvidenceForEditor(
 // simple, and always correct by construction.
 // ============================================================================
 
-type RatingRow = {
-  id: string;
-  value: number;
-  sessionId: string;
-  dishVersionId: string | null;
-  tasterId: string;
-  createdAt: Date;
-  taster: { id: string; name: string; isOwner: boolean };
-  dishVersion: {
-    id: string;
-    majorVersion: number;
-    minorVersion: number;
-  } | null;
-  session: { endedAt: Date | null; startedAt: Date; state: string };
-};
-
 function average(values: number[]): number | null {
   if (values.length === 0) return null;
   return values.reduce((a, b) => a + b, 0) / values.length;
@@ -276,6 +260,13 @@ type RawRatingRow = {
   session: { endedAt: Date | null; startedAt: Date; state: string };
 };
 
+// `toRatingRow` below narrows `dishVersionId` to non-null (filtering out the
+// rows it returns null for), so `RatingRow` derives from `RawRatingRow`
+// rather than redeclaring the same shape with `dishVersionId` left nullable.
+type RatingRow = Omit<RawRatingRow, "dishId" | "dishVersionId"> & {
+  dishVersionId: string;
+};
+
 // Round-3 Correction 11: dishVersionId (and dishId, for the Tier-2 nested-
 // Part rating path) is SET NULL if a rated item is later deleted — not
 // reachable in Tier 1, since `dishId` here always equals the still-alive
@@ -327,13 +318,13 @@ export function computeRatingSummary(
   >();
   for (const r of ratings) {
     if (!r.dishVersion) continue;
-    const entry = historyMap.get(r.dishVersionId!) ?? {
+    const entry = historyMap.get(r.dishVersionId) ?? {
       majorVersion: r.dishVersion.majorVersion,
       minorVersion: r.dishVersion.minorVersion,
       values: [],
     };
     entry.values.push(r.value);
-    historyMap.set(r.dishVersionId!, entry);
+    historyMap.set(r.dishVersionId, entry);
   }
 
   const sessionGroups = new Map<
@@ -364,7 +355,7 @@ export function computeRatingSummary(
   const ownerLatestRating = ownerLatest
     ? {
         value: ownerLatest.value,
-        dishVersionId: ownerLatest.dishVersionId!,
+        dishVersionId: ownerLatest.dishVersionId,
         versionLabel: ownerLatest.dishVersion
           ? versionLabel(
               ownerLatest.dishVersion.majorVersion,

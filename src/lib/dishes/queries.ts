@@ -130,6 +130,29 @@ export const partLinkContentInclude = {
   },
 } as const;
 
+/**
+ * Sibling of `partLinkContentInclude` above with no `linkState` filter, for
+ * callers that must faithfully reproduce a Version's content rather than
+ * show/diff only its live-editable surface — see
+ * `getDishScopedVersionContentForReuseOrThrow`'s doc comment below.
+ */
+export const partLinkContentIncludeAllStates = {
+  orderBy: { position: "asc" as const },
+  select: {
+    id: true,
+    lineageId: true,
+    sectionId: true,
+    position: true,
+    multiplier: true,
+    linkState: true,
+    targetDishId: true,
+    targetDishVersionId: true,
+    materializedTitle: true,
+    materializedVersionLabel: true,
+    materializedContent: true,
+  },
+} as const;
+
 export const dishDetailInclude = {
   currentVersion: {
     include: {
@@ -393,6 +416,37 @@ export async function getDishScopedVersionContentOrThrow(
 }
 
 /**
+ * Code-audit fidelity fix (2026-08-27): the `LIVE`-only sibling above exists
+ * for callers that only ever show/diff *editable* content (the editor, the
+ * comparison views) — a MATERIALIZED occurrence isn't user-editable, so it's
+ * correctly invisible there. But a caller whose whole purpose is to
+ * *faithfully reproduce* a Version's actual content (duplicate, promote,
+ * re-materialize, propagate/resolve-around-one-occurrence) must not treat
+ * "LIVE-only" as "the real content" — doing so silently drops a legitimately
+ * frozen historical snapshot. This variant includes both `linkState`s plus
+ * the MATERIALIZED-only fields; see `dishes/service.ts`'s
+ * `toInsertablePartLinkInput`/`versionContentToInsertableInput` for how a
+ * MATERIALIZED row is carried through unchanged (never re-walked — it's
+ * already frozen JSON) rather than dropped.
+ */
+export async function getDishScopedVersionContentForReuseOrThrow(
+  dishId: string,
+  versionId: string,
+) {
+  const version = await prisma.dishVersion.findFirst({
+    where: { id: versionId, dishId },
+    include: {
+      sections: sectionContentInclude,
+      partLinks: partLinkContentIncludeAllStates,
+    },
+  });
+  if (!version) {
+    throw new NotFoundError("Version not found.");
+  }
+  return version;
+}
+
+/**
  * Version-trigger correction pass, extended by the Slice 13 metadata-
  * classification correction pass: a lighter-weight sibling of
  * `getDishScopedVersionContentOrThrow` for callers that only need to read
@@ -482,6 +536,47 @@ export function listDishVersionSummaries(dishId: string) {
 export type DishVersionSummary = Awaited<
   ReturnType<typeof listDishVersionSummaries>
 >[number];
+
+const EXPORT_VERSION_PAGE_SIZE = 25;
+
+export type ExportableVersionOption = {
+  id: string;
+  majorVersion: number;
+  minorVersion: number;
+};
+
+/**
+ * Code-audit fix (2026-08-27, second follow-up): lean, paginated sibling of
+ * `listDishVersionSummaries` for the Export dialog's Version-selection
+ * dropdown (`DishDetailActions`) only — that dropdown only ever needs
+ * {id, majorVersion, minorVersion}, and unlike the general Version History
+ * pager/comparison picker (which intentionally load a Dish's complete
+ * Version list via `listDishVersionSummaries`, left untouched), it must not
+ * eagerly fetch/render a heavily-edited Dish's unbounded history. Fetched
+ * newest-first internally so a bounded page always captures the current
+ * Version and its most recent history first, then reversed to this
+ * codebase's usual ascending display order before returning — callers never
+ * see the internal ordering. `cursor` (the oldest version id already
+ * loaded) fetches the next, older page; `hasMore` tells the caller whether
+ * an even-older page still exists.
+ */
+export async function listExportableVersionsPage(
+  dishId: string,
+  cursor?: string,
+): Promise<{ versions: ExportableVersionOption[]; hasMore: boolean }> {
+  const rows = await prisma.dishVersion.findMany({
+    where: { dishId },
+    select: { id: true, majorVersion: true, minorVersion: true },
+    orderBy: [{ majorVersion: "desc" }, { minorVersion: "desc" }],
+    take: EXPORT_VERSION_PAGE_SIZE + 1,
+    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+  });
+  const hasMore = rows.length > EXPORT_VERSION_PAGE_SIZE;
+  return {
+    versions: rows.slice(0, EXPORT_VERSION_PAGE_SIZE).reverse(),
+    hasMore,
+  };
+}
 
 // Same ordering/scope as `listDishVersionSummaries` above, but with each
 // Version's own authored yield instead of title/note metadata — backs the

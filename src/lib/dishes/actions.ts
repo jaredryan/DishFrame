@@ -9,7 +9,9 @@ import {
   listCurrentPartUsages,
   getOwnedDishOrThrow,
   listDishVersionYieldOptions,
+  listExportableVersionsPage,
   type PartUsage,
+  type ExportableVersionOption,
 } from "@/lib/dishes/queries";
 import { decimalToNumber } from "@/lib/dishes/format";
 import {
@@ -555,6 +557,41 @@ export async function listDishVersionOptions(
       })),
       currentVersionId: dish.currentVersionId,
     };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+type ListExportableVersionsActionState =
+  | {
+      status: "success";
+      versions: ExportableVersionOption[];
+      hasMore: boolean;
+    }
+  | { status: "error"; message: string };
+
+/**
+ * Code-audit fix (2026-08-27, second follow-up): backs the Export dialog's
+ * Version-selection dropdown (`DishDetailActions`) on demand, one bounded
+ * page at a time — same on-demand-fetch shape as `listDishVersionOptions`
+ * above, but paginated via `listExportableVersionsPage` so opening the
+ * dialog (or paging further back) never has to load a heavily-edited
+ * Dish's entire Version history at once. `cursor` continues an
+ * already-open dialog's list further into that Dish's history.
+ */
+export async function listExportableDishVersions(
+  kind: DishKindValue,
+  dishId: string,
+  cursor?: string,
+): Promise<ListExportableVersionsActionState> {
+  try {
+    const userId = await requireUserId();
+    await getOwnedDishOrThrow(userId, dishId, kind);
+    const { versions, hasMore } = await listExportableVersionsPage(
+      dishId,
+      cursor,
+    );
+    return { status: "success", versions, hasMore };
   } catch (error) {
     return { status: "error", message: toActionErrorMessage(error) };
   }

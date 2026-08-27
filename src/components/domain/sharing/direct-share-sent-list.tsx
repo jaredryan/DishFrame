@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { SemanticChip } from "@/components/domain/dish/semantic-chip";
 import { cancelDirectShareCollection } from "@/lib/sharing/actions";
 import type { DirectShareStatusValue } from "@/lib/sharing/schema";
-import type { SentItemView, SentShareChild } from "@/lib/sharing/view-model";
+import { statusCounts, type SentItemView } from "@/lib/sharing/view-model";
 
 const STATUS_LABEL: Record<DirectShareStatusValue, string> = {
   PENDING: "Pending",
@@ -19,16 +19,6 @@ const STATUS_LABEL: Record<DirectShareStatusValue, string> = {
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString();
-}
-
-function statusCounts(
-  children: SentShareChild[],
-): Partial<Record<DirectShareStatusValue, number>> {
-  const counts: Partial<Record<DirectShareStatusValue, number>> = {};
-  for (const child of children) {
-    counts[child.status] = (counts[child.status] ?? 0) + 1;
-  }
-  return counts;
 }
 
 function NotJoinedBadge({ hasJoined }: { hasJoined: boolean }) {

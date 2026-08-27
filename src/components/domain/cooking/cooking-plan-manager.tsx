@@ -122,8 +122,13 @@ export function CookingPlanManager({
   }
 
   function handleDeleteSession() {
+    setError(null);
     startTransition(async () => {
-      await deleteCookingSession({ sessionId });
+      const result = await deleteCookingSession({ sessionId });
+      if (result.status === "error") {
+        setError(result.message ?? "Something went wrong.");
+        return;
+      }
       router.push("/cook");
     });
   }

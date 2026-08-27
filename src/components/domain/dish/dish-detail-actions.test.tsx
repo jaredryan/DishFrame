@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DishDetailActions } from "@/components/domain/dish/dish-detail-actions";
 
@@ -7,17 +7,28 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
 }));
 
+const versions = [
+  { id: "v1", majorVersion: 1, minorVersion: 0 },
+  { id: "v2", majorVersion: 2, minorVersion: 0 },
+];
+
 vi.mock("@/lib/dishes/actions", () => ({
   archiveDish: vi.fn(async () => ({ status: "idle" })),
   duplicateDish: vi.fn(async () => ({ status: "idle" })),
   deleteDish: vi.fn(async () => ({ status: "idle" })),
   restoreDish: vi.fn(async () => ({ status: "idle" })),
+  // Code-audit fix (2026-08-27, second follow-up): the export dialog's
+  // Version list is now fetched on demand (`listExportableDishVersions`)
+  // instead of arriving as a prop — this fixture returns both fixture
+  // Versions in one page, `hasMore: false`, matching every existing
+  // assertion below (which predates the switch to on-demand loading and
+  // never exercised "Show earlier versions" pagination).
+  listExportableDishVersions: vi.fn(async () => ({
+    status: "success",
+    versions,
+    hasMore: false,
+  })),
 }));
-
-const versions = [
-  { id: "v1", majorVersion: 1, minorVersion: 0 },
-  { id: "v2", majorVersion: 2, minorVersion: 0 },
-];
 
 async function openExportDialog() {
   const user = userEvent.setup();
@@ -28,11 +39,13 @@ async function openExportDialog() {
       kind="RECIPE"
       stage="ACTIVE"
       currentVersionId="v2"
-      versions={versions}
     />,
   );
   await user.click(screen.getByRole("button", { name: "More actions" }));
   await user.click(await screen.findByRole("menuitem", { name: "Export" }));
+  await waitFor(() =>
+    expect(screen.getByRole("combobox")).toHaveTextContent("V2.0 (current)"),
+  );
   return user;
 }
 
@@ -46,7 +59,6 @@ describe("DishDetailActions — contextual sharing stays single-item", () => {
         kind="RECIPE"
         stage="ACTIVE"
         currentVersionId="v2"
-        versions={versions}
       />,
     );
     await user.click(screen.getByRole("button", { name: "More actions" }));
@@ -73,7 +85,6 @@ describe("DishDetailActions — contextual sharing stays single-item", () => {
         kind="RECIPE"
         stage="ACTIVE"
         currentVersionId="v2"
-        versions={versions}
       />,
     );
     await user.click(screen.getByRole("button", { name: "More actions" }));
@@ -104,7 +115,6 @@ describe("DishDetailActions overflow menu — Cooking history", () => {
         kind="RECIPE"
         stage="ACTIVE"
         currentVersionId="v2"
-        versions={versions}
       />,
     );
     await user.click(screen.getByRole("button", { name: "More actions" }));
@@ -124,7 +134,6 @@ describe("DishDetailActions overflow menu — Cooking history", () => {
         kind="PART"
         stage="ACTIVE"
         currentVersionId="v2"
-        versions={versions}
       />,
     );
     await user.click(screen.getByRole("button", { name: "More actions" }));

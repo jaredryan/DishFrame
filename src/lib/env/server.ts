@@ -1,3 +1,4 @@
+import "server-only";
 import { z } from "zod";
 
 const schema = z.object({
@@ -74,6 +75,17 @@ const schema = z.object({
   // clearly (manual nutrition entry always keeps working, PRODUCT_SPEC.md
   // §54.4) rather than at startup. Server-only — never read on the client.
   FDC_API_KEY: z
+    .string()
+    .optional()
+    .transform((value) => (value ? value : undefined)),
+
+  // Optional: authorizes `/api/cron/*` (currently just
+  // cleanup-orphan-images). Vercel sends `Authorization: Bearer
+  // $CRON_SECRET` automatically on Cron-triggered requests once this is
+  // set on the project — see that route's own doc comment. Unset in local
+  // dev; the route responds 503 rather than accepting any unauthenticated
+  // request.
+  CRON_SECRET: z
     .string()
     .optional()
     .transform((value) => (value ? value : undefined)),

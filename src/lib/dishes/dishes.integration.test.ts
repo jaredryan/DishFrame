@@ -20,6 +20,7 @@ import {
   listCurrentPartUsages,
   listAttachableParts,
   getDishScopedVersionContentOrThrow,
+  listExportableVersionsPage,
 } from "@/lib/dishes/queries";
 import { versionContentToInput } from "@/lib/dishes/mappers";
 
@@ -4661,5 +4662,615 @@ describe("Slice 6 post-gate — deletePart (Phase 2)", () => {
       sections: { ingredients: { name: string }[] }[];
     };
     expect(snapshot.sections[0].ingredients[0].name).toBe("Salt");
+  });
+});
+
+// Code-audit fidelity fix (2026-08-27): `duplicateDish`, `promoteHistoricalVersion`,
+// and `resolveMaterializedSnapshot` previously read a Version's PartLinks
+// through the LIVE-only `partLinkContentInclude`, silently dropping any
+// MATERIALIZED occurrence instead of reproducing it faithfully. These tests
+// build a real MATERIALIZED occurrence via the same `deletePart` Phase 2
+// path the "deletePart (Phase 2)" suite above exercises, then confirm each
+// of the three fixed operations preserves it.
+describe("Code-audit fidelity fix — MATERIALIZED PartLink preservation", () => {
+  let userId: string | undefined;
+
+  afterEach(async () => {
+    if (userId) {
+      await deleteTestUser(userId);
+      userId = undefined;
+    }
+  });
+
+  /** Creates a Part, links it into a container, resolves that usage so it
+   * becomes historical, then deletes the Part — leaving the container's
+   * historical Version holding a MATERIALIZED occurrence. Returns the
+   * container's dishId and that historical versionId. */
+  async function buildContainerWithMaterializedLink(
+    ownerId: string,
+    partTitle: string,
+    containerKind: "RECIPE" | "PART" = "RECIPE",
+  ): Promise<{
+    containerDishId: string;
+    historicalVersionId: string;
+  }> {
+    const partDishId = await dishService.createDish(
+      ownerId,
+      "PART",
+      content({ title: partTitle, partLinks: [] }),
+    );
+    const partVersionId = (
+      await prisma.dish.findUniqueOrThrow({ where: { id: partDishId } })
+    ).currentVersionId!;
+
+    const containerDishId = await dishService.createDish(
+      ownerId,
+      containerKind,
+      content(),
+    );
+    const dish = await loadDishWithVersion(containerDishId);
+    const container = await prisma.dish.findUniqueOrThrow({
+      where: { id: containerDishId },
+    });
+    await dishService.editDish(
+      ownerId,
+      containerDishId,
+      container.currentVersionId!,
+      {
+        ...content({ sections: unchangedSections(dish) }),
+        partLinks: [
+          {
+            targetDishId: partDishId,
+            targetDishVersionId: partVersionId,
+            position: 0,
+            multiplier: 3,
+          },
+        ],
+      },
+      "MINOR",
+    );
+    const containerWithLink = await prisma.dish.findUniqueOrThrow({
+      where: { id: containerDishId },
+    });
+    const historicalVersionId = containerWithLink.currentVersionId!;
+
+    const { partLinks: linkedContentBefore } = await loadContent(
+      containerDishId,
+      historicalVersionId,
+    );
+    await dishService.resolvePartUsageOccurrence(
+      ownerId,
+      partDishId,
+      containerDishId,
+      linkedContentBefore[0].lineageId!,
+      "DETACH",
+      "MINOR",
+    );
+
+    await dishService.deleteDish(ownerId, partDishId);
+
+    return { containerDishId, historicalVersionId };
+  }
+
+  it("duplicateDish preserves a MATERIALIZED PartLink from the source version", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+    const { containerDishId, historicalVersionId } =
+      await buildContainerWithMaterializedLink(userId, "Nuoc Cham");
+
+    const duplicateId = await dishService.duplicateDish(
+      userId,
+      containerDishId,
+      historicalVersionId,
+    );
+    const duplicate = await prisma.dish.findUniqueOrThrow({
+      where: { id: duplicateId },
+      include: { currentVersion: { include: { partLinks: true } } },
+    });
+    const copied = duplicate.currentVersion!.partLinks[0];
+    expect(copied.linkState).toBe("MATERIALIZED");
+    expect(copied.materializedTitle).toBe("Nuoc Cham");
+    expect(copied.materializedVersionLabel).toBe("V1.0");
+    expect(decimalToNumber(copied.multiplier)).toBe(3);
+    expect(copied.targetDishId).toBeNull();
+    expect(copied.materializedContent).not.toBeNull();
+  });
+
+  it("promoteHistoricalVersion preserves a MATERIALIZED PartLink from the promoted version", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+    const { containerDishId, historicalVersionId } =
+      await buildContainerWithMaterializedLink(userId, "Nuoc Cham");
+
+    await dishService.promoteHistoricalVersion(
+      userId,
+      containerDishId,
+      historicalVersionId,
+    );
+    const containerAfterPromote = await prisma.dish.findUniqueOrThrow({
+      where: { id: containerDishId },
+      include: { currentVersion: { include: { partLinks: true } } },
+    });
+    const promoted = containerAfterPromote.currentVersion!.partLinks[0];
+    expect(promoted.linkState).toBe("MATERIALIZED");
+    expect(promoted.materializedTitle).toBe("Nuoc Cham");
+    expect(promoted.materializedVersionLabel).toBe("V1.0");
+    expect(decimalToNumber(promoted.multiplier)).toBe(3);
+    expect(promoted.materializedContent).not.toBeNull();
+  });
+
+  it("resolveMaterializedSnapshot preserves an already-MATERIALIZED nested PartLink (second-level Part-in-Part chain)", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+
+    // Part B's own historical Version ends up holding a MATERIALIZED link
+    // to Part A, then gets promoted so Part B's CURRENT content legitimately
+    // carries that MATERIALIZED occurrence forward (exercising the
+    // `promoteHistoricalVersion` fix as a building block for this test).
+    const {
+      containerDishId: partBDishId,
+      historicalVersionId: partBOldVersionId,
+    } = await buildContainerWithMaterializedLink(userId, "Chili Oil", "PART");
+    await dishService.promoteHistoricalVersion(
+      userId,
+      partBDishId,
+      partBOldVersionId,
+    );
+    const partBAfterPromote = await prisma.dish.findUniqueOrThrow({
+      where: { id: partBDishId },
+      include: { currentVersion: { include: { partLinks: true } } },
+    });
+    expect(partBAfterPromote.currentVersion!.partLinks[0].linkState).toBe(
+      "MATERIALIZED",
+    );
+
+    // A container Recipe links to Part B's now-current (materialized-
+    // nested) version.
+    const containerDishId = await dishService.createDish(
+      userId,
+      "RECIPE",
+      content(),
+    );
+    const containerDish = await loadDishWithVersion(containerDishId);
+    const container = await prisma.dish.findUniqueOrThrow({
+      where: { id: containerDishId },
+    });
+    await dishService.editDish(
+      userId,
+      containerDishId,
+      container.currentVersionId!,
+      {
+        ...content({ sections: unchangedSections(containerDish) }),
+        partLinks: [
+          {
+            targetDishId: partBDishId,
+            targetDishVersionId: partBAfterPromote.currentVersionId!,
+            position: 0,
+            multiplier: 1,
+          },
+        ],
+      },
+      "MINOR",
+    );
+    const containerWithLink = await prisma.dish.findUniqueOrThrow({
+      where: { id: containerDishId },
+    });
+    const containerHistoricalVersionId = containerWithLink.currentVersionId!;
+
+    // Resolve the container's own live usage of Part B, leaving the
+    // Version above historical (still LIVE-linking B).
+    const { partLinks: containerLinkedBefore } = await loadContent(
+      containerDishId,
+      containerHistoricalVersionId,
+    );
+    await dishService.resolvePartUsageOccurrence(
+      userId,
+      partBDishId,
+      containerDishId,
+      containerLinkedBefore[0].lineageId!,
+      "DETACH",
+      "MINOR",
+    );
+
+    // Delete Part B — Phase 2 freezes Part B's own CURRENT content (which
+    // already contains a MATERIALIZED nested link to Part A) into the
+    // container's now-MATERIALIZED PartLink. This is the exact "two-level
+    // chain" gap the code audit found in `resolveMaterializedSnapshot`.
+    await dishService.deleteDish(userId, partBDishId);
+
+    const containerMaterialized = await prisma.partLink.findFirstOrThrow({
+      where: { containerVersionId: containerHistoricalVersionId },
+    });
+    expect(containerMaterialized.linkState).toBe("MATERIALIZED");
+    // The outer materialized link's title is Part B's own title (the
+    // default `content()` title, since `buildContainerWithMaterializedLink`
+    // doesn't override its container's title) — the nested nested link
+    // below carries Part A's title ("Chili Oil").
+    expect(containerMaterialized.materializedTitle).toBe("Ginger Soy Bowl");
+
+    const snapshot = containerMaterialized.materializedContent as unknown as {
+      partLinks: Array<{ kind?: string; materializedTitle?: string }>;
+      sections: Array<{
+        partLinks: Array<{ kind?: string; materializedTitle?: string }>;
+      }>;
+    };
+    const nestedLinks = [
+      ...snapshot.partLinks,
+      ...snapshot.sections.flatMap((s) => s.partLinks),
+    ];
+    const nestedMaterialized = nestedLinks.find(
+      (l) => l.kind === "MATERIALIZED",
+    );
+    expect(nestedMaterialized).toBeDefined();
+    expect(nestedMaterialized?.materializedTitle).toBe("Chili Oil");
+  });
+});
+
+// Code-audit fidelity fix (2026-08-27, second follow-up): `editDish` was the
+// one reproduce/promote/materialize-adjacent path the first follow-up above
+// deliberately left unfixed — its content comes wholesale from the editor,
+// which never shows a MATERIALIZED occurrence, so an ordinary unrelated
+// edit was silently dropping any MATERIALIZED occurrence the base Version
+// already held. These tests build a real MATERIALIZED occurrence via the
+// same `deletePart` Phase 2 path the suites above use, then confirm an
+// ordinary `editDish` call preserves it (verbatim content, original
+// top-level/Section placement) while the unrelated LIVE change still
+// applies normally.
+describe("Code-audit fidelity fix — editDish preserves MATERIALIZED PartLink content", () => {
+  let userId: string | undefined;
+
+  afterEach(async () => {
+    if (userId) {
+      await deleteTestUser(userId);
+      userId = undefined;
+    }
+  });
+
+  /** Creates a Part, links it into a container (top-level, or nested in a
+   * named Section when `sectionName` is given), resolves that usage so the
+   * attaching Version becomes historical, then deletes the Part — leaving
+   * that historical Version holding a MATERIALIZED occurrence in its
+   * original place. */
+  async function buildContainerWithMaterializedLink(
+    ownerId: string,
+    partTitle: string,
+    sectionName: string | null,
+  ): Promise<{ containerDishId: string; historicalVersionId: string }> {
+    const partDishId = await dishService.createDish(
+      ownerId,
+      "PART",
+      content({ title: partTitle, partLinks: [] }),
+    );
+    const partVersionId = (
+      await prisma.dish.findUniqueOrThrow({ where: { id: partDishId } })
+    ).currentVersionId!;
+
+    const containerDishId = await dishService.createDish(
+      ownerId,
+      "RECIPE",
+      content(),
+    );
+    const dish = await loadDishWithVersion(containerDishId);
+    const container = await prisma.dish.findUniqueOrThrow({
+      where: { id: containerDishId },
+    });
+    const partLink = {
+      targetDishId: partDishId,
+      targetDishVersionId: partVersionId,
+      position: 0,
+      multiplier: 3,
+    };
+    await dishService.editDish(
+      ownerId,
+      containerDishId,
+      container.currentVersionId!,
+      sectionName
+        ? {
+            ...content({
+              sections: [
+                {
+                  ...unchangedSections(dish)[0],
+                  name: sectionName,
+                  partLinks: [partLink],
+                },
+              ],
+            }),
+            partLinks: [],
+          }
+        : {
+            ...content({ sections: unchangedSections(dish) }),
+            partLinks: [partLink],
+          },
+      "MINOR",
+    );
+    const containerWithLink = await prisma.dish.findUniqueOrThrow({
+      where: { id: containerDishId },
+    });
+    const historicalVersionId = containerWithLink.currentVersionId!;
+
+    const { partLinks: linkedTopLevel, sections: linkedSections } =
+      await loadContent(containerDishId, historicalVersionId);
+    const linkedLineageId = sectionName
+      ? linkedSections[0].partLinks[0].lineageId!
+      : linkedTopLevel[0].lineageId!;
+
+    await dishService.resolvePartUsageOccurrence(
+      ownerId,
+      partDishId,
+      containerDishId,
+      linkedLineageId,
+      "DETACH",
+      "MINOR",
+    );
+
+    await dishService.deleteDish(ownerId, partDishId);
+
+    return { containerDishId, historicalVersionId };
+  }
+
+  it("preserves a top-level MATERIALIZED PartLink, verbatim, across an ordinary unrelated LIVE edit", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+    const { containerDishId, historicalVersionId } =
+      await buildContainerWithMaterializedLink(userId, "Nuoc Cham", null);
+
+    const base = await prisma.dishVersion.findUniqueOrThrow({
+      where: { id: historicalVersionId },
+      include: {
+        sections: { include: { ingredients: true } },
+        partLinks: true,
+      },
+    });
+    const beforeMaterialized = base.partLinks.find(
+      (link) => link.linkState === "MATERIALIZED",
+    )!;
+
+    await dishService.editDish(
+      userId,
+      containerDishId,
+      historicalVersionId,
+      {
+        ...content({
+          sections: [
+            {
+              lineageId: base.sections[0].lineageId,
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                {
+                  lineageId: base.sections[0].ingredients[0].lineageId,
+                  ...blankIngredient("Salt"),
+                },
+                blankIngredient("Pepper"),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+        partLinks: [],
+      },
+      "MINOR",
+    );
+
+    const container = await prisma.dish.findUniqueOrThrow({
+      where: { id: containerDishId },
+      include: {
+        currentVersion: {
+          include: {
+            sections: { include: { ingredients: true } },
+            partLinks: true,
+          },
+        },
+      },
+    });
+
+    // The unrelated LIVE change applied normally.
+    const ingredientNames = container
+      .currentVersion!.sections[0].ingredients.map(
+        (ingredient) => ingredient.name,
+      )
+      .sort();
+    expect(ingredientNames).toEqual(["Pepper", "Salt"]);
+
+    // The MATERIALIZED occurrence survived, verbatim, at its original
+    // top-level position.
+    expect(container.currentVersion!.partLinks).toHaveLength(1);
+    const afterMaterialized = container.currentVersion!.partLinks[0];
+    expect(afterMaterialized.linkState).toBe("MATERIALIZED");
+    expect(afterMaterialized.sectionId).toBeNull();
+    expect(afterMaterialized.position).toBe(beforeMaterialized.position);
+    expect(afterMaterialized.materializedTitle).toBe("Nuoc Cham");
+    expect(afterMaterialized.materializedVersionLabel).toBe("V1.0");
+    expect(decimalToNumber(afterMaterialized.multiplier)).toBe(3);
+    expect(afterMaterialized.materializedContent).toEqual(
+      beforeMaterialized.materializedContent,
+    );
+  });
+
+  it("preserves a Section-nested MATERIALIZED PartLink in its original Section, resurrecting that Section when the editor never resubmits it", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+    const { containerDishId, historicalVersionId } =
+      await buildContainerWithMaterializedLink(userId, "Chili Oil", "Sauce");
+
+    const base = await prisma.dishVersion.findUniqueOrThrow({
+      where: { id: historicalVersionId },
+      include: {
+        sections: { include: { ingredients: true } },
+        partLinks: true,
+      },
+    });
+    const sauceSection = base.sections.find((s) => s.name === "Sauce")!;
+    const beforeMaterialized = base.partLinks.find(
+      (link) => link.linkState === "MATERIALIZED",
+    )!;
+    expect(beforeMaterialized.sectionId).toBe(sauceSection.id);
+
+    // The submitted content only ever describes a brand-new "Mains"
+    // Section — "Sauce" (whose only remaining content, from the editor's
+    // point of view, was the invisible MATERIALIZED occurrence) is never
+    // resubmitted at all, exactly like a real editor form for this content
+    // would send.
+    await dishService.editDish(
+      userId,
+      containerDishId,
+      historicalVersionId,
+      {
+        ...content({
+          sections: [
+            {
+              name: "Mains",
+              guidanceNote: null,
+              position: 1,
+              ingredients: [blankIngredient("Rice")],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+        partLinks: [],
+      },
+      "MINOR",
+    );
+
+    const container = await prisma.dish.findUniqueOrThrow({
+      where: { id: containerDishId },
+      include: {
+        currentVersion: {
+          include: {
+            sections: { include: { ingredients: true } },
+            partLinks: true,
+          },
+        },
+      },
+    });
+
+    // The unrelated new content applied normally.
+    const mains = container.currentVersion!.sections.find(
+      (s) => s.name === "Mains",
+    );
+    expect(mains?.ingredients.map((i) => i.name)).toEqual(["Rice"]);
+
+    // "Sauce" was resurrected holding only the preserved MATERIALIZED
+    // occurrence — never the LIVE content the user's edit implicitly
+    // dropped by not resubmitting it.
+    const resurrectedSauce = container.currentVersion!.sections.find(
+      (s) => s.name === "Sauce",
+    );
+    expect(resurrectedSauce).toBeDefined();
+    expect(resurrectedSauce!.lineageId).toBe(sauceSection.lineageId);
+    expect(resurrectedSauce!.ingredients).toHaveLength(0);
+
+    const afterMaterialized = container.currentVersion!.partLinks.find(
+      (link) => link.sectionId === resurrectedSauce!.id,
+    );
+    expect(afterMaterialized).toBeDefined();
+    expect(afterMaterialized!.linkState).toBe("MATERIALIZED");
+    expect(afterMaterialized!.materializedTitle).toBe("Chili Oil");
+    expect(decimalToNumber(afterMaterialized!.multiplier)).toBe(3);
+    expect(afterMaterialized!.materializedContent).toEqual(
+      beforeMaterialized.materializedContent,
+    );
+  });
+});
+
+// Code-audit fix (2026-08-27, second follow-up): the Export dialog's
+// Version-selection dropdown (`DishDetailActions`) used to receive every
+// Version a Dish has ever had, eagerly fetched on every detail-page load.
+// `listExportableVersionsPage` replaces that with a bounded, cursor-paged
+// query — these tests prove the pagination itself is correct (bounded page
+// size, `hasMore`, no gaps/duplicates across pages, ascending display
+// order, current Version reachable on the first page) against a real
+// Version history that exceeds one page.
+describe("Code-audit fidelity fix — listExportableVersionsPage pagination (Export dialog)", () => {
+  let userId: string | undefined;
+
+  afterEach(async () => {
+    if (userId) {
+      await deleteTestUser(userId);
+      userId = undefined;
+    }
+  });
+
+  it("bounds the first page and reaches every older Version via cursor, with no gaps or duplicates", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+    const dishId = await dishService.createDish(userId, "RECIPE", content());
+
+    // 27 total Versions: the initial V1.0 plus 26 minor bumps — one more
+    // than a 25-row page, so both the page boundary and a genuinely
+    // partial final page get exercised.
+    for (let i = 0; i < 26; i++) {
+      const dishRow = await loadDishWithVersion(dishId);
+      const section = dishRow.currentVersion!.sections[0];
+      const salt = section.ingredients.find((ing) => ing.name === "Salt")!;
+      const container = await prisma.dish.findUniqueOrThrow({
+        where: { id: dishId },
+      });
+      await dishService.editDish(
+        userId,
+        dishId,
+        container.currentVersionId!,
+        content({
+          sections: [
+            {
+              lineageId: section.lineageId,
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                { lineageId: salt.lineageId, ...blankIngredient("Salt") },
+                blankIngredient(`Extra ${i}`),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+        "MINOR",
+      );
+    }
+
+    const allVersions = await prisma.dishVersion.findMany({
+      where: { dishId },
+      select: { id: true },
+    });
+    expect(allVersions).toHaveLength(27);
+
+    const firstPage = await listExportableVersionsPage(dishId);
+    expect(firstPage.versions).toHaveLength(25);
+    expect(firstPage.hasMore).toBe(true);
+
+    // Ascending order (oldest to newest) — this codebase's usual Version
+    // display order, not the DESC order used internally to bound the page.
+    for (let i = 1; i < firstPage.versions.length; i++) {
+      const prev = firstPage.versions[i - 1];
+      const cur = firstPage.versions[i];
+      expect(
+        cur.majorVersion > prev.majorVersion ||
+          (cur.majorVersion === prev.majorVersion &&
+            cur.minorVersion > prev.minorVersion),
+      ).toBe(true);
+    }
+
+    const secondPage = await listExportableVersionsPage(
+      dishId,
+      firstPage.versions[0].id,
+    );
+    expect(secondPage.versions).toHaveLength(2);
+    expect(secondPage.hasMore).toBe(false);
+
+    const combinedIds = [
+      ...secondPage.versions.map((v) => v.id),
+      ...firstPage.versions.map((v) => v.id),
+    ];
+    expect(new Set(combinedIds).size).toBe(27);
+
+    const currentDish = await prisma.dish.findUniqueOrThrow({
+      where: { id: dishId },
+    });
+    expect(firstPage.versions.at(-1)!.id).toBe(currentDish.currentVersionId);
   });
 });

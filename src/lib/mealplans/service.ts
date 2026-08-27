@@ -14,6 +14,7 @@ import { computeTargetYieldScaleFactor } from "@/lib/units/scaling";
 import {
   generateGroceryListFromMealPlan as generateGroceryListFromMealPlanService,
   resyncGroceryListFromMealPlan,
+  collectMealPlanOccurrences,
   type MealPlanContributionEntry,
 } from "@/lib/grocery/list-service";
 import {
@@ -69,8 +70,15 @@ async function resyncLinkedLists(
     where: { linkedMealPlanId: mealPlanId, completedAt: null },
     select: { id: true },
   });
+  if (lists.length === 0) return;
+
+  // Computed once and reused across every linked list — every list resyncs
+  // against the same live entry set within this one mutation, so there's no
+  // reason for each to independently re-walk identical entries' ingredient
+  // trees.
+  const fresh = await collectMealPlanOccurrences(ownerId, freshEntries);
   for (const list of lists) {
-    await resyncGroceryListFromMealPlan(tx, ownerId, list.id, freshEntries);
+    await resyncGroceryListFromMealPlan(tx, ownerId, list.id, fresh);
   }
 }
 

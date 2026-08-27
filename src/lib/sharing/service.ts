@@ -47,13 +47,16 @@ async function resolveRootVersion(
   ownerId: string,
   dishId: string,
   versionId: string | undefined,
+  // Lets `publishDishes` pass its already-fetched dish for each item in a
+  // bulk publish, instead of every item re-fetching the same row here.
+  prefetchedDish?: Awaited<ReturnType<typeof getOwnedDishOrThrow>>,
 ): Promise<{
   dishId: string;
   versionId: string;
   kind: DishKindValue;
   title: string | null;
 }> {
-  const dish = await getOwnedDishOrThrow(ownerId, dishId);
+  const dish = prefetchedDish ?? (await getOwnedDishOrThrow(ownerId, dishId));
   const targetVersionId = versionId ?? dish.currentVersionId;
   if (!targetVersionId) {
     throw new NotFoundError("This item has no saved content to share yet.");
@@ -74,8 +77,14 @@ async function resolveRootVersion(
 export async function createShareLink(
   ownerId: string,
   input: CreateShareLinkInput,
+  prefetchedDish?: Awaited<ReturnType<typeof getOwnedDishOrThrow>>,
 ): Promise<{ shareLinkId: string; url: string }> {
-  const root = await resolveRootVersion(ownerId, input.dishId, input.versionId);
+  const root = await resolveRootVersion(
+    ownerId,
+    input.dishId,
+    input.versionId,
+    prefetchedDish,
+  );
   const tokenId = generateTokenId();
   const dishTitle = root.title ?? "Untitled";
 
@@ -153,16 +162,20 @@ export async function publishDishes(
     dishIds.map(async (dishId): Promise<PublishDishesResultItem> => {
       try {
         const dish = await getOwnedDishOrThrow(ownerId, dishId);
-        const created = await createShareLink(ownerId, {
-          dishId,
-          mode: input.mode,
-          versionId:
-            input.mode === "FIXED_SNAPSHOT"
-              ? input.versionIdByDishId?.[dishId]
-              : undefined,
-          showCreatorName: input.showCreatorName,
-          expiresAt: input.expiresAt,
-        });
+        const created = await createShareLink(
+          ownerId,
+          {
+            dishId,
+            mode: input.mode,
+            versionId:
+              input.mode === "FIXED_SNAPSHOT"
+                ? input.versionIdByDishId?.[dishId]
+                : undefined,
+            showCreatorName: input.showCreatorName,
+            expiresAt: input.expiresAt,
+          },
+          dish,
+        );
         return {
           dishId,
           status: "success",
@@ -345,6 +358,46 @@ export async function isImageAssetVisibleViaShareLink(
     dish.currentVersionId,
   );
   return collectGraphImageAssetIds(graph).includes(imageAssetId);
+}
+
+export type ShareAcceptanceState =
+  | { state: "SAVE" }
+  | { state: "ALREADY_SAVED"; acceptedDishId: string }
+  | { state: "PREVIOUSLY_ACCEPTED_DELETED" };
+
+/**
+ * The signed-in recipient's acceptance state for a public ShareLink — Gate 7
+ * §2.8's "one recipient may accept a given share only once" applies
+ * regardless of whether the resulting copy still exists (see
+ * `SaveSharedCopyResult` below), so a recipient can be in one of three
+ * states, not two. Read-only; used by the public share page to decide
+ * whether to offer a Save action, without reaching around this module to
+ * query `ShareLink`/`ShareLinkAcceptance` directly.
+ */
+export async function getShareAcceptanceState(
+  token: string,
+  recipientId: string,
+): Promise<ShareAcceptanceState> {
+  const tokenId = parseShareToken(token);
+  if (!tokenId) return { state: "SAVE" };
+
+  const shareLink = await prisma.shareLink.findUnique({
+    where: { tokenId },
+    select: { id: true },
+  });
+  if (!shareLink) return { state: "SAVE" };
+
+  const acceptance = await prisma.shareLinkAcceptance.findUnique({
+    where: {
+      shareLinkId_recipientId: { shareLinkId: shareLink.id, recipientId },
+    },
+    select: { createdDishId: true },
+  });
+  if (acceptance?.createdDishId) {
+    return { state: "ALREADY_SAVED", acceptedDishId: acceptance.createdDishId };
+  }
+  if (acceptance) return { state: "PREVIOUSLY_ACCEPTED_DELETED" };
+  return { state: "SAVE" };
 }
 
 /**

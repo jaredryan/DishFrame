@@ -52,6 +52,7 @@ import {
   duplicateDish,
   deleteDish,
   restoreDish,
+  listExportableDishVersions,
 } from "@/lib/dishes/actions";
 import {
   restorableStageValues,
@@ -65,6 +66,7 @@ import { DirectShareSingleItemDialog } from "@/components/domain/sharing/direct-
 import { versionLabel } from "@/lib/dishes/version-note";
 
 const ALL_VERSIONS_VALUE = "__ALL__";
+const LOAD_MORE_VERSIONS_VALUE = "__LOAD_MORE__";
 
 type ExportableVersion = {
   id: string;
@@ -95,7 +97,6 @@ export function DishDetailActions({
   kind,
   stage,
   currentVersionId,
-  versions,
 }: {
   dishId: string;
   // The contextual single-item Send dialog shows this locked item's title.
@@ -106,8 +107,6 @@ export function DishDetailActions({
   // menu (moved off the detail page's own separate links row) — needs the
   // current Version's id to build that route.
   currentVersionId: string;
-  // Slice 11 correction pass: the export dialog's Version-selection control.
-  versions: ExportableVersion[];
 }) {
   const router = useRouter();
   const [openDialog, setOpenDialog] = React.useState<DialogKind>(null);
@@ -124,6 +123,43 @@ export function DishDetailActions({
     exportVersionValue === ALL_VERSIONS_VALUE
       ? "versionMode=ALL"
       : `versionMode=SINGLE&versionId=${encodeURIComponent(exportVersionValue)}`;
+
+  // Code-audit fix (2026-08-27, second follow-up): the Export dialog's
+  // Version dropdown used to receive every Version this Dish has ever had,
+  // eagerly fetched on every detail-page load — a heavily-edited Dish paid
+  // that cost even when Export was never opened. Loaded lazily, one bounded
+  // page at a time, only once the dialog actually opens
+  // (`listExportableDishVersions`/`listExportableVersionsPage`); older
+  // Versions stay reachable via the "Show earlier versions" entry rather
+  // than a hard cutoff.
+  const [versionOptions, setVersionOptions] = React.useState<
+    ExportableVersion[]
+  >([]);
+  const [hasMoreVersions, setHasMoreVersions] = React.useState(false);
+  const [versionsLoading, setVersionsLoading] = React.useState(false);
+  const [versionsError, setVersionsError] = React.useState<string | null>(null);
+
+  async function loadVersionsPage(cursor?: string) {
+    setVersionsLoading(true);
+    setVersionsError(null);
+    const result = await listExportableDishVersions(kind, dishId, cursor);
+    setVersionsLoading(false);
+    if (result.status === "error") {
+      setVersionsError(result.message ?? "Could not load Versions.");
+      return;
+    }
+    setHasMoreVersions(result.hasMore);
+    setVersionOptions((existing) =>
+      cursor ? [...result.versions, ...existing] : result.versions,
+    );
+  }
+
+  function openExportDialog() {
+    setOpenDialog("export");
+    setVersionOptions([]);
+    setHasMoreVersions(false);
+    void loadVersionsPage();
+  }
 
   const basePath = kind === "PART" ? "/parts" : "/recipes";
   const label = kind === "PART" ? "part" : "recipe";
@@ -249,7 +285,7 @@ export function DishDetailActions({
             <DropdownMenuItem onSelect={() => setOpenDialog("send")}>
               <Send /> Send
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => setOpenDialog("export")}>
+            <DropdownMenuItem onSelect={openExportDialog}>
               <Download /> Export
             </DropdownMenuItem>
             <DropdownMenuItem asChild>
@@ -398,7 +434,14 @@ export function DishDetailActions({
             </label>
             <Select
               value={exportVersionValue}
-              onValueChange={setExportVersionValue}
+              onValueChange={(value) => {
+                if (value === LOAD_MORE_VERSIONS_VALUE) {
+                  void loadVersionsPage(versionOptions[0]?.id);
+                  return;
+                }
+                setExportVersionValue(value);
+              }}
+              disabled={versionsLoading && versionOptions.length === 0}
             >
               <SelectTrigger
                 id="export-version-select"
@@ -408,7 +451,12 @@ export function DishDetailActions({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {versions.map((v) => (
+                {hasMoreVersions && (
+                  <SelectItem value={LOAD_MORE_VERSIONS_VALUE}>
+                    {versionsLoading ? "Loading…" : "Show earlier versions…"}
+                  </SelectItem>
+                )}
+                {versionOptions.map((v) => (
                   <SelectItem key={v.id} value={v.id}>
                     {versionLabel(v.majorVersion, v.minorVersion)}
                     {v.id === currentVersionId ? " (current)" : ""}
@@ -419,6 +467,11 @@ export function DishDetailActions({
                 </SelectItem>
               </SelectContent>
             </Select>
+            {versionsError && (
+              <p role="alert" className="text-destructive-text text-xs">
+                {versionsError}
+              </p>
+            )}
           </div>
           <div className="flex flex-col gap-3">
             <div className="border-border flex items-center justify-between gap-3 rounded-lg border p-3">
@@ -542,6 +595,7 @@ export function DishDetailActions({
         open={openDialog === "send"}
         onOpenChange={(open) => !open && close()}
         dishId={dishId}
+        dishVersionId={currentVersionId}
         dishKind={kind}
         dishTitle={dishTitle}
       />

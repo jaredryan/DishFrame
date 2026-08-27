@@ -59,6 +59,25 @@ async function currentVersionId(dishId: string): Promise<string> {
   return dish.currentVersionId!;
 }
 
+// Editing without carrying the existing row's `lineageId` forward mints a
+// fresh one (ARCHITECTURE_PROPOSAL.md §D.-1) — indistinguishable from
+// deleting the old ingredient and adding an unrelated new one, which would
+// break the resync tests' contribution-matching-by-lineage entirely. A real
+// editor always resubmits the loaded lineageId; this mirrors that.
+async function primaryIngredientLineage(dishId: string) {
+  const dish = await prisma.dish.findUniqueOrThrow({
+    where: { id: dishId },
+    select: { currentVersionId: true },
+  });
+  return prisma.ingredient.findFirstOrThrow({
+    where: {
+      dishVersionId: dish.currentVersionId!,
+      substituteForIngredientId: null,
+    },
+    include: { substitute: true },
+  });
+}
+
 describe("mealplans service", () => {
   let userId: string | undefined;
   let otherUserId: string | undefined;
@@ -554,6 +573,224 @@ describe("mealplans service", () => {
       expect(afterResync.contributions[0].selectedVariant).toBe("SUBSTITUTE");
       expect(afterResync.checkedAt).not.toBeNull();
       expect(afterResync.syncFlag).toBe("UNCHANGED");
+    });
+
+    // Code-audit correctness fix (2026-08-27): the sync-flag computation
+    // used to compare only the PRIMARY snapshot against fresh content —
+    // stacking a substitute selection with a resync that changes the
+    // substitute's own content (or removes it) went completely undetected,
+    // silently leaving the item `UNCHANGED` even though its actual synced
+    // data materially changed.
+    it("flags CHANGED when a chosen substitute variant's own content changes on resync", async () => {
+      const { mealPlanId } = await setupMealPlan();
+      const dishId = await dishService.createDish(
+        userId!,
+        "RECIPE",
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({
+                  name: "Butter",
+                  quantity: 1,
+                  unit: "cup",
+                  substitute: {
+                    name: "Margarine",
+                    quantity: 1,
+                    quantityEnd: null,
+                    isApproximate: false,
+                    unit: "cup",
+                    displayText: null,
+                    preparationNote: null,
+                  },
+                }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      const entryId = await mealPlanService.addMealPlanEntry(
+        userId!,
+        mealPlanId,
+        {
+          dishId,
+          cookDate: new Date("2026-08-03T00:00:00.000Z"),
+        },
+      );
+      const listId = await mealPlanService.generateGroceryListFromMealPlan(
+        userId!,
+        mealPlanId,
+        { title: "Shopping" },
+      );
+      const item = await prisma.groceryListItem.findFirstOrThrow({
+        where: { groceryListId: listId },
+      });
+      await listService.selectGroceryItemVariant(
+        userId!,
+        listId,
+        item.id,
+        "SUBSTITUTE",
+      );
+
+      // Bump the substitute's own quantity — the primary ("Butter") stays
+      // identical, so a primary-only comparison would miss this entirely.
+      const primary = await primaryIngredientLineage(dishId);
+      await dishService.editDish(
+        userId!,
+        dishId,
+        await currentVersionId(dishId),
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({
+                  lineageId: primary.lineageId,
+                  name: "Butter",
+                  quantity: 1,
+                  unit: "cup",
+                  substitute: {
+                    lineageId: primary.substitute!.lineageId,
+                    name: "Margarine",
+                    quantity: 2,
+                    quantityEnd: null,
+                    isApproximate: false,
+                    unit: "cup",
+                    displayText: null,
+                    preparationNote: null,
+                  },
+                }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+        "MINOR",
+      );
+      await mealPlanService.adoptNewerVersionInEntry(
+        userId!,
+        mealPlanId,
+        entryId,
+      );
+
+      const afterResync = await prisma.groceryListItem.findUniqueOrThrow({
+        where: { id: item.id },
+        include: { contributions: true },
+      });
+      expect(afterResync.contributions[0].selectedVariant).toBe("SUBSTITUTE");
+      expect(
+        afterResync.contributions[0].substituteQuantityDecimal?.toString(),
+      ).toBe("2");
+      expect(afterResync.syncFlag).toBe("CHANGED");
+    });
+
+    it("flags CHANGED when a chosen substitute variant's substitute disappears on resync (reverting to PRIMARY)", async () => {
+      const { mealPlanId } = await setupMealPlan();
+      const dishId = await dishService.createDish(
+        userId!,
+        "RECIPE",
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({
+                  name: "Butter",
+                  quantity: 1,
+                  unit: "cup",
+                  substitute: {
+                    name: "Margarine",
+                    quantity: 1,
+                    quantityEnd: null,
+                    isApproximate: false,
+                    unit: "cup",
+                    displayText: null,
+                    preparationNote: null,
+                  },
+                }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      const entryId = await mealPlanService.addMealPlanEntry(
+        userId!,
+        mealPlanId,
+        {
+          dishId,
+          cookDate: new Date("2026-08-03T00:00:00.000Z"),
+        },
+      );
+      const listId = await mealPlanService.generateGroceryListFromMealPlan(
+        userId!,
+        mealPlanId,
+        { title: "Shopping" },
+      );
+      const item = await prisma.groceryListItem.findFirstOrThrow({
+        where: { groceryListId: listId },
+      });
+      await listService.selectGroceryItemVariant(
+        userId!,
+        listId,
+        item.id,
+        "SUBSTITUTE",
+      );
+
+      // Remove the substitute entirely — the primary ("Butter") stays
+      // identical.
+      const primary = await primaryIngredientLineage(dishId);
+      await dishService.editDish(
+        userId!,
+        dishId,
+        await currentVersionId(dishId),
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({
+                  lineageId: primary.lineageId,
+                  name: "Butter",
+                  quantity: 1,
+                  unit: "cup",
+                }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+        "MINOR",
+      );
+      await mealPlanService.adoptNewerVersionInEntry(
+        userId!,
+        mealPlanId,
+        entryId,
+      );
+
+      const afterResync = await prisma.groceryListItem.findUniqueOrThrow({
+        where: { id: item.id },
+        include: { contributions: true },
+      });
+      // Reverted to PRIMARY, same rule as an ordinary standalone-list
+      // refresh (Slice 12 correction 2) — but now correctly flagged, not
+      // silently swallowed.
+      expect(afterResync.contributions[0].selectedVariant).toBe("PRIMARY");
+      expect(afterResync.syncFlag).toBe("CHANGED");
     });
 
     it("preserves a manual recategorization through an unrelated resync (categories/ordering guarantee)", async () => {

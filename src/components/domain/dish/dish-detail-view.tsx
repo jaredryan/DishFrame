@@ -25,7 +25,6 @@ import { dishBasePath } from "@/components/domain/dish/dish-card";
 import type { DishKindValue } from "@/lib/dishes/schema";
 import {
   listCurrentPartUsages,
-  listDishVersionSummaries,
   type dishDetailInclude,
   type sectionContentInclude,
 } from "@/lib/dishes/queries";
@@ -122,7 +121,6 @@ export async function DishDetailView({
     lastCookedAt,
     tagOptions,
     flavorProfileOptions,
-    versionSummaries,
   ] = await Promise.all([
     prisma.userPreference.findUnique({
       where: { userId: dish.ownerId },
@@ -132,7 +130,6 @@ export async function DishDetailView({
     getLastCookedAt(dish.ownerId, dish.id, kind),
     listTags(dish.ownerId),
     listFlavorProfileValues(dish.ownerId),
-    listDishVersionSummaries(dish.id),
   ]);
   const selectedTagIds = dish.tags.map((t) => t.tagId);
   const selectedFlavorProfileValueIds = dish.flavorProfiles.map(
@@ -247,11 +244,6 @@ export async function DishDetailView({
           kind={kind}
           stage={dish.stage}
           currentVersionId={version.id}
-          versions={versionSummaries.map((v) => ({
-            id: v.id,
-            majorVersion: v.majorVersion,
-            minorVersion: v.minorVersion,
-          }))}
         />
       </div>
     </div>

@@ -5,7 +5,7 @@ import {
   NavSectionList,
   TimersTray,
   RecipePanel,
-  SectionPanel,
+  ConnectedSectionPanel,
   type CookingLayoutProps,
 } from "@/components/domain/cooking/cooking-mode-desktop-layout";
 
@@ -78,30 +78,22 @@ export function TabletCookingLayout(props: CookingLayoutProps) {
           {selectedDestination === null ? (
             <RecipePanel {...props} />
           ) : selectedUnit ? (
-            <SectionPanel
+            <ConnectedSectionPanel
               unit={selectedUnit}
               isActive={props.isActive}
               isChecked={props.isChecked}
               onToggleItem={props.onToggleItem}
-              onMarkAllPrepared={() => props.onMarkAllPrepared(selectedUnit)}
-              onResetAll={() => props.onResetAll(selectedUnit)}
-              collapsed={props.collapsedIngredientUnits.has(selectedUnit.id)}
-              onToggleIngredientsCollapsed={() =>
-                props.onToggleIngredientsCollapsed(selectedUnit.id)
+              onMarkAllPrepared={props.onMarkAllPrepared}
+              onResetAll={props.onResetAll}
+              collapsedIngredientUnits={props.collapsedIngredientUnits}
+              onToggleIngredientsCollapsed={props.onToggleIngredientsCollapsed}
+              onMarkAllInstructions={props.onMarkAllInstructions}
+              onResetInstructions={props.onResetInstructions}
+              collapsedInstructionUnits={props.collapsedInstructionUnits}
+              onToggleInstructionsCollapsed={
+                props.onToggleInstructionsCollapsed
               }
-              onMarkAllInstructions={() =>
-                props.onMarkAllInstructions(selectedUnit)
-              }
-              onResetInstructions={() =>
-                props.onResetInstructions(selectedUnit)
-              }
-              instructionsCollapsed={props.collapsedInstructionUnits.has(
-                selectedUnit.id,
-              )}
-              onToggleInstructionsCollapsed={() =>
-                props.onToggleInstructionsCollapsed(selectedUnit.id)
-              }
-              onOpenUnitScale={() => props.onOpenUnitScale(selectedUnit)}
+              onOpenUnitScale={props.onOpenUnitScale}
               onSetUnitCompletion={props.onSetUnitCompletion}
               isPending={props.isPending}
             />

@@ -1,5 +1,6 @@
 "use server";
 
+import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { requireUserId } from "@/lib/auth/session";
 import { toActionErrorMessage } from "@/lib/errors";
@@ -9,10 +10,15 @@ import {
   type PreferencesFormState,
   type PreferencesFormValues,
 } from "@/lib/preferences/schema";
-import type {
-  OnboardingGuideKey,
-  OnboardingGuideStatus,
+import {
+  ONBOARDING_GUIDE_KEYS,
+  ONBOARDING_GUIDE_STATUSES,
+  type OnboardingGuideKey,
+  type OnboardingGuideStatus,
 } from "@/lib/preferences/onboarding-guides";
+
+const onboardingGuideKeySchema = z.enum(ONBOARDING_GUIDE_KEYS);
+const onboardingGuideStatusSchema = z.enum(ONBOARDING_GUIDE_STATUSES);
 
 export async function updatePreferences(
   values: PreferencesFormValues,
@@ -41,11 +47,9 @@ export async function markOnboardingGuideState(
 ): Promise<OnboardingActionState> {
   try {
     const userId = await requireUserId();
-    await preferencesService.markOnboardingGuideState(
-      userId,
-      guideKey,
-      guideStatus,
-    );
+    const key = onboardingGuideKeySchema.parse(guideKey);
+    const status = onboardingGuideStatusSchema.parse(guideStatus);
+    await preferencesService.markOnboardingGuideState(userId, key, status);
     return { status: "success" };
   } catch (error) {
     return { status: "error", message: toActionErrorMessage(error) };
@@ -57,7 +61,8 @@ export async function resetOnboardingGuideState(
 ): Promise<OnboardingActionState> {
   try {
     const userId = await requireUserId();
-    await preferencesService.resetOnboardingGuideState(userId, guideKey);
+    const key = onboardingGuideKeySchema.parse(guideKey);
+    await preferencesService.resetOnboardingGuideState(userId, key);
     return { status: "success" };
   } catch (error) {
     return { status: "error", message: toActionErrorMessage(error) };

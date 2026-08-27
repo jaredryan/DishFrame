@@ -73,6 +73,56 @@ describe("grocery category service", () => {
     expect(reloaded.map((c) => c.id)).toEqual(reversedIds);
   });
 
+  it("rejects a reorder that omits a currently owned category", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+    await initializeNewUser(userId);
+
+    const before = await prisma.groceryCategory.findMany({
+      where: { ownerId: userId },
+      orderBy: { position: "asc" },
+    });
+    // Omits the last category entirely.
+    const partialIds = before.slice(0, -1).map((c) => c.id);
+
+    await expect(
+      groceryService.reorderGroceryCategories(userId, partialIds),
+    ).rejects.toThrow(ConflictError);
+
+    // Nothing was silently partially applied — positions are unchanged.
+    const after = await prisma.groceryCategory.findMany({
+      where: { ownerId: userId },
+      orderBy: { position: "asc" },
+    });
+    expect(after.map((c) => ({ id: c.id, position: c.position }))).toEqual(
+      before.map((c) => ({ id: c.id, position: c.position })),
+    );
+  });
+
+  it("rejects a reorder with an id owned by another user", async () => {
+    const owner = await createTestUser();
+    const intruder = await createTestUser();
+    userId = owner.id;
+    await initializeNewUser(owner.id);
+    await initializeNewUser(intruder.id);
+
+    const ownerCategories = await prisma.groceryCategory.findMany({
+      where: { ownerId: owner.id },
+    });
+    const intruderCategory = await prisma.groceryCategory.findFirstOrThrow({
+      where: { ownerId: intruder.id },
+    });
+
+    await expect(
+      groceryService.reorderGroceryCategories(owner.id, [
+        intruderCategory.id,
+        ...ownerCategories.slice(1).map((c) => c.id),
+      ]),
+    ).rejects.toThrow(ConflictError);
+
+    await deleteTestUser(intruder.id);
+  });
+
   describe("fallback category invariants", () => {
     it("has exactly one fallback per owner after initialization", async () => {
       const user = await createTestUser();

@@ -13,19 +13,6 @@ Production URL: `https://dish-frame.vercel.app`
 
 ## A. Open product/design decisions needing owner input
 
-- **`/home` real content.** All three dashboard sections ("Recent
-  Recipes," "Active Dishes," "Saved Parts") are still static placeholder
-  stubs regardless of account data — no canonical doc currently targets
-  Home's real content. Needs a decision: what counts as "Active," sort
-  order, item counts, then scope into a slice.
-- **Sitewide badge-text contrast gap.** Small colored badge text on
-  ~10%-tint backgrounds ("Proven," "Saved part," version tags, star
-  ratings — used throughout the signed-in app) generally measures
-  3.1–3.3:1, below the 4.5:1 AA text threshold, though these read as
-  compact status badges rather than body text. Needs a decision:
-  introduce darker accessible accent-text variants system-wide, or
-  declare these badges exempt from the AA text threshold. See
-  `BRANDING.md` §23.
 - **Meal-Plan grocery-generation UI scope.** Whole-plan-only (current
   behavior) vs. exposing a selected-entries/date-range picker — the
   service layer already supports the latter, just not the UI.
@@ -43,52 +30,24 @@ Production URL: `https://dish-frame.vercel.app`
   detail page), not an isolated typo. Needs a decision on whether yield
   units should carry singular/plural forms before fixing broadly.
 
+(Account/Dish export's restore/import semantics — previously open here —
+are resolved as a deliberately deferred standalone feature; see section H's
+"Structured Dish/account JSON restore/import.")
+
 ## B. Known gaps and small fixes (no owner decision needed)
 
-- `groceryService.reorderGroceryCategories` has the same "only validates
-  submitted ids, doesn't check the complete owned set" gap that was found
-  and fixed for `reorderTasters`.
-- `duplicateDish` (ordinary same-account "Duplicate," not sharing) still
-  silently drops MATERIALIZED PartLink content, unlike the sharing copy
-  engine that was later built to handle it correctly — worth matching if
-  Duplicate is expected to be equally faithful.
-- `PartUsageResolutionKind` (`dishes/service.ts`) and
-  `PartUsageResolutionValue` (`dishes/schema.ts`) are the same string
-  union defined under two different names — harmless, worth reconciling.
-- Cosmetic: client-to-client callback props (`onRemove`, `onDetach`,
-  etc.) trigger a false-positive "props must be serializable" warning
-  from the Next.js TS plugin — left as-is.
-- Cuisine combobox's browser-native `<datalist>` dropdown styling needs a
-  cross-browser acceptability check.
-- About page's "01"/"02" numerals sit close to their card's
-  `overflow-hidden` edge — cosmetic, very low severity.
-- Home's `#framework` timeline (the numbered list, not the step strip)
-  doesn't fill its container width at ≥1536px — minor, cosmetic.
-- `AboutFrameworkThreadSegment`'s fixed `h-20` height is hard-pinned to
-  the row `gap-28` spacing value — if that gap value ever changes, the
-  thread height must be updated to match (not automatically derived).
-- Three explicitly-scoped-but-unbuilt public-page design opportunities,
-  recommended for after authenticated-page design work, not urgent:
-  extending the connector-line motif into `ClosingCta`'s background; a
-  literal connective thread through About's icon circles; a more
-  distinctly-DishFrame navbar active-link treatment and a faint
-  connector texture behind Contact's form background.
+(none open right now)
 
 ## C. Test debt
 
-- `page.test.tsx` and `public-header.test.tsx` assert stale copy ("Start
-  building") against the now-rewritten public-page components and will
-  fail as committed — known, intentional (design was still iterating),
-  but still real test debt.
-- `dish-editor.test.tsx` has one stale assertion querying button names
-  "Expand Sauce"/"Collapse Sauce" that should now read "Edit Sauce."
-- No Playwright/E2E coverage exists for: sharing accept/decline/cancel
-  flows, account deletion (destructive/session-ending flow), several
-  onboarding-adjacent areas, and the Meal Plans/Grocery Lists/Slice
-  16–17 sharing UI generally — integration tests cover the server-side
-  outcomes; manual click-throughs were recommended as a stand-in before
-  production reliance.
-- CoachMark styling/placement has had no responsive/visual design pass.
+- No Playwright/E2E coverage exists for: account deletion
+  (destructive/session-ending flow), several onboarding-adjacent areas,
+  and the Meal Plans/Grocery Lists UI generally — integration tests cover
+  the server-side outcomes; manual click-throughs were recommended as a
+  stand-in before production reliance. (Direct-sharing's own
+  accept/decline/sender-cancel flows now have E2E coverage —
+  `tests/e2e/direct-sharing.spec.ts`, added in the 2026-08-27 second
+  follow-up; see `CODE_AUDIT.md`. Written, not yet run by the owner.)
 
 ## D. Manual QA still to run
 
@@ -112,10 +71,6 @@ Production URL: `https://dish-frame.vercel.app`
   deleted.
 - Chrome/Safari real Print Preview and Save-as-PDF: Letter vs. A4,
   long/nested-Part page breaks, Safari `@page` margin quirks.
-- Full mobile/tablet design audit, dark-theme audit, and a comprehensive
-  accessibility audit for the redesigned public pages — explicitly
-  deferred, not yet done, along with a general manual desktop/mobile
-  browser verification pass of the redesign itself.
 - `/meal-plans`'s "Sync now" affordance discoverability — is it obvious
   enough, or does it read as a dead button when nothing looks stale?
   Judge manually during a review pass.
@@ -123,6 +78,9 @@ Production URL: `https://dish-frame.vercel.app`
   account as a standing fixture — the Slice 21 structural/empty-state
   audits could only reach empty states via a manually-created throwaway
   account.
+- Cuisine combobox's browser-native `<datalist>` dropdown styling needs a
+  cross-browser acceptability check — genuine cross-browser visual
+  judgment, not a speculative code fix.
 
 ## E. Accepted edge cases (not bugs — logged so they aren't rediscovered)
 
@@ -131,16 +89,12 @@ Production URL: `https://dish-frame.vercel.app`
   untouched (`applyGroceryListSourceRefresh`'s "added" fold-in has no
   memory of deliberate removal). Pre-existing since Slice 12, not a
   regression.
-- An `ImageAsset` created via upload-token issuance that's never attached
-  to a saved `DishVersion` (abandoned edit) has no cleanup path — no
-  scheduled-job infrastructure exists yet to sweep it.
-- `DirectShare.frozenImageAssetIds` has no GIN index (unindexed
-  array-containment scan in orphan cleanup) — fine at current
-  personal/family scale, revisit only if volume grows materially.
-- Export's Version-selection dropdown lists every Version with no
-  pagination — untested at large Version-history scale.
 - Print output does not show source-recipe provenance for an
   accepted/imported copy — explicitly out of scope, not a bug.
+- Client-to-client callback props (`onRemove`, `onDetach`, etc.) trigger a
+  false-positive "props must be serializable" warning from the Next.js TS
+  plugin — a known framework/tooling false positive, not a real defect;
+  not worth contorting component architecture to silence.
 
 ## F. Deployment / infrastructure follow-ups
 
@@ -148,18 +102,23 @@ Immediate manual checks after any redeploy:
 
 - Confirm `robots.txt` allows `/`, `/about`, `/contact`, `/privacy`,
   `/terms`, disallows the signed-in app and `/api/*`, and references the
-  production sitemap.
+  production sitemap. (Source-code correctness audited 2026-08-27 — see
+  `robots.ts`/`sitemap.ts` and the `(cook)`/`(share)` layout `noindex`
+  metadata; this is the eventual live-production spot-check, still
+  owner-run.)
 - Confirm `sitemap.xml` lists the public routes at the production
   origin.
 - Spot-check homepage JSON-LD, canonical tags, the Open Graph image (via
   a social-share debugger), the branded 404 page, and `noindex` on
-  private routes (e.g. `/sign-in`).
-- Confirm Speed Insights is enabled for the `dishframe` Vercel project
-  (the `<SpeedInsights />` component is already mounted; the dashboard
-  toggle is separate).
+  private routes (e.g. `/sign-in`) and on public share links (`/s/*`).
 - Check production runtime/build logs after any change to the
   route-level metadata files (`sitemap.xml`, `robots.txt`,
   `manifest.webmanifest`, icons, OG images).
+- Set `CRON_SECRET` as a Vercel project env var (see `.env.example`) and
+  confirm the `cleanup-orphan-images` Vercel Cron entry (`vercel.json`)
+  is registered and firing — check the Vercel dashboard's Cron Jobs tab
+  after the first deploy, since a missing/misconfigured `CRON_SECRET`
+  makes the endpoint 503 rather than fail loudly.
 
 Search launch:
 
@@ -215,29 +174,37 @@ Preview/environment isolation:
 - Decide preview Resend restrictions so preview traffic can't send from
   the production sender identity or notify the real `CONTACT_TO_EMAIL`.
 
-Final brand assets: final typography review (Manrope/Inter are still
-provisional per `BRANDING.md`) and final contrast testing across light
-and dark themes. (Logo, favicon/app-icon set, and social card are
-already final — done.)
-
 ## G. Legal
 
 `/privacy` and `/terms` exist and are grounded in the actual
 implementation (see `BRANDING.md` "Privacy and Terms"), but **neither has
 had professional legal review** — required before any broad commercial
 launch. Also still open: a cookie disclosure (only if/when analytics is
-added, per Monitoring above); a public recipe-sharing policy note (now
-relevant, since direct/link sharing is built).
+added, per Monitoring above).
 
 ## H. Tier 3 / post-launch product ideas (optional, not committed)
 
 Dependent on future product decisions — see `PRODUCT_ROADMAP.md` §8 for
 the full list and rationale. Not scoped into any slice:
 
-- Installable PWA, offline recipe viewing, offline cooking mode, service
-  worker, background sync, wake lock, timer persistence across
-  navigation/refresh, home-screen icons tuned for standalone use —
-  dependent on a future cooking-mode specification.
+- **Structured Dish/account JSON restore/import.** The structured
+  Dish/account JSON export (`importExport/export-dto.ts`) exists, but
+  there is deliberately no restore/import path for that format yet. As
+  established during the 2026-08-27 export audit follow-up, building one
+  is a real, standalone project (Dish/Version/PartLink id-remapping,
+  Tasters, Cooking history, Grocery Lists, Meal Plans, preferences), not
+  an accidental omission. A future restore feature should do a
+  non-destructive restore into fresh ids,
+  remap relationships rather than assume the originals still exist, and
+  recreate any active public-publication state with fresh tokens/links.
+  Direct-sharing relationships (sender/recipient identity) are
+  intentionally not portable — they don't get reconstructed on restore.
+- Offline recipe viewing, offline cooking mode, a service worker,
+  background sync, wake lock, and timer persistence across
+  navigation/refresh remain undone — dependent on a future cooking-mode
+  specification. (Installable-PWA basics — the web app manifest and
+  home-screen/maskable icons tuned for standalone use — already shipped;
+  see "Final brand assets" under section F.)
 - Rotation/meal-planning insights, recipe/cooking statistics, website
   recipe import, automatic ingredient-level nutrition calculation,
   native mobile app, public directory enhancements, advanced cooking
@@ -248,13 +215,25 @@ the full list and rationale. Not scoped into any slice:
 
 ## I. Future audit
 
-- After the remaining logged-in flows finish their design/UX review,
-  perform a final comprehensive engineering/accessibility audit of the
-  application. The public pages and already-completed top-level
-  authenticated pages have already received an architecture/performance,
-  code-hygiene, reliability/data-integrity, Lighthouse, and accessibility
-  review — don't independently redo that work later unless those pages or
-  their shared implementation have materially changed. The future audit
-  should concentrate especially on the flows still being redesigned, then
-  do only the necessary regression/reintegration review of previously
-  audited shared code.
+- **A comprehensive engineering/code-quality audit of the whole repository
+  is done** (2026-08-27, see `CODE_AUDIT.md`) — Recipe/Part core, Cooking
+  Mode, Meal Plans, Grocery Lists, Sharing/Export, shared infra/auth, and
+  tooling/tests/CI/deps were all covered, findings fixed, and a 2026-08-27
+  follow-up pass resolved the three items that needed a product decision
+  (MATERIALIZED PartLink fidelity, the grocery sync-flag gap, and
+  publication state in export — the narrower follow-up item that surfaced
+  while implementing the last of these, the export format's missing
+  restore/import path, has since been resolved as a deliberately deferred
+  Tier 3 feature; see section H). Don't schedule another full-repo
+  engineering audit from scratch; a future pass should scope itself to
+  whatever materially changed since, or to a specific area of concern.
+- The public pages and already-completed top-level authenticated pages
+  have also already received a design/UX/accessibility review
+  (architecture/performance, code-hygiene, reliability/data-integrity,
+  Lighthouse, and accessibility) — don't independently redo that work
+  later unless those pages or their shared implementation have materially
+  changed.
+- What remains open is narrower: once the remaining logged-in flows finish
+  their own design/UX review, do only the necessary regression/
+  reintegration check of previously audited shared code they touch — not
+  a repeat of either audit above.

@@ -25,6 +25,7 @@ describe("DirectShareSingleItemDialog", () => {
         open
         onOpenChange={() => {}}
         dishId="part1"
+        dishVersionId="v1"
         dishKind="PART"
         dishTitle="Pizza Dough"
       />,
@@ -43,7 +44,7 @@ describe("DirectShareSingleItemDialog", () => {
     expect(mockSendCollection).toHaveBeenCalledWith(
       expect.objectContaining({
         recipientEmail: "friend@example.invalid",
-        dishIds: ["part1"],
+        items: [{ dishId: "part1", dishVersionId: "v1" }],
       }),
     );
   });
@@ -54,6 +55,7 @@ describe("DirectShareSingleItemDialog", () => {
         open
         onOpenChange={() => {}}
         dishId="r1"
+        dishVersionId="v1"
         dishKind="RECIPE"
         dishTitle="Grandma's Chili"
       />,

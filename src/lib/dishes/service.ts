@@ -11,9 +11,10 @@ import {
 import {
   getOwnedDishOrThrow,
   getDishScopedVersionContentOrThrow,
+  getDishScopedVersionContentForReuseOrThrow,
   getDishScopedVersionMetaOrThrow,
   sectionContentInclude,
-  partLinkContentInclude,
+  partLinkContentIncludeAllStates,
 } from "@/lib/dishes/queries";
 import {
   assertImageAssetAttachable,
@@ -22,7 +23,13 @@ import {
 } from "@/lib/images/service";
 import { decimalToNumber } from "@/lib/dishes/format";
 import { getDuplicationRatingSnapshot } from "@/lib/reviews/queries";
-import { versionContentToInput } from "@/lib/dishes/mappers";
+import {
+  versionContentToInput,
+  toPartLinkInput,
+  toIngredientInput,
+  type VersionPartLinkRow,
+  type VersionSectionRow,
+} from "@/lib/dishes/mappers";
 import {
   seedMajorVersionNote,
   seedPropagationVersionNote,
@@ -54,6 +61,7 @@ import {
   type RestorableStageValue,
   type DishKindValue,
   type VersionChoiceValue,
+  type PartUsageResolutionValue,
 } from "@/lib/dishes/schema";
 import type { ShareGraph, ShareGraphPartLinkRef } from "@/lib/sharing/graph";
 
@@ -239,6 +247,205 @@ type InsertableSection = Omit<SectionInput, "partLinks"> & {
 
 function isLivePartLink(link: InsertablePartLink): link is PartLinkInput {
   return !("kind" in link && link.kind === "MATERIALIZED");
+}
+
+type VersionPartLinkRowAllStates = Prisma.PartLinkGetPayload<{
+  select: typeof partLinkContentIncludeAllStates.select;
+}>;
+
+/**
+ * Code-audit fidelity fix (2026-08-27): converts one all-states PartLink row
+ * into `InsertablePartLink` — a LIVE row exactly like `toPartLinkInput`
+ * (mappers.ts), a MATERIALIZED row carried through **unchanged**. A
+ * MATERIALIZED row's `materializedContent` is already a fully resolved,
+ * self-contained frozen snapshot (written once by `resolveMaterializedSnapshot`
+ * below and never edited again) — reproducing it faithfully means copying
+ * the JSON verbatim, never re-walking or remapping it, unlike the sharing
+ * engine's `remapRef` (below), which *does* have to rewrite nested LIVE
+ * targets when a copy crosses to a different account.
+ */
+function toInsertablePartLinkInput(
+  row: VersionPartLinkRowAllStates,
+): InsertablePartLink {
+  if (row.linkState === "MATERIALIZED") {
+    return {
+      kind: "MATERIALIZED",
+      lineageId: row.lineageId,
+      position: row.position,
+      multiplier: decimalToNumber(row.multiplier) ?? 1,
+      materializedTitle: row.materializedTitle,
+      materializedVersionLabel: row.materializedVersionLabel,
+      materializedContent: row.materializedContent as Prisma.InputJsonValue,
+    };
+  }
+  return toPartLinkInput(row as VersionPartLinkRow);
+}
+
+/**
+ * Like `versionContentToInput` (mappers.ts) but preserves MATERIALIZED
+ * PartLink occurrences instead of silently dropping them (the bug this fix
+ * addresses) — for callers whose whole purpose is to faithfully reproduce a
+ * Version's content: `duplicateDish`, `promoteHistoricalVersion`,
+ * `resolveMaterializedSnapshot`, `propagateToOneContainer`,
+ * `resolvePartUsageOccurrence`, and `editDish`. `editDish`'s own submitted
+ * `input` is never passed through this — the editor's LIVE-only content has
+ * no use for it — but its *base* Version's content is, so any MATERIALIZED
+ * occurrence the base already held can be split out
+ * (`splitLiveAndMaterialized`) and merged back into the editor's submission
+ * (`mergeMaterializedBack`) rather than silently dropped by an ordinary
+ * edit, matching the fidelity every other reproduce-path here already has.
+ */
+function versionContentToInsertableInput(
+  sections: VersionSectionRow[],
+  partLinks: VersionPartLinkRowAllStates[],
+): { sections: InsertableSection[]; partLinks: InsertablePartLink[] } {
+  const bySectionId = new Map<string, InsertablePartLink[]>();
+  const topLevel: InsertablePartLink[] = [];
+
+  for (const partLink of partLinks) {
+    const input = toInsertablePartLinkInput(partLink);
+    if (partLink.sectionId === null) {
+      topLevel.push(input);
+    } else {
+      const list = bySectionId.get(partLink.sectionId) ?? [];
+      list.push(input);
+      bySectionId.set(partLink.sectionId, list);
+    }
+  }
+
+  return {
+    sections: sections.map((section) => ({
+      lineageId: section.lineageId,
+      name: section.name,
+      guidanceNote: section.guidanceNote,
+      position: section.position,
+      ingredients: section.ingredients
+        .filter((ingredient) => ingredient.substituteForIngredientId === null)
+        .map(toIngredientInput),
+      instructions: section.instructions.map((instruction) => ({
+        lineageId: instruction.lineageId,
+        text: instruction.text,
+        position: instruction.position,
+      })),
+      partLinks: bySectionId.get(section.id) ?? [],
+    })),
+    partLinks: topLevel,
+  };
+}
+
+/**
+ * Splits an all-states section/partLink set into a LIVE-only view (for
+ * existing logic that only understands ordinary linked-Part occurrences —
+ * dup/cycle checks, occurrence matching, retargeting) plus the untouched
+ * MATERIALIZED occurrences set aside by originating Section (`undefined` key
+ * for top-level), so they can be merged back into the exact same location
+ * afterward via `mergeMaterializedBack`. Used by `propagateToOneContainer`
+ * and `resolvePartUsageOccurrence`, which only ever inspect/mutate LIVE
+ * occurrences but must not silently drop an unrelated MATERIALIZED one
+ * elsewhere in the same Version when they reconstruct its content.
+ *
+ * `editDish` uses this against its *base* Version too, but only for the
+ * `materializedBySectionLineage`/`materializedTopLevel` half — its returned
+ * `liveSections` there is read purely for each base Section's own
+ * name/guidanceNote/position (to resurrect a Section the editor's
+ * submission dropped entirely because it held nothing but a MATERIALIZED
+ * occurrence), never mutated-then-merged-back the way the other two callers
+ * use it.
+ */
+function splitLiveAndMaterialized(
+  sections: InsertableSection[],
+  topLevelPartLinks: InsertablePartLink[],
+): {
+  liveSections: SectionInput[];
+  liveTopLevel: PartLinkInput[];
+  materializedBySectionLineage: Map<string, MaterializedPartLinkInsert[]>;
+  materializedTopLevel: MaterializedPartLinkInsert[];
+} {
+  const materializedBySectionLineage = new Map<
+    string,
+    MaterializedPartLinkInsert[]
+  >();
+
+  const liveSections: SectionInput[] = sections.map((section) => {
+    const live: PartLinkInput[] = [];
+    const materialized: MaterializedPartLinkInsert[] = [];
+    for (const link of section.partLinks) {
+      if (isLivePartLink(link)) live.push(link);
+      else materialized.push(link);
+    }
+    if (materialized.length > 0) {
+      // Always set on already-persisted content, which is all this function
+      // ever sees (never freshly-authored, not-yet-saved editor content).
+      materializedBySectionLineage.set(section.lineageId!, materialized);
+    }
+    return { ...section, partLinks: live };
+  });
+
+  const liveTopLevel: PartLinkInput[] = [];
+  const materializedTopLevel: MaterializedPartLinkInsert[] = [];
+  for (const link of topLevelPartLinks) {
+    if (isLivePartLink(link)) liveTopLevel.push(link);
+    else materializedTopLevel.push(link);
+  }
+
+  return {
+    liveSections,
+    liveTopLevel,
+    materializedBySectionLineage,
+    materializedTopLevel,
+  };
+}
+
+/** Inverse of `splitLiveAndMaterialized` — re-attaches the untouched
+ * MATERIALIZED occurrences, matched back to their originating Section by
+ * `lineageId`. Callers that might remove a Section entirely (e.g.
+ * `removeEmptySections`) must account for a materialized occurrence keeping
+ * that Section non-empty *before* calling this — see
+ * `removeEmptySectionsPreservingMaterialized`. `editDish` takes a different
+ * path to the same guarantee: its submitted Sections were already sanitized
+ * before this fix ever runs (the editor can only ever submit its own
+ * LIVE-only view, so a Section holding nothing but a MATERIALIZED occurrence
+ * is never resubmitted at all, not merely emptied) — so instead of guarding
+ * removal beforehand, `editDish` resurrects any such Section afterward by
+ * lineageId, alongside this merge. */
+function mergeMaterializedBack(
+  sections: SectionInput[],
+  topLevelPartLinks: PartLinkInput[],
+  materializedBySectionLineage: Map<string, MaterializedPartLinkInsert[]>,
+  materializedTopLevel: MaterializedPartLinkInsert[],
+): { sections: InsertableSection[]; partLinks: InsertablePartLink[] } {
+  return {
+    sections: sections.map((section) => ({
+      ...section,
+      partLinks: [
+        ...section.partLinks,
+        ...(materializedBySectionLineage.get(section.lineageId!) ?? []),
+      ],
+    })),
+    partLinks: [...topLevelPartLinks, ...materializedTopLevel],
+  };
+}
+
+/**
+ * `removeEmptySections` (schema.ts) only sees a Section's LIVE content, so
+ * used directly against a LIVE-only view it would incorrectly drop a Section
+ * whose only remaining content is a MATERIALIZED occurrence being carried
+ * through by `splitLiveAndMaterialized`/`mergeMaterializedBack` — silently
+ * losing it despite this whole fix's purpose. This variant additionally
+ * counts a Section as non-empty when it has a materialized occurrence set
+ * aside for it.
+ */
+function removeEmptySectionsPreservingMaterialized(
+  sections: SectionInput[],
+  materializedBySectionLineage: Map<string, MaterializedPartLinkInsert[]>,
+): SectionInput[] {
+  return sections.filter(
+    (section) =>
+      section.ingredients.length > 0 ||
+      section.instructions.length > 0 ||
+      section.partLinks.length > 0 ||
+      (materializedBySectionLineage.get(section.lineageId!)?.length ?? 0) > 0,
+  );
 }
 
 /**
@@ -920,7 +1127,35 @@ export async function editDish(
   // historical Version does not become "stale" just because later Versions
   // exist; concurrency is handled at allocation time (`withVersionAllocation`
   // below), not by rejecting an otherwise-valid base here.
-  const base = await getDishScopedVersionContentOrThrow(dish.id, baseVersionId);
+  const base = await getDishScopedVersionContentForReuseOrThrow(
+    dish.id,
+    baseVersionId,
+  );
+
+  // Code-audit fidelity fix (2026-08-27 follow-up): `base` now reads both
+  // PartLink states so an existing MATERIALIZED occurrence can be carried
+  // forward into any new Version this function creates below — the editor
+  // only ever submits LIVE content, so an ordinary edit was previously
+  // dropping any MATERIALIZED occurrence the base Version already held.
+  // Classification/diffing below still needs a LIVE-only view of `base`
+  // (the editor genuinely never shows a MATERIALIZED occurrence, so it must
+  // never register as a "removed" live change) — `baseLivePartLinks` is
+  // that view. `materializedBySectionLineage`/`materializedTopLevel` (via
+  // the same `versionContentToInsertableInput`/`splitLiveAndMaterialized`
+  // pair the reproduce-paths above use) are merged back into the submitted
+  // content in the version-creation branch below.
+  const baseLivePartLinks = base.partLinks.filter(
+    (link) => link.linkState === "LIVE",
+  );
+  const {
+    sections: baseInsertableSections,
+    partLinks: baseInsertableTopLevel,
+  } = versionContentToInsertableInput(base.sections, base.partLinks);
+  const {
+    liveSections: baseSectionMetaByLineage,
+    materializedBySectionLineage,
+    materializedTopLevel,
+  } = splitLiveAndMaterialized(baseInsertableSections, baseInsertableTopLevel);
 
   const sections = sanitizedSectionsOrThrow(input);
   const nutrition = normalizeNutritionOrThrow(input);
@@ -968,7 +1203,7 @@ export async function editDish(
     (base.nutritionSourceName ?? null) !== nutrition.nutritionSourceName;
 
   const { cookingChanged, sectionOrganizationChanged } = diffVersionContent(
-    versionContentToInput(base.sections, base.partLinks),
+    versionContentToInput(base.sections, baseLivePartLinks),
     { sections, partLinks: input.partLinks },
   );
   // Material preparation content — Ingredients/Instructions/linked Parts
@@ -1149,11 +1384,54 @@ export async function editDish(
       },
     });
 
+    // Code-audit fidelity fix: merge the base Version's untouched
+    // MATERIALIZED occurrences back into the editor's submitted LIVE
+    // content before writing the new Version — same merge semantics as
+    // `propagateToOneContainer`/`resolvePartUsageOccurrence` above. Unlike
+    // those two (which only ever retarget/remove one LIVE occurrence within
+    // an otherwise-unchanged Section set), an ordinary edit can add/remove
+    // whole Sections — a Section holding nothing but a MATERIALIZED
+    // occurrence looks empty to the editor and is never resubmitted, so
+    // `mergeMaterializedBack`'s lineageId match alone would lose it. Any
+    // base Section whose lineageId doesn't survive into the submission is
+    // resurrected here, carrying forward only its frozen MATERIALIZED
+    // content — never its own since-removed LIVE content, which the user's
+    // edit already intentionally dropped.
+    const submittedSectionLineageIds = new Set(
+      sections
+        .map((section) => section.lineageId)
+        .filter((id): id is string => !!id),
+    );
+    const resurrectedSections: InsertableSection[] = baseSectionMetaByLineage
+      .filter(
+        (section) =>
+          section.lineageId &&
+          !submittedSectionLineageIds.has(section.lineageId) &&
+          (materializedBySectionLineage.get(section.lineageId)?.length ?? 0) >
+            0,
+      )
+      .map((section) => ({
+        lineageId: section.lineageId,
+        name: section.name,
+        guidanceNote: section.guidanceNote,
+        position: section.position,
+        ingredients: [],
+        instructions: [],
+        partLinks: materializedBySectionLineage.get(section.lineageId!) ?? [],
+      }));
+    const { sections: mergedSections, partLinks: mergedTopLevel } =
+      mergeMaterializedBack(
+        sections,
+        input.partLinks,
+        materializedBySectionLineage,
+        materializedTopLevel,
+      );
+
     const { sectionNames, partLinkTargetDishIds } = await insertSections(
       tx,
       version.id,
-      sections,
-      input.partLinks,
+      [...mergedSections, ...resurrectedSections],
+      mergedTopLevel,
       { mintFreshLineage: false },
     );
 
@@ -1347,13 +1625,19 @@ export async function promoteHistoricalVersion(
   kind?: DishKindValue,
 ): Promise<string> {
   const dish = await getOwnedDishOrThrow(ownerId, dishId, kind);
-  const base = await getDishScopedVersionContentOrThrow(dish.id, versionId);
+  const base = await getDishScopedVersionContentForReuseOrThrow(
+    dish.id,
+    versionId,
+  );
   // Slice 6: PartLinks are copied verbatim, exactly like every other
   // content field here — no cycle re-check needed, since this exact set of
   // targets already passed cycle validation when the historical Version
   // was originally created for this same Dish, and nothing about the
-  // targets changes here.
-  const { sections, partLinks } = versionContentToInput(
+  // targets changes here. Code-audit fidelity fix: a MATERIALIZED
+  // occurrence (a historical Version can legitimately hold one, unlike a
+  // Dish's current Version) is preserved verbatim rather than silently
+  // dropped.
+  const { sections, partLinks } = versionContentToInsertableInput(
     base.sections,
     base.partLinks,
   );
@@ -1460,14 +1744,24 @@ async function propagateToOneContainer(
       };
     }
 
-    const base = await getDishScopedVersionContentOrThrow(
+    const base = await getDishScopedVersionContentForReuseOrThrow(
       container.id,
       container.currentVersionId,
     );
-    const { sections, partLinks } = versionContentToInput(
-      base.sections,
-      base.partLinks,
-    );
+    // Code-audit fidelity fix: retargeting only ever touches a LIVE
+    // occurrence's target, so the retarget logic below runs against a
+    // LIVE-only view exactly as before — but any unrelated MATERIALIZED
+    // occurrence elsewhere in this container's content is set aside here
+    // and merged back in (`mergeMaterializedBack`) rather than silently
+    // dropped when this container's new Version is written.
+    const { sections: allSections, partLinks: allTopLevel } =
+      versionContentToInsertableInput(base.sections, base.partLinks);
+    const {
+      liveSections: sections,
+      liveTopLevel: partLinks,
+      materializedBySectionLineage,
+      materializedTopLevel,
+    } = splitLiveAndMaterialized(allSections, allTopLevel);
 
     let matchedCount = 0;
     let changedCount = 0;
@@ -1582,11 +1876,18 @@ async function propagateToOneContainer(
         },
       });
 
+      const { sections: finalSections, partLinks: finalTopLevel } =
+        mergeMaterializedBack(
+          retargetedSections,
+          retargetedTopLevel,
+          materializedBySectionLineage,
+          materializedTopLevel,
+        );
       const { sectionNames, partLinkTargetDishIds } = await insertSections(
         tx,
         version.id,
-        retargetedSections,
-        retargetedTopLevel,
+        finalSections,
+        finalTopLevel,
         { mintFreshLineage: false },
       );
 
@@ -1799,7 +2100,7 @@ export async function duplicateDish(
     where: { id: versionId, dishId: dish.id },
     include: {
       sections: sectionContentInclude,
-      partLinks: partLinkContentInclude,
+      partLinks: partLinkContentIncludeAllStates,
     },
   });
   if (!sourceVersion) {
@@ -1810,8 +2111,11 @@ export async function duplicateDish(
   // applied to images here): a brand-new Dish id can never already be
   // reachable from any pre-existing PartLink graph, so copying these exact
   // targets onto a new Dish can never introduce a cycle — no re-check
-  // needed, same as `createDish`.
-  const { sections, partLinks } = versionContentToInput(
+  // needed, same as `createDish`. Code-audit fidelity fix: a MATERIALIZED
+  // occurrence is preserved verbatim (`versionContentToInsertableInput`)
+  // rather than silently dropped — it has no live target of its own to
+  // cycle-check anyway.
+  const { sections, partLinks } = versionContentToInsertableInput(
     sourceVersion.sections,
     sourceVersion.partLinks,
   );
@@ -2255,8 +2559,6 @@ export async function deleteDish(
 // transaction: re-query, abort if any current usage remains, materialize
 // every remaining (necessarily historical) LIVE reference, then delete.
 
-export type PartUsageResolutionKind = "DETACH" | "REPLACE" | "REMOVE";
-
 function nextTopLevelPosition(
   sections: SectionInput[],
   topLevelPartLinks: PartLinkInput[],
@@ -2361,7 +2663,7 @@ export async function resolvePartUsageOccurrence(
   partDishId: string,
   containerDishId: string,
   lineageId: string,
-  resolution: PartUsageResolutionKind,
+  resolution: PartUsageResolutionValue,
   versionChoice: VersionChoiceValue,
   replacement?: { targetDishId: string; targetDishVersionId: string },
 ): Promise<{ containerDishId: string; newVersionId: string }> {
@@ -2370,14 +2672,26 @@ export async function resolvePartUsageOccurrence(
   if (!container.currentVersionId) {
     throw new NotFoundError("This item has no saved content.");
   }
-  const base = await getDishScopedVersionContentOrThrow(
+  const base = await getDishScopedVersionContentForReuseOrThrow(
     container.id,
     container.currentVersionId,
   );
-  const { sections, partLinks } = versionContentToInput(
-    base.sections,
-    base.partLinks,
-  );
+  // Code-audit fidelity fix: this resolution only ever targets one LIVE
+  // occurrence (a MATERIALIZED one has no live target to detach/replace/
+  // remove), so everything below runs against a LIVE-only view exactly as
+  // before — but any unrelated MATERIALIZED occurrence elsewhere in this
+  // container's content is set aside here and merged back in
+  // (`removeEmptySectionsPreservingMaterialized`/`mergeMaterializedBack`)
+  // rather than silently dropped when this container's new Version is
+  // written.
+  const { sections: allSections, partLinks: allTopLevel } =
+    versionContentToInsertableInput(base.sections, base.partLinks);
+  const {
+    liveSections: sections,
+    liveTopLevel: partLinks,
+    materializedBySectionLineage,
+    materializedTopLevel,
+  } = splitLiveAndMaterialized(allSections, allTopLevel);
 
   const isThisOccurrence = (link: PartLinkInput) =>
     link.lineageId === lineageId && link.targetDishId === partDish.id;
@@ -2490,7 +2804,10 @@ export async function resolvePartUsageOccurrence(
     actionNote = `Detached ${partTitle} (being deleted).`;
   }
 
-  const sanitizedSections = removeEmptySections(updatedSections);
+  const sanitizedSections = removeEmptySectionsPreservingMaterialized(
+    updatedSections,
+    materializedBySectionLineage,
+  );
   if (!hasMinimumContent(sanitizedSections, updatedTopLevel)) {
     throw new ValidationError(
       "Resolving this occurrence would leave the item with no content — detach or replace instead of removing.",
@@ -2532,11 +2849,18 @@ export async function resolvePartUsageOccurrence(
       },
     });
 
+    const { sections: finalSections, partLinks: finalTopLevel } =
+      mergeMaterializedBack(
+        sanitizedSections,
+        updatedTopLevel,
+        materializedBySectionLineage,
+        materializedTopLevel,
+      );
     const { sectionNames, partLinkTargetDishIds } = await insertSections(
       tx,
       version.id,
-      sanitizedSections,
-      updatedTopLevel,
+      finalSections,
+      finalTopLevel,
       { mintFreshLineage: false },
     );
 
@@ -2579,10 +2903,17 @@ async function resolveMaterializedSnapshot(
     where: { id: targetDishVersionId },
     include: {
       sections: sectionContentInclude,
-      partLinks: partLinkContentInclude,
+      partLinks: partLinkContentIncludeAllStates,
     },
   });
-  const content = versionContentToInput(version.sections, version.partLinks);
+  // Code-audit fidelity fix: this Part's own current content can already
+  // hold a MATERIALIZED occurrence from an earlier, unrelated deletion (a
+  // second-level Part-in-Part chain) — preserved verbatim into the new
+  // frozen snapshot rather than silently dropped.
+  const content = versionContentToInsertableInput(
+    version.sections,
+    version.partLinks,
+  );
   return {
     content: JSON.parse(JSON.stringify(content)) as Prisma.InputJsonValue,
     versionLabelText: versionLabel(version.majorVersion, version.minorVersion),

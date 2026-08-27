@@ -3,9 +3,10 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { Printer } from "lucide-react";
 import { getServerSession } from "@/lib/auth/session";
-import { resolvePublicShare } from "@/lib/sharing/service";
-import { prisma } from "@/lib/db/prisma";
-import { parseShareToken } from "@/lib/sharing/tokens";
+import {
+  resolvePublicShare,
+  getShareAcceptanceState,
+} from "@/lib/sharing/service";
 import { PublicShareView } from "@/components/domain/sharing/public-share-view";
 import { SaveSharedCopyButton } from "@/components/domain/sharing/save-shared-copy-button";
 import { Button } from "@/components/ui/button";
@@ -55,41 +56,16 @@ export default async function PublicSharePage({
   const session = await getServerSession();
 
   // Gate 7 §2.8: one acceptance per recipient per share, durably — a
-  // recipient can be in one of three states here, not two. Correction
-  // pass: `acceptance.createdDishId` can be null (the acceptance ROW
-  // survives deleting the copied Dish, `onDelete: SetNull` — schema.prisma's
-  // own doc comment on `ShareLinkAcceptance`) — that must show the truthful
-  // "you saved this, but deleted it" state, never fall through to a second
-  // Save action.
-  type ShareState = "SAVE" | "ALREADY_SAVED" | "PREVIOUSLY_ACCEPTED_DELETED";
-  let shareState: ShareState = "SAVE";
-  let alreadyAcceptedDishId: string | null = null;
-  if (session) {
-    const tokenId = parseShareToken(token);
-    if (tokenId) {
-      const shareLink = await prisma.shareLink.findUnique({
-        where: { tokenId },
-        select: { id: true },
-      });
-      if (shareLink) {
-        const acceptance = await prisma.shareLinkAcceptance.findUnique({
-          where: {
-            shareLinkId_recipientId: {
-              shareLinkId: shareLink.id,
-              recipientId: session.user.id,
-            },
-          },
-          select: { createdDishId: true },
-        });
-        if (acceptance?.createdDishId) {
-          shareState = "ALREADY_SAVED";
-          alreadyAcceptedDishId = acceptance.createdDishId;
-        } else if (acceptance) {
-          shareState = "PREVIOUSLY_ACCEPTED_DELETED";
-        }
-      }
-    }
-  }
+  // recipient can be in one of three states here, not two (see
+  // `getShareAcceptanceState`'s own doc comment for why).
+  const acceptanceState = session
+    ? await getShareAcceptanceState(token, session.user.id)
+    : { state: "SAVE" as const };
+  const shareState = acceptanceState.state;
+  const alreadyAcceptedDishId =
+    acceptanceState.state === "ALREADY_SAVED"
+      ? acceptanceState.acceptedDishId
+      : null;
 
   return (
     <>

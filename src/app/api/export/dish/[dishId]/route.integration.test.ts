@@ -120,7 +120,7 @@ describe("GET /api/export/dish/[dishId]", () => {
     const dto = await response.json();
 
     expect(dto.format).toBe("dishframe.dish-export");
-    expect(dto.formatVersion).toBe(1);
+    expect(dto.formatVersion).toBe(2);
     expect(dto.exportedAt).toBeTruthy();
     expect(dto.scope.versionMode).toBe("SINGLE");
     expect(dto.scope.versionId).toBe(dish.currentVersionId);

@@ -21,6 +21,18 @@ function sortByCreatedAtDesc<T extends { createdAt: string }>(items: T[]): T[] {
   );
 }
 
+/** Shared by the Sent/Received group cards to tally a collection's children
+ * by status (e.g. counting how many are still `PENDING`). */
+export function statusCounts<T extends { status: DirectShareStatusValue }>(
+  children: T[],
+): Partial<Record<DirectShareStatusValue, number>> {
+  const counts: Partial<Record<DirectShareStatusValue, number>> = {};
+  for (const child of children) {
+    counts[child.status] = (counts[child.status] ?? 0) + 1;
+  }
+  return counts;
+}
+
 export type SentShareChild = {
   id: string;
   dishTitleSnapshot: string;

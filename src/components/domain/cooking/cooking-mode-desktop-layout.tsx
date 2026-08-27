@@ -80,7 +80,7 @@ export type CookingLayoutProps = {
   liveTimers: Map<string, LiveTimerState>;
 };
 
-/** ARCHITECTURE_PROPOSAL.md §C.8 — the three-zone desktop workspace (`lg:` and up); `TabletCookingLayout`/`MobileCookingLayout` reuse this file's `NavList`/`TimerList`/`RecipePanel`/`SectionPanel` exports for narrower ranges. */
+/** ARCHITECTURE_PROPOSAL.md §C.8 — the three-zone desktop workspace (`lg:` and up); `TabletCookingLayout`/`MobileCookingLayout` reuse this file's `NavList`/`TimerList`/`RecipePanel`/`ConnectedSectionPanel` exports for narrower ranges. */
 export function DesktopCookingLayout({
   sessionId,
   isActive,
@@ -162,26 +162,20 @@ export function DesktopCookingLayout({
               onSelectDestination={onSelectDestination}
             />
           ) : selectedUnit ? (
-            <SectionPanel
+            <ConnectedSectionPanel
               unit={selectedUnit}
               isActive={isActive}
               isChecked={isChecked}
               onToggleItem={onToggleItem}
-              onMarkAllPrepared={() => onMarkAllPrepared(selectedUnit)}
-              onResetAll={() => onResetAll(selectedUnit)}
-              collapsed={collapsedIngredientUnits.has(selectedUnit.id)}
-              onToggleIngredientsCollapsed={() =>
-                onToggleIngredientsCollapsed(selectedUnit.id)
-              }
-              onMarkAllInstructions={() => onMarkAllInstructions(selectedUnit)}
-              onResetInstructions={() => onResetInstructions(selectedUnit)}
-              instructionsCollapsed={collapsedInstructionUnits.has(
-                selectedUnit.id,
-              )}
-              onToggleInstructionsCollapsed={() =>
-                onToggleInstructionsCollapsed(selectedUnit.id)
-              }
-              onOpenUnitScale={() => onOpenUnitScale(selectedUnit)}
+              onMarkAllPrepared={onMarkAllPrepared}
+              onResetAll={onResetAll}
+              collapsedIngredientUnits={collapsedIngredientUnits}
+              onToggleIngredientsCollapsed={onToggleIngredientsCollapsed}
+              onMarkAllInstructions={onMarkAllInstructions}
+              onResetInstructions={onResetInstructions}
+              collapsedInstructionUnits={collapsedInstructionUnits}
+              onToggleInstructionsCollapsed={onToggleInstructionsCollapsed}
+              onOpenUnitScale={onOpenUnitScale}
               onSetUnitCompletion={onSetUnitCompletion}
               isPending={isPending}
             />
@@ -616,6 +610,70 @@ export function SectionPanel({
         </div>
       )}
     </>
+  );
+}
+
+/**
+ * Adapts `CookingLayoutProps`' unit-taking callbacks (which apply to
+ * whichever unit is selected across the whole layout) to `SectionPanel`'s
+ * no-arg callbacks bound to one specific `unit` — shared by all three
+ * responsive layouts so this wiring exists in one place.
+ */
+export function ConnectedSectionPanel({
+  unit,
+  isActive,
+  isChecked,
+  onToggleItem,
+  onMarkAllPrepared,
+  onResetAll,
+  collapsedIngredientUnits,
+  onToggleIngredientsCollapsed,
+  onMarkAllInstructions,
+  onResetInstructions,
+  collapsedInstructionUnits,
+  onToggleInstructionsCollapsed,
+  onOpenUnitScale,
+  onSetUnitCompletion,
+  isPending,
+}: {
+  unit: CookingModeUnit;
+} & Pick<
+  CookingLayoutProps,
+  | "isActive"
+  | "isChecked"
+  | "onToggleItem"
+  | "onMarkAllPrepared"
+  | "onResetAll"
+  | "collapsedIngredientUnits"
+  | "onToggleIngredientsCollapsed"
+  | "onMarkAllInstructions"
+  | "onResetInstructions"
+  | "collapsedInstructionUnits"
+  | "onToggleInstructionsCollapsed"
+  | "onOpenUnitScale"
+  | "onSetUnitCompletion"
+  | "isPending"
+>) {
+  return (
+    <SectionPanel
+      unit={unit}
+      isActive={isActive}
+      isChecked={isChecked}
+      onToggleItem={onToggleItem}
+      onMarkAllPrepared={() => onMarkAllPrepared(unit)}
+      onResetAll={() => onResetAll(unit)}
+      collapsed={collapsedIngredientUnits.has(unit.id)}
+      onToggleIngredientsCollapsed={() => onToggleIngredientsCollapsed(unit.id)}
+      onMarkAllInstructions={() => onMarkAllInstructions(unit)}
+      onResetInstructions={() => onResetInstructions(unit)}
+      instructionsCollapsed={collapsedInstructionUnits.has(unit.id)}
+      onToggleInstructionsCollapsed={() =>
+        onToggleInstructionsCollapsed(unit.id)
+      }
+      onOpenUnitScale={() => onOpenUnitScale(unit)}
+      onSetUnitCompletion={onSetUnitCompletion}
+      isPending={isPending}
+    />
   );
 }
 

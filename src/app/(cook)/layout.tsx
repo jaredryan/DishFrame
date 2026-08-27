@@ -1,7 +1,15 @@
+import type { Metadata } from "next";
 import { getServerSession } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 import { OnboardingProvider } from "@/components/onboarding/onboarding-provider";
 import type { OnboardingState } from "@/lib/preferences/onboarding-guides";
+
+export const metadata: Metadata = {
+  robots: {
+    index: false,
+    follow: false,
+  },
+};
 
 /**
  * No shell chrome here (cooking mode is intentionally full-bleed, unlike

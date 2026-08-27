@@ -10,6 +10,10 @@ import {
 } from "@/lib/reviews/queries";
 import { getLastCookedAtForDishes } from "@/lib/cooking/queries";
 import { ratingNumericValue } from "@/lib/dishes/library-filters";
+import { listDistinctCuisines } from "@/lib/dishes/queries";
+import { listTags } from "@/lib/tags/queries";
+import { listFlavorProfileValues } from "@/lib/flavor-profiles/queries";
+import type { MealPlanDetailDto } from "@/lib/mealplans/schema";
 
 /**
  * Meal Plan domain queries (BUILD_PLAN.md Slice 15, ARCHITECTURE_PROPOSAL.md
@@ -45,6 +49,75 @@ export const getOwnedMealPlanOrThrow = cache(
 );
 export type OwnedMealPlan = Awaited<ReturnType<typeof getOwnedMealPlanOrThrow>>;
 export type OwnedMealPlanEntry = OwnedMealPlan["entries"][number];
+
+// Shared by the view, edit, and (implicitly, via `mode="create"`) new pages
+// so the Prisma-row-to-DTO mapping lives in one place.
+export function toMealPlanDetailDto(
+  mealPlan: OwnedMealPlan,
+): MealPlanDetailDto {
+  return {
+    id: mealPlan.id,
+    title: mealPlan.title,
+    startDate: mealPlan.startDate.toISOString(),
+    endDate: mealPlan.endDate.toISOString(),
+    notes: mealPlan.notes,
+    entries: mealPlan.entries.map((entry) => ({
+      id: entry.id,
+      dishId: entry.dishId,
+      dishVersionId: entry.dishVersionId,
+      dishKind: entry.sourceDishKindSnapshot,
+      title: entry.sourceDishTitleSnapshot,
+      versionLabel: entry.sourceDishVersionLabelSnapshot,
+      cookDate: entry.cookDate.toISOString(),
+      targetYieldQuantity: decimalToNumber(entry.targetYieldQuantity),
+      targetYieldUnit: entry.targetYieldUnit,
+      note: entry.note,
+      status: entry.status,
+      linkedSessionId: entry.linkedSessionId,
+      plannedMeals: entry.plannedMeals.map((meal) => ({
+        id: meal.id,
+        label: meal.label,
+        date: meal.date.toISOString(),
+        servings: decimalToNumber(meal.servings) ?? 0,
+      })),
+    })),
+    linkedGroceryLists: mealPlan.linkedGroceryLists.map((list) => ({
+      id: list.id,
+      title: list.title,
+      mode: list.mode,
+      completedAt: list.completedAt?.toISOString() ?? null,
+    })),
+  };
+}
+
+// Shared by the new/edit Meal Plan editor pages — the candidate pool plus
+// filter option lists the editor's pickers need, fully mapped to the shapes
+// `MealPlanEditor` expects.
+export async function loadMealPlanEditorOptions(ownerId: string) {
+  const [candidates, tags, recipeCuisines, partCuisines, flavorProfiles] =
+    await Promise.all([
+      listMealPlanEntryCandidates(ownerId),
+      listTags(ownerId),
+      listDistinctCuisines(ownerId, "RECIPE"),
+      listDistinctCuisines(ownerId, "PART"),
+      listFlavorProfileValues(ownerId),
+    ]);
+
+  return {
+    candidates,
+    tagOptions: tags.map((tag) => ({
+      id: tag.id,
+      displayName: tag.displayName,
+    })),
+    cuisineOptions: [...new Set([...recipeCuisines, ...partCuisines])].sort(
+      (a, b) => a.localeCompare(b),
+    ),
+    flavorProfileOptions: flavorProfiles.map((value) => ({
+      id: value.id,
+      displayName: value.displayName,
+    })),
+  };
+}
 
 // Slice 22 logged-in polish pass — split into Active/Completed (mirroring
 // `grocery/queries.ts#listGroceryListsForOwner`'s shape), reusing

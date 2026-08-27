@@ -146,10 +146,11 @@ export async function revokeOtherAuthSessions(): Promise<void> {
 /**
  * Every distinct ImageAsset this account's own Versions reference, plus
  * every ImageAsset this account ever uploaded (even one never attached to
- * any saved Version — an accepted gap for ordinary per-Dish deletion,
- * `images/service.ts`, since Tier 1 has no sweep job for it; account
- * deletion is the one natural point where a full one-time sweep is cheap
- * and in scope for PRODUCT_SPEC.md §91's "images" bullet). Gathered before
+ * any saved Version — ordinarily left for the scheduled
+ * `cleanupAbandonedImageAssets` sweep, `images/service.ts`, but account
+ * deletion is a natural point to also do a full one-time sweep immediately
+ * rather than wait for that job, in scope for PRODUCT_SPEC.md §91's
+ * "images" bullet). Gathered before
  * the cascade below removes this account's own DishVersion rows —
  * `deleteImageAssetIfOrphaned`'s reference count needs a candidate list,
  * not a live query against rows that no longer exist.

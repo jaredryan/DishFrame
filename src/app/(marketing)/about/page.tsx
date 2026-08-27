@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import type { Metadata } from "next";
 import { CalendarDays, ChefHat, History, Layers } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -185,7 +186,10 @@ export default function AboutPage() {
             The framework underneath every dish.
           </h2>
 
-          <div className="mt-14 flex flex-col gap-28">
+          <div
+            className="mt-14 flex flex-col gap-[var(--framework-gap)]"
+            style={{ "--framework-gap": "7rem" } as CSSProperties}
+          >
             {STEPS.map(
               ({ title, accent, ring, icon: Icon, body, Visual }, index) => (
                 <div
