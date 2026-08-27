@@ -1075,7 +1075,7 @@ secondary contexts where benefit-oriented phrasing fits better than the H1):
 
 Supporting copy:
 
-> Turn scattered notes into structured, living Recipes you can cook from, improve over time, plan around, and share with the people you feed.
+> Turn scattered notes into structured, living recipes you can cook from, improve over time, plan around, and share with the people you feed.
 
 Primary action (signed out):
 
@@ -1373,7 +1373,7 @@ Should define technical architecture, database schema, authentication, APIs, sto
 - Approved supporting brand language (Slice 21 original headline, retained —
   used in metadata/`<title>`/OG, not the visible H1): **Recipes that get
   better every time you cook.**
-- Public hero description (Slice 21): **Turn scattered notes into structured, living Recipes you can cook from, improve over time, plan around, and share with the people you feed.**
+- Public hero description (Slice 21): **Turn scattered notes into structured, living recipes you can cook from, improve over time, plan around, and share with the people you feed.**
 - Short brand line (Slice 21): **Cook. Refine. Repeat.**
 - Core loop (Slice 21): **Build → Cook → Improve**, expanded as **Plan → Shop → Cook → Review → Refine**
 - Public-site visual direction (Slice 21): a restrained "connected framework" motif — thin connector lines and small circular nodes linking modular Recipe/Section/Part cards, reused consistently across the hero, workflow, and Parts sections; no picture-frame imagery, no fake dashboard, no stock food photography

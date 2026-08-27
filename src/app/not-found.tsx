@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Wordmark } from "@/components/branding/wordmark";
 import { NotFoundContent } from "@/components/layout/not-found-content";
+import { PublicFooter } from "@/components/layout/public-footer";
 
 export const metadata: Metadata = {
   title: "Page not found",
@@ -13,6 +14,7 @@ export default function NotFound() {
         <Wordmark />
       </header>
       <NotFoundContent as="main" homeHref="/" />
+      <PublicFooter />
     </div>
   );
 }

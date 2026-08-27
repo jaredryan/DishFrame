@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/cron/cleanup-orphan-images",
-      "schedule": "0 9 * * *"
+      "schedule": "0 12 * * *"
     }
   ]
 }
