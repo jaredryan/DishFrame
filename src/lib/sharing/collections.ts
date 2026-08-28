@@ -169,18 +169,46 @@ export async function sendDirectShareCollection(
 
   const recipientEmail = normalizeEmail(input.recipientEmail);
 
-  const sender = await prisma.user.findUnique({
-    where: { id: senderId },
-    select: { email: true },
-  });
+  // Minor sharing-send optimization (docs/performance-architecture-audit.md):
+  // none of these five reads depends on another's result, so they run
+  // together instead of as five sequential round trips. Validation order
+  // (and therefore which error message surfaces first when more than one
+  // problem exists) stays exactly as before — only the fetching moved
+  // earlier/parallel, not the throw order below.
+  const [sender, dishes, chosenVersions, existingPending, recipient] =
+    await Promise.all([
+      prisma.user.findUnique({
+        where: { id: senderId },
+        select: { email: true },
+      }),
+      prisma.dish.findMany({
+        where: { id: { in: dishIds }, ownerId: senderId },
+        select: { id: true, currentTitle: true },
+      }),
+      // Each explicit Version choice must actually belong to its own Dish.
+      prisma.dishVersion.findMany({
+        where: { id: { in: items.map((item) => item.dishVersionId) } },
+        select: { id: true, dishId: true },
+      }),
+      prisma.directShare.findFirst({
+        where: {
+          senderId,
+          dishId: { in: dishIds },
+          recipientLookup: recipientEmail,
+          status: "PENDING",
+        },
+        select: { id: true },
+      }),
+      prisma.user.findFirst({
+        where: { email: { equals: recipientEmail, mode: "insensitive" } },
+        select: { id: true },
+      }),
+    ]);
+
   if (sender && normalizeEmail(sender.email) === recipientEmail) {
     throw new ValidationError("You can't send a share to yourself.");
   }
 
-  const dishes = await prisma.dish.findMany({
-    where: { id: { in: dishIds }, ownerId: senderId },
-    select: { id: true, currentTitle: true },
-  });
   if (dishes.length !== dishIds.length) {
     throw new NotFoundError(
       "One or more selected items are not available to share.",
@@ -188,11 +216,6 @@ export async function sendDirectShareCollection(
   }
   const dishById = new Map(dishes.map((dish) => [dish.id, dish]));
 
-  // Each explicit Version choice must actually belong to its own Dish.
-  const chosenVersions = await prisma.dishVersion.findMany({
-    where: { id: { in: items.map((item) => item.dishVersionId) } },
-    select: { id: true, dishId: true },
-  });
   const dishIdByVersionId = new Map(
     chosenVersions.map((v) => [v.id, v.dishId]),
   );
@@ -204,23 +227,9 @@ export async function sendDirectShareCollection(
     }
   }
 
-  const existingPending = await prisma.directShare.findFirst({
-    where: {
-      senderId,
-      dishId: { in: dishIds },
-      recipientLookup: recipientEmail,
-      status: "PENDING",
-    },
-    select: { id: true },
-  });
   if (existingPending) {
     throw new ConflictError(DUPLICATE_PENDING_COLLECTION_MESSAGE);
   }
-
-  const recipient = await prisma.user.findFirst({
-    where: { email: { equals: recipientEmail, mode: "insensitive" } },
-    select: { id: true },
-  });
 
   // Freeze every selected graph now, outside the transaction (pure reads) —
   // the exact content Preview/Accept will use, matching Slice 17's frozen-
@@ -252,21 +261,23 @@ export async function sendDirectShareCollection(
           note: input.note && input.note.length > 0 ? input.note : null,
         },
       });
-      for (const child of frozenChildren) {
-        await tx.directShare.create({
-          data: {
-            senderId,
-            recipientId: recipient?.id ?? null,
-            recipientLookup: recipientEmail,
-            dishId: child.dishId,
-            dishVersionId: child.dishVersionId,
-            dishTitleSnapshot: child.dishTitleSnapshot,
-            frozenGraph: child.frozenGraph,
-            frozenImageAssetIds: child.frozenImageAssetIds,
-            collectionId: created.id,
-          },
-        });
-      }
+      // Minor sharing-send optimization: one `createMany` instead of one
+      // individually-awaited `create` per child — nothing downstream needs
+      // each child's generated id back, so there's no ordering dependency
+      // to preserve here.
+      await tx.directShare.createMany({
+        data: frozenChildren.map((child) => ({
+          senderId,
+          recipientId: recipient?.id ?? null,
+          recipientLookup: recipientEmail,
+          dishId: child.dishId,
+          dishVersionId: child.dishVersionId,
+          dishTitleSnapshot: child.dishTitleSnapshot,
+          frozenGraph: child.frozenGraph,
+          frozenImageAssetIds: child.frozenImageAssetIds,
+          collectionId: created.id,
+        })),
+      });
       return created;
     });
     return { collectionId: collection.id };

@@ -957,6 +957,7 @@ describe("DishEditor Convert Section to Part", () => {
     mockedCreateDish.mockResolvedValue({
       status: "success",
       dishId: "new-part-1",
+      versionId: "new-part-1-v1",
     });
     mockedListAttachablePartVersions.mockResolvedValue({
       status: "success",

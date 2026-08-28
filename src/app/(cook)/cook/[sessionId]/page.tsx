@@ -63,11 +63,14 @@ export default async function CookingModePage({
     throw error;
   }
 
-  const sourceSummary = await getSessionSourceSummary(
-    cookingSession.dishId,
-    cookingSession.dishVersionId,
-  );
-  const [preference, review] = await Promise.all([
+  // F9 (docs/performance-architecture-audit.md): all three reads depend
+  // only on `cookingSession`, already resolved above — one `Promise.all`
+  // instead of `sourceSummary` awaited alone ahead of the other two.
+  const [sourceSummary, preference, review] = await Promise.all([
+    getSessionSourceSummary(
+      cookingSession.dishId,
+      cookingSession.dishVersionId,
+    ),
     prisma.userPreference.findUnique({
       where: { userId: session.user.id },
       select: { timerSoundEnabled: true },

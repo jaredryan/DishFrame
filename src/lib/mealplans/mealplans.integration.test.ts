@@ -1386,6 +1386,162 @@ describe("mealplans service", () => {
     });
   });
 
+  describe("saveMealPlanEntryChanges (F10 bulk save)", () => {
+    it("applies a remove, a replace, an update, a Version-adoption, and a new entry from one batch call", async () => {
+      const { mealPlanId } = await setupMealPlan();
+      const dishA = await dishService.createDish(userId!, "RECIPE", content());
+      const dishB = await dishService.createDish(
+        userId!,
+        "RECIPE",
+        content({ title: "Second Recipe" }),
+      );
+      const dishC = await dishService.createDish(
+        userId!,
+        "RECIPE",
+        content({ title: "Third Recipe" }),
+      );
+
+      const removedEntryId = await mealPlanService.addMealPlanEntry(
+        userId!,
+        mealPlanId,
+        { dishId: dishA, cookDate: new Date("2026-08-03T00:00:00.000Z") },
+      );
+      const replacedEntryId = await mealPlanService.addMealPlanEntry(
+        userId!,
+        mealPlanId,
+        { dishId: dishA, cookDate: new Date("2026-08-04T00:00:00.000Z") },
+      );
+      const updatedEntryId = await mealPlanService.addMealPlanEntry(
+        userId!,
+        mealPlanId,
+        { dishId: dishA, cookDate: new Date("2026-08-05T00:00:00.000Z") },
+      );
+      const versionAdoptedEntryId = await mealPlanService.addMealPlanEntry(
+        userId!,
+        mealPlanId,
+        { dishId: dishC, cookDate: new Date("2026-08-06T00:00:00.000Z") },
+      );
+      // A newer minor Version on the same major line, for the
+      // version-adoption entry to pick up.
+      await dishService.editDish(
+        userId!,
+        dishC,
+        await currentVersionId(dishC),
+        content({ title: "Third Recipe", description: "v1.1" }),
+        "MINOR",
+      );
+
+      const result = await mealPlanService.saveMealPlanEntryChanges(
+        userId!,
+        mealPlanId,
+        {
+          removedEntryIds: [removedEntryId],
+          replacedEntries: [
+            {
+              entryId: replacedEntryId,
+              dishId: dishB,
+              cookDate: new Date("2026-08-04T00:00:00.000Z"),
+            },
+          ],
+          updatedEntries: [
+            {
+              entryId: updatedEntryId,
+              note: "Updated note",
+            },
+          ],
+          versionAdoptedEntryIds: [versionAdoptedEntryId],
+          newEntries: [
+            { dishId: dishB, cookDate: new Date("2026-08-07T00:00:00.000Z") },
+          ],
+        },
+      );
+
+      expect(result.hadEntryError).toBe(false);
+
+      const entries = await prisma.mealPlanEntry.findMany({
+        where: { mealPlanId },
+      });
+      // Removed entry, and the replaced entry's original row, both gone;
+      // the updated, Version-adopted, replacement, and new-draft entries
+      // all present — four entries total, not five or six.
+      expect(entries).toHaveLength(4);
+      expect(entries.find((e) => e.id === removedEntryId)).toBeUndefined();
+      expect(entries.find((e) => e.id === replacedEntryId)).toBeUndefined();
+
+      const updated = entries.find((e) => e.id === updatedEntryId);
+      expect(updated?.dishId).toBe(dishA);
+      expect(updated?.note).toBe("Updated note");
+
+      const replacement = entries.find(
+        (e) => e.dishId === dishB && e.id !== updatedEntryId,
+      );
+      const replacementEntries = entries.filter((e) => e.dishId === dishB);
+      expect(replacementEntries).toHaveLength(2); // the replace, and the new draft
+      expect(replacement).toBeDefined();
+
+      // The Version-adoption entry keeps its own id but moves off the
+      // Version it was pinned to at add time, onto the newer minor.
+      const adopted = entries.find((e) => e.id === versionAdoptedEntryId);
+      expect(adopted?.dishVersionId).toBe(await currentVersionId(dishC));
+    });
+
+    it("keeps one category's failure from blocking the rest of the batch", async () => {
+      const { mealPlanId } = await setupMealPlan();
+      const dishA = await dishService.createDish(userId!, "RECIPE", content());
+      const keptEntryId = await mealPlanService.addMealPlanEntry(
+        userId!,
+        mealPlanId,
+        { dishId: dishA, cookDate: new Date("2026-08-03T00:00:00.000Z") },
+      );
+
+      const result = await mealPlanService.saveMealPlanEntryChanges(
+        userId!,
+        mealPlanId,
+        {
+          removedEntryIds: ["does-not-exist"],
+          replacedEntries: [],
+          updatedEntries: [{ entryId: keptEntryId, note: "Still applied" }],
+          versionAdoptedEntryIds: [],
+          newEntries: [],
+        },
+      );
+
+      expect(result.hadEntryError).toBe(true);
+      const kept = await prisma.mealPlanEntry.findUniqueOrThrow({
+        where: { id: keptEntryId },
+      });
+      expect(kept.note).toBe("Still applied");
+    });
+
+    it("skips a queued Version-adoption for an entry that was also removed in the same batch", async () => {
+      const { mealPlanId } = await setupMealPlan();
+      const dishA = await dishService.createDish(userId!, "RECIPE", content());
+      const entryId = await mealPlanService.addMealPlanEntry(
+        userId!,
+        mealPlanId,
+        { dishId: dishA, cookDate: new Date("2026-08-03T00:00:00.000Z") },
+      );
+
+      const result = await mealPlanService.saveMealPlanEntryChanges(
+        userId!,
+        mealPlanId,
+        {
+          removedEntryIds: [entryId],
+          replacedEntries: [],
+          updatedEntries: [],
+          versionAdoptedEntryIds: [entryId],
+          newEntries: [],
+        },
+      );
+
+      expect(result.hadEntryError).toBe(false);
+      const entry = await prisma.mealPlanEntry.findUnique({
+        where: { id: entryId },
+      });
+      expect(entry).toBeNull();
+    });
+  });
+
   describe("transaction safety", () => {
     it("leaves no partial entry when the source Dish is not owned", async () => {
       const { mealPlanId } = await setupMealPlan();

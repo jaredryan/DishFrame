@@ -90,6 +90,40 @@ export const adoptNewerVersionInEntrySchema = entryIdSchema.extend({
   targetVersionId: z.string().min(1).optional(),
 });
 
+// F10 (docs/performance-architecture-audit.md): one request carrying every
+// entry change the Meal Plan editor's Save queued — replaces what was
+// previously one `addMealPlanEntry`/`removeMealPlanEntry`/
+// `updateMealPlanEntry`/`adoptNewerVersionInEntry` server-action call per
+// changed entry. Field shapes mirror those individual schemas exactly.
+const bulkNewEntrySchema = z.object({
+  dishId: z.string().min(1),
+  dishVersionId: z.string().min(1).optional(),
+  cookDate: z.coerce.date(),
+  targetYieldQuantity,
+  targetYieldUnit: z.string().trim().max(40).nullable().optional(),
+  note: z.string().trim().max(2000).nullable().optional(),
+});
+
+const bulkReplacedEntrySchema = bulkNewEntrySchema.extend({
+  entryId: z.string().min(1),
+});
+
+const bulkUpdatedEntrySchema = z.object({
+  entryId: z.string().min(1),
+  cookDate: z.coerce.date().optional(),
+  targetYieldQuantity,
+  targetYieldUnit: z.string().trim().max(40).nullable().optional(),
+  note: z.string().trim().max(2000).nullable().optional(),
+});
+
+export const saveMealPlanEntryChangesSchema = mealPlanIdSchema.extend({
+  removedEntryIds: z.array(z.string().min(1)),
+  replacedEntries: z.array(bulkReplacedEntrySchema),
+  updatedEntries: z.array(bulkUpdatedEntrySchema),
+  versionAdoptedEntryIds: z.array(z.string().min(1)),
+  newEntries: z.array(bulkNewEntrySchema),
+});
+
 export const addPlannedMealSchema = entryIdSchema.extend({
   label: z.string().trim().min(1, "Enter a label.").max(80),
   date: z.coerce.date(),

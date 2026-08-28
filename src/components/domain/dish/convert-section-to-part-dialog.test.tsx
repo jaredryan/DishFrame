@@ -4,18 +4,13 @@ import userEvent from "@testing-library/user-event";
 import { FormProvider, useForm } from "react-hook-form";
 import { ConvertSectionToPartDialog } from "@/components/domain/dish/convert-section-to-part-dialog";
 import { createDish } from "@/lib/dishes/actions";
-import { listAttachablePartVersions } from "@/lib/sections/actions";
 import type { IngredientInput, InstructionInput } from "@/lib/dishes/schema";
 
 vi.mock("@/lib/dishes/actions", () => ({
   createDish: vi.fn(),
 }));
-vi.mock("@/lib/sections/actions", () => ({
-  listAttachablePartVersions: vi.fn(),
-}));
 
 const mockedCreateDish = vi.mocked(createDish);
-const mockedListAttachablePartVersions = vi.mocked(listAttachablePartVersions);
 
 type HostValues = {
   sections: {
@@ -75,14 +70,10 @@ const BLANK_INGREDIENT: IngredientInput = {
 describe("ConvertSectionToPartDialog", () => {
   beforeEach(() => {
     mockedCreateDish.mockReset();
-    mockedListAttachablePartVersions.mockReset();
     mockedCreateDish.mockResolvedValue({
       status: "success",
       dishId: "new-part-1",
-    });
-    mockedListAttachablePartVersions.mockResolvedValue({
-      status: "success",
-      versions: [{ id: "new-part-1-v1", majorVersion: 1, minorVersion: 0 }],
+      versionId: "new-part-1-v1",
     });
   });
 

@@ -498,6 +498,104 @@ export async function adoptNewerVersionInEntry(
   });
 }
 
+export type MealPlanEntryChanges = {
+  removedEntryIds: string[];
+  replacedEntries: (AddMealPlanEntryInput & { entryId: string })[];
+  updatedEntries: (UpdateMealPlanEntryInput & { entryId: string })[];
+  versionAdoptedEntryIds: string[];
+  newEntries: AddMealPlanEntryInput[];
+};
+
+/**
+ * F10 (docs/performance-architecture-audit.md): one request instead of one
+ * per changed entry — the Meal Plan editor's Save previously drove up to
+ * five separate client-side loops of individually-awaited server-action
+ * calls (remove, replace, update, adopt-newer-Version, add), each paying
+ * full server-action round-trip overhead on top of its own DB work.
+ *
+ * Server-side, this still calls the exact same per-entry functions below
+ * (`removeMealPlanEntry`/`addMealPlanEntry`/`updateMealPlanEntry`/
+ * `adoptNewerVersionInEntry`), in the same category order the client used
+ * to call them as separate round trips, with the same skip-logic
+ * (`replacedEntryIds` excludes a replaced entry from the version-adoption
+ * pass) and the same independent per-entry failure handling — one entry
+ * failing never aborts the rest of the batch, matching the editor's
+ * existing best-effort semantics.
+ *
+ * Entries within a category are processed sequentially, not concurrently:
+ * each of these functions re-reads the Meal Plan's live entry set fresh
+ * (`getOwnedMealPlanOrThrow`) and resyncs linked grocery lists against it.
+ * Two entries in the same category racing would each resync against a
+ * stale pre-batch snapshot missing the other's already-applied change —
+ * a real correctness risk to the grocery-list contribution tracking, not
+ * just added DB load, so this stays sequential rather than bounded-
+ * concurrent (unlike, e.g., independent read-only tree resolution
+ * elsewhere in this audit pass).
+ */
+export async function saveMealPlanEntryChanges(
+  ownerId: string,
+  mealPlanId: string,
+  changes: MealPlanEntryChanges,
+): Promise<{ hadEntryError: boolean }> {
+  let hadEntryError = false;
+
+  for (const entryId of changes.removedEntryIds) {
+    try {
+      await removeMealPlanEntry(ownerId, mealPlanId, entryId);
+    } catch {
+      hadEntryError = true;
+    }
+  }
+
+  const replacedEntryIds = new Set<string>();
+  for (const { entryId, ...input } of changes.replacedEntries) {
+    replacedEntryIds.add(entryId);
+    try {
+      await removeMealPlanEntry(ownerId, mealPlanId, entryId);
+    } catch {
+      hadEntryError = true;
+      continue;
+    }
+    try {
+      await addMealPlanEntry(ownerId, mealPlanId, input);
+    } catch {
+      hadEntryError = true;
+    }
+  }
+
+  for (const { entryId, ...input } of changes.updatedEntries) {
+    try {
+      await updateMealPlanEntry(ownerId, mealPlanId, entryId, input);
+    } catch {
+      hadEntryError = true;
+    }
+  }
+
+  for (const entryId of changes.versionAdoptedEntryIds) {
+    if (
+      changes.removedEntryIds.includes(entryId) ||
+      replacedEntryIds.has(entryId)
+    ) {
+      continue;
+    }
+    try {
+      await adoptNewerVersionInEntry(ownerId, mealPlanId, entryId);
+    } catch {
+      hadEntryError = true;
+    }
+  }
+
+  for (const draft of changes.newEntries) {
+    try {
+      await addMealPlanEntry(ownerId, mealPlanId, draft);
+    } catch {
+      hadEntryError = true;
+    }
+  }
+
+  return { hadEntryError };
+}
+
 // ---------------------------------------------------------------------------
 // Planned meals (§77.1)
 // ---------------------------------------------------------------------------

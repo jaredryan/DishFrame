@@ -804,5 +804,13 @@ export type ActionState = {
 
 export const initialActionState: ActionState = { status: "idle" };
 
-export type DishActionState = ActionState & { dishId?: string };
+// F5 (docs/performance-architecture-audit.md): `versionId` is additive —
+// only `createDish`'s action populates it, letting a caller that needs the
+// just-created Version (e.g. Convert Section to Part) skip a second round
+// trip to re-derive it. Every other action returning `DishActionState`
+// simply leaves it undefined, unchanged from before.
+export type DishActionState = ActionState & {
+  dishId?: string;
+  versionId?: string;
+};
 export const initialDishActionState: DishActionState = { status: "idle" };

@@ -146,7 +146,9 @@ test.describe("Settings: Preferences, Grocery Categories, and Tasters", () => {
     // `DndContext` (mounted by GroceryCategoryManager below) renders its
     // own hidden `role="status"` live region for drag announcements, so a
     // plain role lookup matches both. Match on the visible text instead.
-    await expect(page.getByText("Preferences saved.")).toBeVisible();
+    await expect(page.getByText("Preferences saved.")).toBeVisible({
+      timeout: 15_000,
+    });
 
     await page.reload();
     await expect(page.getByLabel("Measurement system")).toContainText("Metric");

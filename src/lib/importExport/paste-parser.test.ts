@@ -76,12 +76,9 @@ describe("parsePastedRecipe", () => {
 
   it("recognizes trailing 'to taste'/'as needed' as the amount, not part of the name (§10.5/§10.7)", () => {
     const result = parsePastedRecipe(
-      [
-        "Salted Snack",
-        "Salt to taste",
-        "Oil as needed",
-        "1 cup nuts",
-      ].join("\n"),
+      ["Salted Snack", "Salt to taste", "Oil as needed", "1 cup nuts"].join(
+        "\n",
+      ),
     );
 
     const [salt, oil, nuts] = result.values.sections[0].ingredients;

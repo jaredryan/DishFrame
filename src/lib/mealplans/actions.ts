@@ -14,6 +14,7 @@ import {
   entryIdSchema,
   setMealPlanEntryStatusSchema,
   adoptNewerVersionInEntrySchema,
+  saveMealPlanEntryChangesSchema,
   addPlannedMealSchema,
   removePlannedMealSchema,
   generateGroceryListFromMealPlanSchema,
@@ -243,6 +244,57 @@ export async function adoptNewerVersionInEntry(values: {
     revalidateMealPlan(mealPlanId);
     revalidatePath(LISTS_PATH);
     return { status: "success" };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export type MealPlanBulkEntryActionState =
+  | { status: "success"; hadEntryError: boolean }
+  | { status: "error"; message: string };
+
+type BulkEntryDraft = {
+  dishId: string;
+  dishVersionId?: string;
+  cookDate: Date | string;
+  targetYieldQuantity?: number | null;
+  targetYieldUnit?: string | null;
+  note?: string | null;
+};
+
+/**
+ * F10 (docs/performance-architecture-audit.md): the Meal Plan editor's Save
+ * sends every queued entry change (remove/replace/update/adopt-newer-
+ * Version/add) in this one call instead of one server-action round trip
+ * per changed entry — see `mealPlanService.saveMealPlanEntryChanges`'s doc
+ * comment for how the batch is applied server-side.
+ */
+export async function saveMealPlanEntryChanges(values: {
+  mealPlanId: string;
+  removedEntryIds: string[];
+  replacedEntries: (BulkEntryDraft & { entryId: string })[];
+  updatedEntries: {
+    entryId: string;
+    cookDate?: Date | string;
+    targetYieldQuantity?: number | null;
+    targetYieldUnit?: string | null;
+    note?: string | null;
+  }[];
+  versionAdoptedEntryIds: string[];
+  newEntries: BulkEntryDraft[];
+}): Promise<MealPlanBulkEntryActionState> {
+  try {
+    const userId = await requireUserId();
+    const { mealPlanId, ...changes } =
+      saveMealPlanEntryChangesSchema.parse(values);
+    const result = await mealPlanService.saveMealPlanEntryChanges(
+      userId,
+      mealPlanId,
+      changes,
+    );
+    revalidateMealPlan(mealPlanId);
+    revalidatePath(LISTS_PATH);
+    return { status: "success", hadEntryError: result.hadEntryError };
   } catch (error) {
     return { status: "error", message: toActionErrorMessage(error) };
   }

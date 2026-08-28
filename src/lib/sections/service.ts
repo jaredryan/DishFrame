@@ -494,15 +494,21 @@ async function resolvePartLinkTreeInner(
   if (depth >= MAX_PART_LINK_TREE_DEPTH || visited.has(edge.targetDishId)) {
     return null;
   }
-  const targetDish = await prisma.dish.findFirst({
-    where: { id: edge.targetDishId, ownerId, kind: "PART" },
-    select: { currentTitle: true },
-  });
-  if (!targetDish) return null;
-
+  // F6 (docs/performance-architecture-audit.md): one query instead of two —
+  // the ownership/kind check (previously a separate `dish.findFirst`) is
+  // folded into this Version lookup's `dish` relation filter, and the
+  // target's `currentTitle` rides along on the same round trip instead of a
+  // second one. Semantically identical: both conditions (a PART owned by
+  // `ownerId`, and a Version actually belonging to that Dish) still must
+  // hold simultaneously for a match.
   const version = await prisma.dishVersion.findFirst({
-    where: { id: edge.targetDishVersionId, dishId: edge.targetDishId },
+    where: {
+      id: edge.targetDishVersionId,
+      dishId: edge.targetDishId,
+      dish: { ownerId, kind: "PART" },
+    },
     include: {
+      dish: { select: { currentTitle: true } },
       sections: sectionContentInclude,
       partLinks: partLinkContentInclude,
     },
@@ -517,9 +523,13 @@ async function resolvePartLinkTreeInner(
     version.partLinks,
   );
 
-  const resolvedSections: ResolvedSection[] = [];
-  for (const section of sortByPosition(sections)) {
-    resolvedSections.push({
+  // F6: sibling Sections have no dependency on one another (each reads the
+  // same `nextVisited` snapshot but never mutates it), so resolving them
+  // concurrently is safe — `Promise.all` still preserves `orderedSections`'
+  // order in the result regardless of which finishes first.
+  const orderedSections = sortByPosition(sections);
+  const resolvedSections: ResolvedSection[] = await Promise.all(
+    orderedSections.map(async (section) => ({
       position: section.position,
       name: section.name ?? null,
       guidanceNote: section.guidanceNote ?? null,
@@ -533,8 +543,8 @@ async function resolvePartLinkTreeInner(
         nextVisited,
         depth,
       ),
-    });
-  }
+    })),
+  );
 
   return {
     kind: "LIVE",
@@ -547,7 +557,7 @@ async function resolvePartLinkTreeInner(
     // this stays an unused placeholder for those callers (see
     // `PartLinkTree.position`'s own doc comment).
     position: edge.position ?? 0,
-    title: targetDish.currentTitle,
+    title: version.dish.currentTitle,
     versionLabel: formatVersionLabel(
       version.majorVersion,
       version.minorVersion,
@@ -586,9 +596,11 @@ async function resolveMaterializedPartLinkTree(
   const snapshot = row.materializedContent as VersionContentInput | null;
   if (!snapshot) return null;
 
-  const resolvedSections: ResolvedSection[] = [];
-  for (const section of sortByPosition(snapshot.sections)) {
-    resolvedSections.push({
+  // F6 (docs/performance-architecture-audit.md): same sibling-Section
+  // parallelization as `resolvePartLinkTreeInner` above — each section
+  // resolves independently, so there's no reason to serialize them.
+  const resolvedSections: ResolvedSection[] = await Promise.all(
+    sortByPosition(snapshot.sections).map(async (section) => ({
       position: section.position,
       name: section.name ?? null,
       guidanceNote: section.guidanceNote ?? null,
@@ -602,8 +614,8 @@ async function resolveMaterializedPartLinkTree(
         new Set(),
         0,
       ),
-    });
-  }
+    })),
+  );
 
   return {
     kind: "MATERIALIZED",

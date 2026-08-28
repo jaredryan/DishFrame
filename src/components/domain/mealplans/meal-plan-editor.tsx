@@ -59,10 +59,7 @@ import { versionLabel as formatVersionLabel } from "@/lib/dishes/version-note";
 import {
   createMealPlan,
   updateMealPlan,
-  addMealPlanEntry,
-  updateMealPlanEntry,
-  removeMealPlanEntry,
-  adoptNewerVersionInEntry,
+  saveMealPlanEntryChanges,
   addPlannedMeal,
   removePlannedMeal,
 } from "@/lib/mealplans/actions";
@@ -520,20 +517,29 @@ export function MealPlanEditor(
         return;
       }
       const { mealPlanId } = result;
-      for (const entry of draftEntries) {
-        const entryResult = await addMealPlanEntry({
+      // F10 (docs/performance-architecture-audit.md): every draft entry in
+      // one request instead of one `addMealPlanEntry` call per entry.
+      if (draftEntries.length > 0) {
+        const entriesResult = await saveMealPlanEntryChanges({
           mealPlanId,
-          dishId: entry.dishId,
-          dishVersionId: entry.dishVersionId,
-          cookDate: entry.cookDate,
-          targetYieldQuantity: entry.targetYieldQuantity,
-          targetYieldUnit: entry.targetYieldUnit,
-          note: entry.note,
+          removedEntryIds: [],
+          replacedEntries: [],
+          updatedEntries: [],
+          versionAdoptedEntryIds: [],
+          newEntries: draftEntries.map((entry) => ({
+            dishId: entry.dishId,
+            dishVersionId: entry.dishVersionId,
+            cookDate: entry.cookDate,
+            targetYieldQuantity: entry.targetYieldQuantity,
+            targetYieldUnit: entry.targetYieldUnit,
+            note: entry.note,
+          })),
         });
-        if (entryResult.status !== "success") {
+        if (entriesResult.status !== "success" || entriesResult.hadEntryError) {
           setServerError(
-            entryResult.message ??
-              "The Meal Plan saved, but one meal could not be added.",
+            entriesResult.status === "error"
+              ? entriesResult.message
+              : "The Meal Plan saved, but one meal could not be added.",
           );
         }
       }
@@ -562,21 +568,28 @@ export function MealPlanEditor(
         }
       }
 
-      let hadEntryError = false;
-      for (const entryId of removedEntryIds) {
-        const result = await removeMealPlanEntry({
-          mealPlanId: mealPlan.id,
-          entryId,
-        });
-        if (result.status !== "success") hadEntryError = true;
-      }
-
       // A queued edit that changed the entry's Recipe/Part — or which of its
       // Versions it points to — is applied as remove-then-add
-      // (`updateMealPlanEntry` can't repoint an entry or its Version) —
-      // `replacedEntryIds` lets the Version-adoption loop below skip an
-      // entry that no longer exists by the time it would run.
-      const replacedEntryIds = new Set<string>();
+      // (`updateMealPlanEntry` can't repoint an entry or its Version); the
+      // server-side batch (`saveMealPlanEntryChanges`) uses
+      // `replacedEntries` the same way to skip a Version-adoption for an
+      // entry that no longer exists by the time that pass would run.
+      const replacedEntries: {
+        entryId: string;
+        dishId: string;
+        dishVersionId: string;
+        cookDate: string;
+        targetYieldQuantity: number | null;
+        targetYieldUnit: string | null;
+        note: string | null;
+      }[] = [];
+      const updatedEntries: {
+        entryId: string;
+        cookDate: Date;
+        targetYieldQuantity: number | null;
+        targetYieldUnit: string | null;
+        note: string | null;
+      }[] = [];
       for (const [entryId, edit] of Object.entries(entryEdits)) {
         if (removedEntryIds.has(entryId) || !edit.dishId || !edit.dishVersionId)
           continue;
@@ -586,17 +599,8 @@ export function MealPlanEditor(
           edit.dishId !== original.dishId ||
           edit.dishVersionId !== original.dishVersionId
         ) {
-          replacedEntryIds.add(entryId);
-          const removeResult = await removeMealPlanEntry({
-            mealPlanId: mealPlan.id,
+          replacedEntries.push({
             entryId,
-          });
-          if (removeResult.status !== "success") {
-            hadEntryError = true;
-            continue;
-          }
-          const addResult = await addMealPlanEntry({
-            mealPlanId: mealPlan.id,
             dishId: edit.dishId,
             dishVersionId: edit.dishVersionId,
             cookDate: edit.cookDate,
@@ -604,45 +608,49 @@ export function MealPlanEditor(
             targetYieldUnit: edit.targetYieldUnit,
             note: edit.note,
           });
-          if (addResult.status !== "success") hadEntryError = true;
         } else {
-          const result = await updateMealPlanEntry({
-            mealPlanId: mealPlan.id,
+          updatedEntries.push({
             entryId,
             cookDate: new Date(edit.cookDate),
             targetYieldQuantity: edit.targetYieldQuantity,
             targetYieldUnit: edit.targetYieldUnit,
             note: edit.note,
           });
-          if (result.status !== "success") hadEntryError = true;
         }
       }
 
-      for (const entryId of versionUpdateEntryIds) {
-        if (removedEntryIds.has(entryId) || replacedEntryIds.has(entryId))
-          continue;
-        const result = await adoptNewerVersionInEntry({
+      const hasEntryChanges =
+        removedEntryIds.size > 0 ||
+        replacedEntries.length > 0 ||
+        updatedEntries.length > 0 ||
+        versionUpdateEntryIds.size > 0 ||
+        draftEntries.length > 0;
+
+      // F10: every queued remove/replace/update/adopt-newer-Version/add in
+      // one request instead of one server-action call per changed entry.
+      if (hasEntryChanges) {
+        const entriesResult = await saveMealPlanEntryChanges({
           mealPlanId: mealPlan.id,
-          entryId,
+          removedEntryIds: [...removedEntryIds],
+          replacedEntries,
+          updatedEntries,
+          versionAdoptedEntryIds: [...versionUpdateEntryIds],
+          newEntries: draftEntries.map((entry) => ({
+            dishId: entry.dishId,
+            dishVersionId: entry.dishVersionId,
+            cookDate: entry.cookDate,
+            targetYieldQuantity: entry.targetYieldQuantity,
+            targetYieldUnit: entry.targetYieldUnit,
+            note: entry.note,
+          })),
         });
-        if (result.status !== "success") hadEntryError = true;
-      }
-      for (const entry of draftEntries) {
-        const result = await addMealPlanEntry({
-          mealPlanId: mealPlan.id,
-          dishId: entry.dishId,
-          dishVersionId: entry.dishVersionId,
-          cookDate: entry.cookDate,
-          targetYieldQuantity: entry.targetYieldQuantity,
-          targetYieldUnit: entry.targetYieldUnit,
-          note: entry.note,
-        });
-        if (result.status !== "success") hadEntryError = true;
-      }
-      if (hadEntryError) {
-        setServerError(
-          "The Meal Plan saved, but some meal changes could not be applied.",
-        );
+        if (entriesResult.status !== "success" || entriesResult.hadEntryError) {
+          setServerError(
+            entriesResult.status === "error"
+              ? entriesResult.message
+              : "The Meal Plan saved, but some meal changes could not be applied.",
+          );
+        }
       }
 
       clearDraftStorage();

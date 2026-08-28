@@ -79,7 +79,7 @@ export default async function SharePage() {
         your original (or your later edits) again.
       </CoachMark>
 
-      <section id="received" className="space-y-4 scroll-mt-4">
+      <section id="received" className="scroll-mt-4 space-y-4">
         <div className="flex items-center gap-2">
           <h2 className="text-foreground text-lg font-semibold">Received</h2>
           {pendingReceivedCount > 0 && (

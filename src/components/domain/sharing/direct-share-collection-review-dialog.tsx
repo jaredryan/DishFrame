@@ -176,8 +176,8 @@ export function DirectShareCollectionReviewDialog({
         ) : progress ? (
           <div className="space-y-2">
             <p className="text-sm">
-              Accepting shared recipes — {progress.completed} /{" "}
-              {progress.total} recipes
+              Accepting shared recipes — {progress.completed} / {progress.total}{" "}
+              recipes
             </p>
             <div
               role="progressbar"
@@ -268,10 +268,7 @@ export function DirectShareCollectionReviewDialog({
               >
                 Decline all
               </Button>
-              <Button
-                onClick={() => submit([...selected])}
-                loading={isPending}
-              >
+              <Button onClick={() => submit([...selected])} loading={isPending}>
                 {unselectedCount > 0
                   ? "Accept selected, decline rest"
                   : "Accept all"}

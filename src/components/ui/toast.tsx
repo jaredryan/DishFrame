@@ -112,7 +112,10 @@ export function useToast(): ToastContextValue {
   return context;
 }
 
-const VARIANT_ICON: Record<ToastVariant, React.ComponentType<{ className?: string }>> = {
+const VARIANT_ICON: Record<
+  ToastVariant,
+  React.ComponentType<{ className?: string }>
+> = {
   default: Info,
   success: CircleCheck,
   error: CircleAlert,
@@ -126,10 +129,15 @@ const VARIANT_ICON_CLASS: Record<ToastVariant, string> = {
 
 /** Renders the live toast stack via a portal so it always sits above route
  * content regardless of where in the tree `ToastProvider` was mounted. */
+const emptySubscribe = () => () => {};
+
 export function Toaster() {
   const { toasts, dismissToast } = useToast();
-  const [mounted, setMounted] = React.useState(false);
-  React.useEffect(() => setMounted(true), []);
+  const mounted = React.useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false,
+  );
   if (!mounted || toasts.length === 0) return null;
 
   return createPortal(
@@ -148,7 +156,10 @@ export function Toaster() {
             className="border-border bg-card text-foreground pointer-events-auto flex w-full max-w-sm items-start gap-2.5 rounded-lg border p-3 shadow-lg"
           >
             <Icon
-              className={cn("mt-0.5 size-4 shrink-0", VARIANT_ICON_CLASS[variant])}
+              className={cn(
+                "mt-0.5 size-4 shrink-0",
+                VARIANT_ICON_CLASS[variant],
+              )}
               aria-hidden="true"
             />
             <div className="min-w-0 flex-1 space-y-1">

@@ -55,7 +55,7 @@ function assertActive(session: OwnedCookingSession): void {
  * (PRODUCT_SPEC.md §52.6/§52.7): unscaled (`multiplier === 1`) renders in
  * plain authored style, any real scaling renders in kitchen-fraction/
  * decimal calculated style. Shared by checklist-row creation (below) and
- * mid-session scale recalculation (`recomputeUnitChecklistDisplay`), both of
+ * mid-session scale recalculation (`computeChecklistDisplayUpdates`), both of
  * which must produce byte-identical formatting for the same inputs.
  */
 function formatScaledQuantity(
@@ -796,29 +796,57 @@ export async function setUnitCompletion(
  * fields rather than re-parsing any formatted string (Slice 8 correction).
  * Free-text/quantity-less rows (`baseQuantity == null`) are left untouched,
  * matching §24.3's "leaves free-text quantities unchanged."
+ *
+ * F8 (docs/performance-architecture-audit.md): pure — builds the rows to
+ * write without writing them, so a caller rescaling several units (a
+ * whole-session rescale) can collect every unit's rows into one batch
+ * instead of writing unit-by-unit.
  */
-async function recomputeUnitChecklistDisplay(
-  tx: Prisma.TransactionClient,
-  unit: {
-    checklistItems: OwnedCookingSession["units"][number]["checklistItems"];
-  },
+function computeChecklistDisplayUpdates(
+  checklistItems: OwnedCookingSession["units"][number]["checklistItems"],
   effectiveMultiplier: number,
-) {
-  for (const item of unit.checklistItems) {
+): { id: string; displayQuantity: string }[] {
+  const updates: { id: string; displayQuantity: string }[] = [];
+  for (const item of checklistItems) {
     const baseQuantity = decimalToNumber(item.baseQuantity);
     if (baseQuantity == null) continue;
     const baseQuantityEnd = decimalToNumber(item.baseQuantityEnd);
-    const displayQuantity = formatScaledQuantity(
-      baseQuantity,
-      baseQuantityEnd,
-      item.isApproximate,
-      effectiveMultiplier,
-    );
-    await tx.cookingSessionChecklistItem.update({
-      where: { id: item.id },
-      data: { displayQuantity },
+    updates.push({
+      id: item.id,
+      displayQuantity: formatScaledQuantity(
+        baseQuantity,
+        baseQuantityEnd,
+        item.isApproximate,
+        effectiveMultiplier,
+      ),
     });
   }
+  return updates;
+}
+
+/**
+ * F8: one `UPDATE ... FROM (VALUES ...)` statement instead of one
+ * individually-awaited `update()` per checklist item — each row's
+ * `displayQuantity` differs, so a plain `updateMany` can't express this in
+ * one statement. Values are passed as query parameters via `Prisma.sql`
+ * (never string-concatenated), so this is parameterized exactly like any
+ * other Prisma query.
+ */
+async function applyChecklistDisplayUpdates(
+  tx: Prisma.TransactionClient,
+  updates: { id: string; displayQuantity: string }[],
+): Promise<void> {
+  if (updates.length === 0) return;
+  await tx.$executeRaw`
+    UPDATE "CookingSessionChecklistItem" AS c
+    SET "displayQuantity" = v.display_quantity
+    FROM (VALUES ${Prisma.join(
+      updates.map(
+        (u) => Prisma.sql`(${u.id}::text, ${u.displayQuantity}::text)`,
+      ),
+    )}) AS v(id, display_quantity)
+    WHERE c.id = v.id
+  `;
 }
 
 /**
@@ -836,20 +864,25 @@ export async function updateSessionScale(
   const session = await getOwnedSessionOrThrow(ownerId, sessionId);
   assertActive(session);
 
+  // F8: every active unit's checklist rows collected into one batch up
+  // front — previously one individually-awaited `update()` per checklist
+  // item, across every unit, all sequential inside the transaction.
+  const updates = session.units
+    .filter((unit) => !unit.removedAt)
+    .flatMap((unit) => {
+      const unitMultiplier = decimalToNumber(unit.scaleFactor) ?? 1;
+      return computeChecklistDisplayUpdates(
+        unit.checklistItems,
+        (scaleFactor ?? 1) * unitMultiplier,
+      );
+    });
+
   await prisma.$transaction(async (tx) => {
     await tx.cookingSession.update({
       where: { id: sessionId },
       data: { scaleFactor },
     });
-    for (const unit of session.units) {
-      if (unit.removedAt) continue;
-      const unitMultiplier = decimalToNumber(unit.scaleFactor) ?? 1;
-      await recomputeUnitChecklistDisplay(
-        tx,
-        unit,
-        (scaleFactor ?? 1) * unitMultiplier,
-      );
-    }
+    await applyChecklistDisplayUpdates(tx, updates);
     await tx.cookingSession.update({
       where: { id: sessionId },
       data: { updatedAt: new Date() },
@@ -878,17 +911,17 @@ export async function updateUnitScale(
   }
 
   const sessionMultiplier = decimalToNumber(session.scaleFactor) ?? 1;
+  const updates = computeChecklistDisplayUpdates(
+    unit.checklistItems,
+    sessionMultiplier * (scaleFactor ?? 1),
+  );
 
   await prisma.$transaction(async (tx) => {
     await tx.cookingSessionUnit.update({
       where: { id: unitId },
       data: { scaleFactor },
     });
-    await recomputeUnitChecklistDisplay(
-      tx,
-      unit,
-      sessionMultiplier * (scaleFactor ?? 1),
-    );
+    await applyChecklistDisplayUpdates(tx, updates);
     await tx.cookingSession.update({
       where: { id: sessionId },
       data: { updatedAt: new Date() },

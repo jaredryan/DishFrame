@@ -12,19 +12,13 @@ vi.mock("next/navigation", () => ({
 const {
   createMealPlan,
   updateMealPlan,
-  addMealPlanEntry,
-  updateMealPlanEntry,
-  removeMealPlanEntry,
-  adoptNewerVersionInEntry,
+  saveMealPlanEntryChanges,
   addPlannedMeal,
   removePlannedMeal,
 } = vi.hoisted(() => ({
   createMealPlan: vi.fn(),
   updateMealPlan: vi.fn(),
-  addMealPlanEntry: vi.fn(),
-  updateMealPlanEntry: vi.fn(),
-  removeMealPlanEntry: vi.fn(),
-  adoptNewerVersionInEntry: vi.fn(),
+  saveMealPlanEntryChanges: vi.fn(),
   addPlannedMeal: vi.fn(),
   removePlannedMeal: vi.fn(),
 }));
@@ -32,10 +26,7 @@ const {
 vi.mock("@/lib/mealplans/actions", () => ({
   createMealPlan,
   updateMealPlan,
-  addMealPlanEntry,
-  updateMealPlanEntry,
-  removeMealPlanEntry,
-  adoptNewerVersionInEntry,
+  saveMealPlanEntryChanges,
   addPlannedMeal,
   removePlannedMeal,
 }));
@@ -91,13 +82,16 @@ function renderEditor(candidates: MealPlanEntryCandidate[]) {
 
 beforeEach(() => {
   createMealPlan.mockReset();
-  addMealPlanEntry.mockReset();
+  saveMealPlanEntryChanges.mockReset();
   listDishVersionOptions.mockReset();
   createMealPlan.mockResolvedValue({
     status: "success",
     mealPlanId: "plan-1",
   });
-  addMealPlanEntry.mockResolvedValue({ status: "success", entryId: "e1" });
+  saveMealPlanEntryChanges.mockResolvedValue({
+    status: "success",
+    hadEntryError: false,
+  });
   // Matches the default `candidate()` fixture: dish-1's own current Version
   // (V1.0, makes 4) plus a second, higher-yield Version (V2.0, makes 8).
   listDishVersionOptions.mockResolvedValue({
@@ -232,11 +226,15 @@ describe("MealPlanEditor Add-meal picker — Version selection and yield sync", 
     await user.click(screen.getByRole("button", { name: "Add meal" }));
     await user.click(screen.getByRole("button", { name: "Create meal plan" }));
 
-    await waitFor(() => expect(addMealPlanEntry).toHaveBeenCalled());
-    expect(addMealPlanEntry).toHaveBeenCalledWith(
+    await waitFor(() => expect(saveMealPlanEntryChanges).toHaveBeenCalled());
+    expect(saveMealPlanEntryChanges).toHaveBeenCalledWith(
       expect.objectContaining({
-        dishId: "dish-1",
-        dishVersionId: "version-2",
+        newEntries: [
+          expect.objectContaining({
+            dishId: "dish-1",
+            dishVersionId: "version-2",
+          }),
+        ],
       }),
     );
   });

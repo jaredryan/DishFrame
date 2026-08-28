@@ -468,45 +468,60 @@ function removeEmptySectionsPreservingMaterialized(
  * identically regardless of LIVE/MATERIALIZED kind — both share one
  * `partLinks` array, in one authored order.
  */
-async function insertPartLinks(
-  tx: Prisma.TransactionClient,
+// F1 (docs/performance-architecture-audit.md): builds PartLink create-data
+// without writing — every call site batches its rows into one `createMany`
+// instead of one `create` per row, so this needs no `tx`/`await` of its own.
+function buildPartLinkRows(
   containerVersionId: string,
   sectionId: string | null,
   partLinks: InsertablePartLink[],
   lineageFor: (id: string | undefined) => string,
-): Promise<void> {
-  for (const partLink of partLinks) {
+): Prisma.PartLinkCreateManyInput[] {
+  return partLinks.map((partLink) => {
     const position = partLink.position;
     if (isLivePartLink(partLink)) {
-      await tx.partLink.create({
-        data: {
-          lineageId: lineageFor(partLink.lineageId),
-          containerVersionId,
-          sectionId,
-          position,
-          multiplier: partLink.multiplier,
-          targetDishId: partLink.targetDishId,
-          targetDishVersionId: partLink.targetDishVersionId,
-        },
-      });
-    } else {
-      await tx.partLink.create({
-        data: {
-          lineageId: lineageFor(partLink.lineageId),
-          containerVersionId,
-          sectionId,
-          position,
-          multiplier: partLink.multiplier,
-          linkState: "MATERIALIZED",
-          materializedTitle: partLink.materializedTitle,
-          materializedVersionLabel: partLink.materializedVersionLabel,
-          materializedContent: partLink.materializedContent,
-        },
-      });
+      return {
+        lineageId: lineageFor(partLink.lineageId),
+        containerVersionId,
+        sectionId,
+        position,
+        multiplier: partLink.multiplier,
+        targetDishId: partLink.targetDishId,
+        targetDishVersionId: partLink.targetDishVersionId,
+      };
     }
-  }
+    return {
+      lineageId: lineageFor(partLink.lineageId),
+      containerVersionId,
+      sectionId,
+      position,
+      multiplier: partLink.multiplier,
+      linkState: "MATERIALIZED" as const,
+      materializedTitle: partLink.materializedTitle,
+      materializedVersionLabel: partLink.materializedVersionLabel,
+      materializedContent: partLink.materializedContent,
+    };
+  });
 }
 
+/**
+ * F1 (docs/performance-architecture-audit.md): rewritten to `createMany` per
+ * row kind instead of one individually-awaited `create` per row — this was
+ * ~20-25 sequential round trips for a modest recipe, the dominant cost on
+ * every create/edit/import/propagate/duplicate/share-accept path (all 7
+ * callers of this function). Every id (`Section`/`Ingredient`/`Instruction`/
+ * `PartLink`'s own `@default(cuid())` primary key) is now pre-generated with
+ * `randomUUID()` in application code — exactly like `lineageFor` already did
+ * for `lineageId` — specifically so a child row (an Ingredient's substitute,
+ * or any row scoped to a Section) never needs to wait for a DB round trip to
+ * learn its parent's generated id. Two ordering requirements are still
+ * genuine data dependencies, preserved as two sequential stages: (1) Section
+ * rows must exist before any Ingredient/Instruction/PartLink row that
+ * references a Section id via a raw-SQL composite FK; (2) a substitute
+ * Ingredient's `substituteForIngredientId` FK must reference an
+ * already-persisted parent Ingredient row, so parent Ingredients are written
+ * in their own `createMany` before substitutes are written in a second one.
+ */
 export async function insertSections(
   tx: Prisma.TransactionClient,
   dishVersionId: string,
@@ -535,92 +550,125 @@ export async function insertSections(
     return mintFreshLineage ? randomUUID() : (id ?? randomUUID());
   }
 
-  await insertPartLinks(tx, dishVersionId, null, topLevelPartLinks, lineageFor);
+  const partLinkRows: Prisma.PartLinkCreateManyInput[] = buildPartLinkRows(
+    dishVersionId,
+    null,
+    topLevelPartLinks,
+    lineageFor,
+  );
 
   // Slice 6 post-gate: sort order doesn't affect what `position` value each
   // row is written with (that comes from each Section's own explicit
   // `position` field below, not iteration order) — sorting here only
   // keeps `sectionNames` (search-text) in true reading order.
   const orderedSections = sortByPosition(sections);
+
+  const sectionRows: Prisma.SectionCreateManyInput[] = [];
+  const sectionIdByIndex: string[] = [];
+  for (const section of orderedSections) {
+    const sectionId = randomUUID();
+    sectionIdByIndex.push(sectionId);
+    if (section.name) sectionNames.push(section.name);
+    sectionRows.push({
+      id: sectionId,
+      lineageId: lineageFor(section.lineageId),
+      dishVersionId,
+      name: section.name || null,
+      guidanceNote: section.guidanceNote || null,
+      position: section.position,
+    });
+  }
+  if (sectionRows.length > 0) {
+    await tx.section.createMany({ data: sectionRows });
+  }
+
+  const ingredientRows: Prisma.IngredientCreateManyInput[] = [];
+  const substituteRows: Prisma.IngredientCreateManyInput[] = [];
+  const instructionRows: Prisma.InstructionCreateManyInput[] = [];
+
   for (let si = 0; si < orderedSections.length; si++) {
     const section = orderedSections[si];
-    if (section.name) sectionNames.push(section.name);
-
-    const sectionRow = await tx.section.create({
-      data: {
-        lineageId: lineageFor(section.lineageId),
-        dishVersionId,
-        name: section.name || null,
-        guidanceNote: section.guidanceNote || null,
-        position: section.position,
-      },
-    });
+    const sectionId = sectionIdByIndex[si];
 
     for (let ii = 0; ii < section.ingredients.length; ii++) {
       const ingredient = section.ingredients[ii];
-      const ingredientRow = await tx.ingredient.create({
-        data: {
-          lineageId: lineageFor(ingredient.lineageId),
-          dishVersionId,
-          sectionId: sectionRow.id,
-          name: ingredient.name,
-          quantity: ingredient.quantity ?? null,
-          quantityEnd: ingredient.quantityEnd ?? null,
-          isApproximate: ingredient.isApproximate,
-          unit: ingredient.unit || null,
-          displayText: ingredient.displayText || null,
-          preparationNote: ingredient.preparationNote || null,
-          isOptional: ingredient.isOptional,
-          originalImportedText: ingredient.originalImportedText || null,
-          position: ii,
-        },
+      const ingredientId = randomUUID();
+      ingredientRows.push({
+        id: ingredientId,
+        lineageId: lineageFor(ingredient.lineageId),
+        dishVersionId,
+        sectionId,
+        name: ingredient.name,
+        quantity: ingredient.quantity ?? null,
+        quantityEnd: ingredient.quantityEnd ?? null,
+        isApproximate: ingredient.isApproximate,
+        unit: ingredient.unit || null,
+        displayText: ingredient.displayText || null,
+        preparationNote: ingredient.preparationNote || null,
+        isOptional: ingredient.isOptional,
+        originalImportedText: ingredient.originalImportedText || null,
+        position: ii,
       });
 
       if (ingredient.substitute) {
-        await tx.ingredient.create({
-          data: {
-            lineageId: lineageFor(ingredient.substitute.lineageId),
-            dishVersionId,
-            sectionId: sectionRow.id,
-            name: ingredient.substitute.name,
-            quantity: ingredient.substitute.quantity ?? null,
-            quantityEnd: ingredient.substitute.quantityEnd ?? null,
-            isApproximate: ingredient.substitute.isApproximate,
-            unit: ingredient.substitute.unit || null,
-            displayText: ingredient.substitute.displayText || null,
-            preparationNote: ingredient.substitute.preparationNote || null,
-            position: ii,
-            substituteForIngredientId: ingredientRow.id,
-          },
+        substituteRows.push({
+          id: randomUUID(),
+          lineageId: lineageFor(ingredient.substitute.lineageId),
+          dishVersionId,
+          sectionId,
+          name: ingredient.substitute.name,
+          quantity: ingredient.substitute.quantity ?? null,
+          quantityEnd: ingredient.substitute.quantityEnd ?? null,
+          isApproximate: ingredient.substitute.isApproximate,
+          unit: ingredient.substitute.unit || null,
+          displayText: ingredient.substitute.displayText || null,
+          preparationNote: ingredient.substitute.preparationNote || null,
+          position: ii,
+          substituteForIngredientId: ingredientId,
         });
       }
     }
 
     for (let ti = 0; ti < section.instructions.length; ti++) {
       const instruction = section.instructions[ti];
-      await tx.instruction.create({
-        data: {
-          lineageId: lineageFor(instruction.lineageId),
-          dishVersionId,
-          sectionId: sectionRow.id,
-          text: instruction.text,
-          // Section-editor refinement pass: this Instruction's slot in the
-          // merged sequence shared with the Section's own nested PartLinks
-          // (`instructionInputSchema.position`'s doc comment) — falls back
-          // to array index only for content that never went through the
-          // merged-order editor (pre-existing convention, unchanged).
-          position: instruction.position ?? ti,
-        },
+      instructionRows.push({
+        id: randomUUID(),
+        lineageId: lineageFor(instruction.lineageId),
+        dishVersionId,
+        sectionId,
+        text: instruction.text,
+        // Section-editor refinement pass: this Instruction's slot in the
+        // merged sequence shared with the Section's own nested PartLinks
+        // (`instructionInputSchema.position`'s doc comment) — falls back
+        // to array index only for content that never went through the
+        // merged-order editor (pre-existing convention, unchanged).
+        position: instruction.position ?? ti,
       });
     }
 
-    await insertPartLinks(
-      tx,
-      dishVersionId,
-      sectionRow.id,
-      section.partLinks,
-      lineageFor,
+    partLinkRows.push(
+      ...buildPartLinkRows(
+        dishVersionId,
+        sectionId,
+        section.partLinks,
+        lineageFor,
+      ),
     );
+  }
+
+  // Parent Ingredients before substitutes: a substitute's
+  // `substituteForIngredientId` FK must reference an already-persisted row.
+  if (ingredientRows.length > 0) {
+    await tx.ingredient.createMany({ data: ingredientRows });
+  }
+  if (substituteRows.length > 0) {
+    await tx.ingredient.createMany({ data: substituteRows });
+  }
+  if (instructionRows.length > 0) {
+    await tx.instruction.createMany({ data: instructionRows });
+  }
+  if (partLinkRows.length > 0) {
+    await tx.partLink.createMany({ data: partLinkRows });
   }
 
   return { sectionNames, partLinkTargetDishIds };
@@ -667,6 +715,17 @@ async function structuralSearchTextFor(
  * Section names plus every one of *its* linked Parts' current titles, not
  * just the renamed one) rather than returning usage rows for display.
  */
+/**
+ * F3 (docs/performance-architecture-audit.md): batched — one `findMany` for
+ * every affected container's current-Version content, one `findMany` for
+ * every linked Part's current title (shared across all containers, not
+ * re-resolved per container via `structuralSearchTextFor`), then every
+ * container's search text recomputed in memory and persisted concurrently.
+ * Previously 1 + 3N sequential round trips (a `findUnique` + a nested
+ * `structuralSearchTextFor` `findMany` + an `update`, per container) — now a
+ * fixed small number of round trips regardless of how many containers link
+ * the renamed Part.
+ */
 async function refreshStructuralSearchTextForPartUsages(
   client: Prisma.TransactionClient | typeof prisma,
   ownerId: string,
@@ -682,37 +741,87 @@ async function refreshStructuralSearchTextForPartUsages(
     },
     select: { id: true, currentVersionId: true },
   });
+  if (containers.length === 0) return;
 
-  for (const container of containers) {
-    if (!container.currentVersionId) continue;
-    const version = await client.dishVersion.findUnique({
-      where: { id: container.currentVersionId },
-      select: {
-        sections: { select: { name: true } },
-        partLinks: {
-          where: { linkState: "LIVE" },
-          select: { targetDishId: true },
-        },
+  const versionIds = containers
+    .map((container) => container.currentVersionId)
+    .filter((id): id is string => !!id);
+
+  const versions = await client.dishVersion.findMany({
+    where: { id: { in: versionIds } },
+    select: {
+      id: true,
+      sections: { select: { name: true } },
+      partLinks: {
+        where: { linkState: "LIVE" },
+        select: { targetDishId: true },
       },
+    },
+  });
+  const versionById = new Map(versions.map((version) => [version.id, version]));
+
+  const allTargetDishIds = [
+    ...new Set(
+      versions.flatMap((version) =>
+        version.partLinks
+          .map((link) => link.targetDishId)
+          .filter((id): id is string => !!id),
+      ),
+    ),
+  ];
+  const targets = allTargetDishIds.length
+    ? await client.dish.findMany({
+        where: { id: { in: allTargetDishIds } },
+        select: { id: true, currentTitle: true },
+      })
+    : [];
+  const titleByDishId = new Map(
+    targets.map((target) => [target.id, target.currentTitle]),
+  );
+
+  const updates = containers
+    .filter(
+      (
+        container,
+      ): container is typeof container & { currentVersionId: string } =>
+        !!container.currentVersionId &&
+        versionById.has(container.currentVersionId),
+    )
+    .map((container) => {
+      const version = versionById.get(container.currentVersionId)!;
+      const sectionNames = version.sections
+        .map((section) => section.name)
+        .filter((name): name is string => !!name);
+      const partTitles = version.partLinks
+        .map((link) =>
+          link.targetDishId ? titleByDishId.get(link.targetDishId) : null,
+        )
+        .filter((title): title is string => !!title);
+      const combined = [...sectionNames, ...partTitles].join(" ");
+      return { id: container.id, searchText: combined || null };
     });
-    if (!version) continue;
-    const sectionNames = version.sections
-      .map((section) => section.name)
-      .filter((name): name is string => !!name);
-    const partLinkTargetDishIds = version.partLinks
-      .map((link) => link.targetDishId)
-      .filter((id): id is string => !!id);
-    await client.dish.update({
-      where: { id: container.id },
-      data: {
-        currentStructuralSearchText: await structuralSearchTextFor(
-          client,
-          sectionNames,
-          partLinkTargetDishIds,
-        ),
-      },
-    });
-  }
+
+  // Correction pass (post-implementation review): both real callers pass
+  // an interactive-transaction `tx`, never the bare `prisma` client — N
+  // concurrent `tx.dish.update()` calls via `Promise.all` on one shared
+  // transaction handle is a documented Prisma anti-pattern (the same
+  // connection can't genuinely run them in parallel, and some
+  // engine/adapter combinations reject concurrent queries against one
+  // interactive-transaction client outright). A heavily-reused Part could
+  // also mean dozens of concurrent writes, adding needless pressure even
+  // where it *does* work. One raw `UPDATE ... FROM (VALUES ...)` statement
+  // — the same batching approach F8 uses for checklist rescale — replaces
+  // all of that with a single statement while still writing each
+  // container's own distinct value.
+  if (updates.length === 0) return;
+  await client.$executeRaw`
+    UPDATE "Dish" AS d
+    SET "currentStructuralSearchText" = v.search_text
+    FROM (VALUES ${Prisma.join(
+      updates.map((u) => Prisma.sql`(${u.id}::text, ${u.searchText}::text)`),
+    )}) AS v(id, search_text)
+    WHERE d.id = v.id
+  `;
 }
 
 /** Slice 6: the full flat set of proposed linked-Part occurrences across a
@@ -993,7 +1102,14 @@ function sanitizedSectionsOrThrow(input: DishContentInput): SectionInput[] {
   return sections;
 }
 
-export async function createDish(
+/**
+ * F5 (docs/performance-architecture-audit.md): returns the just-created
+ * Version's id alongside the Dish id, so a caller that needs it (e.g.
+ * Convert Section to Part) doesn't have to make a second round trip to
+ * re-derive it. `createDish` below is a thin wrapper preserving the
+ * original dishId-only contract for every existing caller.
+ */
+export async function createDishWithVersion(
   ownerId: string,
   kind: DishKindValue,
   input: DishContentInput,
@@ -1003,7 +1119,7 @@ export async function createDish(
   // `duplicateDish` already uses for `sourceKind: "DUPLICATE"`, not a
   // second, parallel creation path.
   source?: { title: string | null },
-): Promise<string> {
+): Promise<{ dishId: string; versionId: string }> {
   const sections = sanitizedSectionsOrThrow(input);
   const nutrition = normalizeNutritionOrThrow(input);
 
@@ -1088,8 +1204,19 @@ export async function createDish(
       },
     });
 
-    return dish.id;
+    return { dishId: dish.id, versionId: version.id };
   });
+}
+
+/** The original dishId-only contract every pre-existing caller expects — see `createDishWithVersion` above. */
+export async function createDish(
+  ownerId: string,
+  kind: DishKindValue,
+  input: DishContentInput,
+  source?: { title: string | null },
+): Promise<string> {
+  const { dishId } = await createDishWithVersion(ownerId, kind, input, source);
+  return dishId;
 }
 
 /**

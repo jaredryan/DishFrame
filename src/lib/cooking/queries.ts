@@ -504,22 +504,26 @@ async function buildPartUnitTree(
     return [];
   }
 
-  const targetDish = await prisma.dish.findFirst({
-    where: { id: link.targetDishId, ownerId, kind: "PART" },
-    select: { currentTitle: true },
-  });
-  if (!targetDish) return [];
-
+  // F7 (docs/performance-architecture-audit.md): merged into one query —
+  // same pattern as `sections/service.ts`'s `resolvePartLinkTreeInner`
+  // (F6). The ownership/kind check rides along on the Version lookup's
+  // `dish` relation filter instead of a separate `dish.findFirst`, and
+  // `currentTitle` comes back on the same round trip.
   const targetVersion = await prisma.dishVersion.findFirst({
-    where: { id: link.targetDishVersionId, dishId: link.targetDishId },
+    where: {
+      id: link.targetDishVersionId,
+      dishId: link.targetDishId,
+      dish: { ownerId, kind: "PART" },
+    },
     include: {
+      dish: { select: { currentTitle: true } },
       sections: sectionContentInclude,
       partLinks: partLinkContentInclude,
     },
   });
   if (!targetVersion) return [];
 
-  const label = targetDish.currentTitle ?? "Untitled Part";
+  const label = targetVersion.dish.currentTitle ?? "Untitled Part";
   const multiplier = decimalToNumber(link.multiplier) ?? 1;
   const pathSnapshot = [...pathPrefix, label].join(" → ");
 
@@ -575,21 +579,25 @@ async function buildPartUnitTree(
   const nestedLinks = [...targetVersion.partLinks].sort(
     (a, b) => a.position - b.position,
   );
-  const nested: CookableUnit[] = [];
-  for (const [offset, nestedLink] of nestedLinks.entries()) {
-    nested.push(
-      ...(await buildPartUnitTree(
-        ownerId,
-        nestedLink,
-        authoredIndex + (offset + 1) / (nestedLinks.length + 1),
-        "NESTED",
-        label,
-        nextPathPrefix,
-        nextVisited,
-        depth + 1,
-      )),
-    );
-  }
+  // F7: sibling nested Parts have no dependency on one another (each reads
+  // the same `nextVisited` snapshot but never mutates it, exactly like
+  // F6's sibling-Section parallelization) — safe to resolve concurrently.
+  const nested = (
+    await Promise.all(
+      nestedLinks.map((nestedLink, offset) =>
+        buildPartUnitTree(
+          ownerId,
+          nestedLink,
+          authoredIndex + (offset + 1) / (nestedLinks.length + 1),
+          "NESTED",
+          label,
+          nextPathPrefix,
+          nextVisited,
+          depth + 1,
+        ),
+      ),
+    )
+  ).flat();
 
   return [unit, ...nested];
 }
@@ -653,76 +661,81 @@ export async function buildCookableUnits(
     })),
   ].sort((a, b) => a.position - b.position);
 
-  const units: CookableUnit[] = [];
-  let authoredCursor = 0;
-
-  for (const entry of topLevelEntries) {
-    const authoredIndex = authoredCursor++;
-
-    if (entry.type === "section") {
-      const section = entry.value;
-      const localIngredients = section.ingredients.filter(
-        (i) => !i.substituteForIngredientId,
-      );
-      if (localIngredients.length > 0 || section.instructions.length > 0) {
-        units.push({
-          unitKey: `section:${section.lineageId}`,
-          kind: "SECTION",
-          label: section.name?.trim() || dishTitle,
-          sourceDishTitle: dishTitle,
-          sourceDishVersionLabel,
-          sourceSectionLineageId: section.lineageId,
-          sourcePartLinkLineageId: null,
-          estimatedDurationMinutes: null,
-          authoredIndex,
-          outputQuantity: null,
-          outputUnit: null,
-          targetDishId: null,
-          targetDishVersionId: null,
-          partRelation: null,
-          partViaTitleSnapshot: null,
-          partPathSnapshot: null,
-          checklist: [
-            ...localIngredients.map(ingredientToRaw),
-            ...section.instructions.map((instruction) => ({
-              kind: "INSTRUCTION" as const,
-              sourceLineageId: instruction.lineageId,
-              text: instruction.text,
-            })),
-          ],
-        });
-      }
-
-      const nestedLinks = partLinksBySection.get(section.id) ?? [];
-      for (const [nestedOffset, link] of nestedLinks.entries()) {
-        units.push(
-          ...(await buildPartUnitTree(
-            ownerId,
-            link,
-            authoredIndex + (nestedOffset + 1) / (nestedLinks.length + 1),
-            "DIRECT",
-            null,
-            [dishTitle],
-            new Set(),
-            0,
-          )),
+  // F7 (docs/performance-architecture-audit.md): top-level entries are
+  // independent of one another (each Part tree starts from its own fresh
+  // `new Set()` visited-set, never shared) — resolved concurrently instead
+  // of one `await` at a time. `authoredIndex` is just each entry's array
+  // index (matching the original `authoredCursor++`), computed
+  // synchronously before any `await`, and final ordering is still decided
+  // by the `.sort()` below — so resolution order never affects the result.
+  const entryResults = await Promise.all(
+    topLevelEntries.map(async (entry, authoredIndex) => {
+      if (entry.type === "section") {
+        const section = entry.value;
+        const localIngredients = section.ingredients.filter(
+          (i) => !i.substituteForIngredientId,
         );
+        const sectionUnits: CookableUnit[] = [];
+        if (localIngredients.length > 0 || section.instructions.length > 0) {
+          sectionUnits.push({
+            unitKey: `section:${section.lineageId}`,
+            kind: "SECTION",
+            label: section.name?.trim() || dishTitle,
+            sourceDishTitle: dishTitle,
+            sourceDishVersionLabel,
+            sourceSectionLineageId: section.lineageId,
+            sourcePartLinkLineageId: null,
+            estimatedDurationMinutes: null,
+            authoredIndex,
+            outputQuantity: null,
+            outputUnit: null,
+            targetDishId: null,
+            targetDishVersionId: null,
+            partRelation: null,
+            partViaTitleSnapshot: null,
+            partPathSnapshot: null,
+            checklist: [
+              ...localIngredients.map(ingredientToRaw),
+              ...section.instructions.map((instruction) => ({
+                kind: "INSTRUCTION" as const,
+                sourceLineageId: instruction.lineageId,
+                text: instruction.text,
+              })),
+            ],
+          });
+        }
+
+        const nestedLinks = partLinksBySection.get(section.id) ?? [];
+        const nestedResults = await Promise.all(
+          nestedLinks.map((link, nestedOffset) =>
+            buildPartUnitTree(
+              ownerId,
+              link,
+              authoredIndex + (nestedOffset + 1) / (nestedLinks.length + 1),
+              "DIRECT",
+              null,
+              [dishTitle],
+              new Set(),
+              0,
+            ),
+          ),
+        );
+        return [...sectionUnits, ...nestedResults.flat()];
       }
-    } else {
-      units.push(
-        ...(await buildPartUnitTree(
-          ownerId,
-          entry.value,
-          authoredIndex,
-          "DIRECT",
-          null,
-          [dishTitle],
-          new Set(),
-          0,
-        )),
+
+      return buildPartUnitTree(
+        ownerId,
+        entry.value,
+        authoredIndex,
+        "DIRECT",
+        null,
+        [dishTitle],
+        new Set(),
+        0,
       );
-    }
-  }
+    }),
+  );
+  const units: CookableUnit[] = entryResults.flat();
 
   // §23.5: longest estimated duration first; authored order when durations
   // are missing or equal (local Sections carry no duration data at all, so

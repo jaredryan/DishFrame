@@ -71,10 +71,14 @@ export async function createDish(
     const userId = await requireUserId();
     const input = dishContentSchema.parse(values);
 
-    const dishId = await dishService.createDish(userId, kind, input);
+    const { dishId, versionId } = await dishService.createDishWithVersion(
+      userId,
+      kind,
+      input,
+    );
 
     revalidateDish(kind, dishId);
-    return { status: "success", dishId };
+    return { status: "success", dishId, versionId };
   } catch (error) {
     return { status: "error", message: toActionErrorMessage(error) };
   }

@@ -20,7 +20,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { createDish } from "@/lib/dishes/actions";
-import { listAttachablePartVersions } from "@/lib/sections/actions";
 import type { IngredientInput, InstructionInput } from "@/lib/dishes/schema";
 
 /**
@@ -113,24 +112,15 @@ export function ConvertSectionToPartDialog({
       partLinks: [],
     });
 
-    if (result.status !== "success" || !result.dishId) {
-      setIsSubmitting(false);
-      setError(result.message ?? "Could not create the Part.");
-      return;
-    }
-
-    const versions = await listAttachablePartVersions(result.dishId);
     setIsSubmitting(false);
-    const newVersion =
-      versions.status === "success" ? versions.versions[0] : null;
-    if (!newVersion) {
-      setError("The Part was created, but its version could not be resolved.");
+    if (result.status !== "success" || !result.dishId || !result.versionId) {
+      setError(result.message ?? "Could not create the Part.");
       return;
     }
 
     onConverted({
       targetDishId: result.dishId,
-      targetDishVersionId: newVersion.id,
+      targetDishVersionId: result.versionId,
     });
     setOpen(false);
   }

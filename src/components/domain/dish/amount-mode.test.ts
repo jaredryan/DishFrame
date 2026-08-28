@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { amountModeShowsUnit, deriveAmountMode } from "@/components/domain/dish/amount-mode";
+import {
+  amountModeShowsUnit,
+  deriveAmountMode,
+} from "@/components/domain/dish/amount-mode";
 
 describe("amountModeShowsUnit", () => {
   it("shows Unit only for a structured quantity (single or range)", () => {
