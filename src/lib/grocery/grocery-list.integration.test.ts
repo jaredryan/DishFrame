@@ -1009,169 +1009,6 @@ describe("grocery list service", () => {
     });
   });
 
-  describe("combineGroceryItems (manual merge, §61.5)", () => {
-    it("merges the deliberately-not-auto-combined 'can' vs 'g' pairing into one item, preserving both contributions", async () => {
-      const user = await createTestUser();
-      userId = user.id;
-      await initializeNewUser(userId);
-
-      const recipeA = await dishService.createDish(
-        userId,
-        "RECIPE",
-        content({
-          sections: [
-            {
-              name: null,
-              guidanceNote: null,
-              position: 0,
-              ingredients: [
-                ingredient({ name: "Tomatoes", quantity: 1, unit: "can" }),
-              ],
-              instructions: [],
-              partLinks: [],
-            },
-          ],
-        }),
-      );
-      const recipeB = await dishService.createDish(
-        userId,
-        "RECIPE",
-        content({
-          sections: [
-            {
-              name: null,
-              guidanceNote: null,
-              position: 0,
-              ingredients: [
-                ingredient({ name: "Tomatoes", quantity: 400, unit: "g" }),
-              ],
-              instructions: [],
-              partLinks: [],
-            },
-          ],
-        }),
-      );
-      const listId = await listService.generateGroceryList(userId, {
-        title: "This week",
-        plannedDate: new Date(),
-        sources: [
-          { dishId: recipeA, scaleFactor: 1 },
-          { dishId: recipeB, scaleFactor: 1 },
-        ],
-      });
-      const items = await prisma.groceryListItem.findMany({
-        where: { groceryListId: listId },
-      });
-      expect(items).toHaveLength(2);
-
-      await listService.combineGroceryItems(userId, listId, [
-        items[0].id,
-        items[1].id,
-      ]);
-
-      const merged = await prisma.groceryListItem.findMany({
-        where: { groceryListId: listId },
-        include: { contributions: true },
-      });
-      expect(merged).toHaveLength(1);
-      expect(merged[0].contributions).toHaveLength(2);
-      // Not honestly summable across "can"/"g" — falls back to a
-      // concatenated display rather than fabricating one quantity.
-      expect(merged[0].quantityDecimal).toBeNull();
-    });
-
-    it("preserves each contribution's own optionality across a merge and a later uncombine (Slice 12 correction)", async () => {
-      const user = await createTestUser();
-      userId = user.id;
-      await initializeNewUser(userId);
-
-      const recipeA = await dishService.createDish(
-        userId,
-        "RECIPE",
-        content({
-          sections: [
-            {
-              name: null,
-              guidanceNote: null,
-              position: 0,
-              ingredients: [
-                ingredient({ name: "Cilantro", quantity: 1, unit: "can" }),
-              ],
-              instructions: [],
-              partLinks: [],
-            },
-          ],
-        }),
-      );
-      const recipeB = await dishService.createDish(
-        userId,
-        "RECIPE",
-        content({
-          sections: [
-            {
-              name: null,
-              guidanceNote: null,
-              position: 0,
-              ingredients: [
-                ingredient({
-                  name: "Cilantro",
-                  quantity: 400,
-                  unit: "g",
-                  isOptional: true,
-                }),
-              ],
-              instructions: [],
-              partLinks: [],
-            },
-          ],
-        }),
-      );
-      const listId = await listService.generateGroceryList(userId, {
-        title: "This week",
-        plannedDate: new Date(),
-        sources: [
-          { dishId: recipeA, scaleFactor: 1 },
-          { dishId: recipeB, scaleFactor: 1 },
-        ],
-      });
-      const items = await prisma.groceryListItem.findMany({
-        where: { groceryListId: listId },
-        include: { contributions: true },
-      });
-      expect(items).toHaveLength(2); // "can" vs "g" never auto-combines
-
-      const requiredContribution = items
-        .flatMap((i) => i.contributions)
-        .find((c) => c.unit === "can")!;
-      const optionalContribution = items
-        .flatMap((i) => i.contributions)
-        .find((c) => c.unit === "g")!;
-      expect(requiredContribution.isOptional).toBe(false);
-      expect(optionalContribution.isOptional).toBe(true);
-
-      await listService.combineGroceryItems(userId, listId, [
-        items[0].id,
-        items[1].id,
-      ]);
-
-      await listService.uncombineGroceryItem(userId, listId, items[0].id);
-
-      const afterUncombine = await prisma.groceryListItem.findMany({
-        where: { groceryListId: listId },
-        include: { contributions: true },
-      });
-      expect(afterUncombine).toHaveLength(2);
-      const restoredRequired = afterUncombine.find(
-        (i) => i.contributions[0]?.unit === "can",
-      )!;
-      const restoredOptional = afterUncombine.find(
-        (i) => i.contributions[0]?.unit === "g",
-      )!;
-      expect(restoredRequired.isOptional).toBe(false);
-      expect(restoredOptional.isOptional).toBe(true);
-    });
-  });
-
   describe("selectGroceryItemVariant (reversible substitute selection, Slice 12 correction 2)", () => {
     it("persists a scaled substitute snapshot at generation, independent of a later source edit", async () => {
       const user = await createTestUser();
@@ -2617,7 +2454,13 @@ describe("grocery list service", () => {
         }),
       );
 
-      await listService.addGroceryListSource(userId, listId, recipeB, 1);
+      await listService.addGroceryListSource(
+        userId,
+        listId,
+        recipeB,
+        undefined,
+        1,
+      );
 
       const sources = await prisma.groceryListSource.findMany({
         where: { groceryListId: listId },
@@ -2635,6 +2478,116 @@ describe("grocery list service", () => {
         where: { groceryListId: listId, name: "Sugar" },
       });
       expect(sugarItem.quantityDecimal?.toNumber()).toBe(1);
+    });
+
+    it("addGroceryListSource honors an explicitly chosen historical Version instead of defaulting to current", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      await initializeNewUser(userId);
+
+      const recipeId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({ name: "Flour", quantity: 2, unit: "cup" }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      const dishBefore = await prisma.dish.findUniqueOrThrow({
+        where: { id: recipeId },
+        include: {
+          currentVersion: {
+            include: { sections: { include: { ingredients: true } } },
+          },
+        },
+      });
+      const historicalVersionId = dishBefore.currentVersionId!;
+      const sectionLineageId = dishBefore.currentVersion!.sections[0].lineageId;
+      const flourLineageId =
+        dishBefore.currentVersion!.sections[0].ingredients[0].lineageId;
+
+      // Bump to a new current Version (Flour 2 -> 5) — the historical
+      // Version chosen below must snapshot its own ingredients (2), never
+      // the dish's now-current ones (5).
+      await dishService.editDish(
+        userId,
+        recipeId,
+        historicalVersionId,
+        content({
+          sections: [
+            {
+              lineageId: sectionLineageId,
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({
+                  lineageId: flourLineageId,
+                  name: "Flour",
+                  quantity: 5,
+                  unit: "cup",
+                }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+        "MINOR",
+      );
+
+      const placeholderRecipeId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({
+          title: "Placeholder",
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({ name: "Salt", quantity: 1, unit: "tsp" }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      const listId = await listService.generateGroceryList(userId, {
+        title: "This week",
+        plannedDate: new Date(),
+        sources: [{ dishId: placeholderRecipeId, scaleFactor: 1 }],
+      });
+
+      await listService.addGroceryListSource(
+        userId,
+        listId,
+        recipeId,
+        historicalVersionId,
+        1,
+      );
+
+      const source = await prisma.groceryListSource.findFirstOrThrow({
+        where: { groceryListId: listId, dishId: recipeId },
+      });
+      expect(source.dishVersionId).toBe(historicalVersionId);
+
+      const flourItem = await prisma.groceryListItem.findFirstOrThrow({
+        where: { groceryListId: listId, name: "Flour" },
+      });
+      expect(flourItem.quantityDecimal?.toNumber()).toBe(2);
     });
 
     it("removeGroceryListSource deletes that source's exclusive items but preserves manual items and other sources", async () => {

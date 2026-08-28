@@ -19,7 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { ShareItemSelector } from "@/components/domain/sharing/share-item-selector";
+import { RecipePartPicker } from "@/components/domain/dish/recipe-part-picker";
 import { SelectableDishRow } from "@/components/domain/dish/selectable-dish-row";
 import { RichDishVersionPicker } from "@/components/domain/dish/version-picker-field";
 import {
@@ -202,7 +202,7 @@ export function BulkPublishDialog({
 
         <div className="-mx-1 flex min-h-0 flex-1 flex-col overflow-y-auto px-1">
           {step === "select" && (
-            <ShareItemSelector
+            <RecipePartPicker
               items={items}
               itemsError={itemsError}
               search={search}

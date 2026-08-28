@@ -17,7 +17,6 @@ import {
   Pencil,
   Plus,
   RefreshCw,
-  Search,
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -53,17 +52,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { TooltipIconButton } from "@/components/domain/dish/reorder-buttons";
 import { SelectableDishRow } from "@/components/domain/dish/selectable-dish-row";
+import { RecipePartPicker } from "@/components/domain/dish/recipe-part-picker";
 import { DishYieldScalingField } from "@/components/domain/grocery/dish-yield-scaling-field";
 import { RichVersionPickerField } from "@/components/domain/dish/version-picker-field";
-import {
-  PICKER_TABS,
-  candidateToSelectionItem,
-  type PickerTab,
-} from "@/components/domain/grocery/grocery-source-picker";
+import { candidateToSelectionItem } from "@/components/domain/grocery/grocery-source-picker";
 import { useReorderSensors } from "@/lib/dnd/sensors";
 import { createReorderAnnouncements } from "@/lib/dnd/announcements";
 import { toIsoDateOnly, formatDateOnly } from "@/lib/date";
-import { cn } from "@/lib/utils";
 import {
   toggleGroceryItem,
   addManualGroceryItem,
@@ -71,7 +66,6 @@ import {
   removeGroceryItem,
   recategorizeGroceryItem,
   reorderGroceryListItems,
-  combineGroceryItems,
   uncombineGroceryItem,
   selectGroceryItemVariant,
   updateGroceryListDetails,
@@ -158,10 +152,6 @@ export function GroceryListDetailView({
   const [checkedIds, setCheckedIds] = React.useState(
     () => new Set(list.items.filter((i) => i.checkedAt).map((i) => i.id)),
   );
-  const [combineMode, setCombineMode] = React.useState(false);
-  const [combineSelection, setCombineSelection] = React.useState<Set<string>>(
-    new Set(),
-  );
   const [isPending, startTransition] = React.useTransition();
   const [error, setError] = React.useState<string | null>(null);
   const [editOpen, setEditOpen] = React.useState(false);
@@ -229,15 +219,6 @@ export function GroceryListDetailView({
         refresh();
       }
     });
-  }
-
-  function handleCombine() {
-    if (combineSelection.size < 2) return;
-    runAction(() =>
-      combineGroceryItems({ listId: list.id, itemIds: [...combineSelection] }),
-    );
-    setCombineMode(false);
-    setCombineSelection(new Set());
   }
 
   // Drag-to-reorder is scoped to one category group's own `SortableContext`
@@ -436,20 +417,10 @@ export function GroceryListDetailView({
 
         {!groceriesCollapsed && (
           <div className="flex flex-col gap-4">
-            {!isCompleted && (
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant={combineMode ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => {
-                    setCombineMode((prev) => !prev);
-                    setCombineSelection(new Set());
-                  }}
-                >
-                  {combineMode ? "Cancel combine" : "Combine items"}
-                </Button>
-                {list.mode === "MEAL_PLAN_LINKED" && list.linkedMealPlanId && (
+            {!isCompleted &&
+              list.mode === "MEAL_PLAN_LINKED" &&
+              list.linkedMealPlanId && (
+                <div className="flex items-center gap-2">
                   <Button
                     type="button"
                     variant="outline"
@@ -465,23 +436,12 @@ export function GroceryListDetailView({
                   >
                     Sync now
                   </Button>
-                )}
-                {combineMode && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    disabled={combineSelection.size < 2 || isPending}
-                    onClick={handleCombine}
-                  >
-                    Combine selected ({combineSelection.size})
-                  </Button>
-                )}
-              </div>
-            )}
+                </div>
+              )}
 
             <div className="flex flex-col gap-5">
               {groups.map((group) => {
-                const dragDisabledBase = isCompleted || combineMode;
+                const dragDisabledBase = isCompleted;
                 return (
                   <div
                     key={group.categoryId ?? "none"}
@@ -523,16 +483,6 @@ export function GroceryListDetailView({
                                 dragDisabledBase || editingItemId === item.id
                               }
                               categoryOptions={categoryOptions}
-                              combineMode={combineMode}
-                              combineSelected={combineSelection.has(item.id)}
-                              onCombineToggle={() =>
-                                setCombineSelection((prev) => {
-                                  const next = new Set(prev);
-                                  if (next.has(item.id)) next.delete(item.id);
-                                  else next.add(item.id);
-                                  return next;
-                                })
-                              }
                               isEditing={editingItemId === item.id}
                               onStartEdit={() => setEditingItemId(item.id)}
                               onCancelEdit={() => setEditingItemId(null)}
@@ -788,10 +738,14 @@ function MealCard({
   );
 }
 
-/** Detail page's "Add meal" — the same rich search picker used by Cook/Send/
- * Publish/Add-Edit-Meal (`SelectableDishRow` + sticky search/tabs), single-
- * select, followed by the same target-servings scaling step
- * `GrocerySourcePickerPanel` uses when creating a list from scratch. */
+/** Detail page's "Add meal" — the shared `RecipePartPicker` (same rich
+ * search/tabs/row treatment as Cook/Send/Publish/Add-Edit-Meal), single-
+ * select. Selecting a Recipe/Part transitions directly into a separate
+ * Version-selection screen (single-select, so the item click is already
+ * the step transition — no redundant Next click), matching Attach-a-Part;
+ * the current Version is preselected but a historical one may be chosen
+ * deliberately, then target-servings scaling as `GrocerySourcePickerPanel`
+ * uses when creating a list from scratch. */
 function AddMealDialog({
   listId,
   candidates,
@@ -804,29 +758,77 @@ function AddMealDialog({
   onAdded: () => void;
 }) {
   const [search, setSearch] = React.useState("");
-  const [tab, setTab] = React.useState<PickerTab>("ALL");
   const [selectedDishId, setSelectedDishId] = React.useState<string | null>(
     null,
   );
+  const [versions, setVersions] = React.useState<
+    DishVersionYieldOption[] | null
+  >(null);
+  const [versionLoadError, setVersionLoadError] = React.useState<string | null>(
+    null,
+  );
+  const [selectedVersionId, setSelectedVersionId] = React.useState<
+    string | null
+  >(null);
   const [scale, setScale] = React.useState<number | null>(1);
   const [error, setError] = React.useState<string | null>(null);
   const [isPending, startTransition] = React.useTransition();
 
   const selected = candidates.find((c) => c.dishId === selectedDishId) ?? null;
-  const tabCandidates = candidates.filter(
-    (c) => tab === "ALL" || c.kind === tab,
+  const selectedSet = React.useMemo(
+    () => new Set(selectedDishId ? [selectedDishId] : []),
+    [selectedDishId],
   );
-  const filtered = tabCandidates.filter((c) =>
-    c.title.toLowerCase().includes(search.trim().toLowerCase()),
+  const pickerItems = React.useMemo(
+    () => candidates.map(candidateToSelectionItem),
+    [candidates],
   );
+  const selectedVersion = versions?.find((v) => v.id === selectedVersionId);
+
+  // Fetches this Recipe/Part's Version list (each with its own yield) the
+  // moment it's selected, defaulting to the Version the candidate list was
+  // already showing — same convention as `GrocerySourcePickerPanel`.
+  React.useEffect(() => {
+    if (!selectedDishId) return;
+    let cancelled = false;
+    listGrocerySourceVersionOptions({ dishId: selectedDishId }).then(
+      (result) => {
+        if (cancelled) return;
+        if (result.status !== "success") {
+          setVersionLoadError(result.message);
+          return;
+        }
+        setVersions(result.versions);
+        const candidate = candidates.find((c) => c.dishId === selectedDishId);
+        const current = result.versions.find(
+          (v) =>
+            `V${v.majorVersion}.${v.minorVersion}` === candidate?.versionLabel,
+        );
+        const chosen = current ?? result.versions[result.versions.length - 1];
+        if (chosen) setSelectedVersionId(chosen.id);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDishId, candidates]);
+
+  function selectDish(dishId: string | null) {
+    setSelectedDishId(dishId);
+    setVersions(null);
+    setVersionLoadError(null);
+    setSelectedVersionId(null);
+    setScale(1);
+  }
 
   function handleAdd() {
-    if (!selectedDishId) return;
+    if (!selectedDishId || !selectedVersionId) return;
     setError(null);
     startTransition(async () => {
       const result = await addGroceryListSource({
         listId,
         dishId: selectedDishId,
+        dishVersionId: selectedVersionId,
         scaleFactor: scale ?? 1,
       });
       if (result.status === "success") {
@@ -843,7 +845,9 @@ function AddMealDialog({
         <DialogHeader>
           <DialogTitle>Add meal</DialogTitle>
           <DialogDescription>
-            Select a Recipe or Part to add to this list.
+            {selected
+              ? "Choose a Version and amount to add."
+              : "Select a Recipe or Part to add to this list."}
           </DialogDescription>
         </DialogHeader>
 
@@ -852,71 +856,44 @@ function AddMealDialog({
             <SelectableDishRow
               item={candidateToSelectionItem(selected)}
               selectionControl="remove"
-              onRemove={() => setSelectedDishId(null)}
+              onRemove={() => selectDish(null)}
             />
+            {versionLoadError ? (
+              <p className="text-destructive-text text-sm">
+                {versionLoadError}
+              </p>
+            ) : versions ? (
+              <RichVersionPickerField
+                id={`add-meal-version-${selected.dishId}`}
+                versions={versions}
+                value={selectedVersionId ?? undefined}
+                onChangeAction={setSelectedVersionId}
+              />
+            ) : (
+              <p className="text-muted-foreground text-sm">Loading versions…</p>
+            )}
             <DishYieldScalingField
               id={selected.dishId}
               kindLabel={selected.kind === "PART" ? "Part" : "Recipe"}
-              yieldQuantity={selected.yieldQuantity}
-              yieldUnit={selected.yieldUnit}
+              yieldQuantity={
+                selectedVersion?.yieldQuantity ?? selected.yieldQuantity
+              }
+              yieldUnit={selectedVersion?.yieldUnit ?? selected.yieldUnit}
               onScaleChange={setScale}
             />
           </div>
         ) : (
-          <div className="-mx-1 flex min-h-0 flex-col gap-2 overflow-y-auto px-1">
-            <div className="bg-popover sticky top-0 z-10 flex flex-col gap-2 pb-2">
-              <div className="relative">
-                <Search
-                  className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2"
-                  aria-hidden="true"
-                />
-                <Input
-                  placeholder="Search"
-                  className="pl-8"
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                />
-              </div>
-              <div role="tablist" className="border-border flex gap-1 border-b">
-                {PICKER_TABS.map((t) => (
-                  <button
-                    key={t.value}
-                    type="button"
-                    role="tab"
-                    aria-selected={tab === t.value}
-                    onClick={() => setTab(t.value)}
-                    className={cn(
-                      "-mb-px cursor-pointer border-b-2 px-3 py-1.5 text-sm font-medium outline-none",
-                      tab === t.value
-                        ? "border-primary text-foreground"
-                        : "text-muted-foreground hover:text-foreground border-transparent",
-                    )}
-                  >
-                    {t.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {filtered.length === 0 ? (
-              <p className="text-muted-foreground py-4 text-center text-sm">
-                {candidates.length === 0
-                  ? "You don't have any recipes or parts saved yet."
-                  : "Nothing matches that search."}
-              </p>
-            ) : (
-              <div className="flex flex-col gap-1">
-                {filtered.map((candidate) => (
-                  <SelectableDishRow
-                    key={candidate.dishId}
-                    item={candidateToSelectionItem(candidate)}
-                    selectionControl="radio"
-                    selected={false}
-                    onSelect={() => setSelectedDishId(candidate.dishId)}
-                  />
-                ))}
-              </div>
-            )}
+          <div className="-mx-1 flex min-h-0 flex-col overflow-y-auto px-1">
+            <RecipePartPicker
+              items={pickerItems}
+              itemsError={null}
+              search={search}
+              onSearchChange={setSearch}
+              showKindTabs
+              selectionMode="single"
+              selected={selectedSet}
+              onToggle={(id) => selectDish(id)}
+            />
           </div>
         )}
 
@@ -930,7 +907,10 @@ function AddMealDialog({
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={handleAdd} disabled={!selectedDishId || isPending}>
+          <Button
+            onClick={handleAdd}
+            disabled={!selectedDishId || !selectedVersionId || isPending}
+          >
             {isPending ? "Adding…" : "Add meal"}
           </Button>
         </DialogFooter>
@@ -1079,7 +1059,7 @@ type DragHandleProps = {
  * matching the reorder pattern established by `GroceryCategoryManager`.
  * Dragging is disabled for the row currently being edited, same reasoning
  * as the category manager (its form fields shouldn't fight the drag
- * sensor), and for every row while the list is completed or in combine mode.
+ * sensor), and for every row while the list is completed.
  */
 function SortableGroceryItemRow(
   props: Omit<React.ComponentProps<typeof GroceryItemRow>, "dragHandle"> & {
@@ -1121,9 +1101,6 @@ function GroceryItemRow({
   onToggle,
   disabled,
   categoryOptions,
-  combineMode,
-  combineSelected,
-  onCombineToggle,
   isEditing,
   onStartEdit,
   onCancelEdit,
@@ -1140,9 +1117,6 @@ function GroceryItemRow({
   onToggle: () => void;
   disabled: boolean;
   categoryOptions: GroceryCategoryOptionDto[];
-  combineMode: boolean;
-  combineSelected: boolean;
-  onCombineToggle: () => void;
   isEditing: boolean;
   onStartEdit: () => void;
   onCancelEdit: () => void;
@@ -1179,20 +1153,12 @@ function GroceryItemRow({
             isDragging={dragHandle.isDragging}
           />
         )}
-        {combineMode ? (
-          <Checkbox
-            checked={combineSelected}
-            onCheckedChange={onCombineToggle}
-            aria-label={`Select ${item.name} to combine`}
-          />
-        ) : (
-          <Checkbox
-            checked={checked}
-            onCheckedChange={onToggle}
-            disabled={disabled}
-            aria-label={`Mark ${item.name} ${checked ? "not bought" : "bought"}`}
-          />
-        )}
+        <Checkbox
+          checked={checked}
+          onCheckedChange={onToggle}
+          disabled={disabled}
+          aria-label={`Mark ${item.name} ${checked ? "not bought" : "bought"}`}
+        />
 
         <div className="min-w-0 flex-1">
           {isEditing ? (
@@ -1318,7 +1284,7 @@ function GroceryItemRow({
           )}
         </div>
 
-        {!disabled && !isEditing && !combineMode && (
+        {!disabled && !isEditing && (
           <div className="flex shrink-0 items-center gap-0.5">
             <TooltipIconButton
               label={`Edit ${item.name}`}
@@ -1335,48 +1301,44 @@ function GroceryItemRow({
         )}
       </div>
 
-      {!disabled &&
-        !isEditing &&
-        !combineMode &&
-        (isCombined || canSelectVariant) && (
-          <div className="flex flex-wrap items-center gap-2 pl-7">
-            {isCombined && (
+      {!disabled && !isEditing && (isCombined || canSelectVariant) && (
+        <div className="flex flex-wrap items-center gap-2 pl-7">
+          {isCombined && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setExpanded((p) => !p)}
+            >
+              {expanded ? "Hide" : "Show"} sources ({item.contributions.length})
+            </Button>
+          )}
+          {isCombined && (
+            <Button variant="ghost" size="sm" onClick={onUncombine}>
+              Uncombine
+            </Button>
+          )}
+          {canSelectVariant &&
+            soleContribution!.selectedVariant === "PRIMARY" && (
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => setExpanded((p) => !p)}
+                onClick={() => onSelectVariant("SUBSTITUTE")}
               >
-                {expanded ? "Hide" : "Show"} sources (
-                {item.contributions.length})
+                Use substitute
               </Button>
             )}
-            {isCombined && (
-              <Button variant="ghost" size="sm" onClick={onUncombine}>
-                Uncombine
+          {canSelectVariant &&
+            soleContribution!.selectedVariant === "SUBSTITUTE" && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => onSelectVariant("PRIMARY")}
+              >
+                Use original
               </Button>
             )}
-            {canSelectVariant &&
-              soleContribution!.selectedVariant === "PRIMARY" && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => onSelectVariant("SUBSTITUTE")}
-                >
-                  Use substitute
-                </Button>
-              )}
-            {canSelectVariant &&
-              soleContribution!.selectedVariant === "SUBSTITUTE" && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => onSelectVariant("PRIMARY")}
-                >
-                  Use original
-                </Button>
-              )}
-          </div>
-        )}
+        </div>
+      )}
 
       {expanded && isCombined && (
         <ul className="text-muted-foreground border-border ml-7 flex flex-col gap-1 border-l pl-3 text-xs">

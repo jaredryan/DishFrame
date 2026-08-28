@@ -182,8 +182,6 @@ export function RichVersionPickerField({
   disabled?: boolean;
   className?: string;
 }) {
-  const active = versions.find((v) => v.id === value);
-
   return (
     <Field className={className}>
       <FieldLabel htmlFor={id}>Version</FieldLabel>
@@ -196,13 +194,6 @@ export function RichVersionPickerField({
           onNavigateAction={onChangeAction}
           disabled={disabled}
         />
-
-        {active && (
-          <span className="text-muted-foreground text-sm">
-            {versionLabel(active.majorVersion, active.minorVersion)}
-            {active.id === currentVersionId ? " (current)" : ""}
-          </span>
-        )}
       </div>
     </Field>
   );

@@ -649,10 +649,21 @@ export async function getDishVersionMajorMinor(
  * the real identity-level cycle check, which rejects indirect self-
  * composition too).
  */
+/**
+ * Design pass (rich selection-row unification): resolves the same Stage/
+ * cuisine/rating/image data `listCookablePickerItems` does, so the
+ * Attach-a-Part picker's rows share the exact same rich treatment as every
+ * other Recipe/Part picker instead of showing a thinner subset.
+ */
 export async function listAttachableParts(
   ownerId: string,
   excludeDishId?: string,
 ) {
+  const preference = await prisma.userPreference.findUnique({
+    where: { userId: ownerId },
+    select: { primaryRatingDisplay: true },
+  });
+
   const parts = await prisma.dish.findMany({
     where: {
       ownerId,
@@ -663,24 +674,62 @@ export async function listAttachableParts(
     },
     select: {
       id: true,
+      stage: true,
+      cuisine: true,
       currentTitle: true,
       currentVersionId: true,
+      sourceKind: true,
+      sourceAggregateRating: true,
+      sourceRatingCount: true,
+      sourceTitle: true,
+      sourceDishVersionLabel: true,
+      currentVersion: {
+        select: {
+          imageAssetId: true,
+          majorVersion: true,
+          minorVersion: true,
+        },
+      },
       // Slice 23 Start-cooking picker pass: the same restrained tag
-      // treatment as the cooking picker's result rows (§ below) — Favorite
-      // is its own star elsewhere, never listed as an ordinary tag.
+      // treatment as the cooking picker's result rows — Favorite is its own
+      // star elsewhere, never listed as an ordinary tag.
       tags: {
         select: { tag: { select: { displayName: true, isFavorite: true } } },
       },
     },
     orderBy: { currentTitle: "asc" },
   });
+
+  const ratings = await getPrincipalRatingsForDishes(
+    parts.map((part) => ({
+      id: part.id,
+      currentVersionId: part.currentVersionId,
+      sourceKind: part.sourceKind,
+      sourceAggregateRating: decimalToNumber(part.sourceAggregateRating),
+      sourceRatingCount: part.sourceRatingCount,
+      sourceTitle: part.sourceTitle,
+      sourceDishVersionLabel: part.sourceDishVersionLabel,
+    })),
+    preference?.primaryRatingDisplay ?? "GROUP_AVERAGE",
+  );
+
   return parts.map((part) => ({
     id: part.id,
+    stage: part.stage,
+    cuisine: part.cuisine,
     currentTitle: part.currentTitle,
     currentVersionId: part.currentVersionId,
+    versionLabel: part.currentVersion
+      ? versionLabel(
+          part.currentVersion.majorVersion,
+          part.currentVersion.minorVersion,
+        )
+      : "",
+    imageAssetId: part.currentVersion?.imageAssetId ?? null,
     tags: part.tags
       .filter((t) => !t.tag.isFavorite)
       .map((t) => t.tag.displayName),
+    rating: ratings.get(part.id) ?? ({ kind: "none" } as PrincipalRating),
   }));
 }
 export type AttachablePart = Awaited<

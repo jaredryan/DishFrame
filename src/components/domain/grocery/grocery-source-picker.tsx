@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { ListChecks, Search } from "lucide-react";
+import { ListChecks } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,6 +21,7 @@ import {
   SelectableDishRow,
   type DishSelectionItem,
 } from "@/components/domain/dish/selectable-dish-row";
+import { RecipePartPicker } from "@/components/domain/dish/recipe-part-picker";
 import { RichVersionPickerField } from "@/components/domain/dish/version-picker-field";
 import { DisabledActionHint } from "@/components/app/disabled-action-hint";
 import {
@@ -28,19 +29,10 @@ import {
   listGrocerySourceVersionOptions,
 } from "@/lib/grocery/list-actions";
 import { toIsoDateOnly } from "@/lib/date";
-import { cn } from "@/lib/utils";
 import type {
   GrocerySourceCandidate,
   DishVersionYieldOption,
 } from "@/lib/grocery/queries";
-
-export type PickerTab = "ALL" | "RECIPE" | "PART";
-
-export const PICKER_TABS: { value: PickerTab; label: string }[] = [
-  { value: "ALL", label: "All" },
-  { value: "RECIPE", label: "Recipes" },
-  { value: "PART", label: "Parts" },
-];
 
 export function candidateToSelectionItem(
   candidate: GrocerySourceCandidate,
@@ -126,6 +118,8 @@ export function GrocerySourcePickerTrigger({
  * generated-list view — this screen only selects whole Recipes/Parts,
  * matching Build Plan's own component description.
  */
+type Step = "select" | "configure";
+
 export function GrocerySourcePickerPanel({
   candidates,
 }: {
@@ -133,11 +127,14 @@ export function GrocerySourcePickerPanel({
 }) {
   const router = useRouter();
   const [open, setOpen] = useGrocerySourcePickerState();
+  const [step, setStep] = React.useState<Step>("select");
   const [title, setTitle] = React.useState("Grocery list");
   const [plannedDate, setPlannedDate] = React.useState(() =>
     toIsoDateOnly(new Date()),
   );
-  const [selectedDishIds, setSelectedDishIds] = React.useState<string[]>([]);
+  const [selectedDishIds, setSelectedDishIds] = React.useState<Set<string>>(
+    new Set(),
+  );
   const [scales, setScales] = React.useState<Record<string, number | null>>({});
   const [versionsByDishId, setVersionsByDishId] = React.useState<
     Record<string, DishVersionYieldOption[]>
@@ -151,10 +148,13 @@ export function GrocerySourcePickerPanel({
   const [error, setError] = React.useState<string | null>(null);
   const [isPending, startTransition] = React.useTransition();
   const [search, setSearch] = React.useState("");
-  const [tab, setTab] = React.useState<PickerTab>("ALL");
 
   const candidatesById = React.useMemo(
     () => new Map(candidates.map((c) => [c.dishId, c])),
+    [candidates],
+  );
+  const pickerItems = React.useMemo(
+    () => candidates.map(candidateToSelectionItem),
     [candidates],
   );
 
@@ -163,7 +163,7 @@ export function GrocerySourcePickerPanel({
   // first time it's selected, defaulting to the version this candidate is
   // currently showing.
   React.useEffect(() => {
-    const toFetch = selectedDishIds.filter(
+    const toFetch = [...selectedDishIds].filter(
       (dishId) => !versionsByDishId[dishId] && !versionLoadErrors[dishId],
     );
     for (const dishId of toFetch) {
@@ -191,39 +191,44 @@ export function GrocerySourcePickerPanel({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDishIds, versionsByDishId, versionLoadErrors]);
-  const tabCandidates = candidates.filter(
-    (c) => tab === "ALL" || c.kind === tab,
-  );
-  const filteredCandidates = tabCandidates.filter((c) =>
-    c.title.toLowerCase().includes(search.trim().toLowerCase()),
-  );
 
   function toggle(dishId: string) {
-    setSelectedDishIds((prev) =>
-      prev.includes(dishId)
-        ? prev.filter((id) => id !== dishId)
-        : [...prev, dishId],
-    );
+    setSelectedDishIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(dishId)) next.delete(dishId);
+      else next.add(dishId);
+      return next;
+    });
+  }
+
+  function close() {
+    setOpen(false);
+    setStep("select");
+    setTitle("Grocery list");
+    setPlannedDate(toIsoDateOnly(new Date()));
+    setSelectedDishIds(new Set());
+    setScales({});
+    setVersionsByDishId({});
+    setVersionLoadErrors({});
+    setSelectedVersionByDishId({});
+    setError(null);
+    setSearch("");
   }
 
   function handleGenerate() {
     setError(null);
-    if (selectedDishIds.length === 0) {
-      setError("Select at least one Recipe or Part.");
-      return;
-    }
     startTransition(async () => {
       const result = await generateGroceryList({
         title,
         plannedDate: new Date(plannedDate),
-        sources: selectedDishIds.map((dishId) => ({
+        sources: [...selectedDishIds].map((dishId) => ({
           dishId,
           dishVersionId: selectedVersionByDishId[dishId],
           scaleFactor: scales[dishId] ?? 1,
         })),
       });
       if (result.status === "success") {
-        setOpen(false);
+        close();
         router.push(`/grocery-lists/${result.listId}`);
       } else {
         setError(result.message);
@@ -231,99 +236,61 @@ export function GrocerySourcePickerPanel({
     });
   }
 
+  const canConfigure = selectedDishIds.size > 0;
+  const canGenerate =
+    selectedDishIds.size > 0 &&
+    [...selectedDishIds].every((id) => selectedVersionByDishId[id]);
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={(next) => !next && close()}>
       <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-md">
         <DialogHeader>
           <DialogTitle>New grocery list</DialogTitle>
           <DialogDescription>
-            Select one or more Recipes or Parts to generate a shopping list
-            from.
+            {step === "configure"
+              ? "Choose a Version and amount for each selected item."
+              : "Select one or more Recipes or Parts to generate a shopping list from."}
           </DialogDescription>
         </DialogHeader>
 
         <div className="-mx-1 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-1">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="grocery-list-title">Title</Label>
-            <Input
-              id="grocery-list-title"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              maxLength={120}
-            />
-          </div>
-
-          <Field>
-            <FieldLabel htmlFor="grocery-list-planned-date">Date</FieldLabel>
-            <DatePickerField
-              id="grocery-list-planned-date"
-              value={plannedDate}
-              onChange={setPlannedDate}
-              ariaLabel="Grocery list date"
-            />
-          </Field>
-
-          <div className="flex min-h-0 flex-col gap-2">
-            <Label>Recipes &amp; Parts</Label>
-            <div className="bg-popover sticky top-0 z-10 flex flex-col gap-2 pb-2">
-              <div className="relative">
-                <Search
-                  className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2"
-                  aria-hidden="true"
-                />
+          {step === "select" ? (
+            <>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="grocery-list-title">Title</Label>
                 <Input
-                  placeholder="Search"
-                  className="pl-8"
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
+                  id="grocery-list-title"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  maxLength={120}
                 />
               </div>
-              <div role="tablist" className="border-border flex gap-1 border-b">
-                {PICKER_TABS.map((t) => (
-                  <button
-                    key={t.value}
-                    type="button"
-                    role="tab"
-                    aria-selected={tab === t.value}
-                    onClick={() => setTab(t.value)}
-                    className={cn(
-                      "-mb-px cursor-pointer border-b-2 px-3 py-1.5 text-sm font-medium outline-none",
-                      tab === t.value
-                        ? "border-primary text-foreground"
-                        : "text-muted-foreground hover:text-foreground border-transparent",
-                    )}
-                  >
-                    {t.label}
-                  </button>
-                ))}
-              </div>
-            </div>
 
-            {filteredCandidates.length === 0 ? (
-              <p className="text-muted-foreground py-4 text-center text-sm">
-                {candidates.length === 0
-                  ? "You don't have any recipes or parts saved yet."
-                  : "Nothing matches that search."}
-              </p>
-            ) : (
-              <div className="flex flex-col gap-1">
-                {filteredCandidates.map((candidate) => (
-                  <SelectableDishRow
-                    key={candidate.dishId}
-                    item={candidateToSelectionItem(candidate)}
-                    selectionControl="checkbox"
-                    selected={selectedDishIds.includes(candidate.dishId)}
-                    onSelect={() => toggle(candidate.dishId)}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
+              <Field>
+                <FieldLabel htmlFor="grocery-list-planned-date">
+                  Date
+                </FieldLabel>
+                <DatePickerField
+                  id="grocery-list-planned-date"
+                  value={plannedDate}
+                  onChange={setPlannedDate}
+                  ariaLabel="Grocery list date"
+                />
+              </Field>
 
-          {selectedDishIds.length > 0 && (
+              <RecipePartPicker
+                items={pickerItems}
+                itemsError={null}
+                search={search}
+                onSearchChange={setSearch}
+                showKindTabs
+                selected={selectedDishIds}
+                onToggle={toggle}
+              />
+            </>
+          ) : (
             <div className="flex flex-col gap-3">
-              <Label>Selected</Label>
-              {selectedDishIds.map((dishId) => {
+              {[...selectedDishIds].map((dishId) => {
                 const candidate = candidatesById.get(dishId);
                 if (!candidate) return null;
                 const versions = versionsByDishId[dishId];
@@ -388,12 +355,35 @@ export function GrocerySourcePickerPanel({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>
-            Cancel
-          </Button>
-          <Button onClick={handleGenerate} disabled={isPending}>
-            {isPending ? "Generating…" : "Generate"}
-          </Button>
+          {step === "select" ? (
+            <>
+              <Button variant="outline" onClick={close}>
+                Cancel
+              </Button>
+              <Button
+                onClick={() => setStep("configure")}
+                disabled={!canConfigure}
+              >
+                Next
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                variant="outline"
+                onClick={() => setStep("select")}
+                disabled={isPending}
+              >
+                Back
+              </Button>
+              <Button
+                onClick={handleGenerate}
+                disabled={isPending || !canGenerate}
+              >
+                {isPending ? "Generating…" : "Generate"}
+              </Button>
+            </>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

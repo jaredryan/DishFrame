@@ -4402,17 +4402,24 @@ afterward.
 
 Uncombine is a correction and inspection tool rather than a prominent general-purpose splitting system.
 
-## 61.5 Manual merge
+## 61.5 No manual merge
 
-The user may deliberately merge lines DishFrame did not combine when they know the items are equivalent.
+Combining is automatic system behavior, not a general-purpose manual grouping
+tool.
 
-A manual merge may deliberately combine a required and an optional
-contribution (§61.1's auto-combine restriction does not apply to a
-deliberate user action). The resulting line must represent that truthfully:
-it is not displayed simply as "Optional" — its optionality is derived from
-its actual contributions and displayed as a distinct "total including an
-optional item" state. The source breakdown (§61.3) still identifies each
-individual contribution's own optionality.
+DishFrame does not let the user manually merge grocery lines that automatic
+combination left separate. If two occurrences are safely equivalent under
+§61.1, DishFrame combines them automatically; if they are not safely
+equivalent, they remain separate.
+
+Users retain control through **Keep separate** during generation and
+**Uncombine** afterward (§61.4).
+
+Existing persisted combined items created by earlier product behavior may
+still contain mixed required/optional contributions. DishFrame should render
+that legacy state truthfully, including each contribution's own optionality in
+the source breakdown, but the current interface does not create new manual
+mixed-optionality merges.
 
 ---
 

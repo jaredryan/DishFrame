@@ -225,7 +225,9 @@ test.describe("Home dashboard: populated data", () => {
     await picker.getByPlaceholder("Search").fill(recipeTitle);
     await picker.getByRole("radio", { name: new RegExp(recipeTitle) }).click();
     await picker.getByRole("button", { name: "Cook", exact: true }).click();
-    await expect(page).toHaveURL(/\/cook\?from=home$/, { timeout: 15_000 });
+    await expect(page).toHaveURL(/\/cook\?from=home&versionId=[^&]+$/, {
+      timeout: 15_000,
+    });
     await page.getByRole("button", { name: "Start cooking" }).click();
     await expect(page).toHaveURL(/\/cook\/[^/]+$/, { timeout: 15_000 });
 
@@ -246,6 +248,7 @@ test.describe("Home dashboard: populated data", () => {
     await page.getByRole("button", { name: "Make grocery list" }).click();
     await page.getByLabel("Title").fill(groceryListTitle);
     await page.getByRole("checkbox", { name: recipeTitle }).check();
+    await page.getByRole("button", { name: "Next" }).click();
     await page.getByRole("button", { name: "Generate" }).click();
     await expect(page).toHaveURL(/\/grocery-lists\/[^/]+$/, {
       timeout: 15_000,

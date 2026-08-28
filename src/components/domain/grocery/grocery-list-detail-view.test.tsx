@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { GroceryListDetailView } from "@/components/domain/grocery/grocery-list-detail-view";
 import type {
@@ -7,7 +7,10 @@ import type {
   GroceryListDetailDto,
   GroceryListItemDto,
 } from "@/lib/grocery/list-schema";
-import type { DishVersionYieldOption } from "@/lib/grocery/queries";
+import type {
+  DishVersionYieldOption,
+  GrocerySourceCandidate,
+} from "@/lib/grocery/queries";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
@@ -18,6 +21,7 @@ const {
   acknowledgeGroceryItemSync,
   updateGroceryListSource,
   listGrocerySourceVersionOptions,
+  addGroceryListSource,
 } = vi.hoisted(() => ({
   selectGroceryItemVariant: vi.fn(async () => ({ status: "success" })),
   acknowledgeGroceryItemSync: vi.fn(async () => ({ status: "success" })),
@@ -26,6 +30,7 @@ const {
     status: "success" as const,
     versions: [] as DishVersionYieldOption[],
   })),
+  addGroceryListSource: vi.fn(async () => ({ status: "success" })),
 }));
 
 vi.mock("@/lib/grocery/list-actions", () => ({
@@ -35,7 +40,6 @@ vi.mock("@/lib/grocery/list-actions", () => ({
   removeGroceryItem: vi.fn(async () => ({ status: "success" })),
   recategorizeGroceryItem: vi.fn(async () => ({ status: "success" })),
   reorderGroceryListItems: vi.fn(async () => ({ status: "success" })),
-  combineGroceryItems: vi.fn(async () => ({ status: "success" })),
   uncombineGroceryItem: vi.fn(async () => ({ status: "success" })),
   selectGroceryItemVariant,
   updateGroceryListDetails: vi.fn(async () => ({ status: "success" })),
@@ -56,7 +60,7 @@ vi.mock("@/lib/grocery/list-actions", () => ({
   })),
   applyGroceryListSourceRefresh: vi.fn(async () => ({ status: "success" })),
   acknowledgeGroceryItemSync,
-  addGroceryListSource: vi.fn(async () => ({ status: "success" })),
+  addGroceryListSource,
   removeGroceryListSource: vi.fn(async () => ({ status: "success" })),
   updateGroceryListSource,
   listGrocerySourceVersionOptions,
@@ -106,6 +110,7 @@ function item(overrides: Partial<GroceryListItemDto> = {}): GroceryListItemDto {
 function renderList(
   items: GroceryListItemDto[],
   listOverrides: Partial<GroceryListDetailDto> = {},
+  sourceCandidates: GrocerySourceCandidate[] = [],
 ) {
   const list: GroceryListDetailDto = {
     id: "list-1",
@@ -123,7 +128,7 @@ function renderList(
     <GroceryListDetailView
       list={list}
       categoryOptions={[]}
-      sourceCandidates={[]}
+      sourceCandidates={sourceCandidates}
     />,
   );
 }
@@ -430,6 +435,81 @@ describe("GroceryListDetailView — Edit meal Version/yield recalculation", () =
         sourceId: "source-1",
         targetVersionId: "v2",
         scaleFactor: 0.75,
+      }),
+    );
+  });
+});
+
+describe("GroceryListDetailView — Add meal Version selection", () => {
+  it("defaults to the candidate's current Version but allows choosing a historical one before adding", async () => {
+    listGrocerySourceVersionOptions.mockReset();
+    listGrocerySourceVersionOptions.mockResolvedValue({
+      status: "success",
+      versions: [
+        {
+          id: "v1",
+          majorVersion: 1,
+          minorVersion: 0,
+          yieldQuantity: 4,
+          yieldUnit: "servings",
+        },
+        {
+          id: "v2",
+          majorVersion: 2,
+          minorVersion: 0,
+          yieldQuantity: 8,
+          yieldUnit: "servings",
+        },
+      ],
+    });
+    addGroceryListSource.mockReset();
+    addGroceryListSource.mockResolvedValue({ status: "success" });
+
+    const user = userEvent.setup();
+    renderList([], {}, [
+      {
+        dishId: "dish-1",
+        kind: "RECIPE",
+        stage: "ACTIVE",
+        cuisine: null,
+        title: "Weeknight Stir-Fry",
+        versionLabel: "V2.0",
+        imageAssetId: null,
+        tagNames: [],
+        rating: { kind: "none" },
+        dishVersionId: "v2",
+        yieldQuantity: 8,
+        yieldUnit: "servings",
+      },
+    ]);
+
+    await user.click(screen.getByRole("button", { name: "Add meal" }));
+    await user.click(
+      await screen.findByRole("radio", { name: /Weeknight Stir-Fry/ }),
+    );
+
+    // Defaults to the candidate's own current Version (V2.0, makes 8).
+    const servingsInput = await screen.findByLabelText("Servings");
+    expect(servingsInput).toHaveValue("8");
+
+    // Deliberately choose the historical V1.0 instead — the already-typed
+    // servings target (8) is preserved (matching the Edit-meal field's own
+    // "never reset on Version switch" behavior), so the scale factor is
+    // recomputed against V1.0's own yield (8 / 4 = 2x) instead.
+    await user.click(
+      screen.getByRole("combobox", { name: "Jump to a major version line" }),
+    );
+    await user.click(await screen.findByRole("option", { name: "V1.0" }));
+    expect(servingsInput).toHaveValue("8");
+
+    const dialog = screen.getByRole("dialog", { name: "Add meal" });
+    await user.click(within(dialog).getByRole("button", { name: "Add meal" }));
+
+    expect(addGroceryListSource).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dishId: "dish-1",
+        dishVersionId: "v1",
+        scaleFactor: 2,
       }),
     );
   });

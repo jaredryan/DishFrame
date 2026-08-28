@@ -11,7 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { ShareItemSelector } from "@/components/domain/sharing/share-item-selector";
+import { RecipePartPicker } from "@/components/domain/dish/recipe-part-picker";
 import { SelectableDishRow } from "@/components/domain/dish/selectable-dish-row";
 import { RichDishVersionPicker } from "@/components/domain/dish/version-picker-field";
 import {
@@ -304,7 +304,7 @@ export function DirectShareCollectionDialog({
                 </p>
               </div>
 
-              <ShareItemSelector
+              <RecipePartPicker
                 items={items}
                 itemsError={itemsError}
                 search={search}

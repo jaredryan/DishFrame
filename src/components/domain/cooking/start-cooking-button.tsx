@@ -2,9 +2,8 @@
 
 import * as React from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { ChefHat, RotateCcw, Search } from "lucide-react";
+import { ChefHat } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -13,28 +12,41 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { SelectableDishRow } from "@/components/domain/dish/selectable-dish-row";
+import { RecipePartPicker } from "@/components/domain/dish/recipe-part-picker";
+import {
+  SelectableDishRow,
+  type DishSelectionItem,
+} from "@/components/domain/dish/selectable-dish-row";
+import { RichDishVersionPicker } from "@/components/domain/dish/version-picker-field";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
 import { listCookablePickerItems } from "@/lib/cooking/actions";
 import type { CookablePickerItem } from "@/lib/dishes/queries";
-import { cn } from "@/lib/utils";
 
-type PickerTab = "ALL" | "RECIPE" | "PART";
-
-const TABS: { value: PickerTab; label: string }[] = [
-  { value: "ALL", label: "All" },
-  { value: "RECIPE", label: "Recipes" },
-  { value: "PART", label: "Parts" },
-];
+function toSelectionItem(item: CookablePickerItem): DishSelectionItem {
+  return {
+    id: item.id,
+    kind: item.kind,
+    title: item.currentTitle ?? "Untitled",
+    versionLabel: item.versionLabel,
+    stage: item.stage,
+    cuisine: item.cuisine,
+    imageAssetId: item.imageAssetId,
+    tagNames: item.tags,
+    rating: item.rating,
+  };
+}
 
 /**
  * "What will you cook?" — the Home dashboard's and Cook page's shared
  * entry point into the existing per-item cooking flow (PRODUCT_SPEC.md
  * §5.7/§42 "Cooking entry and plan"). Modeled after `PartAttachPicker`: the
  * candidate list is fetched fresh every time the dialog opens, never a
- * captured snapshot. Clicking a result only selects it — Cook is what
- * commits, routing into that Recipe/Part's own `/cook` (Cooking Setup)
- * route, exactly like its detail page's own Cook button.
+ * captured snapshot. Single-select, so choosing a result transitions
+ * directly into a separate Version-selection screen (current Version
+ * preselected, a historical one may be deliberately chosen) — the same
+ * `?versionId=` Cooking Setup already accepts from a Version/history page's
+ * own "Cook this version" link. Cook is what commits, routing into that
+ * Recipe/Part's own `/cook` (Cooking Setup) route.
  */
 export function StartCookingButton({
   size = "default",
@@ -44,9 +56,9 @@ export function StartCookingButton({
   const router = useRouter();
   const pathname = usePathname();
   const [open, setOpen] = React.useState(false);
-  const [query, setQuery] = React.useState("");
-  const [tab, setTab] = React.useState<PickerTab>("ALL");
-  const [selected, setSelected] = React.useState<CookablePickerItem | null>(
+  const [search, setSearch] = React.useState("");
+  const [selectedId, setSelectedId] = React.useState<string | null>(null);
+  const [chosenVersionId, setChosenVersionId] = React.useState<string | null>(
     null,
   );
 
@@ -82,18 +94,19 @@ export function StartCookingButton({
   }, [requestKey]);
 
   function reset() {
-    setQuery("");
-    setTab("ALL");
-    setSelected(null);
+    setSearch("");
+    setSelectedId(null);
+    setChosenVersionId(null);
   }
 
-  const tabItems = (items ?? []).filter(
-    (item) => tab === "ALL" || item.kind === tab,
+  const selected = items?.find((item) => item.id === selectedId) ?? null;
+  const selectedSet = React.useMemo(
+    () => new Set(selectedId ? [selectedId] : []),
+    [selectedId],
   );
-  const filtered = tabItems.filter((item) =>
-    (item.currentTitle ?? "Untitled")
-      .toLowerCase()
-      .includes(query.trim().toLowerCase()),
+  const pickerItems = React.useMemo(
+    () => items?.map(toSelectionItem) ?? null,
+    [items],
   );
 
   function handleCook() {
@@ -103,8 +116,9 @@ export function StartCookingButton({
     // from (Home or the Cook sessions list) instead of always landing on
     // the item's own detail page.
     const from = pathname === "/home" ? "home" : "cook";
+    const versionParam = chosenVersionId ? `&versionId=${chosenVersionId}` : "";
     router.push(
-      `${dishBasePath(selected.kind)}/${selected.id}/cook?from=${from}`,
+      `${dishBasePath(selected.kind)}/${selected.id}/cook?from=${from}${versionParam}`,
     );
   }
 
@@ -130,103 +144,66 @@ export function StartCookingButton({
           <DialogHeader>
             <DialogTitle>What will you cook?</DialogTitle>
             <DialogDescription>
-              Search your saved recipes and parts, then choose one to cook.
+              {selected
+                ? "Choose which Version to cook."
+                : "Search your saved recipes and parts, then choose one to cook."}
             </DialogDescription>
           </DialogHeader>
 
-          <div className="-mx-1 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-1">
-            <div className="bg-popover sticky top-0 z-10 flex flex-col gap-3 pb-1">
-              <div className="relative">
-                <Search
-                  className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2"
-                  aria-hidden="true"
-                />
-                <Input
-                  autoFocus
-                  placeholder="Search"
-                  className="pl-8"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                />
-              </div>
-
-              <div role="tablist" className="border-border flex gap-1 border-b">
-                {TABS.map((t) => (
-                  <button
-                    key={t.value}
-                    type="button"
-                    role="tab"
-                    aria-selected={tab === t.value}
-                    onClick={() => setTab(t.value)}
-                    className={cn(
-                      "-mb-px cursor-pointer border-b-2 px-3 py-1.5 text-sm font-medium outline-none",
-                      tab === t.value
-                        ? "border-primary text-foreground"
-                        : "text-muted-foreground hover:text-foreground border-transparent",
-                    )}
-                  >
-                    {t.label}
-                  </button>
-                ))}
-              </div>
+          {selected ? (
+            <div className="flex flex-col gap-3">
+              <SelectableDishRow
+                item={toSelectionItem(selected)}
+                selectionControl="remove"
+                onRemove={() => {
+                  setSelectedId(null);
+                  setChosenVersionId(null);
+                }}
+              />
+              <RichDishVersionPicker
+                id="start-cooking-version"
+                kind={selected.kind}
+                dishId={selected.id}
+                value={chosenVersionId}
+                onChangeAction={setChosenVersionId}
+              />
             </div>
-
-            {isLoading ? (
-              <p className="text-muted-foreground py-6 text-center text-sm">
-                Loading recipes and parts…
-              </p>
-            ) : loadError ? (
-              <div className="flex flex-col items-center gap-2 py-6 text-center">
-                <p role="alert" className="text-destructive-text text-sm">
-                  {loadError}
-                </p>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setLoadAttempt((n) => n + 1)}
-                >
-                  <RotateCcw /> Retry
-                </Button>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-1">
-                {filtered.length === 0 && (
-                  <p className="text-muted-foreground py-6 text-center text-sm">
-                    {(items ?? []).length === 0
-                      ? "You don't have any recipes or parts saved yet."
-                      : tabItems.length === 0
-                        ? "Nothing here yet."
-                        : "Nothing matches that search."}
-                  </p>
-                )}
-                {filtered.map((item) => (
-                  <SelectableDishRow
-                    key={item.id}
-                    item={{
-                      id: item.id,
-                      kind: item.kind,
-                      title: item.currentTitle ?? "Untitled",
-                      versionLabel: item.versionLabel,
-                      stage: item.stage,
-                      cuisine: item.cuisine,
-                      imageAssetId: item.imageAssetId,
-                      tagNames: item.tags,
-                      rating: item.rating,
-                    }}
-                    selectionControl="radio"
-                    selected={selected?.id === item.id}
-                    onSelect={() => setSelected(item)}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
+          ) : (
+            <div className="-mx-1 flex min-h-0 flex-1 flex-col overflow-y-auto px-1">
+              <RecipePartPicker
+                items={isLoading ? null : pickerItems}
+                itemsError={loadError}
+                onRetry={() => setLoadAttempt((n) => n + 1)}
+                search={search}
+                onSearchChange={setSearch}
+                showKindTabs
+                selectionMode="single"
+                selected={selectedSet}
+                onToggle={(id) => setSelectedId(id)}
+                emptyMessage="You don't have any recipes or parts saved yet."
+                loadingLabel="Loading recipes and parts…"
+                searchPlaceholder="Search"
+                autoFocusSearch
+              />
+            </div>
+          )}
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>
-              Cancel
-            </Button>
+            {selected ? (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setSelectedId(null);
+                  setChosenVersionId(null);
+                }}
+              >
+                Back
+              </Button>
+            ) : (
+              <Button variant="outline" onClick={() => setOpen(false)}>
+                Cancel
+              </Button>
+            )}
             <Button onClick={handleCook} disabled={!selected}>
               Cook
             </Button>

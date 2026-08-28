@@ -11,7 +11,6 @@ import {
   editGroceryItemSchema,
   recategorizeGroceryItemSchema,
   reorderGroceryListItemsSchema,
-  combineGroceryItemsSchema,
   refreshSourceSchema,
   addGroceryListSourceSchema,
   removeGroceryListSourceSchema,
@@ -237,21 +236,6 @@ export async function reorderGroceryListItems(values: {
   }
 }
 
-export async function combineGroceryItems(values: {
-  listId: string;
-  itemIds: string[];
-}): Promise<ActionState> {
-  try {
-    const userId = await requireUserId();
-    const { listId, itemIds } = combineGroceryItemsSchema.parse(values);
-    await listService.combineGroceryItems(userId, listId, itemIds);
-    revalidateList(listId);
-    return { status: "success" };
-  } catch (error) {
-    return { status: "error", message: toActionErrorMessage(error) };
-  }
-}
-
 export async function uncombineGroceryItem(values: {
   listId: string;
   itemId: string;
@@ -349,13 +333,20 @@ export async function applyGroceryListSourceRefresh(values: {
 export async function addGroceryListSource(values: {
   listId: string;
   dishId: string;
+  dishVersionId?: string;
   scaleFactor: number;
 }): Promise<ActionState> {
   try {
     const userId = await requireUserId();
-    const { listId, dishId, scaleFactor } =
+    const { listId, dishId, dishVersionId, scaleFactor } =
       addGroceryListSourceSchema.parse(values);
-    await listService.addGroceryListSource(userId, listId, dishId, scaleFactor);
+    await listService.addGroceryListSource(
+      userId,
+      listId,
+      dishId,
+      dishVersionId,
+      scaleFactor,
+    );
     revalidateList(listId);
     return { status: "success" };
   } catch (error) {

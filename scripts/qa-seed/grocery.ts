@@ -39,9 +39,9 @@ export async function ensureCategory(ownerId: string, displayName: string) {
 
 /**
  * Standalone grocery lists (Slice 12, PRODUCT_SPEC.md §60-65). List A stays
- * active — every post-generation control gets exercised on it (manual
- * combine across differing optionality, substitute selection, manual
- * items/custom category, recategorization, checkoffs, reordering) so a
+ * active — every post-generation control gets exercised on it (substitute
+ * selection, manual items/custom category, recategorization, checkoffs,
+ * reordering) so a
  * reviewer can also use it to test refresh behavior later (edit Weeknight
  * Stir-Fry or Rice Bowl Base, then preview/apply a source refresh) without
  * the seed itself performing that refresh. List B is a plain single-source
@@ -63,23 +63,6 @@ export async function buildGroceryFixtures(
       { dishId: recipes.ricebowl.dishId, scaleFactor: 1.5 },
     ],
   });
-
-  // Manual merge across differing optionality (§61.5) — Rice's optional
-  // Salt and the Seasoning Blend's required Salt each auto-combine with
-  // their own matching occurrence, landing as two separate "Salt" items
-  // (required never auto-combines with optional) with incompatible units
-  // (tsp vs. tbsp) — deliberately merged anyway to exercise the
-  // concatenated-quantity + "Total (with optional)" display fallback.
-  const saltItems = await prisma.groceryListItem.findMany({
-    where: { groceryListId: listAId, name: "Salt" },
-  });
-  if (saltItems.length === 2) {
-    await listService.combineGroceryItems(
-      ownerId,
-      listAId,
-      saltItems.map((i) => i.id),
-    );
-  }
 
   // Reversible substitute selection (§62.2) — Bell pepper carries the
   // Poblano pepper substitute added in tags-flavor.ts's Stir-Fry edit.

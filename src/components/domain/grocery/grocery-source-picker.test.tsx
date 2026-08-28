@@ -116,6 +116,7 @@ describe("GrocerySourcePicker", () => {
 
     await user.click(screen.getByRole("button", { name: "Make grocery list" }));
     await user.click(screen.getByLabelText("Select Weeknight Stir-Fry"));
+    await user.click(screen.getByRole("button", { name: "Next" }));
 
     // Defaults to the candidate's own current Version (V1.0, makes 4).
     const servingsInput = await screen.findByLabelText("Servings");

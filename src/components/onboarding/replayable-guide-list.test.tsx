@@ -52,7 +52,9 @@ describe("ReplayableGuideList", () => {
 
     const row = screen.getByText("Meal Plans").closest("li");
     if (!row) throw new Error("Meal Plans row not found");
-    await user.click(within(row).getByRole("button", { name: "Replay" }));
+    await user.click(
+      within(row).getByRole("button", { name: "Replay Meal Plans guide" }),
+    );
 
     expect(mockResetOnboardingGuideState).toHaveBeenCalledWith(
       "meal-plans-intro",

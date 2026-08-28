@@ -156,45 +156,44 @@ export function PartUsagePanel({
             usage.targetDishVersionId !== currentVersionId;
           const outcome = outcomesByContainerId.get(usage.containerDishId);
           return (
-            <li
-              key={usage.id}
-              className="border-border flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm"
-            >
-              <div className="min-w-0">
-                <Link
-                  href={`${dishBasePath(usage.containerKind)}/${usage.containerDishId}`}
-                  className="text-primary truncate font-medium hover:underline"
-                >
-                  {usage.containerTitle}
-                </Link>
-                <p className="text-muted-foreground text-xs">
-                  {usage.sectionName
-                    ? `In ${usage.sectionName} · `
-                    : "Top-level · "}
-                  V{usage.containerMajorVersion}.{usage.containerMinorVersion}
-                </p>
-              </div>
-              {outcome ? (
-                <span
-                  className={
-                    outcome.status === "failed"
-                      ? "text-destructive-text shrink-0 text-xs"
-                      : "text-foreground shrink-0 text-xs"
-                  }
-                >
-                  {outcomeLabel(outcome)}
-                </span>
-              ) : (
-                outOfDate && (
+            <li key={usage.id}>
+              <Link
+                href={`${dishBasePath(usage.containerKind)}/${usage.containerDishId}`}
+                className="border-border hover:bg-muted/50 flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm transition-colors"
+              >
+                <div className="min-w-0">
+                  <p className="text-primary truncate font-medium">
+                    {usage.containerTitle}
+                  </p>
+                  <p className="text-muted-foreground text-xs">
+                    {usage.sectionName
+                      ? `In ${usage.sectionName} · `
+                      : "Top-level · "}
+                    V{usage.containerMajorVersion}.{usage.containerMinorVersion}
+                  </p>
+                </div>
+                {outcome ? (
                   <span
-                    className="text-muted-foreground flex shrink-0 items-center gap-1 text-xs"
-                    title="This usage references an earlier Version of this Part than the current one."
+                    className={
+                      outcome.status === "failed"
+                        ? "text-destructive-text shrink-0 text-xs"
+                        : "text-foreground shrink-0 text-xs"
+                    }
                   >
-                    <AlertCircle className="size-3.5" aria-hidden="true" />
-                    Newer Version available
+                    {outcomeLabel(outcome)}
                   </span>
-                )
-              )}
+                ) : (
+                  outOfDate && (
+                    <span
+                      className="text-muted-foreground flex shrink-0 items-center gap-1 text-xs"
+                      title="This usage references an earlier Version of this Part than the current one."
+                    >
+                      <AlertCircle className="size-3.5" aria-hidden="true" />
+                      Newer Version available
+                    </span>
+                  )
+                )}
+              </Link>
             </li>
           );
         })}

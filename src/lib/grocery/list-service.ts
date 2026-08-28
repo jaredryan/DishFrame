@@ -34,7 +34,7 @@ import {
 /**
  * Grocery-list generation and management (PRODUCT_SPEC.md §60-64, Build
  * Plan Slices 12 and 15). Every item/source mutation below (toggle, manual
- * add/edit/remove, recategorize, reorder, combine/uncombine, substitute
+ * add/edit/remove, recategorize, reorder, uncombine, substitute
  * selection, completion) is mode-agnostic by construction — it operates
  * only on `GroceryListItem`/`GroceryItemContribution` rows scoped by
  * `listId`, with no `GroceryList.mode` branching — so it behaves
@@ -710,45 +710,8 @@ export async function reorderGroceryListItems(
 }
 
 // ---------------------------------------------------------------------------
-// Combine / uncombine (§61.3-§61.5)
+// Uncombine (§61.3-§61.4)
 // ---------------------------------------------------------------------------
-
-/** Manual merge (§61.5) — the user deliberately combines two or more items
- * DishFrame's conservative auto-combination did not. All of `itemIds`'
- * contributions move onto the first item; the rest are deleted. */
-export async function combineGroceryItems(
-  ownerId: string,
-  listId: string,
-  itemIds: string[],
-) {
-  if (itemIds.length < 2) {
-    throw new ValidationError("Select at least two items to combine.");
-  }
-  const list = await getOwnedGroceryListOrThrow(ownerId, listId);
-  assertListActive(list);
-  const items = itemIds.map((id) => findOwnedItem(list, id));
-
-  const [target, ...rest] = items;
-  const mergedIsOptional = items.every((i) => i.isOptional);
-
-  await prisma.$transaction(async (tx) => {
-    for (const source of rest) {
-      await tx.groceryItemContribution.updateMany({
-        where: { groceryListItemId: source.id },
-        data: { groceryListItemId: target.id },
-      });
-      // A manual (contribution-less) item merging into another simply
-      // disappears — its own name/quantity has nothing left to represent
-      // once it has no contributions and isn't the retained target.
-      await tx.groceryListItem.delete({ where: { id: source.id } });
-    }
-    await tx.groceryListItem.update({
-      where: { id: target.id },
-      data: { isOptional: mergedIsOptional },
-    });
-    await recomputeItemAggregate(tx, target.id);
-  });
-}
 
 /**
  * Uncombine (§61.4) — fully reverses combination, giving every one of a
@@ -1192,6 +1155,7 @@ export async function addGroceryListSource(
   ownerId: string,
   listId: string,
   dishId: string,
+  dishVersionId: string | undefined,
   scaleFactor: number,
 ): Promise<void> {
   const list = await getOwnedGroceryListOrThrow(ownerId, listId);
@@ -1201,16 +1165,18 @@ export async function addGroceryListSource(
   }
 
   const dish = await getOwnedDishOrThrow(ownerId, dishId);
-  if (!dish.currentVersionId) {
+  const resolvedVersionId = dishVersionId || dish.currentVersionId;
+  if (!resolvedVersionId) {
     throw new ValidationError(
       `"${dish.currentTitle ?? "Untitled"}" has no saved content to add.`,
     );
   }
-  const version = await prisma.dishVersion.findFirstOrThrow({
-    where: { id: dish.currentVersionId },
+  const version = await prisma.dishVersion.findFirst({
+    where: { id: resolvedVersionId, dishId: dish.id },
     select: { majorVersion: true, minorVersion: true },
   });
-  const slots = await gatherIngredientSlots(ownerId, dish.currentVersionId);
+  if (!version) throw new NotFoundError("Version not found.");
+  const slots = await gatherIngredientSlots(ownerId, resolvedVersionId);
   const occurrences = resolveIngredientOccurrences(slots, scaleFactor);
 
   const fallbackCategory = await getOwnedFallbackCategory(ownerId);
@@ -1226,7 +1192,7 @@ export async function addGroceryListSource(
       data: {
         groceryListId: listId,
         dishId: dish.id,
-        dishVersionId: dish.currentVersionId!,
+        dishVersionId: resolvedVersionId,
         scaleFactor,
         sourceDishTitleSnapshot: dish.currentTitle ?? "Untitled",
         sourceDishKindSnapshot: dish.kind,

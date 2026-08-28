@@ -26,10 +26,11 @@ export type DishSelectionItem = {
 
 /**
  * The one rich Recipe/Part selection row shared by every modal that asks the
- * user to choose a Recipe/Part — Send, Publish, Add/Edit Meal, and the
- * `/cook` picker — so they read as one consistent treatment instead of each
- * modal inventing its own thin row. Visual baseline: the pre-existing Send/
- * Publish row (`ShareItemSelector`). Left: selection control, thumbnail,
+ * user to choose a Recipe/Part — Send, Publish, Grocery, Add/Edit Meal, the
+ * `/cook` picker, and Attach-a-Part — so they read as one consistent
+ * treatment instead of each modal inventing its own thin row. Used by
+ * `RecipePartPicker`, the shared search-and-select picker. Left: selection
+ * control, thumbnail,
  * name + Version, custom tags. Right: compact Recipe/Part, Stage, Cuisine,
  * and Rating chips, wrapping to a second row when the container is narrow.
  */
@@ -65,6 +66,10 @@ export function SelectableDishRow({
         <Checkbox
           checked={selected}
           onCheckedChange={onSelect}
+          // The row itself also toggles on click (below) — stopping
+          // propagation here keeps a direct checkbox click from ALSO
+          // reaching the row's handler and double-toggling.
+          onClick={(event) => event.stopPropagation()}
           disabled={disabled}
           aria-label={`Select ${item.title}`}
         />
@@ -194,11 +199,18 @@ export function SelectableDishRow({
     );
   }
 
+  // Checkbox rows: the whole row is also a click target (not just the
+  // checkbox itself), matching the radio variant's full-row click area.
+  // The row is deliberately not a focusable/keyboard-operable element of
+  // its own — the nested `Checkbox` above already is one, and duplicating
+  // that (e.g. wrapping in a `role="button"`) would create a second,
+  // redundant interactive/focus target reading the same row twice.
   return (
     <div
+      onClick={disabled ? undefined : onSelect}
       className={cn(
-        "flex flex-col gap-2 p-2 sm:flex-row sm:items-center sm:gap-3",
-        disabled && "opacity-60",
+        "flex flex-col gap-2 rounded-lg p-2 sm:flex-row sm:items-center sm:gap-3",
+        disabled ? "opacity-60" : "hover:bg-muted/50 cursor-pointer",
         className,
       )}
     >

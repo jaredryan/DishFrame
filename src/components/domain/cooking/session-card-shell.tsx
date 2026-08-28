@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { CirclePlay, CircleStop, Clock, Eye, Trash2 } from "lucide-react";
 import {
   Dialog,
@@ -187,8 +188,13 @@ export function CompletedSessionCardShell({
   }
 
   return (
-    <li className="border-border bg-card flex flex-col gap-3 rounded-lg border px-4 py-3">
-      <div className="flex items-center justify-between gap-3">
+    <li className="border-border bg-card relative flex flex-col gap-3 rounded-lg border px-4 py-3">
+      <Link
+        href={`/cook/${session.id}`}
+        aria-label={`Open ${actionSubject}`}
+        className="absolute inset-0 z-0 rounded-lg"
+      />
+      <div className="relative z-10 flex items-center justify-between gap-3">
         <div className="min-w-0 flex-1">
           <p className="text-foreground truncate text-sm font-medium">
             {title}

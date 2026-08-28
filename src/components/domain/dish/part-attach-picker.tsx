@@ -1,7 +1,6 @@
 import * as React from "react";
-import { Link2, RotateCcw, Search } from "lucide-react";
+import { Link2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -11,27 +10,31 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   validatePartAttachment,
-  listAttachablePartVersions,
   listAttachableParts,
-  type PartVersionOption,
 } from "@/lib/sections/actions";
-import { PickerResultRow } from "@/components/domain/dish/picker-result-row";
+import type { AttachablePart } from "@/lib/dishes/queries";
+import { RecipePartPicker } from "@/components/domain/dish/recipe-part-picker";
+import {
+  SelectableDishRow,
+  type DishSelectionItem,
+} from "@/components/domain/dish/selectable-dish-row";
+import { RichDishVersionPicker } from "@/components/domain/dish/version-picker-field";
 import type { DishKindValue } from "@/lib/dishes/schema";
 
-export type AttachablePartOption = {
-  id: string;
-  currentTitle: string | null;
-  currentVersionId: string | null;
-  tags: string[];
-};
+function toSelectionItem(part: AttachablePart): DishSelectionItem {
+  return {
+    id: part.id,
+    kind: "PART",
+    title: part.currentTitle ?? "Untitled part",
+    versionLabel: part.versionLabel,
+    stage: part.stage,
+    cuisine: part.cuisine,
+    imageAssetId: part.imageAssetId,
+    tagNames: part.tags,
+    rating: part.rating,
+  };
+}
 
 /**
  * PRODUCT_SPEC.md §67-68: "Attach a Part" — search/select a saved Part,
@@ -40,6 +43,13 @@ export type AttachablePartOption = {
  * handing the resolved target back to the caller; never persists anything
  * itself — the actual `PartLink` is only written by the container's next
  * save.
+ *
+ * Single-select, Part-only `RecipePartPicker` (design pass: unified with
+ * every other Recipe/Part picker — same search treatment, same rich row).
+ * Selecting a Part is this picker's only step 1 -> step 2 transition (there's
+ * no separate item list once a single choice narrows to one); step 2 is
+ * Version choice, a true separate screen rather than an inline control next
+ * to the row.
  *
  * Slice 6A browser-review correction pass §5: the candidate list is never
  * passed in as a prop captured when the parent editor/detail page first
@@ -70,20 +80,15 @@ export function PartAttachPicker({
   triggerLabel?: string;
 }) {
   const [open, setOpen] = React.useState(false);
-  const [query, setQuery] = React.useState("");
-  const [selected, setSelected] = React.useState<AttachablePartOption | null>(
-    null,
-  );
-  const [versions, setVersions] = React.useState<PartVersionOption[] | null>(
-    null,
-  );
+  const [search, setSearch] = React.useState("");
+  const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [chosenVersionId, setChosenVersionId] = React.useState<string | null>(
     null,
   );
   const [error, setError] = React.useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
-  const [parts, setParts] = React.useState<AttachablePartOption[] | null>(null);
+  const [parts, setParts] = React.useState<AttachablePart[] | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [loadAttempt, setLoadAttempt] = React.useState(0);
   // The requestKey this fetch's result reflects, or null before it resolves.
@@ -117,28 +122,21 @@ export function PartAttachPicker({
   }, [requestKey, excludeDishId]);
 
   function reset() {
-    setQuery("");
-    setSelected(null);
-    setVersions(null);
+    setSearch("");
+    setSelectedId(null);
     setChosenVersionId(null);
     setError(null);
   }
 
-  const filtered = (parts ?? []).filter((part) =>
-    (part.currentTitle ?? "Untitled")
-      .toLowerCase()
-      .includes(query.trim().toLowerCase()),
+  const selected = parts?.find((part) => part.id === selectedId) ?? null;
+  const selectedSet = React.useMemo(
+    () => new Set(selectedId ? [selectedId] : []),
+    [selectedId],
   );
-
-  async function selectPart(part: AttachablePartOption) {
-    setSelected(part);
-    setChosenVersionId(part.currentVersionId);
-    setError(null);
-    const result = await listAttachablePartVersions(part.id);
-    if (result.status === "success") {
-      setVersions(result.versions);
-    }
-  }
+  const pickerItems = React.useMemo(
+    () => parts?.map(toSelectionItem) ?? null,
+    [parts],
+  );
 
   async function confirm() {
     if (!selected) return;
@@ -185,7 +183,7 @@ export function PartAttachPicker({
           }
         }}
       >
-        <DialogContent>
+        <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Attach a part</DialogTitle>
             <DialogDescription>
@@ -194,92 +192,43 @@ export function PartAttachPicker({
           </DialogHeader>
 
           {!selected ? (
-            <div className="flex flex-col gap-3">
-              <div className="relative">
-                <Search
-                  className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2"
-                  aria-hidden="true"
-                />
-                <Input
-                  autoFocus
-                  placeholder="Search your Parts"
-                  className="pl-8"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                />
-              </div>
-              {isLoadingParts ? (
-                <p className="text-muted-foreground py-6 text-center text-sm">
-                  Loading Parts…
-                </p>
-              ) : loadError ? (
-                <div className="flex flex-col items-center gap-2 py-6 text-center">
-                  <p role="alert" className="text-destructive-text text-sm">
-                    {loadError}
-                  </p>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setLoadAttempt((n) => n + 1)}
-                  >
-                    <RotateCcw /> Retry
-                  </Button>
-                </div>
-              ) : (
-                <div className="flex max-h-72 flex-col gap-1 overflow-y-auto">
-                  {filtered.length === 0 && (
-                    <p className="text-muted-foreground py-6 text-center text-sm">
-                      {(parts ?? []).length === 0
-                        ? "You don't have any reusable Parts yet."
-                        : "Nothing matches that search."}
-                    </p>
-                  )}
-                  {filtered.map((part) => (
-                    <PickerResultRow
-                      key={part.id}
-                      title={part.currentTitle ?? "Untitled part"}
-                      tags={part.tags}
-                      onSelect={() => selectPart(part)}
-                    />
-                  ))}
-                </div>
-              )}
+            <div className="-mx-1 flex min-h-0 flex-1 flex-col overflow-y-auto px-1">
+              <RecipePartPicker
+                items={isLoadingParts ? null : pickerItems}
+                itemsError={loadError}
+                onRetry={() => setLoadAttempt((n) => n + 1)}
+                search={search}
+                onSearchChange={setSearch}
+                searchPlaceholder="Search your Parts"
+                autoFocusSearch
+                selectionMode="single"
+                selected={selectedSet}
+                onToggle={(id) => setSelectedId(id)}
+                emptyMessage="You don't have any reusable Parts yet."
+                loadingLabel="Loading Parts…"
+              />
             </div>
           ) : (
             <div className="flex flex-col gap-3">
-              <p className="text-sm">
-                <span className="font-medium">
-                  {selected.currentTitle ?? "Untitled part"}
-                </span>
-              </p>
-              {versions && versions.length > 1 && (
-                <Select
-                  value={chosenVersionId ?? undefined}
-                  onValueChange={setChosenVersionId}
-                >
-                  <SelectTrigger className="w-full" aria-label="Version">
-                    <SelectValue placeholder="Version" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {versions.map((version) => (
-                      <SelectItem key={version.id} value={version.id}>
-                        V{version.majorVersion}.{version.minorVersion}
-                        {version.id === selected.currentVersionId
-                          ? " (current)"
-                          : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
+              <SelectableDishRow
+                item={toSelectionItem(selected)}
+                selectionControl="remove"
+                onRemove={() => setSelectedId(null)}
+              />
+              <RichDishVersionPicker
+                id="attach-part-version"
+                kind="PART"
+                dishId={selected.id}
+                value={chosenVersionId}
+                onChangeAction={setChosenVersionId}
+              />
               {error && (
                 <p role="alert" className="text-destructive-text text-sm">
                   {error}
                 </p>
               )}
               <DialogFooter>
-                <Button variant="outline" onClick={reset}>
+                <Button variant="outline" onClick={() => setSelectedId(null)}>
                   Back
                 </Button>
                 <Button onClick={confirm} loading={isSubmitting}>

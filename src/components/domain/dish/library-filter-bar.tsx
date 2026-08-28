@@ -275,7 +275,7 @@ export function LibraryFilterBar({
               onChange={(event) => setSearchValue(event.target.value)}
               placeholder="Search…"
               aria-label="Search"
-              className="pl-8"
+              className="bg-card dark:bg-card pl-8"
             />
           </div>
         </form>

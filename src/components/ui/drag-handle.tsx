@@ -32,7 +32,7 @@ export function DragHandle({
       aria-label={label}
       title={label}
       className={cn(
-        "text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 flex size-7 shrink-0 items-center justify-center rounded-md focus-visible:ring-2 focus-visible:outline-none",
+        "text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 flex size-7 shrink-0 items-center justify-center rounded-md focus-visible:ring-2 focus-visible:outline-none pointer-coarse:size-11",
         isDragging ? "cursor-grabbing" : "cursor-grab",
         className,
       )}

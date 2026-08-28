@@ -59,12 +59,6 @@ export const reorderGroceryListItemsSchema = listIdSchema.extend({
   orderedItemIds: z.array(z.string().min(1)).min(1),
 });
 
-export const combineGroceryItemsSchema = listIdSchema.extend({
-  itemIds: z
-    .array(z.string().min(1))
-    .min(2, "Select at least two items to combine."),
-});
-
 export const refreshSourceSchema = listIdSchema.extend({
   sourceId: z.string().min(1),
   targetVersionId: z.string().min(1).optional(),
@@ -72,6 +66,7 @@ export const refreshSourceSchema = listIdSchema.extend({
 
 export const addGroceryListSourceSchema = listIdSchema.extend({
   dishId: z.string().min(1),
+  dishVersionId: z.string().min(1).optional(),
   scaleFactor: positiveScaleFactor,
 });
 

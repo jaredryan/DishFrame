@@ -10,13 +10,13 @@ import {
   Pencil,
   Plus,
   RefreshCw,
-  Search,
   Soup,
   Trash2,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SearchInput } from "@/components/ui/search-input";
 import { Field, FieldLabel, FieldError } from "@/components/ui/field";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { Badge } from "@/components/ui/badge";
@@ -1756,19 +1756,12 @@ function MealPickerModal({
               <div className="bg-popover sticky top-0 z-10 flex flex-col gap-3 pb-2">
                 <Field>
                   <FieldLabel htmlFor="meal-modal-search">Search</FieldLabel>
-                  <div className="relative">
-                    <Search
-                      className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2"
-                      aria-hidden="true"
-                    />
-                    <Input
-                      id="meal-modal-search"
-                      placeholder="Search your Recipes and Parts…"
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                      className="pl-8"
-                    />
-                  </div>
+                  <SearchInput
+                    id="meal-modal-search"
+                    placeholder="Search your Recipes and Parts…"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
                 </Field>
 
                 <div className="flex flex-wrap items-center gap-2">

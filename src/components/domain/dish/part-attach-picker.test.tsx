@@ -4,31 +4,50 @@ import userEvent from "@testing-library/user-event";
 import { PartAttachPicker } from "@/components/domain/dish/part-attach-picker";
 import {
   listAttachableParts,
-  listAttachablePartVersions,
   validatePartAttachment,
 } from "@/lib/sections/actions";
 
 vi.mock("@/lib/sections/actions", () => ({
   listAttachableParts: vi.fn(),
-  listAttachablePartVersions: vi.fn(),
   validatePartAttachment: vi.fn(),
 }));
 
+const { listDishVersionOptions } = vi.hoisted(() => ({
+  listDishVersionOptions: vi.fn(async () => ({
+    status: "success" as const,
+    versions: [{ id: "part-a-v1", majorVersion: 1, minorVersion: 0 }],
+    currentVersionId: "part-a-v1" as string | null,
+  })),
+}));
+
+vi.mock("@/lib/dishes/actions", () => ({
+  listDishVersionOptions,
+}));
+
 const mockedListAttachableParts = vi.mocked(listAttachableParts);
-const mockedListAttachablePartVersions = vi.mocked(listAttachablePartVersions);
 const mockedValidatePartAttachment = vi.mocked(validatePartAttachment);
 
 const PART_A = {
   id: "part-a",
+  stage: "ACTIVE" as const,
+  cuisine: null,
   currentTitle: "Nuoc Cham",
   currentVersionId: "part-a-v1",
+  versionLabel: "V1.0",
+  imageAssetId: null,
   tags: ["Vietnamese", "Condiment"],
+  rating: { kind: "none" as const },
 };
 const PART_B = {
   id: "part-b",
+  stage: "ACTIVE" as const,
+  cuisine: null,
   currentTitle: "Chili Oil",
   currentVersionId: "part-b-v1",
+  versionLabel: "V1.0",
+  imageAssetId: null,
   tags: [],
+  rating: { kind: "none" as const },
 };
 
 /**
@@ -40,7 +59,7 @@ const PART_B = {
 describe("PartAttachPicker", () => {
   beforeEach(() => {
     mockedListAttachableParts.mockReset();
-    mockedListAttachablePartVersions.mockReset();
+    listDishVersionOptions.mockClear();
     mockedValidatePartAttachment.mockReset();
   });
 
@@ -102,17 +121,11 @@ describe("PartAttachPicker", () => {
     expect(await screen.findByText("Nuoc Cham")).toBeInTheDocument();
   });
 
-  it("shows each Part's tags, restrained to a small overflow-friendly set", async () => {
+  it("shows each Part's tags, via the same rich row every other Recipe/Part picker uses", async () => {
     const user = userEvent.setup();
-    const heavilyTagged = {
-      id: "part-c",
-      currentTitle: "House Marinade",
-      currentVersionId: "part-c-v1",
-      tags: ["Savory", "Make-ahead", "Freezer-friendly", "Umami", "Spicy"],
-    };
     mockedListAttachableParts.mockResolvedValue({
       status: "success",
-      parts: [PART_A, heavilyTagged],
+      parts: [PART_A],
     });
 
     render(
@@ -126,15 +139,6 @@ describe("PartAttachPicker", () => {
 
     expect(await screen.findByText("Vietnamese")).toBeInTheDocument();
     expect(screen.getByText("Condiment")).toBeInTheDocument();
-
-    // Five tags on House Marinade — only the first three render, plus a
-    // compact "+2" overflow indicator rather than blowing out the row.
-    expect(screen.getByText("Savory")).toBeInTheDocument();
-    expect(screen.getByText("Make-ahead")).toBeInTheDocument();
-    expect(screen.getByText("Freezer-friendly")).toBeInTheDocument();
-    expect(screen.queryByText("Umami")).not.toBeInTheDocument();
-    expect(screen.queryByText("Spicy")).not.toBeInTheDocument();
-    expect(screen.getByText("+2")).toBeInTheDocument();
   });
 
   it("shows a retryable error state when loading fails, and Retry re-fetches", async () => {
@@ -170,10 +174,6 @@ describe("PartAttachPicker", () => {
     mockedListAttachableParts.mockResolvedValue({
       status: "success",
       parts: [PART_A],
-    });
-    mockedListAttachablePartVersions.mockResolvedValue({
-      status: "success",
-      versions: [{ id: "part-a-v1", majorVersion: 1, minorVersion: 0 }],
     });
     mockedValidatePartAttachment.mockResolvedValue({
       status: "error",
