@@ -1,29 +1,5 @@
-import { execFileSync } from "node:child_process";
-import path from "node:path";
 import { test, expect } from "@playwright/test";
-
-type SeedCookie = {
-  name: string;
-  value: string;
-  domain: string;
-  path: string;
-  httpOnly?: boolean;
-  secure?: boolean;
-  sameSite?: "Lax" | "Strict" | "None";
-};
-
-const SEED_SCRIPT = path.join(__dirname, "seed-session.ts");
-
-function seed(...args: string[]): string {
-  return execFileSync("pnpm", ["exec", "tsx", SEED_SCRIPT, ...args], {
-    encoding: "utf-8",
-    cwd: path.join(__dirname, "..", ".."),
-    env: {
-      ...process.env,
-      NODE_OPTIONS: "--conditions=react-server",
-    },
-  });
-}
+import { cleanup, login, waitForServerAction } from "./helpers";
 
 /**
  * BUILD_PLAN.md Slice 8's required journey: a two-unit session where
@@ -35,27 +11,11 @@ test.describe("Cooking Mode: unit switching, progress, and simultaneous timers",
   let userId: string;
 
   test.beforeEach(async ({ context }) => {
-    const { userId: seededUserId, cookies } = JSON.parse(seed("login")) as {
-      userId: string;
-      cookies: SeedCookie[];
-    };
-    userId = seededUserId;
-
-    await context.addCookies(
-      cookies.map((cookie) => ({
-        name: cookie.name,
-        value: cookie.value,
-        domain: cookie.domain,
-        path: cookie.path,
-        httpOnly: cookie.httpOnly,
-        secure: cookie.secure,
-        sameSite: cookie.sameSite,
-      })),
-    );
+    userId = (await login(context)).userId;
   });
 
   test.afterEach(() => {
-    seed("cleanup", userId);
+    cleanup(userId);
   });
 
   test("two units, two simultaneous timers, progress and timers persist across refresh", async ({
@@ -110,7 +70,11 @@ test.describe("Cooking Mode: unit switching, progress, and simultaneous timers",
     });
     await cookingNav.getByRole("button", { name: /Prep/ }).click();
     await expect(page.getByRole("heading", { name: "Prep" })).toBeVisible();
-    await page.getByRole("checkbox").check();
+    // toggleChecklistItem and createTimer (below) are real Server Actions —
+    // wait for each one's own round trip rather than the optimistic render,
+    // same rationale as helpers.ts's waitForServerAction, so the reload
+    // below can't race ahead of persistence.
+    await waitForServerAction(page, () => page.getByRole("checkbox").check());
 
     await page
       .getByRole("button", { name: "Start timer", exact: true })
@@ -120,25 +84,25 @@ test.describe("Cooking Mode: unit switching, progress, and simultaneous timers",
     const timerDialog = page.getByRole("dialog", { name: "Start a timer" });
     await timerDialog.getByLabel("Name").fill("Rice");
     await timerDialog.getByLabel("Minutes").fill("10");
-    await timerDialog
-      .getByRole("button", { name: "Start", exact: true })
-      .click();
+    await waitForServerAction(page, () =>
+      timerDialog.getByRole("button", { name: "Start", exact: true }).click(),
+    );
     await expect(timerRail.getByText(/Rice/)).toBeVisible();
 
     // --- Switch to "Sear" in one click via the left nav: check its
     // ingredient, start its own simultaneous timer ---
     await cookingNav.getByRole("button", { name: /Sear/ }).click();
     await expect(page.getByRole("heading", { name: "Sear" })).toBeVisible();
-    await page.getByRole("checkbox").check();
+    await waitForServerAction(page, () => page.getByRole("checkbox").check());
 
     await page
       .getByRole("button", { name: "Start timer", exact: true })
       .click();
     await timerDialog.getByLabel("Name").fill("Sauce");
     await timerDialog.getByLabel("Minutes").fill("5");
-    await timerDialog
-      .getByRole("button", { name: "Start", exact: true })
-      .click();
+    await waitForServerAction(page, () =>
+      timerDialog.getByRole("button", { name: "Start", exact: true }).click(),
+    );
 
     // Both timers are simultaneously visible and controllable in the rail,
     // regardless of which Section is currently selected.

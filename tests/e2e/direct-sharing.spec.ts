@@ -1,59 +1,5 @@
-import { execFileSync } from "node:child_process";
-import path from "node:path";
 import { test, expect, type Page, type BrowserContext } from "@playwright/test";
-
-type SeedCookie = {
-  name: string;
-  value: string;
-  domain: string;
-  path: string;
-  httpOnly?: boolean;
-  secure?: boolean;
-  sameSite?: "Lax" | "Strict" | "None";
-};
-
-type SeedResult = { userId: string; email: string; cookies: SeedCookie[] };
-
-const SEED_SCRIPT = path.join(__dirname, "seed-session.ts");
-
-// See preferences-tasters-grocery.spec.ts for why this shells out to `tsx`
-// rather than importing seed-session.ts directly.
-function seed(...args: string[]): string {
-  return execFileSync("pnpm", ["exec", "tsx", SEED_SCRIPT, ...args], {
-    encoding: "utf-8",
-    cwd: path.join(__dirname, "..", ".."),
-    env: {
-      ...process.env,
-      NODE_OPTIONS: "--conditions=react-server",
-    },
-  });
-}
-
-/**
- * Seeds one account, logs `context` into it, and returns its id/email —
- * `email` (seed-session.ts's second follow-up addition) is what a sender
- * types into the Send dialog's recipient field, `name` is what appears as
- * "From {name}" in the recipient's Received list, so a two-account spec can
- * tell its own two seeded accounts apart in the UI.
- */
-async function loginAs(
-  context: BrowserContext,
-  name: string,
-): Promise<SeedResult> {
-  const result = JSON.parse(seed("login", "no-intro", name)) as SeedResult;
-  await context.addCookies(
-    result.cookies.map((cookie) => ({
-      name: cookie.name,
-      value: cookie.value,
-      domain: cookie.domain,
-      path: cookie.path,
-      httpOnly: cookie.httpOnly,
-      secure: cookie.secure,
-      sameSite: cookie.sameSite,
-    })),
-  );
-  return result;
-}
+import { cleanup, login } from "./helpers";
 
 async function openMoreActions(page: Page) {
   await page.getByRole("button", { name: "More actions" }).click();
@@ -114,11 +60,11 @@ test.describe("Direct sharing: accept, decline, and sender-cancel", () => {
   let recipientEmail: string;
 
   test.beforeEach(async ({ context, browser }) => {
-    const sender = await loginAs(context, "E2E Sender");
+    const sender = await login(context, { name: "E2E Sender" });
     senderId = sender.userId;
 
     recipientContext = await browser.newContext();
-    const recipient = await loginAs(recipientContext, "E2E Recipient");
+    const recipient = await login(recipientContext, { name: "E2E Recipient" });
     recipientId = recipient.userId;
     recipientEmail = recipient.email;
     recipientPage = await recipientContext.newPage();
@@ -126,8 +72,8 @@ test.describe("Direct sharing: accept, decline, and sender-cancel", () => {
 
   test.afterEach(async () => {
     await recipientContext.close();
-    seed("cleanup", senderId);
-    seed("cleanup", recipientId);
+    cleanup(senderId);
+    cleanup(recipientId);
   });
 
   test("recipient can see and accept a pending direct share; the accepted copy and status appear on both sides", async ({

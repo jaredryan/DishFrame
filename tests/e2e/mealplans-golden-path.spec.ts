@@ -1,29 +1,5 @@
-import { execFileSync } from "node:child_process";
-import path from "node:path";
 import { test, expect } from "@playwright/test";
-
-type SeedCookie = {
-  name: string;
-  value: string;
-  domain: string;
-  path: string;
-  httpOnly?: boolean;
-  secure?: boolean;
-  sameSite?: "Lax" | "Strict" | "None";
-};
-
-const SEED_SCRIPT = path.join(__dirname, "seed-session.ts");
-
-function seed(...args: string[]): string {
-  return execFileSync("pnpm", ["exec", "tsx", SEED_SCRIPT, ...args], {
-    encoding: "utf-8",
-    cwd: path.join(__dirname, "..", ".."),
-    env: {
-      ...process.env,
-      NODE_OPTIONS: "--conditions=react-server",
-    },
-  });
-}
+import { cleanup, login } from "./helpers";
 
 /**
  * BUILD_PLAN.md Slice 15's required journey: build a plan, generate a
@@ -35,27 +11,11 @@ test.describe("Meal Plans: build, sync grocery list, edit, complete", () => {
   let userId: string;
 
   test.beforeEach(async ({ context }) => {
-    const { userId: seededUserId, cookies } = JSON.parse(seed("login")) as {
-      userId: string;
-      cookies: SeedCookie[];
-    };
-    userId = seededUserId;
-
-    await context.addCookies(
-      cookies.map((cookie) => ({
-        name: cookie.name,
-        value: cookie.value,
-        domain: cookie.domain,
-        path: cookie.path,
-        httpOnly: cookie.httpOnly,
-        secure: cookie.secure,
-        sameSite: cookie.sameSite,
-      })),
-    );
+    userId = (await login(context)).userId;
   });
 
   test.afterEach(() => {
-    seed("cleanup", userId);
+    cleanup(userId);
   });
 
   test("golden path", async ({ page }) => {

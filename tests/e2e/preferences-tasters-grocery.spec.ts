@@ -1,84 +1,10 @@
-import { execFileSync } from "node:child_process";
-import path from "node:path";
+import { test, expect, type Page } from "@playwright/test";
 import {
-  test,
-  expect,
-  type Locator,
-  type Page,
-  type Response,
-} from "@playwright/test";
-
-type SeedCookie = {
-  name: string;
-  value: string;
-  domain: string;
-  path: string;
-  httpOnly?: boolean;
-  secure?: boolean;
-  sameSite?: "Lax" | "Strict" | "None";
-};
-
-const SEED_SCRIPT = path.join(__dirname, "seed-session.ts");
-
-/**
- * Runs tests/e2e/seed-session.ts via `tsx` in its own process, never
- * imported directly into this spec file. Playwright's own test transform
- * cannot load the generated Prisma client (ESM-only, uses `import.meta`) or
- * resolve the "@/" path alias the way Next.js/vitest/tsx do — shelling out
- * sidesteps that entirely.
- */
-function seed(...args: string[]): string {
-  return execFileSync("pnpm", ["exec", "tsx", SEED_SCRIPT, ...args], {
-    encoding: "utf-8",
-    cwd: path.join(__dirname, "..", ".."),
-    env: {
-      ...process.env,
-      // Resolves `import "server-only"` to Next.js's Server-Component no-op
-      // instead of its Client-Component-only throw (see server-only's own
-      // package.json "exports" map) — scoped to this child process only,
-      // so the webServer's own `next dev` process (which handles this
-      // condition itself via webpack) is never affected.
-      NODE_OPTIONS: "--conditions=react-server",
-    },
-  });
-}
-
-/**
- * GroceryCategoryManager and TasterManager both apply mutations to local
- * state optimistically, before their Server Action's fetch resolves — so a
- * client-side visibility assertion right after a click can pass before the
- * mutation has actually reached the database. That's invisible normally,
- * but a subsequent `page.reload()` re-fetches server truth, so it must wait
- * for the real round trip, not just the optimistic render. Waiting for the
- * action's own POST response here (registered before the click, so it can't
- * resolve and be missed before we start listening) is what makes it safe to
- * reload immediately afterward.
- *
- * The predicate is scoped to same-origin responses, not just any POST:
- * `<SpeedInsights />` (mounted app-wide in `src/app/layout.tsx`) injects an
- * external debug-script beacon in dev mode that also POSTs shortly after
- * page load. An unscoped `method() === "POST"` predicate can resolve on
- * that beacon instead of the Server Action's own response, so the
- * `Promise.all` returns before the real mutation lands — the assertion
- * right after usually still passes on retry, but occasionally races a
- * slower-than-usual save and times out. Server Actions always POST to the
- * current page's own origin, so filtering to same-origin excludes the
- * unrelated third-party beacon.
- */
-function isSameOriginPost(page: Page, response: Response) {
-  return (
-    response.request().method() === "POST" &&
-    new URL(response.url()).origin === new URL(page.url()).origin &&
-    Boolean(response.request().headers()["next-action"])
-  );
-}
-
-async function clickAndWaitForServerAction(page: Page, locator: Locator) {
-  await Promise.all([
-    page.waitForResponse((response) => isSameOriginPost(page, response)),
-    locator.click(),
-  ]);
-}
+  cleanup,
+  clickAndWaitForServerAction,
+  login,
+  waitForServerAction,
+} from "./helpers";
 
 /**
  * Reorders a row one position up via dnd-kit's `KeyboardSensor` — its
@@ -111,10 +37,7 @@ async function reorderUpViaKeyboard(page: Page, handleName: string) {
   // for that response rather than a fixed delay, since callers that reload
   // right after (the Tasters flow below) need the reorder to actually be
   // persisted first.
-  await Promise.all([
-    page.waitForResponse((response) => isSameOriginPost(page, response)),
-    page.keyboard.press("Space"),
-  ]);
+  await waitForServerAction(page, () => page.keyboard.press("Space"));
 }
 
 /**
@@ -127,27 +50,11 @@ test.describe("Settings: Preferences, Grocery Categories, and Tasters", () => {
   let userId: string;
 
   test.beforeEach(async ({ context }) => {
-    const { userId: seededUserId, cookies } = JSON.parse(seed("login")) as {
-      userId: string;
-      cookies: SeedCookie[];
-    };
-    userId = seededUserId;
-
-    await context.addCookies(
-      cookies.map((cookie) => ({
-        name: cookie.name,
-        value: cookie.value,
-        domain: cookie.domain,
-        path: cookie.path,
-        httpOnly: cookie.httpOnly,
-        secure: cookie.secure,
-        sameSite: cookie.sameSite,
-      })),
-    );
+    userId = (await login(context)).userId;
   });
 
   test.afterEach(() => {
-    seed("cleanup", userId);
+    cleanup(userId);
   });
 
   test("save preferences, manage Grocery Categories (incl. the protected fallback), and manage Tasters", async ({

@@ -1,56 +1,5 @@
-import { execFileSync } from "node:child_process";
-import path from "node:path";
-import {
-  test,
-  expect,
-  type Page,
-  type Locator,
-  type BrowserContext,
-} from "@playwright/test";
-
-type SeedCookie = {
-  name: string;
-  value: string;
-  domain: string;
-  path: string;
-  httpOnly?: boolean;
-  secure?: boolean;
-  sameSite?: "Lax" | "Strict" | "None";
-};
-
-const SEED_SCRIPT = path.join(__dirname, "seed-session.ts");
-
-// See preferences-tasters-grocery.spec.ts for why this shells out to `tsx`
-// rather than importing seed-session.ts directly.
-function seed(...args: string[]): string {
-  return execFileSync("pnpm", ["exec", "tsx", SEED_SCRIPT, ...args], {
-    encoding: "utf-8",
-    cwd: path.join(__dirname, "..", ".."),
-    env: {
-      ...process.env,
-      NODE_OPTIONS: "--conditions=react-server",
-    },
-  });
-}
-
-async function login(context: BrowserContext) {
-  const { userId, cookies } = JSON.parse(seed("login")) as {
-    userId: string;
-    cookies: SeedCookie[];
-  };
-  await context.addCookies(
-    cookies.map((cookie) => ({
-      name: cookie.name,
-      value: cookie.value,
-      domain: cookie.domain,
-      path: cookie.path,
-      httpOnly: cookie.httpOnly,
-      secure: cookie.secure,
-      sameSite: cookie.sameSite,
-    })),
-  );
-  return userId;
-}
+import { test, expect, type Page, type Locator } from "@playwright/test";
+import { cleanup, login } from "./helpers";
 
 // Dashboard sections are `<section>` elements, each with its own heading —
 // scoping by tag avoids collisions with the sidebar nav's own same-named
@@ -63,11 +12,11 @@ test.describe("Home dashboard: navigation (empty account)", () => {
   let userId: string;
 
   test.beforeEach(async ({ context }) => {
-    userId = await login(context);
+    userId = (await login(context)).userId;
   });
 
   test.afterEach(() => {
-    seed("cleanup", userId);
+    cleanup(userId);
   });
 
   test("loads with all four sections, correct empty states, and working navigation", async ({
@@ -194,11 +143,11 @@ test.describe("Home dashboard: populated data", () => {
   let userId: string;
 
   test.beforeEach(async ({ context }) => {
-    userId = await login(context);
+    userId = (await login(context)).userId;
   });
 
   test.afterEach(() => {
-    seed("cleanup", userId);
+    cleanup(userId);
   });
 
   test("surfaces real Recipes, Parts, an active Cooking Session, a Meal Plan, and a Grocery List", async ({
