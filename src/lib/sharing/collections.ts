@@ -16,6 +16,13 @@ import {
   type PrincipalRating,
 } from "@/lib/reviews/queries";
 import type { DishKindValue, StageValue } from "@/lib/dishes/schema";
+
+/** `finalizeDirectShareCollectionDecision` may run `createIndependentCopyFromGraph`
+ * (several sequential creates per item) for every accepted child in one
+ * transaction — Prisma's 5000ms interactive-transaction default was
+ * observed timing out (P2028) in production against Neon's per-statement
+ * latency, even for a single accepted item. */
+const FINALIZE_COLLECTION_TRANSACTION_TIMEOUT_MS = 45_000;
 import {
   buildShareGraph,
   collectGraphImageAssetIds,
@@ -436,48 +443,51 @@ export async function finalizeDirectShareCollectionDecision(
   };
   if (pendingChildren.length === 0) return result;
 
-  await prisma.$transaction(async (tx) => {
-    for (const child of pendingChildren) {
-      if (acceptedSet.has(child.id)) {
-        if (!child.frozenGraph) {
-          // Corrupt/legacy row with no frozen content — decline rather than
-          // silently skip, so the collection never stays ambiguously
-          // pending for this item.
-          await tx.directShare.updateMany({
+  await prisma.$transaction(
+    async (tx) => {
+      for (const child of pendingChildren) {
+        if (acceptedSet.has(child.id)) {
+          if (!child.frozenGraph) {
+            // Corrupt/legacy row with no frozen content — decline rather than
+            // silently skip, so the collection never stays ambiguously
+            // pending for this item.
+            await tx.directShare.updateMany({
+              where: { id: child.id, recipientId, status: "PENDING" },
+              data: { status: "DECLINED" },
+            });
+            continue;
+          }
+          const graph = deserializeShareGraph(child.frozenGraph);
+          const transition = await tx.directShare.updateMany({
+            where: { id: child.id, recipientId, status: "PENDING" },
+            data: { status: "ACCEPTED" },
+          });
+          if (transition.count === 0) continue;
+          const copy = await createIndependentCopyFromGraph(
+            tx,
+            recipientId,
+            graph,
+          );
+          await tx.directShare.update({
+            where: { id: child.id },
+            data: { createdDishId: copy.dishId },
+          });
+          result.accepted.push({
+            directShareId: child.id,
+            dishId: copy.dishId,
+            dishKind: copy.dishKind,
+          });
+        } else {
+          const transition = await tx.directShare.updateMany({
             where: { id: child.id, recipientId, status: "PENDING" },
             data: { status: "DECLINED" },
           });
-          continue;
+          if (transition.count > 0) result.declined.push(child.id);
         }
-        const graph = deserializeShareGraph(child.frozenGraph);
-        const transition = await tx.directShare.updateMany({
-          where: { id: child.id, recipientId, status: "PENDING" },
-          data: { status: "ACCEPTED" },
-        });
-        if (transition.count === 0) continue;
-        const copy = await createIndependentCopyFromGraph(
-          tx,
-          recipientId,
-          graph,
-        );
-        await tx.directShare.update({
-          where: { id: child.id },
-          data: { createdDishId: copy.dishId },
-        });
-        result.accepted.push({
-          directShareId: child.id,
-          dishId: copy.dishId,
-          dishKind: copy.dishKind,
-        });
-      } else {
-        const transition = await tx.directShare.updateMany({
-          where: { id: child.id, recipientId, status: "PENDING" },
-          data: { status: "DECLINED" },
-        });
-        if (transition.count > 0) result.declined.push(child.id);
       }
-    }
-  });
+    },
+    { timeout: FINALIZE_COLLECTION_TRANSACTION_TIMEOUT_MS },
+  );
 
   return result;
 }

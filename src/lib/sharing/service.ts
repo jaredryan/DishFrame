@@ -27,6 +27,13 @@ import type {
 } from "@/lib/sharing/schema";
 import { Prisma } from "@/generated/prisma/client";
 
+/** `createIndependentCopyFromGraph` runs several sequential creates (Dish,
+ * DishVersion, sections, ingredients, instructions, part links) per copied
+ * item — Prisma's 5000ms interactive-transaction default is too tight for
+ * this against Neon's per-statement latency and was observed timing out
+ * (P2028) in production. */
+const SHARE_COPY_TRANSACTION_TIMEOUT_MS = 20_000;
+
 /** Denormalized alongside the whitelisted content, purely so the image
  * route's share-token branch never has to walk the whole nested tree on
  * every request (ARCHITECTURE_PROPOSAL.md §D.2a). Not part of the public
@@ -494,17 +501,20 @@ export async function saveSharedCopy(
     // concurrent duplicate request wins the unique-constraint race on
     // ShareLinkAcceptance, this entire transaction (including every copied
     // Dish/DishVersion row) rolls back — never an untracked orphan copy.
-    return await prisma.$transaction(async (tx) => {
-      const copy = await createIndependentCopyFromGraph(tx, recipientId, graph);
-      await tx.shareLinkAcceptance.create({
-        data: {
-          shareLinkId: shareLink.id,
-          recipientId,
-          createdDishId: copy.dishId,
-        },
-      });
-      return { outcome: "created" as const, ...copy };
-    });
+    return await prisma.$transaction(
+      async (tx) => {
+        const copy = await createIndependentCopyFromGraph(tx, recipientId, graph);
+        await tx.shareLinkAcceptance.create({
+          data: {
+            shareLinkId: shareLink.id,
+            recipientId,
+            createdDishId: copy.dishId,
+          },
+        });
+        return { outcome: "created" as const, ...copy };
+      },
+      { timeout: SHARE_COPY_TRANSACTION_TIMEOUT_MS },
+    );
   } catch (error) {
     if (!isUniqueConstraintViolation(error)) throw error;
     // Lost the idempotency race — another concurrent request already
@@ -625,20 +635,23 @@ export async function acceptDirectShare(
   // stored graph is never, by itself, permission to accept.
   const graph = deserializeShareGraph(share.frozenGraph);
 
-  const result = await prisma.$transaction(async (tx) => {
-    const transition = await tx.directShare.updateMany({
-      where: { id: directShareId, recipientId, status: "PENDING" },
-      data: { status: "ACCEPTED" },
-    });
-    if (transition.count === 0) return null;
+  const result = await prisma.$transaction(
+    async (tx) => {
+      const transition = await tx.directShare.updateMany({
+        where: { id: directShareId, recipientId, status: "PENDING" },
+        data: { status: "ACCEPTED" },
+      });
+      if (transition.count === 0) return null;
 
-    const copy = await createIndependentCopyFromGraph(tx, recipientId, graph);
-    await tx.directShare.update({
-      where: { id: directShareId },
-      data: { createdDishId: copy.dishId },
-    });
-    return { outcome: "accepted" as const, ...copy };
-  });
+      const copy = await createIndependentCopyFromGraph(tx, recipientId, graph);
+      await tx.directShare.update({
+        where: { id: directShareId },
+        data: { createdDishId: copy.dishId },
+      });
+      return { outcome: "accepted" as const, ...copy };
+    },
+    { timeout: SHARE_COPY_TRANSACTION_TIMEOUT_MS },
+  );
   if (result) return result;
 
   // Lost the transition race to a concurrent accept — resolve the winner's
