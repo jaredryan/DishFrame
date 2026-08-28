@@ -30,6 +30,9 @@ export const metadata: Metadata = {
     canonical: "/",
   },
   manifest: "/manifest.webmanifest",
+  verification: {
+    google: "wxjicYgLC0cT9z0aEKqgXNFP8EK2S57ujrraQqOHmz4",
+  },
   appleWebApp: {
     capable: true,
     title: SITE_NAME,

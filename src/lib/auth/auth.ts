@@ -48,15 +48,17 @@ export const auth = betterAuth({
     },
   },
 
-  // Long-lived, ordinary consumer-app sessions: 30 days, refreshed on use.
-  // Better Auth allows multiple concurrent sessions per user by default —
-  // no per-device restriction is configured here on purpose.
+  // Long-lived, ordinary consumer-app sessions: 365 days, rolling refresh
+  // (re-extended on use, at most once per day via updateAge) so normal
+  // users stay signed in long-term. Better Auth allows multiple concurrent
+  // sessions per user by default — no per-device restriction is configured
+  // here on purpose.
   //
   // `freshAge` set explicitly (matches the library default of 86400s) so
   // it's this one named constant, not an unstated default a future change
   // here could silently drift away from account/service.ts's precheck.
   session: {
-    expiresIn: 30 * ONE_DAY_IN_SECONDS,
+    expiresIn: 365 * ONE_DAY_IN_SECONDS,
     updateAge: ONE_DAY_IN_SECONDS,
     freshAge: SESSION_FRESH_AGE_SECONDS,
   },
