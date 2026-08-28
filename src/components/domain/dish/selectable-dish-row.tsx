@@ -39,6 +39,8 @@ export function SelectableDishRow({
   selected = false,
   onSelect,
   onRemove,
+  disabled = false,
+  statusLabel,
   className,
 }: {
   item: DishSelectionItem;
@@ -48,6 +50,10 @@ export function SelectableDishRow({
   onSelect?: () => void;
   /** Required when `selectionControl` is "remove". */
   onRemove?: () => void;
+  /** Checkbox rows only: unselectable, e.g. already shared to this recipient. */
+  disabled?: boolean;
+  /** Short status chip shown when `disabled` (e.g. "Already shared", "Pending"). */
+  statusLabel?: string;
   className?: string;
 }) {
   // Selection control + thumbnail + name stay together on their own row at
@@ -59,6 +65,7 @@ export function SelectableDishRow({
         <Checkbox
           checked={selected}
           onCheckedChange={onSelect}
+          disabled={disabled}
           aria-label={`Select ${item.title}`}
         />
       )}
@@ -124,6 +131,9 @@ export function SelectableDishRow({
 
   const metadata = (
     <>
+      {statusLabel && (
+        <SemanticChip semantic="neutral">{statusLabel}</SemanticChip>
+      )}
       <DishKindBadge kind={item.kind} selected={kindBadgeSelected} />
       <StageBadge stage={item.stage} />
       {item.cuisine && (
@@ -188,6 +198,7 @@ export function SelectableDishRow({
     <div
       className={cn(
         "flex flex-col gap-2 p-2 sm:flex-row sm:items-center sm:gap-3",
+        disabled && "opacity-60",
         className,
       )}
     >

@@ -5,11 +5,14 @@ import { DirectShareCollectionDialog } from "@/components/domain/sharing/direct-
 
 const mockListShareableItems = vi.fn();
 const mockSendCollection = vi.fn();
+const mockGetRecipientHistory = vi.fn();
 vi.mock("@/lib/sharing/actions", () => ({
   listShareableItemsForSender: (...args: unknown[]) =>
     mockListShareableItems(...args),
   sendDirectShareCollection: (...args: unknown[]) =>
     mockSendCollection(...args),
+  getDirectShareRecipientHistory: (...args: unknown[]) =>
+    mockGetRecipientHistory(...args),
 }));
 
 const mockListDishVersionOptions = vi.fn();
@@ -89,9 +92,14 @@ describe("DirectShareCollectionDialog", () => {
     mockListShareableItems.mockReset();
     mockSendCollection.mockReset();
     mockListDishVersionOptions.mockReset();
+    mockGetRecipientHistory.mockReset();
     mockListShareableItems.mockResolvedValue({
       status: "success",
       items: ITEMS,
+    });
+    mockGetRecipientHistory.mockResolvedValue({
+      status: "success",
+      history: {},
     });
     mockListDishVersionOptions.mockImplementation(
       (_kind: unknown, dishId: string) => {
@@ -212,5 +220,38 @@ describe("DirectShareCollectionDialog", () => {
         ]),
       }),
     );
+  });
+
+  it("disables items already shared (accepted or pending) to the entered recipient and excludes them from Select all", async () => {
+    mockGetRecipientHistory.mockResolvedValue({
+      status: "success",
+      history: { r1: "ACCEPTED", p1: "PENDING" },
+    });
+    const user = userEvent.setup();
+    render(<DirectShareCollectionDialog open onOpenChange={() => {}} />);
+    await waitFor(() =>
+      expect(screen.getByText("Recipe One")).toBeInTheDocument(),
+    );
+
+    await user.type(
+      screen.getByLabelText("Recipient's email"),
+      "sister@example.invalid",
+    );
+
+    await waitFor(
+      () => expect(screen.getByText("Already shared")).toBeInTheDocument(),
+      { timeout: 2000 },
+    );
+    expect(screen.getByText("Pending")).toBeInTheDocument();
+    expect(screen.getByLabelText("Select Recipe One")).toBeDisabled();
+    expect(screen.getByLabelText("Select Part One")).toBeDisabled();
+    expect(screen.getByLabelText("Select Recipe Two")).toBeEnabled();
+
+    await user.click(
+      screen.getByRole("button", { name: "Select all (1 eligible)" }),
+    );
+    expect(screen.getByLabelText("Select Recipe One")).not.toBeChecked();
+    expect(screen.getByLabelText("Select Part One")).not.toBeChecked();
+    expect(screen.getByLabelText("Select Recipe Two")).toBeChecked();
   });
 });

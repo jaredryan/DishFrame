@@ -1,6 +1,12 @@
 import { execFileSync } from "node:child_process";
 import path from "node:path";
-import { test, expect, type Page, type Locator } from "@playwright/test";
+import {
+  test,
+  expect,
+  type Page,
+  type Locator,
+  type Response,
+} from "@playwright/test";
 
 type SeedCookie = {
   name: string;
@@ -27,13 +33,39 @@ function seed(...args: string[]): string {
   });
 }
 
-// Same rationale as preferences-tasters-grocery.spec.ts's helper of the same
-// name: markGuide() updates local state optimistically before its Server
-// Action's fetch resolves, so a reload right after a click can race the
-// mutation and re-fetch server truth from before it landed.
+/**
+ * GroceryCategoryManager and TasterManager both apply mutations to local
+ * state optimistically, before their Server Action's fetch resolves — so a
+ * client-side visibility assertion right after a click can pass before the
+ * mutation has actually reached the database. That's invisible normally,
+ * but a subsequent `page.reload()` re-fetches server truth, so it must wait
+ * for the real round trip, not just the optimistic render. Waiting for the
+ * action's own POST response here (registered before the click, so it can't
+ * resolve and be missed before we start listening) is what makes it safe to
+ * reload immediately afterward.
+ *
+ * The predicate is scoped to same-origin responses, not just any POST:
+ * `<SpeedInsights />` (mounted app-wide in `src/app/layout.tsx`) injects an
+ * external debug-script beacon in dev mode that also POSTs shortly after
+ * page load. An unscoped `method() === "POST"` predicate can resolve on
+ * that beacon instead of the Server Action's own response, so the
+ * `Promise.all` returns before the real mutation lands — the assertion
+ * right after usually still passes on retry, but occasionally races a
+ * slower-than-usual save and times out. Server Actions always POST to the
+ * current page's own origin, so filtering to same-origin excludes the
+ * unrelated third-party beacon.
+ */
+function isSameOriginPost(page: Page, response: Response) {
+  return (
+    response.request().method() === "POST" &&
+    new URL(response.url()).origin === new URL(page.url()).origin &&
+    Boolean(response.request().headers()["next-action"])
+  );
+}
+
 async function clickAndWaitForServerAction(page: Page, locator: Locator) {
   await Promise.all([
-    page.waitForResponse((response) => response.request().method() === "POST"),
+    page.waitForResponse((response) => isSameOriginPost(page, response)),
     locator.click(),
   ]);
 }

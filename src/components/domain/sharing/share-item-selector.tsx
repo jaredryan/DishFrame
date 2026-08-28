@@ -23,7 +23,9 @@ export function ShareItemSelector({
   selected,
   onToggle,
   onSelectAll,
+  selectAllLabel = "Select all",
   maxItems,
+  itemStatusLabels,
 }: {
   items: ShareableItemSummary[] | null;
   itemsError: string | null;
@@ -33,7 +35,12 @@ export function ShareItemSelector({
   selected: Set<string>;
   onToggle: (id: string) => void;
   onSelectAll?: () => void;
+  /** Overrides the "Select all" button text, e.g. "Select all (15 eligible)". */
+  selectAllLabel?: string;
   maxItems?: number;
+  /** Item id -> status chip text (e.g. "Already shared", "Pending"); present
+   * entries also disable that row's selection control. */
+  itemStatusLabels?: Record<string, string>;
 }) {
   const isSingle = selectionMode === "single";
   const filteredItems = React.useMemo(() => {
@@ -55,7 +62,7 @@ export function ShareItemSelector({
               size="sm"
               onClick={onSelectAll}
             >
-              Select all
+              {selectAllLabel}
             </Button>
           )}
         </div>
@@ -90,6 +97,7 @@ export function ShareItemSelector({
           )}
           {filteredItems.map((item) => {
             const isChecked = selected.has(item.id);
+            const statusLabel = itemStatusLabels?.[item.id];
             return (
               <li
                 key={item.id}
@@ -100,6 +108,8 @@ export function ShareItemSelector({
                   selectionControl={isSingle ? "radio" : "checkbox"}
                   selected={isChecked}
                   onSelect={() => onToggle(item.id)}
+                  disabled={Boolean(statusLabel)}
+                  statusLabel={statusLabel}
                 />
               </li>
             );

@@ -55,6 +55,14 @@ export const directShareIdSchema = z.object({
 // `sharing/collections.ts` (never only client-side).
 export const DIRECT_SHARE_MAX_ITEMS = 50;
 
+export const directShareRecipientHistorySchema = z.object({
+  recipientEmail: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .pipe(z.email("Enter a valid email address.")),
+});
+
 export const sendDirectShareCollectionSchema = z.object({
   recipientEmail: z
     .string()

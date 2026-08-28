@@ -15,6 +15,7 @@ import {
   directShareCollectionIdSchema,
   finalizeDirectShareCollectionSchema,
   publishDishesSchema,
+  directShareRecipientHistorySchema,
 } from "@/lib/sharing/schema";
 import type { DishKindValue } from "@/lib/dishes/schema";
 
@@ -289,6 +290,35 @@ export async function listShareableItemsForSender(): Promise<ShareableItemsActio
     const userId = await requireUserId();
     const items = await collectionsService.listShareableItemsForSender(userId);
     return { status: "success", items };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export type DirectShareRecipientHistoryActionState =
+  | {
+      status: "success";
+      history: Record<string, collectionsService.DirectShareHistoryStatus>;
+    }
+  | { status: "error"; message: string };
+
+/**
+ * Picker resend-prevention pass: per-Dish ACCEPTED/PENDING share status from
+ * this sender to the candidate recipient email, so the Send picker can
+ * disable already-shared items instead of the sender rediscovering it after
+ * a duplicate-pending error.
+ */
+export async function getDirectShareRecipientHistory(
+  values: unknown,
+): Promise<DirectShareRecipientHistoryActionState> {
+  try {
+    const userId = await requireUserId();
+    const input = directShareRecipientHistorySchema.parse(values);
+    const history = await collectionsService.getDirectShareHistoryForRecipient(
+      userId,
+      input.recipientEmail,
+    );
+    return { status: "success", history };
   } catch (error) {
     return { status: "error", message: toActionErrorMessage(error) };
   }

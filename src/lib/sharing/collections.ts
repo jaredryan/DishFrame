@@ -56,6 +56,14 @@ function isUniqueConstraintViolation(error: unknown): boolean {
 const DUPLICATE_PENDING_COLLECTION_MESSAGE =
   "One or more selected items already have a pending share to that person.";
 
+// Send-time re-validation (picker resend-prevention pass): the picker's own
+// eligibility check is client-driven and can lag a race or a manually
+// submitted request, so Send re-validates authoritatively here using the
+// exact same `getDirectShareHistoryForRecipient` eligibility semantics the
+// picker calls — never a second, subtly different rule.
+const ALREADY_SHARED_MESSAGE =
+  "One or more selected items have already been shared with that person.";
+
 export type ShareableItemSummary = {
   id: string;
   kind: DishKindValue;
@@ -151,6 +159,50 @@ export async function listShareableItemsForSender(
   }));
 }
 
+export type DirectShareHistoryStatus = "ACCEPTED" | "PENDING";
+
+/**
+ * Sender-side dedup for the Send picker (direct-share picker resend-
+ * prevention pass): for the given sender + candidate recipient email, which
+ * of the sender's own source Dishes already have an ACCEPTED or PENDING
+ * `DirectShare` to that exact recipient — the same `recipientLookup`
+ * email-keyed matching `sendDirectShareCollection`'s own duplicate-pending
+ * check already uses. Declined/canceled shares (or no share at all) leave a
+ * Dish out of the result, i.e. still eligible. PENDING always wins over an
+ * older ACCEPTED for the same Dish (a stronger, currently-blocking state),
+ * regardless of row order.
+ */
+export async function getDirectShareHistoryForRecipient(
+  senderId: string,
+  recipientEmail: string,
+  /** Scopes the query to these Dishes only — the Send-time re-validation
+   * check passes its submitted `dishIds` here; the picker omits it to get
+   * the sender's full history against this recipient. */
+  dishIds?: string[],
+): Promise<Record<string, DirectShareHistoryStatus>> {
+  const recipientLookup = normalizeEmail(recipientEmail);
+  const rows = await prisma.directShare.findMany({
+    where: {
+      senderId,
+      recipientLookup,
+      dishId: dishIds ? { in: dishIds } : { not: null },
+      status: { in: ["ACCEPTED", "PENDING"] },
+    },
+    select: { dishId: true, status: true },
+  });
+
+  const history: Record<string, DirectShareHistoryStatus> = {};
+  for (const row of rows) {
+    if (!row.dishId) continue;
+    if (row.status === "PENDING") {
+      history[row.dishId] = "PENDING";
+    } else if (history[row.dishId] !== "PENDING") {
+      history[row.dishId] = "ACCEPTED";
+    }
+  }
+  return history;
+}
+
 export async function sendDirectShareCollection(
   senderId: string,
   input: SendDirectShareCollectionInput,
@@ -175,7 +227,7 @@ export async function sendDirectShareCollection(
   // (and therefore which error message surfaces first when more than one
   // problem exists) stays exactly as before — only the fetching moved
   // earlier/parallel, not the throw order below.
-  const [sender, dishes, chosenVersions, existingPending, recipient] =
+  const [sender, dishes, chosenVersions, shareHistory, recipient] =
     await Promise.all([
       prisma.user.findUnique({
         where: { id: senderId },
@@ -190,15 +242,7 @@ export async function sendDirectShareCollection(
         where: { id: { in: items.map((item) => item.dishVersionId) } },
         select: { id: true, dishId: true },
       }),
-      prisma.directShare.findFirst({
-        where: {
-          senderId,
-          dishId: { in: dishIds },
-          recipientLookup: recipientEmail,
-          status: "PENDING",
-        },
-        select: { id: true },
-      }),
+      getDirectShareHistoryForRecipient(senderId, recipientEmail, dishIds),
       prisma.user.findFirst({
         where: { email: { equals: recipientEmail, mode: "insensitive" } },
         select: { id: true },
@@ -227,8 +271,9 @@ export async function sendDirectShareCollection(
     }
   }
 
-  if (existingPending) {
-    throw new ConflictError(DUPLICATE_PENDING_COLLECTION_MESSAGE);
+  const alreadySharedDishId = dishIds.find((id) => shareHistory[id]);
+  if (alreadySharedDishId) {
+    throw new ConflictError(ALREADY_SHARED_MESSAGE);
   }
 
   // Freeze every selected graph now, outside the transaction (pure reads) —

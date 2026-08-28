@@ -16,6 +16,7 @@ import {
   claimPendingDirectShareCollections,
   reconcilePendingDirectShareCollectionsForViewer,
   getDirectShareCollectionDetail,
+  getDirectShareHistoryForRecipient,
 } from "@/lib/sharing/collections";
 import {
   getDirectSharePreview,
@@ -590,6 +591,108 @@ describe("finalizeDirectShareCollectionDecision", () => {
         where: { ownerId: recipient.id, currentTitle: "Decline Me" },
       });
       expect(dishCount).toBe(0);
+    });
+  });
+});
+
+describe("getDirectShareHistoryForRecipient (Send picker resend-prevention)", () => {
+  it("reports ACCEPTED for a Dish already accepted by this recipient, PENDING for a currently pending one, and omits a never-shared Dish", async () => {
+    const sender = await newUser();
+    const recipient = await newUser();
+    await withCleanup([sender.id, recipient.id], async () => {
+      const acceptedDish = await dishService.createDish(
+        sender.id,
+        "RECIPE",
+        content({ title: "Accepted Already" }),
+      );
+      const pendingDish = await dishService.createDish(
+        sender.id,
+        "RECIPE",
+        content({ title: "Still Pending" }),
+      );
+      const untouchedDish = await dishService.createDish(
+        sender.id,
+        "RECIPE",
+        content({ title: "Never Sent" }),
+      );
+
+      const { collectionId: acceptedCollectionId } =
+        await sendDirectShareCollection(sender.id, {
+          recipientEmail: recipient.email,
+          items: await toItems([acceptedDish]),
+          note: null,
+        });
+      const acceptedDetail = await getDirectShareCollectionDetail(
+        recipient.id,
+        acceptedCollectionId,
+      );
+      await finalizeDirectShareCollectionDecision(
+        recipient.id,
+        acceptedCollectionId,
+        acceptedDetail.children.map((c) => c.id),
+      );
+
+      await sendDirectShareCollection(sender.id, {
+        recipientEmail: recipient.email,
+        items: await toItems([pendingDish]),
+        note: null,
+      });
+
+      const history = await getDirectShareHistoryForRecipient(
+        sender.id,
+        recipient.email,
+      );
+      expect(history[acceptedDish]).toBe("ACCEPTED");
+      expect(history[pendingDish]).toBe("PENDING");
+      expect(history[untouchedDish]).toBeUndefined();
+    });
+  });
+
+  it("leaves a Dish eligible again after its only share to that recipient was canceled", async () => {
+    const sender = await newUser();
+    const recipient = await newUser();
+    await withCleanup([sender.id, recipient.id], async () => {
+      const dishId = await dishService.createDish(
+        sender.id,
+        "RECIPE",
+        content({ title: "Canceled Then Resendable" }),
+      );
+      const { collectionId } = await sendDirectShareCollection(sender.id, {
+        recipientEmail: recipient.email,
+        items: await toItems([dishId]),
+        note: null,
+      });
+      await cancelDirectShareCollection(sender.id, collectionId);
+
+      const history = await getDirectShareHistoryForRecipient(
+        sender.id,
+        recipient.email,
+      );
+      expect(history[dishId]).toBeUndefined();
+    });
+  });
+
+  it("does not report a share made to a different recipient", async () => {
+    const sender = await newUser();
+    const recipientA = await newUser();
+    const recipientB = await newUser();
+    await withCleanup([sender.id, recipientA.id, recipientB.id], async () => {
+      const dishId = await dishService.createDish(
+        sender.id,
+        "RECIPE",
+        content({ title: "Sent To A Only" }),
+      );
+      await sendDirectShareCollection(sender.id, {
+        recipientEmail: recipientA.email,
+        items: await toItems([dishId]),
+        note: null,
+      });
+
+      const historyForB = await getDirectShareHistoryForRecipient(
+        sender.id,
+        recipientB.email,
+      );
+      expect(historyForB[dishId]).toBeUndefined();
     });
   });
 });

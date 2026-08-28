@@ -1,6 +1,12 @@
 import { execFileSync } from "node:child_process";
 import path from "node:path";
-import { test, expect, type Locator, type Page } from "@playwright/test";
+import {
+  test,
+  expect,
+  type Locator,
+  type Page,
+  type Response,
+} from "@playwright/test";
 
 type SeedCookie = {
   name: string;
@@ -47,10 +53,29 @@ function seed(...args: string[]): string {
  * action's own POST response here (registered before the click, so it can't
  * resolve and be missed before we start listening) is what makes it safe to
  * reload immediately afterward.
+ *
+ * The predicate is scoped to same-origin responses, not just any POST:
+ * `<SpeedInsights />` (mounted app-wide in `src/app/layout.tsx`) injects an
+ * external debug-script beacon in dev mode that also POSTs shortly after
+ * page load. An unscoped `method() === "POST"` predicate can resolve on
+ * that beacon instead of the Server Action's own response, so the
+ * `Promise.all` returns before the real mutation lands — the assertion
+ * right after usually still passes on retry, but occasionally races a
+ * slower-than-usual save and times out. Server Actions always POST to the
+ * current page's own origin, so filtering to same-origin excludes the
+ * unrelated third-party beacon.
  */
+function isSameOriginPost(page: Page, response: Response) {
+  return (
+    response.request().method() === "POST" &&
+    new URL(response.url()).origin === new URL(page.url()).origin &&
+    Boolean(response.request().headers()["next-action"])
+  );
+}
+
 async function clickAndWaitForServerAction(page: Page, locator: Locator) {
   await Promise.all([
-    page.waitForResponse((response) => response.request().method() === "POST"),
+    page.waitForResponse((response) => isSameOriginPost(page, response)),
     locator.click(),
   ]);
 }
@@ -87,7 +112,7 @@ async function reorderUpViaKeyboard(page: Page, handleName: string) {
   // right after (the Tasters flow below) need the reorder to actually be
   // persisted first.
   await Promise.all([
-    page.waitForResponse((response) => response.request().method() === "POST"),
+    page.waitForResponse((response) => isSameOriginPost(page, response)),
     page.keyboard.press("Space"),
   ]);
 }

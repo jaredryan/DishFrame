@@ -17,11 +17,21 @@ import { RichDishVersionPicker } from "@/components/domain/dish/version-picker-f
 import {
   listShareableItemsForSender,
   sendDirectShareCollection,
+  getDirectShareRecipientHistory,
 } from "@/lib/sharing/actions";
 import { DIRECT_SHARE_MAX_ITEMS } from "@/lib/sharing/schema";
 import type { ShareableItemSummary } from "@/lib/sharing/collections";
 
 type Step = "select" | "configure" | "sent";
+
+type ShareHistoryStatus = "ACCEPTED" | "PENDING";
+
+const RECIPIENT_HISTORY_DEBOUNCE_MS = 400;
+
+const SHARE_HISTORY_LABEL: Record<ShareHistoryStatus, string> = {
+  ACCEPTED: "Already shared",
+  PENDING: "Pending",
+};
 
 /**
  * PRODUCT_SPEC.md §85 extension: the generalized Send flow — any mix of
@@ -51,6 +61,10 @@ export function DirectShareCollectionDialog({
   const [itemsError, setItemsError] = React.useState<string | null>(null);
   const [search, setSearch] = React.useState("");
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
+  const [recipientHistory, setRecipientHistory] = React.useState<Record<
+    string,
+    ShareHistoryStatus
+  > | null>(null);
   const [selectedVersionByDishId, setSelectedVersionByDishId] = React.useState<
     Record<string, string>
   >({});
@@ -77,6 +91,49 @@ export function DirectShareCollectionDialog({
     });
   }, [open]);
 
+  const isValidEmail = /\S+@\S+\.\S+/.test(email.trim());
+
+  // Guards both the debounced fetch below and a same-render invalidation:
+  // bumping it makes any in-flight or already-queued response for a
+  // superseded email a no-op when it eventually resolves.
+  const historyRequestRef = React.useRef(0);
+
+  function handleEmailChange(value: string) {
+    setEmail(value);
+    if (!/\S+@\S+\.\S+/.test(value.trim())) {
+      historyRequestRef.current++;
+      setRecipientHistory(null);
+    }
+  }
+
+  // Resend-prevention: re-fetch this sender's ACCEPTED/PENDING DirectShare
+  // history against the entered recipient whenever it changes to a valid
+  // address, debounced since it re-fires on every keystroke. The eligibility
+  // response and the resulting prune of `selected` both land together in the
+  // fetch's own callback (never a synchronous setState in the effect body
+  // itself) — a stale response (superseded by a newer email edit, including
+  // one that went invalid in between) is discarded via `historyRequestRef`.
+  React.useEffect(() => {
+    if (!open || !isValidEmail) return;
+    const requestId = ++historyRequestRef.current;
+    const timeout = setTimeout(() => {
+      void getDirectShareRecipientHistory({
+        recipientEmail: email.trim(),
+      }).then((result) => {
+        if (historyRequestRef.current !== requestId) return;
+        const history = result.status === "success" ? result.history : null;
+        setRecipientHistory(history);
+        if (history) {
+          setSelected((prev) => {
+            const next = new Set([...prev].filter((id) => !history[id]));
+            return next.size === prev.size ? prev : next;
+          });
+        }
+      });
+    }, RECIPIENT_HISTORY_DEBOUNCE_MS);
+    return () => clearTimeout(timeout);
+  }, [open, isValidEmail, email]);
+
   function close() {
     onOpenChange(false);
     setStep("select");
@@ -85,12 +142,13 @@ export function DirectShareCollectionDialog({
     setItemsError(null);
     setSearch("");
     setSelected(new Set());
+    setRecipientHistory(null);
     setSelectedVersionByDishId({});
     setNote("");
     setSendError(null);
   }
 
-  const canConfigure = /\S+@\S+\.\S+/.test(email.trim()) && selected.size > 0;
+  const canConfigure = isValidEmail && selected.size > 0;
   const canSend =
     selected.size > 0 &&
     [...selected].every((id) => selectedVersionByDishId[id]);
@@ -104,10 +162,30 @@ export function DirectShareCollectionDialog({
     });
   }
 
+  const eligibleItems = React.useMemo(
+    () => items?.filter((item) => !recipientHistory?.[item.id]) ?? [],
+    [items, recipientHistory],
+  );
+
+  const itemStatusLabels = React.useMemo(() => {
+    if (!recipientHistory) return undefined;
+    const labels: Record<string, string> = {};
+    for (const [dishId, status] of Object.entries(recipientHistory)) {
+      labels[dishId] = SHARE_HISTORY_LABEL[status];
+    }
+    return labels;
+  }, [recipientHistory]);
+
+  const selectAllLabel =
+    items && recipientHistory && eligibleItems.length < items.length
+      ? `Select all (${eligibleItems.length} eligible)`
+      : "Select all";
+
   function selectAll() {
-    if (!items) return;
     setSelected(
-      new Set(items.slice(0, DIRECT_SHARE_MAX_ITEMS).map((item) => item.id)),
+      new Set(
+        eligibleItems.slice(0, DIRECT_SHARE_MAX_ITEMS).map((item) => item.id),
+      ),
     );
   }
 
@@ -217,7 +295,7 @@ export function DirectShareCollectionDialog({
                   id="collection-share-email"
                   type="email"
                   value={email}
-                  onChange={(event) => setEmail(event.target.value)}
+                  onChange={(event) => handleEmailChange(event.target.value)}
                   placeholder="name@example.com"
                 />
                 <p className="text-muted-foreground text-sm">
@@ -234,7 +312,9 @@ export function DirectShareCollectionDialog({
                 selected={selected}
                 onToggle={toggleSelected}
                 onSelectAll={selectAll}
+                selectAllLabel={selectAllLabel}
                 maxItems={DIRECT_SHARE_MAX_ITEMS}
+                itemStatusLabels={itemStatusLabels}
               />
             </div>
           )}
