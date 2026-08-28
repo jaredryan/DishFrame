@@ -660,9 +660,9 @@ export function SessionReviewForm({
       )}
 
       <div className="flex flex-col gap-2">
-        <Button onClick={handleSave} disabled={isPending}>
+        <Button onClick={handleSave} loading={isPending}>
           <Save className="size-4" aria-hidden="true" />
-          {isPending ? "Saving…" : "Save review"}
+          Save review
         </Button>
         <div className="flex gap-2">
           <Button
@@ -705,9 +705,9 @@ export function SessionReviewForm({
             <Button
               variant="destructive"
               onClick={handleDelete}
-              disabled={isDeleting}
+              loading={isDeleting}
             >
-              {isDeleting ? "Deleting…" : "Delete Review"}
+              Delete Review
             </Button>
           </DialogFooter>
         </DialogContent>

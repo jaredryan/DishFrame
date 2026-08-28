@@ -118,10 +118,11 @@ export function DeleteAccountDialog({ email }: { email: string }) {
                 </Button>
                 <Button
                   variant="destructive"
-                  disabled={!canDelete || isPending}
+                  disabled={!canDelete}
+                  loading={isPending}
                   onClick={handleDelete}
                 >
-                  {isPending ? "Deleting…" : "Delete my account"}
+                  Delete my account
                 </Button>
               </DialogFooter>
             </>

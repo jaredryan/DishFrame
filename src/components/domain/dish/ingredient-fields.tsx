@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { DragHandle } from "@/components/ui/drag-handle";
 import { AmountModeField } from "@/components/domain/dish/amount-mode-field";
+import { amountModeShowsUnit } from "@/components/domain/dish/amount-mode";
 import { useAmountMode } from "@/components/domain/dish/use-amount-mode";
 import { SubstituteFields } from "@/components/domain/dish/substitute-fields";
 import { ItemToolbar } from "@/components/domain/dish/reorder-buttons";
@@ -138,7 +139,7 @@ export function IngredientFields({
               mode={mode}
               onModeChange={chooseMode}
             />
-            {mode !== "free_text" && (
+            {amountModeShowsUnit(mode) && (
               <Field className="w-full sm:w-28">
                 <FieldLabel htmlFor={`${idPrefix}-unit`}>Unit</FieldLabel>
                 <Input

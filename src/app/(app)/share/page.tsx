@@ -9,6 +9,7 @@ import {
 } from "@/lib/sharing/collections";
 import { buildShareUrl } from "@/lib/sharing/tokens";
 import { buildSentItems, buildReceivedItems } from "@/lib/sharing/view-model";
+import { markShareNotificationsSeen } from "@/lib/preferences/service";
 import { ShareLinkList } from "@/components/domain/sharing/share-link-list";
 import { DirectShareSentList } from "@/components/domain/sharing/direct-share-sent-list";
 import { DirectShareReceivedList } from "@/components/domain/sharing/direct-share-received-list";
@@ -44,6 +45,12 @@ export default async function SharePage() {
   const sentItems = buildSentItems(sentCollections);
   const receivedItems = buildReceivedItems(receivedCollections);
 
+  // Visiting Received at all — not just following the toast's link —
+  // acknowledges every currently-pending share, so none of them trigger the
+  // received-share toast again (only a share arriving after this counts as
+  // new from here on).
+  await markShareNotificationsSeen(session.user.id);
+
   const pendingReceivedCount = receivedItems.reduce((sum, item) => {
     if (item.kind === "single") {
       return item.status === "PENDING" ? sum + 1 : sum;
@@ -72,7 +79,7 @@ export default async function SharePage() {
         your original (or your later edits) again.
       </CoachMark>
 
-      <section className="space-y-4">
+      <section id="received" className="space-y-4 scroll-mt-4">
         <div className="flex items-center gap-2">
           <h2 className="text-foreground text-lg font-semibold">Received</h2>
           {pendingReceivedCount > 0 && (

@@ -31,6 +31,7 @@ import { InstructionFields } from "@/components/domain/dish/instruction-fields";
 import { PartLinkFields } from "@/components/domain/dish/part-link-fields";
 import { PartAttachPicker } from "@/components/domain/dish/part-attach-picker";
 import { CreatePartLink } from "@/components/domain/dish/create-part-link";
+import { ConvertSectionToPartDialog } from "@/components/domain/dish/convert-section-to-part-dialog";
 import { isBlankSubstitute } from "@/lib/dishes/schema";
 import type {
   DishKindValue,
@@ -55,7 +56,12 @@ const BLANK_INGREDIENT = {
 const BLANK_INSTRUCTION = { text: "" };
 
 export type SectionEditorResult =
-  { action: "finish"; values: SectionInput } | { action: "cancel" };
+  | { action: "finish"; values: SectionInput }
+  | { action: "cancel" }
+  | {
+      action: "convert-to-part";
+      link: { targetDishId: string; targetDishVersionId: string };
+    };
 
 /**
  * The Section modal's reversible editing session: this component owns its
@@ -488,13 +494,26 @@ export function SectionEditorDialog({
             (px-0), so its default `-mx-4` is overridden to `mx-0` — only
             `-mb-4` (from the default classes) is still needed to cancel the
             parent's bottom padding. */}
-        <DialogFooter className="mx-0 shrink-0">
-          <Button type="button" variant="outline" onClick={handleCancel}>
-            Cancel
-          </Button>
-          <Button type="button" onClick={handleFinish}>
-            Finish section
-          </Button>
+        <DialogFooter className="mx-0 shrink-0 sm:justify-between">
+          <FormProvider {...form}>
+            <ConvertSectionToPartDialog
+              prefix=""
+              sectionLabel={sectionTitle}
+              defaultName={watchedName || ""}
+              triggerVariant="button"
+              onConverted={(link) =>
+                onClose({ action: "convert-to-part", link })
+              }
+            />
+          </FormProvider>
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" onClick={handleCancel}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={handleFinish}>
+              Finish section
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -43,6 +43,8 @@ export function useAmountMode(prefix: string) {
         setValue(`${prefix}.displayText`, TO_TASTE_TEXT, {
           shouldDirty: true,
         });
+        // Unit isn't rendered for this mode — see the free_text case below.
+        setValue(`${prefix}.unit`, null, { shouldDirty: true });
         break;
       case "as_needed":
         setValue(`${prefix}.quantity`, null, { shouldDirty: true });
@@ -50,6 +52,7 @@ export function useAmountMode(prefix: string) {
         setValue(`${prefix}.displayText`, AS_NEEDED_TEXT, {
           shouldDirty: true,
         });
+        setValue(`${prefix}.unit`, null, { shouldDirty: true });
         break;
       case "free_text":
         setValue(`${prefix}.quantity`, null, { shouldDirty: true });

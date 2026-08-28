@@ -1,6 +1,10 @@
 import { parseQuantityText } from "@/lib/dishes/quantity-text";
 import type { IngredientInput, SectionInput } from "@/lib/dishes/schema";
 import type { DishFormValues } from "@/components/domain/dish/dish-form-values";
+import {
+  AS_NEEDED_TEXT,
+  TO_TASTE_TEXT,
+} from "@/components/domain/dish/amount-mode";
 
 /**
  * PRODUCT_SPEC.md §59.1: the deterministic (non-AI) paste-and-review
@@ -112,6 +116,21 @@ const STANDALONE_ORDINAL = /^(\d{1,3})[.)]$/;
 // "Section: Chicken" / "For the sauce:" convention.
 const GENERIC_HEADING = /^([^\n]{1,60}):$/;
 
+// A Markdown ATX heading ("# Recipe Name", "## Rice") — recognized
+// independently of `GENERIC_HEADING`'s colon convention. The title
+// extraction in `parsePastedRecipe` strips a leading `#` (H1) as the
+// recipe name; any heading level encountered here (in the body, i.e. by
+// `buildSections`) always starts a new named Section rather than ever
+// being imported as an ingredient/instruction line.
+const MARKDOWN_HEADING = /^#{1,6}\s+(.+)$/;
+
+// A trailing "to taste" / "as needed" amount (§10.5/§10.7's free-text
+// presets) — recognized on the ingredient line itself so e.g. "Salt to
+// taste" imports as name "Salt" with the matching preset amount, not a
+// literal ingredient named "Salt to taste".
+const TO_TASTE_SUFFIX = /\s+to taste$/i;
+const AS_NEEDED_SUFFIX = /\s+as needed$/i;
+
 // A line made primarily or entirely of repeated `-`/`_`/`=` characters —
 // "------", "________", a run of `=` — is a visual divider, not recipe
 // content: it's a strong Section boundary, and never itself kept as an
@@ -157,28 +176,41 @@ function parseIngredientLine(raw: string): IngredientInput {
     line = line.slice(approxMatch[0].length);
   }
 
-  let quantity: number | null = null;
-  let quantityEnd: number | null = null;
-  let rest = line;
-
-  const rangeMatch = line.match(LEADING_QTY_RANGE);
-  if (rangeMatch) {
-    quantity = parseQuantityText(rangeMatch[1]);
-    quantityEnd = parseQuantityText(rangeMatch[2]);
-    rest = rangeMatch[3];
-  } else {
-    const singleMatch = line.match(LEADING_QTY);
-    if (singleMatch) {
-      quantity = parseQuantityText(singleMatch[1]);
-      rest = singleMatch[2];
-    }
+  let displayText: string | null = null;
+  if (TO_TASTE_SUFFIX.test(line)) {
+    displayText = TO_TASTE_TEXT;
+    line = line.replace(TO_TASTE_SUFFIX, "").trim();
+  } else if (AS_NEEDED_SUFFIX.test(line)) {
+    displayText = AS_NEEDED_TEXT;
+    line = line.replace(AS_NEEDED_SUFFIX, "").trim();
   }
 
+  let quantity: number | null = null;
+  let quantityEnd: number | null = null;
   let unit: string | null = null;
-  const unitMatch = rest.match(UNIT_PATTERN);
-  if (unitMatch) {
-    unit = unitMatch[1];
-    rest = rest.slice(unitMatch[0].length).trim();
+  let rest = line;
+
+  // A recognized "to taste"/"as needed" amount has no quantity or unit to
+  // parse — the rest of the line is entirely the ingredient name.
+  if (!displayText) {
+    const rangeMatch = line.match(LEADING_QTY_RANGE);
+    if (rangeMatch) {
+      quantity = parseQuantityText(rangeMatch[1]);
+      quantityEnd = parseQuantityText(rangeMatch[2]);
+      rest = rangeMatch[3];
+    } else {
+      const singleMatch = line.match(LEADING_QTY);
+      if (singleMatch) {
+        quantity = parseQuantityText(singleMatch[1]);
+        rest = singleMatch[2];
+      }
+    }
+
+    const unitMatch = rest.match(UNIT_PATTERN);
+    if (unitMatch) {
+      unit = unitMatch[1];
+      rest = rest.slice(unitMatch[0].length).trim();
+    }
   }
 
   const name = rest.trim() || line.trim() || raw.trim();
@@ -189,7 +221,7 @@ function parseIngredientLine(raw: string): IngredientInput {
     quantityEnd,
     isApproximate,
     unit,
-    displayText: null,
+    displayText,
     preparationNote: null,
     isOptional: false,
     substitute: null,
@@ -249,6 +281,17 @@ function buildSections(lines: string[]): {
       // Section is harmless — the trailing filter below drops it.
       sections.push({
         name: null,
+        ingredients: [],
+        instructions: [],
+        mode: "UNKNOWN",
+      });
+      continue;
+    }
+
+    const markdownHeading = line.match(MARKDOWN_HEADING);
+    if (markdownHeading) {
+      sections.push({
+        name: markdownHeading[1].trim(),
         ingredients: [],
         instructions: [],
         mode: "UNKNOWN",
@@ -338,7 +381,11 @@ export function parsePastedRecipe(raw: string): PasteParseResult {
 
   let idx = 0;
   while (idx < rawLines.length && rawLines[idx] === "") idx++;
-  const title = idx < rawLines.length ? rawLines[idx] : "";
+  const titleLine = idx < rawLines.length ? rawLines[idx] : "";
+  // A "# Recipe Name" Markdown H1 title line names the recipe by its
+  // heading text, not the literal "# Recipe Name" string.
+  const titleHeadingMatch = titleLine.match(MARKDOWN_HEADING);
+  const title = titleHeadingMatch ? titleHeadingMatch[1].trim() : titleLine;
   if (idx < rawLines.length) idx++;
 
   const { sections, needsReview } = buildSections(rawLines.slice(idx));

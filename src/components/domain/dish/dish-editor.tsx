@@ -477,23 +477,38 @@ export function DishEditor({
     versionChoice?: VersionChoiceValue,
   ) {
     setIsSubmitting(true);
-    const result = dish
-      ? await editDish(
-          kind,
-          dish.id,
-          dish.baseVersionId,
-          cleaned,
-          versionChoice,
-        )
-      : await (onCreate ?? createDish)(kind, cleaned);
+    try {
+      const result = dish
+        ? await editDish(
+            kind,
+            dish.id,
+            dish.baseVersionId,
+            cleaned,
+            versionChoice,
+          )
+        : await (onCreate ?? createDish)(kind, cleaned);
 
-    if (result.status === "success" && result.dishId) {
-      await applyEditorExtras(extras);
-      form.reset({ ...cleaned, ...extras });
-      router.push(`${basePath}/${result.dishId}`);
-      router.refresh();
-    } else {
-      setServerError(result.message ?? "Could not save. Please try again.");
+      if (result.status === "success" && result.dishId) {
+        await applyEditorExtras(extras);
+        form.reset({ ...cleaned, ...extras });
+        // Editing an already-visited Dish can leave its detail route cached
+        // from before this save — refresh that stale client cache first. A
+        // freshly created Dish has never been visited, so there's nothing to
+        // refresh; calling `router.refresh()` immediately after `router.push`
+        // here raced the two navigations (the exact "stuck on Saving" bug
+        // this fixes — the push to the new Dish's route never completed).
+        if (dish) router.refresh();
+        router.push(`${basePath}/${result.dishId}`);
+      } else {
+        setServerError(result.message ?? "Could not save. Please try again.");
+        setIsSubmitting(false);
+      }
+    } catch (error) {
+      setServerError(
+        error instanceof Error
+          ? error.message
+          : "Could not save. Please try again.",
+      );
       setIsSubmitting(false);
     }
   }
@@ -1017,8 +1032,8 @@ export function DishEditor({
             <Button variant="outline" asChild>
               <Link href={cancelHref}>Cancel</Link>
             </Button>
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "Saving…" : "Save"}
+            <Button type="submit" loading={isSubmitting}>
+              Save
             </Button>
           </div>
         </form>

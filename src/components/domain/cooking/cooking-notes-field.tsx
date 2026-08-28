@@ -58,9 +58,10 @@ export function CookingNotesField({
           size="sm"
           variant="outline"
           onClick={handleSave}
-          disabled={isPending || !dirty}
+          disabled={!dirty}
+          loading={isPending}
         >
-          {isPending ? "Saving…" : "Save notes"}
+          Save notes
         </Button>
         {saved && !dirty && (
           <span className="text-muted-foreground text-xs">Saved.</span>

@@ -61,8 +61,8 @@ export function SaveSharedCopyButton({
 
   return (
     <div className="flex flex-col items-start gap-2">
-      <Button onClick={handleClick} disabled={isPending}>
-        {isPending ? "Saving…" : label}
+      <Button onClick={handleClick} loading={isPending}>
+        {label}
       </Button>
       {error && (
         <p role="alert" className="text-destructive-text text-sm">

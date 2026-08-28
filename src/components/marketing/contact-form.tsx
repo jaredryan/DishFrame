@@ -138,8 +138,8 @@ export function ContactForm() {
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <Button type="submit" disabled={isPending}>
-          {isPending ? "Sending…" : "Send message"}
+        <Button type="submit" loading={isPending}>
+          Send message
         </Button>
         <p className="text-muted-foreground text-sm">
           Replies go to the email address you provide.

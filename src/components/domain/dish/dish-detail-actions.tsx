@@ -336,8 +336,8 @@ export function DishDetailActions({
             <Button variant="outline" onClick={close}>
               Cancel
             </Button>
-            <Button onClick={handleArchive} disabled={isPending}>
-              {isPending ? "Archiving…" : "Archive"}
+            <Button onClick={handleArchive} loading={isPending}>
+              Archive
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -380,8 +380,8 @@ export function DishDetailActions({
             <Button variant="outline" onClick={close}>
               Cancel
             </Button>
-            <Button onClick={handleRestore} disabled={isPending}>
-              {isPending ? "Restoring…" : "Restore"}
+            <Button onClick={handleRestore} loading={isPending}>
+              Restore
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -407,8 +407,8 @@ export function DishDetailActions({
             <Button variant="outline" onClick={close}>
               Cancel
             </Button>
-            <Button onClick={handleDuplicate} disabled={isPending}>
-              {isPending ? "Duplicating…" : "Duplicate"}
+            <Button onClick={handleDuplicate} loading={isPending}>
+              Duplicate
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -564,9 +564,9 @@ export function DishDetailActions({
             <Button
               variant="destructive"
               onClick={handleDelete}
-              disabled={isPending}
+              loading={isPending}
             >
-              {isPending ? "Deleting…" : "Delete permanently"}
+              Delete permanently
             </Button>
           </DialogFooter>
         </DialogContent>

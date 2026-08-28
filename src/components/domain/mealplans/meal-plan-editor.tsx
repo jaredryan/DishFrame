@@ -831,13 +831,9 @@ export function MealPlanEditor(
           <Button
             type="button"
             onClick={handleFinalSave}
-            disabled={isSubmitting}
+            loading={isSubmitting}
           >
-            {isSubmitting
-              ? "Saving…"
-              : props.mode === "create"
-                ? "Create meal plan"
-                : "Save"}
+            {props.mode === "create" ? "Create meal plan" : "Save"}
           </Button>
         </div>
       </div>

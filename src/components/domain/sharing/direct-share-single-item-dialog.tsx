@@ -159,8 +159,8 @@ export function DirectShareSingleItemDialog({
               >
                 Back
               </Button>
-              <Button onClick={handleSend} disabled={isPending}>
-                {isPending ? "Sending…" : "Send"}
+              <Button onClick={handleSend} loading={isPending}>
+                Send
               </Button>
             </>
           ) : (

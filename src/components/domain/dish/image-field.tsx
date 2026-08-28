@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ImagePlus, Loader2, X } from "lucide-react";
+import { ImagePlus, X } from "lucide-react";
 import { useFormContext } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import { Field, FieldLabel } from "@/components/ui/field";
@@ -127,14 +127,10 @@ export function ImageField({ dishId }: { dishId: string | null }) {
             type="button"
             variant="outline"
             onClick={() => inputRef.current?.click()}
-            disabled={isUploading}
+            loading={isUploading}
           >
-            {isUploading ? (
-              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-            ) : (
-              <ImagePlus className="size-4" aria-hidden="true" />
-            )}
-            {isUploading ? "Uploading…" : "Add a photo"}
+            <ImagePlus className="size-4" aria-hidden="true" />
+            Add a photo
           </Button>
         )}
       </div>

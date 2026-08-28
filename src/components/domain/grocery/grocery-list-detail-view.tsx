@@ -1056,9 +1056,10 @@ function EditMealDialog({
           </Button>
           <Button
             onClick={handleSave}
-            disabled={isPending || !selectedVersionId}
+            disabled={!selectedVersionId}
+            loading={isPending}
           >
-            {isPending ? "Saving…" : "Save changes"}
+            Save changes
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1587,8 +1588,8 @@ function EditGroceryListDialog({
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={handleSave} disabled={isPending}>
-            {isPending ? "Saving…" : "Save"}
+          <Button onClick={handleSave} loading={isPending}>
+            Save
           </Button>
         </DialogFooter>
       </DialogContent>

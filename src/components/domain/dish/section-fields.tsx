@@ -99,6 +99,10 @@ export function SectionFields({
   // in the first place.
   function handleEditorClose(result: SectionEditorResult) {
     setEditing(false);
+    if (result.action === "convert-to-part") {
+      onConvertToPart(result.link);
+      return;
+    }
     if (result.action !== "finish") return;
     setValue(`${prefix}.name`, result.values.name, { shouldDirty: true });
     setValue(`${prefix}.guidanceNote`, result.values.guidanceNote, {

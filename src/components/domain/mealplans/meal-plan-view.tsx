@@ -392,7 +392,8 @@ function ReuseMealPlanDialog({
             Cancel
           </Button>
           <Button
-            disabled={isPending || !title.trim()}
+            disabled={!title.trim()}
+            loading={isPending}
             onClick={() =>
               startTransition(async () => {
                 const result = await duplicateMealPlan({
@@ -409,7 +410,7 @@ function ReuseMealPlanDialog({
               })
             }
           >
-            {isPending ? "Creating…" : "Create"}
+            Create
           </Button>
         </DialogFooter>
       </DialogContent>

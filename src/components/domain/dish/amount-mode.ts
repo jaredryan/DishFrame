@@ -24,6 +24,14 @@ export const AMOUNT_MODE_LABEL: Record<AmountMode, string> = {
 export const TO_TASTE_TEXT = "To taste";
 export const AS_NEEDED_TEXT = "As needed";
 
+// Unit is only meaningful alongside a structured quantity — Free text,
+// To taste, and As needed all describe the whole amount themselves, so a
+// separate Unit input would double-describe (or, for the two presets,
+// have nothing to attach to at all).
+export function amountModeShowsUnit(mode: AmountMode): boolean {
+  return mode === "single" || mode === "range";
+}
+
 /**
  * Infers which amount mode a loaded (or freshly blank) row is in from its
  * three underlying fields — used once, at mount, to seed local mode state;

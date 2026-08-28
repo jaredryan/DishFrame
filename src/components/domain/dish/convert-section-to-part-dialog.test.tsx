@@ -31,21 +31,26 @@ type HostValues = {
 function Host({
   defaultValues,
   onConverted,
+  prefix = "sections.0",
+  triggerVariant,
 }: {
   defaultValues: HostValues;
   onConverted: (link: {
     targetDishId: string;
     targetDishVersionId: string;
   }) => void;
+  prefix?: string;
+  triggerVariant?: "icon" | "button";
 }) {
   const form = useForm<HostValues>({ defaultValues });
   return (
     <FormProvider {...form}>
       <ConvertSectionToPartDialog
-        prefix="sections.0"
+        prefix={prefix}
         sectionLabel="Sauce"
         defaultName="Sauce"
         onConverted={onConverted}
+        triggerVariant={triggerVariant}
       />
     </FormProvider>
   );
@@ -129,6 +134,35 @@ describe("ConvertSectionToPartDialog", () => {
     expect(
       screen.queryByText(/Convert Sauce to a Part/),
     ).not.toBeInTheDocument();
+  });
+
+  it("renders as a labeled button (not an icon) when triggerVariant is 'button', for the Section modal's footer", async () => {
+    const user = userEvent.setup();
+    const onConverted = vi.fn();
+    render(
+      <Host
+        defaultValues={{
+          sections: [
+            {
+              ingredients: [{ ...BLANK_INGREDIENT, name: "Fish sauce" }],
+              instructions: [],
+            },
+          ],
+        }}
+        onConverted={onConverted}
+        triggerVariant="button"
+      />,
+    );
+
+    expect(
+      screen.queryByRole("button", {
+        name: "Convert Sauce to a reusable Part",
+      }),
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Convert to part" }));
+    expect(
+      screen.getByRole("heading", { name: "Convert Sauce to a Part" }),
+    ).toBeInTheDocument();
   });
 
   it("rejects converting a Section with no ingredients or instructions", async () => {

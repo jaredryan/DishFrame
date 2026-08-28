@@ -477,6 +477,14 @@ model UserPreference {
   // Category) are repaired on every call regardless of this marker.
   defaultsInitializedAt DateTime?
 
+  // Received-share toast notification (generalizes the onboarding
+  // acknowledgment pattern above to a non-fixed-enum stream): the cutoff
+  // below which a received DirectShare/DirectShareCollection is considered
+  // already acknowledged, so the toast only ever surfaces shares newer than
+  // the user's last dismissal or visit to Share > Received. `null` means
+  // never acknowledged.
+  shareNotificationSeenAt DateTime?
+
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 

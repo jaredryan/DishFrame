@@ -14,7 +14,8 @@ import {
 import { DirectSharePreview } from "@/components/domain/sharing/direct-share-preview";
 import {
   getDirectShareCollectionDetail,
-  finalizeDirectShareCollection,
+  acceptDirectShare,
+  declineDirectShare,
 } from "@/lib/sharing/actions";
 import type { DirectShareCollectionDetail } from "@/lib/sharing/collections";
 
@@ -43,6 +44,16 @@ export function DirectShareCollectionReviewDialog({
   const [done, setDone] = React.useState(false);
   const [, startLoadTransition] = React.useTransition();
   const [isPending, startTransition] = React.useTransition();
+  // Real per-recipe progress (not a timer): each accepted item is its own
+  // sequential `acceptDirectShare` call (the same copy-heavy action a
+  // single-item accept uses, idempotent/retry-safe per its own doc
+  // comment), so this only advances once a recipe has actually finished
+  // copying. `null` outside of an accept-bearing submission — a
+  // decline-only submission has no copying to report progress on.
+  const [progress, setProgress] = React.useState<{
+    completed: number;
+    total: number;
+  } | null>(null);
 
   const loadedRef = React.useRef(false);
 
@@ -69,16 +80,21 @@ export function DirectShareCollectionReviewDialog({
 
   const handleOpenChange = React.useCallback(
     (nextOpen: boolean) => {
+      // A bulk accept in progress is mid-way through creating independent
+      // copies — closing partway through would strand the dialog's own
+      // progress state without stopping the still-running submission.
+      if (!nextOpen && isPending) return;
       if (!nextOpen) {
         loadedRef.current = false;
         setDetail(null);
         setLoadError(null);
         setSubmitError(null);
         setDone(false);
+        setProgress(null);
       }
       onOpenChange(nextOpen);
     },
-    [onOpenChange],
+    [onOpenChange, isPending],
   );
 
   const pendingChildren = React.useMemo(
@@ -97,16 +113,40 @@ export function DirectShareCollectionReviewDialog({
 
   function submit(acceptedShareIds: string[]) {
     setSubmitError(null);
+    const acceptedSet = new Set(acceptedShareIds);
+    const declinedShareIds = pendingChildren
+      .map((child) => child.id)
+      .filter((id) => !acceptedSet.has(id));
+    const total = acceptedShareIds.length + declinedShareIds.length;
+    setProgress(acceptedShareIds.length > 0 ? { completed: 0, total } : null);
+
     startTransition(async () => {
-      const result = await finalizeDirectShareCollection({
-        collectionId,
-        acceptedShareIds,
-      });
-      if (result.status === "error") {
-        setSubmitError(result.message);
-        return;
+      let completed = 0;
+      const failures: string[] = [];
+
+      for (const directShareId of acceptedShareIds) {
+        const result = await acceptDirectShare({ directShareId });
+        if (result.status === "error") failures.push(result.message);
+        completed += 1;
+        setProgress({ completed, total });
       }
-      setDone(true);
+      for (const directShareId of declinedShareIds) {
+        const result = await declineDirectShare({ directShareId });
+        if (result.status === "error") failures.push(result.message);
+        completed += 1;
+        setProgress({ completed, total });
+      }
+
+      if (failures.length > 0) {
+        setProgress(null);
+        setSubmitError(
+          failures.length === 1
+            ? failures[0]
+            : `${failures.length} items couldn't be processed — the rest were saved. Try again for the rest.`,
+        );
+      } else {
+        setDone(true);
+      }
       router.refresh();
     });
   }
@@ -133,6 +173,27 @@ export function DirectShareCollectionReviewDialog({
 
         {done ? (
           <p className="text-sm">Saved your decision for this collection.</p>
+        ) : progress ? (
+          <div className="space-y-2">
+            <p className="text-sm">
+              Accepting shared recipes — {progress.completed} /{" "}
+              {progress.total} recipes
+            </p>
+            <div
+              role="progressbar"
+              aria-valuenow={progress.completed}
+              aria-valuemin={0}
+              aria-valuemax={progress.total}
+              className="bg-muted h-2 w-full overflow-hidden rounded-full"
+            >
+              <div
+                className="bg-primary h-full rounded-full transition-[width]"
+                style={{
+                  width: `${(progress.completed / progress.total) * 100}%`,
+                }}
+              />
+            </div>
+          </div>
         ) : (
           detail && (
             <div className="space-y-3">
@@ -198,27 +259,25 @@ export function DirectShareCollectionReviewDialog({
         <DialogFooter>
           {done || pendingChildren.length === 0 ? (
             <Button onClick={() => onOpenChange(false)}>Close</Button>
-          ) : (
+          ) : !progress ? (
             <>
               <Button
                 variant="outline"
                 onClick={() => submit([])}
-                disabled={isPending}
+                loading={isPending}
               >
                 Decline all
               </Button>
               <Button
                 onClick={() => submit([...selected])}
-                disabled={isPending}
+                loading={isPending}
               >
-                {isPending
-                  ? "Saving…"
-                  : unselectedCount > 0
-                    ? "Accept selected, decline rest"
-                    : "Accept all"}
+                {unselectedCount > 0
+                  ? "Accept selected, decline rest"
+                  : "Accept all"}
               </Button>
             </>
-          )}
+          ) : null}
         </DialogFooter>
       </DialogContent>
     </Dialog>

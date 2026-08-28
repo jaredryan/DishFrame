@@ -158,9 +158,9 @@ export function PartUsageResolutionDialog({
             <Button
               variant="destructive"
               onClick={handleDeleteNow}
-              disabled={isDeleting}
+              loading={isDeleting}
             >
-              {isDeleting ? "Deleting…" : "Delete permanently"}
+              Delete permanently
             </Button>
           </div>
         ) : (

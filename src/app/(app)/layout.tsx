@@ -8,6 +8,8 @@ import { MobileTopbar } from "@/components/app/mobile-topbar";
 import { AccountMenu } from "@/components/app/account-menu";
 import { OnboardingProvider } from "@/components/onboarding/onboarding-provider";
 import { InitialIntro } from "@/components/onboarding/initial-intro";
+import { ReceivedShareNotifier } from "@/components/domain/sharing/received-share-notifier";
+import { countNewReceivedShares } from "@/lib/sharing/collections";
 import type { OnboardingState } from "@/lib/preferences/onboarding-guides";
 
 export const metadata: Metadata = {
@@ -54,8 +56,14 @@ export default async function AppLayout({
   const onboardingState =
     (preference?.onboardingState as unknown as OnboardingState | null) ?? {};
 
+  const newShareCount = await countNewReceivedShares(
+    session.user.id,
+    preference?.shareNotificationSeenAt ?? null,
+  );
+
   return (
     <OnboardingProvider initialState={onboardingState}>
+      <ReceivedShareNotifier newShareCount={newShareCount} />
       <div className="flex min-h-screen">
         <SidebarNav user={accountUser} />
         <div className="flex min-w-0 flex-1 flex-col">

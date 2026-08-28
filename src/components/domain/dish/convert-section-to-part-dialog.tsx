@@ -39,7 +39,15 @@ export function ConvertSectionToPartDialog({
   sectionLabel,
   defaultName,
   onConverted,
+  // "icon" (default) matches the section card's compact toolbar row. The
+  // Section modal (`SectionEditorDialog`) instead renders this as an
+  // ordinary labeled button alongside its other footer actions.
+  triggerVariant = "icon",
 }: {
+  // Empty string reads `ingredients`/`instructions` directly off the
+  // current form root — used by `SectionEditorDialog`, whose own isolated
+  // form root already *is* the Section, unlike the outer collapsed card's
+  // `sections.${index}`-prefixed path into the parent Dish form.
   prefix: string;
   sectionLabel: string;
   defaultName: string;
@@ -47,8 +55,10 @@ export function ConvertSectionToPartDialog({
     targetDishId: string;
     targetDishVersionId: string;
   }) => void;
+  triggerVariant?: "icon" | "button";
 }) {
   const { getValues } = useFormContext();
+  const path = (field: string) => (prefix ? `${prefix}.${field}` : field);
   const [open, setOpen] = React.useState(false);
   const [title, setTitle] = React.useState("");
   const [description, setDescription] = React.useState("");
@@ -63,10 +73,9 @@ export function ConvertSectionToPartDialog({
   }
 
   async function handleConvert() {
-    const ingredients: IngredientInput[] =
-      getValues(`${prefix}.ingredients`) ?? [];
+    const ingredients: IngredientInput[] = getValues(path("ingredients")) ?? [];
     const instructions: InstructionInput[] =
-      getValues(`${prefix}.instructions`) ?? [];
+      getValues(path("instructions")) ?? [];
     const trimmedIngredients = ingredients.filter(
       (ingredient) => ingredient.name.trim().length > 0,
     );
@@ -128,24 +137,30 @@ export function ConvertSectionToPartDialog({
 
   return (
     <>
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              onClick={openDialog}
-              aria-label={`Convert ${sectionLabel} to a reusable Part`}
-            >
-              <PackagePlus aria-hidden="true" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>
-            Convert {sectionLabel} to a reusable Part
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
+      {triggerVariant === "button" ? (
+        <Button type="button" variant="outline" onClick={openDialog}>
+          <PackagePlus aria-hidden="true" /> Convert to part
+        </Button>
+      ) : (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                onClick={openDialog}
+                aria-label={`Convert ${sectionLabel} to a reusable Part`}
+              >
+                <PackagePlus aria-hidden="true" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              Convert {sectionLabel} to a reusable Part
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      )}
       <Dialog open={open} onOpenChange={(next) => !next && setOpen(false)}>
         <DialogContent>
           <DialogHeader>
@@ -186,9 +201,10 @@ export function ConvertSectionToPartDialog({
             </Button>
             <Button
               onClick={handleConvert}
-              disabled={!title.trim() || isSubmitting}
+              disabled={!title.trim()}
+              loading={isSubmitting}
             >
-              {isSubmitting ? "Converting…" : "Convert"}
+              Convert
             </Button>
           </DialogFooter>
         </DialogContent>

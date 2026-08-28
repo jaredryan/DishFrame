@@ -54,6 +54,24 @@ export async function markOnboardingGuideState(
 }
 
 /**
+ * Received-share toast notification (generalizes the onboarding
+ * acknowledgment pattern above — a single cutoff timestamp rather than a
+ * fixed-enum status map, since new shares arrive continuously rather than
+ * being one of a known set of guides). Called whenever the user dismisses
+ * the toast or visits Share's Received section — either way, every
+ * currently-pending received share becomes "already seen," so the same
+ * shares never trigger the toast again; only a share that arrives after
+ * this moment will.
+ */
+export async function markShareNotificationsSeen(ownerId: string) {
+  return prisma.userPreference.upsert({
+    where: { userId: ownerId },
+    update: { shareNotificationSeenAt: new Date() },
+    create: { userId: ownerId, shareNotificationSeenAt: new Date() },
+  });
+}
+
+/**
  * Help's "replayable interactive guides" (PRODUCT_SPEC.md §93.4): clears one
  * guide's recorded status back to incomplete/absent so its CoachMark (or the
  * initial introduction) renders again, without touching any other guide's

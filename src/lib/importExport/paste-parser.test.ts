@@ -74,16 +74,28 @@ describe("parsePastedRecipe", () => {
     expect(result.values.sections[1].ingredients[0].name).toBe("rice");
   });
 
-  it("falls back to free text when no leading quantity is recognized (§10.7)", () => {
+  it("recognizes trailing 'to taste'/'as needed' as the amount, not part of the name (§10.5/§10.7)", () => {
     const result = parsePastedRecipe(
-      ["Salted Snack", "Salt to taste", "1 cup nuts"].join("\n"),
+      [
+        "Salted Snack",
+        "Salt to taste",
+        "Oil as needed",
+        "1 cup nuts",
+      ].join("\n"),
     );
 
-    const [salt, nuts] = result.values.sections[0].ingredients;
+    const [salt, oil, nuts] = result.values.sections[0].ingredients;
     expect(salt).toMatchObject({
       quantity: null,
       unit: null,
-      name: "Salt to taste",
+      displayText: "To taste",
+      name: "Salt",
+    });
+    expect(oil).toMatchObject({
+      quantity: null,
+      unit: null,
+      displayText: "As needed",
+      name: "Oil",
     });
     expect(nuts).toMatchObject({ quantity: 1, unit: "cup", name: "nuts" });
   });
@@ -215,6 +227,42 @@ describe("parsePastedRecipe", () => {
     expect(result.values.sections[0].ingredients[0].name).toBe("sesame seeds");
   });
 
+  it("recognizes a Markdown '# Title' as the recipe name and '## Section' headings as Sections", () => {
+    const result = parsePastedRecipe(
+      [
+        "# Bulgogi Bowl",
+        "",
+        "## Rice",
+        "",
+        "- 1.5 cups white rice",
+        "- Salt to taste",
+        "",
+        "1. Cook the rice.",
+        "",
+        "---",
+        "",
+        "## Chicken",
+        "",
+        "- Rotisserie chicken",
+        "",
+        "1. Heat the chicken.",
+      ].join("\n"),
+    );
+
+    expect(result.values.title).toBe("Bulgogi Bowl");
+    expect(result.values.sections.map((s) => s.name)).toEqual([
+      "Rice",
+      "Chicken",
+    ]);
+    expect(result.values.sections[0].ingredients.map((i) => i.name)).toEqual([
+      "white rice",
+      "Salt",
+    ]);
+    expect(result.values.sections[1].ingredients.map((i) => i.name)).toEqual([
+      "Rotisserie chicken",
+    ]);
+  });
+
   it("does not misread an ordinary short ingredient line as a heading absent a nearby separator", () => {
     const result = parsePastedRecipe(
       ["Salted Snack", "Salt to taste", "1 cup nuts"].join("\n"),
@@ -298,7 +346,7 @@ describe("parseSectionFromPastedText", () => {
       "Chicken",
       "chicken",
       "sauce",
-      "Salt to taste",
+      "Salt",
     ]);
     expect(section.instructions.map((i) => i.text)).toEqual([
       "Mix the marinade.",

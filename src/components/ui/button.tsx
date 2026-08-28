@@ -1,6 +1,7 @@
 import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { Slot } from "radix-ui";
+import { Loader2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -46,21 +47,53 @@ function Button({
   variant = "default",
   size = "default",
   asChild = false,
+  // Shared in-progress state (Slice: loading-state improvement pass) —
+  // shows a spinner in place of the button's normal content while keeping
+  // the button's own dimensions (the content stays laid out, just hidden)
+  // so the control doesn't resize/jump, and disables the button so a
+  // pending single operation can't be double-submitted. Not supported with
+  // `asChild` (`Slot.Root` requires cloning onto a single child element, so
+  // `loading` is a no-op there — none of the current `asChild` call sites
+  // are submit actions with a pending state).
+  loading = false,
+  disabled,
+  children,
   ...props
 }: React.ComponentProps<"button"> &
   VariantProps<typeof buttonVariants> & {
     asChild?: boolean;
+    loading?: boolean;
   }) {
   const Comp = asChild ? Slot.Root : "button";
+  const showSpinner = loading && !asChild;
 
   return (
     <Comp
       data-slot="button"
       data-variant={variant}
       data-size={size}
-      className={cn(buttonVariants({ variant, size, className }))}
+      aria-busy={loading || undefined}
+      disabled={disabled || loading}
+      className={cn(
+        buttonVariants({ variant, size, className }),
+        showSpinner && "relative",
+      )}
       {...props}
-    />
+    >
+      {showSpinner ? (
+        <>
+          <span className="invisible inline-flex items-center gap-1.5">
+            {children}
+          </span>
+          <Loader2
+            aria-hidden="true"
+            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 animate-spin"
+          />
+        </>
+      ) : (
+        children
+      )}
+    </Comp>
   );
 }
 

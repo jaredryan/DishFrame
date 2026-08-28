@@ -4,6 +4,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import { AmountModeField } from "@/components/domain/dish/amount-mode-field";
+import { amountModeShowsUnit } from "@/components/domain/dish/amount-mode";
 import { useAmountMode } from "@/components/domain/dish/use-amount-mode";
 import { getFieldErrorMessage } from "@/components/domain/dish/form-errors";
 import { TooltipIconButton } from "@/components/domain/dish/reorder-buttons";
@@ -57,7 +58,7 @@ export function SubstituteFields({
           mode={mode}
           onModeChange={chooseMode}
         />
-        {mode !== "free_text" && (
+        {amountModeShowsUnit(mode) && (
           <Field className="w-full sm:w-28">
             <FieldLabel htmlFor={`${idPrefix}-unit`}>Unit</FieldLabel>
             <Input

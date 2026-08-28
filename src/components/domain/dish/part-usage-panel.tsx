@@ -120,10 +120,10 @@ export function PartUsagePanel({
               type="button"
               variant="outline"
               size="sm"
-              disabled={isPending}
+              loading={isPending}
               onClick={() => runPropagation(outOfDateUsages)}
             >
-              <RefreshCw /> {isPending ? "Updating…" : "Update everywhere"}
+              <RefreshCw /> Update everywhere
             </Button>
             <Button
               type="button"
@@ -264,9 +264,10 @@ export function PartUsagePanel({
                   ),
                 )
               }
-              disabled={isPending || selectedContainerIds.size === 0}
+              disabled={selectedContainerIds.size === 0}
+              loading={isPending}
             >
-              {isPending ? "Updating…" : "Update selected"}
+              Update selected
             </Button>
           </DialogFooter>
         </DialogContent>

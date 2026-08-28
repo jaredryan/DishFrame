@@ -354,6 +354,26 @@ export type ReceivedDirectShareCollectionSummary = {
 /** Only collections already bound to this recipient — an unclaimed pending
  * invitation is visible only to its sender (PRODUCT_SPEC.md's security
  * boundary), and binding happens exactly once, at claim time. */
+/**
+ * Received-share toast notification: how many still-PENDING received items
+ * (across single sends and collections alike — every `DirectShare` row
+ * belongs to a collection regardless) arrived after `sinceExclusive`, i.e.
+ * since the recipient last acknowledged the notification. `null` means
+ * "never acknowledged" — every currently-pending item counts.
+ */
+export async function countNewReceivedShares(
+  recipientId: string,
+  sinceExclusive: Date | null,
+): Promise<number> {
+  return prisma.directShare.count({
+    where: {
+      recipientId,
+      status: "PENDING",
+      ...(sinceExclusive ? { createdAt: { gt: sinceExclusive } } : {}),
+    },
+  });
+}
+
 export async function listReceivedDirectShareCollections(
   recipientId: string,
 ): Promise<ReceivedDirectShareCollectionSummary[]> {

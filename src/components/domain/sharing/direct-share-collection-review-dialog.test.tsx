@@ -9,12 +9,14 @@ vi.mock("next/navigation", () => ({
 }));
 
 const mockGetDetail = vi.fn();
-const mockFinalize = vi.fn();
+const mockAccept = vi.fn();
+const mockDecline = vi.fn();
 const mockGetPreview = vi.fn();
 vi.mock("@/lib/sharing/actions", () => ({
   getDirectShareCollectionDetail: (...args: unknown[]) =>
     mockGetDetail(...args),
-  finalizeDirectShareCollection: (...args: unknown[]) => mockFinalize(...args),
+  acceptDirectShare: (...args: unknown[]) => mockAccept(...args),
+  declineDirectShare: (...args: unknown[]) => mockDecline(...args),
   getDirectSharePreview: (...args: unknown[]) => mockGetPreview(...args),
 }));
 
@@ -50,7 +52,8 @@ describe("DirectShareCollectionReviewDialog", () => {
   beforeEach(() => {
     mockRefresh.mockClear();
     mockGetDetail.mockReset();
-    mockFinalize.mockReset();
+    mockAccept.mockReset();
+    mockDecline.mockReset();
     mockGetDetail.mockResolvedValue({ status: "success", detail: DETAIL });
   });
 
@@ -67,12 +70,10 @@ describe("DirectShareCollectionReviewDialog", () => {
     expect(screen.getByText("Accept all")).toBeInTheDocument();
   });
 
-  it("subset selection switches to explicit decline-rest wording, and submits the correct accepted set", async () => {
+  it("subset selection switches to explicit decline-rest wording, and accepts/declines each item individually with live progress", async () => {
     const user = userEvent.setup();
-    mockFinalize.mockResolvedValue({
-      status: "success",
-      result: { accepted: [], declined: [] },
-    });
+    mockAccept.mockResolvedValue({ status: "success", outcome: "accepted" });
+    mockDecline.mockResolvedValue({ status: "success", outcome: "declined" });
     render(
       <DirectShareCollectionReviewDialog
         open
@@ -96,18 +97,25 @@ describe("DirectShareCollectionReviewDialog", () => {
       screen.getByRole("button", { name: "Accept selected, decline rest" }),
     );
 
-    expect(mockFinalize).toHaveBeenCalledWith({
-      collectionId: "col1",
-      acceptedShareIds: ["c1"],
-    });
+    // Real per-recipe progress, not a bulk single call: the accepted item
+    // ("Soup", c1) is copied via a sequential `acceptDirectShare` call, and
+    // the unselected item ("Salad", c2) is declined via `declineDirectShare`.
+    await waitFor(() =>
+      expect(mockAccept).toHaveBeenCalledWith({ directShareId: "c1" }),
+    );
+    await waitFor(() =>
+      expect(mockDecline).toHaveBeenCalledWith({ directShareId: "c2" }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByText("Saved your decision for this collection."),
+      ).toBeInTheDocument(),
+    );
   });
 
-  it("Decline all submits an empty accepted set", async () => {
+  it("Decline all declines every pending item and never calls accept", async () => {
     const user = userEvent.setup();
-    mockFinalize.mockResolvedValue({
-      status: "success",
-      result: { accepted: [], declined: [] },
-    });
+    mockDecline.mockResolvedValue({ status: "success", outcome: "declined" });
     render(
       <DirectShareCollectionReviewDialog
         open
@@ -119,10 +127,11 @@ describe("DirectShareCollectionReviewDialog", () => {
 
     await user.click(screen.getByRole("button", { name: "Decline all" }));
 
-    expect(mockFinalize).toHaveBeenCalledWith({
-      collectionId: "col1",
-      acceptedShareIds: [],
-    });
+    await waitFor(() =>
+      expect(mockDecline).toHaveBeenCalledWith({ directShareId: "c1" }),
+    );
+    expect(mockDecline).toHaveBeenCalledWith({ directShareId: "c2" });
+    expect(mockAccept).not.toHaveBeenCalled();
   });
 
   it("shows correct frozen Recipe titles and total count from the loaded detail", async () => {

@@ -282,8 +282,8 @@ export function PartAttachPicker({
                 <Button variant="outline" onClick={reset}>
                   Back
                 </Button>
-                <Button onClick={confirm} disabled={isSubmitting}>
-                  {isSubmitting ? "Attaching…" : "Attach"}
+                <Button onClick={confirm} loading={isSubmitting}>
+                  Attach
                 </Button>
               </DialogFooter>
             </div>

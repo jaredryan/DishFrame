@@ -503,7 +503,11 @@ export async function saveSharedCopy(
     // Dish/DishVersion row) rolls back — never an untracked orphan copy.
     return await prisma.$transaction(
       async (tx) => {
-        const copy = await createIndependentCopyFromGraph(tx, recipientId, graph);
+        const copy = await createIndependentCopyFromGraph(
+          tx,
+          recipientId,
+          graph,
+        );
         await tx.shareLinkAcceptance.create({
           data: {
             shareLinkId: shareLink.id,

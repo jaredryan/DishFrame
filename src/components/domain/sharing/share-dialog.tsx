@@ -159,8 +159,8 @@ export function ShareDialog({
               <Button variant="outline" onClick={close}>
                 Cancel
               </Button>
-              <Button onClick={handleCreate} disabled={isPending}>
-                {isPending ? "Creating…" : "Create link"}
+              <Button onClick={handleCreate} loading={isPending}>
+                Create link
               </Button>
             </>
           )}

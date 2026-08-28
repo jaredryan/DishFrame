@@ -252,8 +252,12 @@ export function DirectShareCollectionDialog({
               >
                 Back
               </Button>
-              <Button onClick={handleSend} disabled={!canSend || isPending}>
-                {isPending ? "Sending…" : "Send"}
+              <Button
+                onClick={handleSend}
+                disabled={!canSend}
+                loading={isPending}
+              >
+                Send
               </Button>
             </>
           ) : (

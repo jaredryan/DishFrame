@@ -175,9 +175,9 @@ export function DishTagFlavorEditor({
               type="button"
               size="sm"
               onClick={handleSave}
-              disabled={isPending}
+              loading={isPending}
             >
-              {isPending ? "Saving…" : "Save"}
+              Save
             </Button>
           </div>
         </div>

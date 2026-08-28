@@ -68,3 +68,13 @@ export async function resetOnboardingGuideState(
     return { status: "error", message: toActionErrorMessage(error) };
   }
 }
+
+export async function acknowledgeShareNotifications(): Promise<OnboardingActionState> {
+  try {
+    const userId = await requireUserId();
+    await preferencesService.markShareNotificationsSeen(userId);
+    return { status: "success" };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
