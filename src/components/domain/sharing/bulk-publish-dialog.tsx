@@ -22,6 +22,8 @@ import {
 import { RecipePartPicker } from "@/components/domain/dish/recipe-part-picker";
 import { SelectableDishRow } from "@/components/domain/dish/selectable-dish-row";
 import { RichDishVersionPicker } from "@/components/domain/dish/version-picker-field";
+import { useStepScrollReset } from "@/components/ui/use-step-scroll-reset";
+import { useToast } from "@/components/ui/toast";
 import {
   listShareableItemsForSender,
   publishDishes,
@@ -112,8 +114,9 @@ export function BulkPublishDialog({
   const [results, setResults] = React.useState<
     PublishDishesResultItem[] | null
   >(null);
-  const [error, setError] = React.useState<string | null>(null);
   const [isPending, startTransition] = React.useTransition();
+  const scrollRef = useStepScrollReset(step);
+  const { showToast } = useToast();
 
   const loadedRef = React.useRef(false);
 
@@ -146,7 +149,6 @@ export function BulkPublishDialog({
     setShowCreatorName(false);
     setExpiresAt("");
     setResults(null);
-    setError(null);
   }
 
   function toggleSelected(id: string) {
@@ -166,7 +168,6 @@ export function BulkPublishDialog({
   }
 
   function handlePublish() {
-    setError(null);
     startTransition(async () => {
       const response = await publishDishes({
         dishIds: [...selected],
@@ -177,7 +178,7 @@ export function BulkPublishDialog({
         expiresAt: expiresAt ? new Date(expiresAt) : null,
       });
       if (response.status === "error") {
-        setError(response.message);
+        showToast({ variant: "error", title: response.message });
         return;
       }
       setResults(response.results);
@@ -200,7 +201,10 @@ export function BulkPublishDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="-mx-1 flex min-h-0 flex-1 flex-col overflow-y-auto px-1">
+        <div
+          ref={scrollRef}
+          className="-mx-1 flex min-h-0 flex-1 flex-col overflow-y-auto px-1"
+        >
           {step === "select" && (
             <RecipePartPicker
               items={items}
@@ -293,12 +297,6 @@ export function BulkPublishDialog({
                   className="border-input bg-background flex h-9 w-full max-w-full min-w-0 rounded-md border px-3 py-1 text-sm shadow-xs"
                 />
               </div>
-
-              {error && (
-                <p role="alert" className="text-destructive-text text-sm">
-                  {error}
-                </p>
-              )}
             </div>
           )}
 
@@ -335,13 +333,13 @@ export function BulkPublishDialog({
               </Button>
               <Button
                 onClick={handlePublish}
+                loading={isPending}
                 disabled={
-                  isPending ||
-                  (mode === "FIXED_SNAPSHOT" &&
-                    ![...selected].every((id) => versionByDishId[id]))
+                  mode === "FIXED_SNAPSHOT" &&
+                  ![...selected].every((id) => versionByDishId[id])
                 }
               >
-                {isPending ? "Publishing…" : "Publish"}
+                Publish
               </Button>
             </>
           ) : (

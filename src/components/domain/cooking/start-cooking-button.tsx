@@ -169,23 +169,22 @@ export function StartCookingButton({
               />
             </div>
           ) : (
-            <div className="-mx-1 flex min-h-0 flex-1 flex-col overflow-y-auto px-1">
-              <RecipePartPicker
-                items={isLoading ? null : pickerItems}
-                itemsError={loadError}
-                onRetry={() => setLoadAttempt((n) => n + 1)}
-                search={search}
-                onSearchChange={setSearch}
-                showKindTabs
-                selectionMode="single"
-                selected={selectedSet}
-                onToggle={(id) => setSelectedId(id)}
-                emptyMessage="You don't have any recipes or parts saved yet."
-                loadingLabel="Loading recipes and parts…"
-                searchPlaceholder="Search"
-                autoFocusSearch
-              />
-            </div>
+            <RecipePartPicker
+              items={isLoading ? null : pickerItems}
+              itemsError={loadError}
+              onRetry={() => setLoadAttempt((n) => n + 1)}
+              search={search}
+              onSearchChange={setSearch}
+              showKindTabs
+              selectionMode="single"
+              selected={selectedSet}
+              onToggle={(id) => setSelectedId(id)}
+              emptyMessage="You don't have any recipes or parts saved yet."
+              loadingLabel="Loading recipes and parts…"
+              searchPlaceholder="Search"
+              autoFocusSearch
+              className="flex-1"
+            />
           )}
 
           <DialogFooter>

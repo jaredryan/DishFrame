@@ -15,11 +15,12 @@ import {
   setMealPlanEntryStatusSchema,
   adoptNewerVersionInEntrySchema,
   saveMealPlanEntryChangesSchema,
-  addPlannedMealSchema,
-  removePlannedMealSchema,
   generateGroceryListFromMealPlanSchema,
+  resyncMealPlanGroceryListsSchema,
+  setMealPlanGroceryListEntryIncludedSchema,
   type ActionState,
 } from "@/lib/mealplans/schema";
+import type { GroceryListResyncSummary } from "@/lib/grocery/list-service";
 
 const PLANS_PATH = "/meal-plans";
 const LISTS_PATH = "/grocery-lists";
@@ -260,6 +261,12 @@ type BulkEntryDraft = {
   targetYieldQuantity?: number | null;
   targetYieldUnit?: string | null;
   note?: string | null;
+  localKey?: string;
+};
+
+type ScheduleAssignmentInput = {
+  mealKey: string;
+  meals: { label: string; date: Date | string; servings: number }[];
 };
 
 /**
@@ -267,7 +274,9 @@ type BulkEntryDraft = {
  * sends every queued entry change (remove/replace/update/adopt-newer-
  * Version/add) in this one call instead of one server-action round trip
  * per changed entry — see `mealPlanService.saveMealPlanEntryChanges`'s doc
- * comment for how the batch is applied server-side.
+ * comment for how the batch is applied server-side. Schedule redesign: the
+ * Schedule section's complete draft rides along in the same batch, keyed by
+ * `mealKey` (see `scheduleAssignmentSchema`'s doc comment).
  */
 export async function saveMealPlanEntryChanges(values: {
   mealPlanId: string;
@@ -282,6 +291,7 @@ export async function saveMealPlanEntryChanges(values: {
   }[];
   versionAdoptedEntryIds: string[];
   newEntries: BulkEntryDraft[];
+  scheduleAssignments?: ScheduleAssignmentInput[];
 }): Promise<MealPlanBulkEntryActionState> {
   try {
     const userId = await requireUserId();
@@ -295,47 +305,6 @@ export async function saveMealPlanEntryChanges(values: {
     revalidateMealPlan(mealPlanId);
     revalidatePath(LISTS_PATH);
     return { status: "success", hadEntryError: result.hadEntryError };
-  } catch (error) {
-    return { status: "error", message: toActionErrorMessage(error) };
-  }
-}
-
-export async function addPlannedMeal(values: {
-  mealPlanId: string;
-  entryId: string;
-  label: string;
-  date: Date | string;
-  servings: number;
-}): Promise<ActionState> {
-  try {
-    const userId = await requireUserId();
-    const { mealPlanId, entryId, ...input } =
-      addPlannedMealSchema.parse(values);
-    await mealPlanService.addPlannedMeal(userId, mealPlanId, entryId, input);
-    revalidateMealPlan(mealPlanId);
-    return { status: "success" };
-  } catch (error) {
-    return { status: "error", message: toActionErrorMessage(error) };
-  }
-}
-
-export async function removePlannedMeal(values: {
-  mealPlanId: string;
-  entryId: string;
-  plannedMealId: string;
-}): Promise<ActionState> {
-  try {
-    const userId = await requireUserId();
-    const { mealPlanId, entryId, plannedMealId } =
-      removePlannedMealSchema.parse(values);
-    await mealPlanService.removePlannedMeal(
-      userId,
-      mealPlanId,
-      entryId,
-      plannedMealId,
-    );
-    revalidateMealPlan(mealPlanId);
-    return { status: "success" };
   } catch (error) {
     return { status: "error", message: toActionErrorMessage(error) };
   }
@@ -389,15 +358,53 @@ export async function generateGroceryListFromMealPlan(values: {
   }
 }
 
+export type ResyncMealPlanGroceryListsActionState =
+  | { status: "success"; summary: GroceryListResyncSummary | null }
+  | { status: "error"; message: string };
+
 export async function resyncMealPlanGroceryLists(values: {
   mealPlanId: string;
+  /** The Grocery List page this "Sync now" click came from — its own
+   * outcome is returned so that page can report exactly what changed,
+   * rather than an aggregate across every sibling list this Meal Plan
+   * feeds (every active linked list still resyncs regardless). */
+  listId?: string;
+}): Promise<ResyncMealPlanGroceryListsActionState> {
+  try {
+    const userId = await requireUserId();
+    const { mealPlanId, listId } =
+      resyncMealPlanGroceryListsSchema.parse(values);
+    const summary = await mealPlanService.resyncMealPlanGroceryLists(
+      userId,
+      mealPlanId,
+      listId,
+    );
+    revalidateMealPlan(mealPlanId);
+    revalidatePath(LISTS_PATH);
+    return { status: "success", summary };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export async function setMealPlanGroceryListEntryIncluded(values: {
+  mealPlanId: string;
+  entryId: string;
+  listId: string;
+  included: boolean;
 }): Promise<ActionState> {
   try {
     const userId = await requireUserId();
-    const { mealPlanId } = mealPlanIdSchema.parse(values);
-    await mealPlanService.resyncMealPlanGroceryLists(userId, mealPlanId);
-    revalidateMealPlan(mealPlanId);
-    revalidatePath(LISTS_PATH);
+    const { mealPlanId, entryId, listId, included } =
+      setMealPlanGroceryListEntryIncludedSchema.parse(values);
+    await mealPlanService.setMealPlanGroceryListEntryIncluded(
+      userId,
+      mealPlanId,
+      listId,
+      entryId,
+      included,
+    );
+    revalidatePath(`${LISTS_PATH}/${listId}`);
     return { status: "success" };
   } catch (error) {
     return { status: "error", message: toActionErrorMessage(error) };

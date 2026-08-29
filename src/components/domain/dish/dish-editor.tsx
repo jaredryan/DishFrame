@@ -10,7 +10,14 @@ import {
   useForm,
   useWatch,
 } from "react-hook-form";
-import { AlertCircle, Import, Plus } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowUpDown,
+  ChevronDown,
+  ChevronUp,
+  Import,
+  Plus,
+} from "lucide-react";
 import { DndContext, closestCenter, type DragEndEvent } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -58,6 +65,11 @@ import {
   SectionEditorDialog,
   type SectionEditorResult,
 } from "@/components/domain/dish/section-editor-dialog";
+import {
+  TopLevelReorderDialog,
+  type TopLevelReorderEntry,
+} from "@/components/domain/dish/top-level-reorder-dialog";
+import { TooltipIconButton } from "@/components/domain/dish/reorder-buttons";
 import { CuisineField } from "@/components/domain/dish/cuisine-field";
 import { ImageField } from "@/components/domain/dish/image-field";
 import { PartLinkFields } from "@/components/domain/dish/part-link-fields";
@@ -254,6 +266,20 @@ export function DishEditor({
   const [newSectionOpen, setNewSectionOpen] = React.useState(false);
   const [newSectionSession, setNewSectionSession] = React.useState(0);
 
+  // Long-distance reorder modal (compact convenience alongside the inline
+  // drag-and-drop below) — remounted fresh on every open via `reorderSession`
+  // (same forced-fresh-draft trick as `newSectionSession` above) so it
+  // always seeds from the editor's current draft order, never a stale one
+  // left over from a previous open.
+  const [reorderOpen, setReorderOpen] = React.useState(false);
+  const [reorderSession, setReorderSession] = React.useState(0);
+
+  // Details/Nutrition start collapsed only when editing an already-saved
+  // Recipe/Part — a brand-new Dish (blank or import/paste-review-seeded via
+  // `initialValues`, both `dish`-less) preserves today's expanded-by-default
+  // behavior. Independent of each other, and never persisted across visits.
+  const [detailsCollapsed, setDetailsCollapsed] = React.useState(() => !!dish);
+
   const form = useForm<EditorFormValues>({
     defaultValues: dish
       ? {
@@ -410,6 +436,46 @@ export function DishEditor({
       }
     });
   }
+
+  // Reorder modal's Apply — same reposition logic as the inline drag-and-drop
+  // above (`handleTopLevelDragEnd`), just driven by the modal's final fieldId
+  // order instead of a single dnd-kit drag event. Only ever touches the
+  // draft's `position` values; never itself saves a Version.
+  function applyReorder(orderedFieldIds: string[]) {
+    orderedFieldIds.forEach((fieldId, position) => {
+      const entry = topLevelEntries.find((e) => e.fieldId === fieldId);
+      if (!entry || entry.position === position) return;
+      if (entry.kind === "section") {
+        form.setValue(`sections.${entry.index}.position`, position, {
+          shouldDirty: true,
+        });
+      } else {
+        form.setValue(`partLinks.${entry.index}.position`, position, {
+          shouldDirty: true,
+        });
+      }
+    });
+  }
+
+  const reorderEntries: TopLevelReorderEntry[] = topLevelEntries.map((entry) =>
+    entry.kind === "section"
+      ? {
+          kind: "section",
+          fieldId: entry.fieldId,
+          label:
+            watchedSections?.[entry.index]?.name ||
+            `Section ${sectionDisplayNumberByFieldId.get(entry.fieldId) ?? entry.index + 1}`,
+        }
+      : {
+          kind: "partLink",
+          fieldId: entry.fieldId,
+          targetDishId:
+            watchedTopLevelPartLinks?.[entry.index]?.targetDishId ?? null,
+          targetDishVersionId:
+            watchedTopLevelPartLinks?.[entry.index]?.targetDishVersionId ??
+            null,
+        },
+  );
 
   const topLevelAnnouncements = createReorderAnnouncements(
     (id) => {
@@ -714,203 +780,229 @@ export function DishEditor({
           </Field>
 
           <div className="flex flex-col gap-4">
-            <h2 className="font-heading text-lg font-medium">Details</h2>
-            <div className="border-border bg-card flex flex-col gap-4 rounded-xl border p-4">
-              <ImageField dishId={dish?.id ?? null} />
-              <div className="grid gap-4 sm:grid-cols-2">
-                <CuisineField options={cuisineOptions} />
-                <Field>
-                  <FieldLabel htmlFor="dish-stage">
-                    {kindLabel} stage
-                  </FieldLabel>
-                  <Controller
-                    control={control}
-                    name="stage"
-                    render={({ field }) => (
-                      <Select
-                        value={field.value}
-                        onValueChange={field.onChange}
-                      >
-                        <SelectTrigger
-                          id="dish-stage"
-                          className="w-full"
-                          aria-label={`${kindLabel} stage`}
+            <div className="flex items-center justify-between">
+              <h2 className="font-heading text-lg font-medium">Details</h2>
+              <TooltipIconButton
+                label={detailsCollapsed ? "Expand Details" : "Collapse Details"}
+                icon={detailsCollapsed ? ChevronDown : ChevronUp}
+                onClick={() => setDetailsCollapsed((prev) => !prev)}
+              />
+            </div>
+            {!detailsCollapsed && (
+              <div className="border-border bg-card flex flex-col gap-4 rounded-xl border p-4">
+                <ImageField dishId={dish?.id ?? null} />
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <CuisineField options={cuisineOptions} />
+                  <Field>
+                    <FieldLabel htmlFor="dish-stage">
+                      {kindLabel} stage
+                    </FieldLabel>
+                    <Controller
+                      control={control}
+                      name="stage"
+                      render={({ field }) => (
+                        <Select
+                          value={field.value}
+                          onValueChange={field.onChange}
                         >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {stageValues.map((value) => (
-                            <SelectItem key={value} value={value}>
-                              {STAGE_LABEL[value]}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  />
-                </Field>
-              </div>
+                          <SelectTrigger
+                            id="dish-stage"
+                            className="w-full"
+                            aria-label={`${kindLabel} stage`}
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {stageValues.map((value) => (
+                              <SelectItem key={value} value={value}>
+                                {STAGE_LABEL[value]}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                  </Field>
+                </div>
 
-              <Field>
-                <FieldLabel htmlFor="dish-description">Description</FieldLabel>
-                <Textarea
-                  id="dish-description"
-                  placeholder="Optional"
-                  {...register("description")}
-                />
-              </Field>
-
-              {dish && (
                 <Field>
-                  <FieldLabel htmlFor="dish-note">Version note</FieldLabel>
+                  <FieldLabel htmlFor="dish-description">
+                    Description
+                  </FieldLabel>
                   <Textarea
-                    id="dish-note"
-                    placeholder="What changed, or why — optional"
-                    maxLength={500}
-                    rows={2}
-                    {...register("note")}
+                    id="dish-description"
+                    placeholder="Optional"
+                    {...register("description")}
                   />
                 </Field>
-              )}
 
-              <div className="flex flex-wrap gap-4">
-                {/* Slice 6A: Yield (authored) and Default scale (the saved
+                {dish && (
+                  <Field>
+                    <FieldLabel htmlFor="dish-note">Version note</FieldLabel>
+                    <Textarea
+                      id="dish-note"
+                      placeholder="What changed, or why — optional"
+                      maxLength={500}
+                      rows={2}
+                      {...register("note")}
+                    />
+                  </Field>
+                )}
+
+                <div className="flex flex-wrap gap-4">
+                  {/* Slice 6A: Yield (authored) and Default scale (the saved
                     proportional multiplier, a preference only — never a
                     second authored quantity/unit) live together under one
                     concept. */}
-                <Field className="w-full">
-                  <FieldLabel htmlFor="dish-yield-quantity">Yield</FieldLabel>
-                  <div className="flex gap-2">
-                    <NumberField
-                      name="yieldQuantity"
-                      id="dish-yield-quantity"
-                      placeholder="Amount"
-                      step="any"
-                      aria-label="Yield amount"
-                      className="w-24"
-                    />
-                    <Input
-                      placeholder="Unit, e.g. servings"
-                      aria-label="Yield unit"
-                      className="w-40"
-                      {...register("yieldUnit")}
-                    />
-                  </div>
-                  {dish && (
-                    <div className="border-border mt-2 flex flex-col gap-1.5 border-t pt-3">
-                      <FieldLabel htmlFor="dish-default-scale">
-                        Default scale
-                      </FieldLabel>
-                      <FieldDescription>
-                        Automatically adjust all {kindLabel} quantities when
-                        this {kindLabel.toLowerCase()} is opened.
-                      </FieldDescription>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <div className="flex items-center gap-1">
-                          <span aria-hidden="true">×</span>
-                          <NumberField
-                            name="defaultScale"
-                            id="dish-default-scale"
-                            placeholder="1"
-                            step="any"
-                            aria-label="Default scale multiplier"
-                            className="w-13"
-                            emptyDisplay="1"
-                          />
+                  <Field className="w-full">
+                    <FieldLabel htmlFor="dish-yield-quantity">Yield</FieldLabel>
+                    <div className="flex gap-2">
+                      <NumberField
+                        name="yieldQuantity"
+                        id="dish-yield-quantity"
+                        placeholder="Amount"
+                        step="any"
+                        aria-label="Yield amount"
+                        className="w-24"
+                      />
+                      <Input
+                        placeholder="Unit, e.g. servings"
+                        aria-label="Yield unit"
+                        className="w-40"
+                        {...register("yieldUnit")}
+                      />
+                    </div>
+                    {dish && (
+                      <div className="border-border mt-2 flex flex-col gap-1.5 border-t pt-3">
+                        <FieldLabel htmlFor="dish-default-scale">
+                          Default scale
+                        </FieldLabel>
+                        <FieldDescription>
+                          Automatically adjust all {kindLabel} quantities when
+                          this {kindLabel.toLowerCase()} is opened.
+                        </FieldDescription>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="flex items-center gap-1">
+                            <span aria-hidden="true">×</span>
+                            <NumberField
+                              name="defaultScale"
+                              id="dish-default-scale"
+                              placeholder="1"
+                              step="any"
+                              aria-label="Default scale multiplier"
+                              className="w-13"
+                              emptyDisplay="1"
+                            />
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() =>
+                              form.setValue("defaultScale", null, {
+                                shouldDirty: true,
+                              })
+                            }
+                          >
+                            Reset
+                          </Button>
+                          {defaultScaleResultText && (
+                            <span className="text-muted-foreground text-sm">
+                              {kindLabel} {defaultScaleResultText}
+                            </span>
+                          )}
                         </div>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() =>
-                            form.setValue("defaultScale", null, {
-                              shouldDirty: true,
-                            })
+                      </div>
+                    )}
+                  </Field>
+                  {/* Slice 6A: "minutes" moves out of the label, next to each
+                    input, in a compact row sized for realistic values. */}
+                  <Field>
+                    <FieldLabel htmlFor="dish-prep-time">Prep time</FieldLabel>
+                    <div className="flex items-center gap-2">
+                      <NumberField
+                        name="prepTimeMinutes"
+                        id="dish-prep-time"
+                        placeholder="15"
+                        aria-label="Prep time in minutes"
+                        className="w-13"
+                      />
+                      <span className="text-muted-foreground text-sm">
+                        minutes
+                      </span>
+                    </div>
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="dish-cook-time">Cook time</FieldLabel>
+                    <div className="flex items-center gap-2">
+                      <NumberField
+                        name="cookTimeMinutes"
+                        id="dish-cook-time"
+                        placeholder="30"
+                        aria-label="Cook time in minutes"
+                        className="w-13"
+                      />
+                      <span className="text-muted-foreground text-sm">
+                        minutes
+                      </span>
+                    </div>
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="dish-difficulty">
+                      Difficulty
+                    </FieldLabel>
+                    <Controller
+                      control={control}
+                      name="difficulty"
+                      render={({ field }) => (
+                        <Select
+                          value={field.value ?? "UNSET"}
+                          onValueChange={(value) =>
+                            field.onChange(value === "UNSET" ? null : value)
                           }
                         >
-                          Reset
-                        </Button>
-                        {defaultScaleResultText && (
-                          <span className="text-muted-foreground text-sm">
-                            {kindLabel} {defaultScaleResultText}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </Field>
-                {/* Slice 6A: "minutes" moves out of the label, next to each
-                    input, in a compact row sized for realistic values. */}
-                <Field>
-                  <FieldLabel htmlFor="dish-prep-time">Prep time</FieldLabel>
-                  <div className="flex items-center gap-2">
-                    <NumberField
-                      name="prepTimeMinutes"
-                      id="dish-prep-time"
-                      placeholder="15"
-                      aria-label="Prep time in minutes"
-                      className="w-13"
+                          <SelectTrigger
+                            id="dish-difficulty"
+                            className="w-36"
+                            aria-label="Difficulty"
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="UNSET">Not set</SelectItem>
+                            {difficultyValues.map((value) => (
+                              <SelectItem key={value} value={value}>
+                                {value}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
                     />
-                    <span className="text-muted-foreground text-sm">
-                      minutes
-                    </span>
-                  </div>
-                </Field>
-                <Field>
-                  <FieldLabel htmlFor="dish-cook-time">Cook time</FieldLabel>
-                  <div className="flex items-center gap-2">
-                    <NumberField
-                      name="cookTimeMinutes"
-                      id="dish-cook-time"
-                      placeholder="30"
-                      aria-label="Cook time in minutes"
-                      className="w-13"
-                    />
-                    <span className="text-muted-foreground text-sm">
-                      minutes
-                    </span>
-                  </div>
-                </Field>
-                <Field>
-                  <FieldLabel htmlFor="dish-difficulty">Difficulty</FieldLabel>
-                  <Controller
-                    control={control}
-                    name="difficulty"
-                    render={({ field }) => (
-                      <Select
-                        value={field.value ?? "UNSET"}
-                        onValueChange={(value) =>
-                          field.onChange(value === "UNSET" ? null : value)
-                        }
-                      >
-                        <SelectTrigger
-                          id="dish-difficulty"
-                          className="w-36"
-                          aria-label="Difficulty"
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="UNSET">Not set</SelectItem>
-                          {difficultyValues.map((value) => (
-                            <SelectItem key={value} value={value}>
-                              {value}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  />
-                </Field>
+                  </Field>
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
-          <NutritionFields />
+          <NutritionFields defaultCollapsed={!!dish} />
 
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between">
-              <h2 className="font-heading text-lg font-medium">Recipe</h2>
+              <h2 className="font-heading text-lg font-medium">{kindLabel}</h2>
+              {topLevelEntries.length > 1 && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setReorderSession((session) => session + 1);
+                    setReorderOpen(true);
+                  }}
+                >
+                  <ArrowUpDown /> Reorder
+                </Button>
+              )}
             </div>
             <DndContext
               id="dish-content"
@@ -1016,6 +1108,15 @@ export function DishEditor({
                 });
               }
             }}
+          />
+
+          <TopLevelReorderDialog
+            key={reorderSession}
+            open={reorderOpen}
+            onOpenChange={setReorderOpen}
+            kindLabel={kindLabel}
+            entries={reorderEntries}
+            onApply={applyReorder}
           />
 
           {serverError && (

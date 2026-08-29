@@ -21,14 +21,9 @@ import {
   SheetFooter,
 } from "@/components/ui/sheet";
 import { TooltipIconButton } from "@/components/domain/dish/reorder-buttons";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { usePendingAction } from "@/components/ui/use-pending-action";
+import { useToast } from "@/components/ui/toast";
 import {
   addSessionUnits,
   removeSessionUnit,
@@ -79,20 +74,29 @@ export function CookingPlanManager({
   onUnitRemoved?: (unitId: string) => void;
 }) {
   const router = useRouter();
-  const [isPending, startTransition] = React.useTransition();
-  const [error, setError] = React.useState<string | null>(null);
+  const { pendingAction, isPending, run } = usePendingAction<
+    | `move-${string}-${-1 | 1}`
+    | `remove-${string}`
+    | `restore-${string}`
+    | `add-${string}`
+    | "delete-session"
+  >();
   const [finalUnitGuard, setFinalUnitGuard] = React.useState(false);
+  const { showToast } = useToast();
 
   function runEdit(
+    actionKey: Exclude<typeof pendingAction, null>,
     action: () => Promise<{ status: string; message?: string }>,
   ) {
-    setError(null);
-    startTransition(async () => {
+    run(actionKey, async () => {
       const result = await action();
       if (result.status === "final-unit-guard") {
         setFinalUnitGuard(true);
       } else if (result.status === "error") {
-        setError(result.message ?? "Something went wrong.");
+        showToast({
+          variant: "error",
+          title: result.message ?? "Something went wrong.",
+        });
       } else {
         router.refresh();
       }
@@ -105,28 +109,36 @@ export function CookingPlanManager({
     const target = index + direction;
     if (target < 0 || target >= ids.length) return;
     [ids[index], ids[target]] = [ids[target], ids[index]];
-    runEdit(() => reorderSessionUnits({ sessionId, orderedUnitIds: ids }));
+    runEdit(`move-${unitId}-${direction}`, () =>
+      reorderSessionUnits({ sessionId, orderedUnitIds: ids }),
+    );
   }
 
   function handleRemove(unitId: string) {
     onUnitRemoved?.(unitId);
-    runEdit(() => removeSessionUnit({ sessionId, unitId }));
+    runEdit(`remove-${unitId}`, () => removeSessionUnit({ sessionId, unitId }));
   }
 
   function handleRestore(unitId: string) {
-    runEdit(() => restoreSessionUnit({ sessionId, unitId }));
+    runEdit(`restore-${unitId}`, () =>
+      restoreSessionUnit({ sessionId, unitId }),
+    );
   }
 
   function handleAdd(unitKey: string) {
-    runEdit(() => addSessionUnits({ sessionId, unitKeys: [unitKey] }));
+    runEdit(`add-${unitKey}`, () =>
+      addSessionUnits({ sessionId, unitKeys: [unitKey] }),
+    );
   }
 
   function handleDeleteSession() {
-    setError(null);
-    startTransition(async () => {
+    run("delete-session", async () => {
       const result = await deleteCookingSession({ sessionId });
       if (result.status === "error") {
-        setError(result.message ?? "Something went wrong.");
+        showToast({
+          variant: "error",
+          title: result.message ?? "Something went wrong.",
+        });
         return;
       }
       router.push("/cook");
@@ -151,12 +163,6 @@ export function CookingPlanManager({
           </SheetHeader>
 
           <div className="flex flex-col gap-4 overflow-y-auto px-4 pb-4">
-            {error && (
-              <p role="alert" className="text-destructive-text text-sm">
-                {error}
-              </p>
-            )}
-
             <ul className="flex flex-col gap-2">
               {activeUnits.map((unit, index) => (
                 <li
@@ -180,18 +186,21 @@ export function CookingPlanManager({
                       icon={ChevronUp}
                       onClick={() => handleMove(unit.id, -1)}
                       disabled={isPending || index === 0}
+                      loading={pendingAction === `move-${unit.id}-${-1}`}
                     />
                     <TooltipIconButton
                       label={`Move ${unit.label} down`}
                       icon={ChevronDown}
                       onClick={() => handleMove(unit.id, 1)}
                       disabled={isPending || index === activeUnits.length - 1}
+                      loading={pendingAction === `move-${unit.id}-${1}`}
                     />
                     <TooltipIconButton
                       label={`Remove ${unit.label}`}
                       icon={Trash2}
                       onClick={() => handleRemove(unit.id)}
                       disabled={isPending}
+                      loading={pendingAction === `remove-${unit.id}`}
                       className="text-destructive-text hover:bg-destructive/10 hover:text-destructive-text"
                     />
                   </div>
@@ -225,6 +234,7 @@ export function CookingPlanManager({
                         icon={Plus}
                         onClick={() => handleAdd(unit.unitKey)}
                         disabled={isPending}
+                        loading={pendingAction === `add-${unit.unitKey}`}
                       />
                     </li>
                   ))}
@@ -258,6 +268,7 @@ export function CookingPlanManager({
                         icon={RotateCcw}
                         onClick={() => handleRestore(unit.id)}
                         disabled={isPending}
+                        loading={pendingAction === `restore-${unit.id}`}
                       />
                     </li>
                   ))}
@@ -274,33 +285,17 @@ export function CookingPlanManager({
         </SheetContent>
       </Sheet>
 
-      <Dialog
+      <ConfirmDialog
         open={finalUnitGuard}
-        onOpenChange={(nextOpen) => !nextOpen && setFinalUnitGuard(false)}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>This is the last active unit</DialogTitle>
-            <DialogDescription>
-              Removing it would leave this Cooking Session empty. Keep editing,
-              or delete the whole session instead. Deleting removes any progress
-              recorded in this session.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setFinalUnitGuard(false)}>
-              Keep editing
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDeleteSession}
-              disabled={isPending}
-            >
-              Delete session
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onOpenChangeAction={(nextOpen) => !nextOpen && setFinalUnitGuard(false)}
+        title="This is the last active unit"
+        description="Removing it would leave this Cooking Session empty. Keep editing, or delete the whole session instead. Deleting removes any progress recorded in this session."
+        cancelLabel="Keep editing"
+        confirmLabel="Delete session"
+        destructive
+        loading={pendingAction === "delete-session"}
+        onConfirmAction={handleDeleteSession}
+      />
     </>
   );
 }

@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MealPlanEditor } from "@/components/domain/mealplans/meal-plan-editor";
+import { ToastProvider, Toaster } from "@/components/ui/toast";
 import type { MealPlanEntryCandidate } from "@/lib/mealplans/queries";
 import type { DishVersionOption } from "@/lib/dishes/actions";
 
@@ -9,26 +10,18 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
 }));
 
-const {
-  createMealPlan,
-  updateMealPlan,
-  saveMealPlanEntryChanges,
-  addPlannedMeal,
-  removePlannedMeal,
-} = vi.hoisted(() => ({
-  createMealPlan: vi.fn(),
-  updateMealPlan: vi.fn(),
-  saveMealPlanEntryChanges: vi.fn(),
-  addPlannedMeal: vi.fn(),
-  removePlannedMeal: vi.fn(),
-}));
+const { createMealPlan, updateMealPlan, saveMealPlanEntryChanges } = vi.hoisted(
+  () => ({
+    createMealPlan: vi.fn(),
+    updateMealPlan: vi.fn(),
+    saveMealPlanEntryChanges: vi.fn(),
+  }),
+);
 
 vi.mock("@/lib/mealplans/actions", () => ({
   createMealPlan,
   updateMealPlan,
   saveMealPlanEntryChanges,
-  addPlannedMeal,
-  removePlannedMeal,
 }));
 
 const { listDishVersionOptions } = vi.hoisted(() => ({
@@ -70,13 +63,16 @@ function candidate(
 
 function renderEditor(candidates: MealPlanEntryCandidate[]) {
   return render(
-    <MealPlanEditor
-      mode="create"
-      candidates={candidates}
-      tagOptions={[]}
-      cuisineOptions={[]}
-      flavorProfileOptions={[]}
-    />,
+    <ToastProvider>
+      <MealPlanEditor
+        mode="create"
+        candidates={candidates}
+        tagOptions={[]}
+        cuisineOptions={[]}
+        flavorProfileOptions={[]}
+      />
+      <Toaster />
+    </ToastProvider>,
   );
 }
 
@@ -269,7 +265,167 @@ describe("MealPlanEditor Add-meal picker — Version selection and yield sync", 
     // preserved (never reset to the new Version's own yield), and the
     // scale recomputes against the new Version — never stays at 1.5x.
     expect(screen.getByText("Makes 8 servings")).toBeInTheDocument();
-    expect(targetYieldInput).toHaveValue(6);
+    expect(targetYieldInput).toHaveValue("6");
     expect(screen.getByText(/Scale recipe by 0\.75×/)).toBeInTheDocument();
+  });
+});
+
+/**
+ * Adds the sole default `candidate()` as a draft Meal via the Add-meal
+ * picker, leaving its modal closed afterward. Target yield is prefilled
+ * from the candidate's own yield (4) but stays untouched/`null` on submit
+ * unless explicitly edited here — `targetYield` (re)types it so the draft
+ * entry carries a real target yield for the Schedule tests below to cap
+ * against.
+ */
+async function addDefaultMeal(
+  user: ReturnType<typeof userEvent.setup>,
+  targetYield = "4",
+) {
+  await user.click(screen.getByRole("button", { name: "Add meal" }));
+  await user.click(
+    await screen.findByRole("radio", { name: /Weeknight Stir-Fry/ }),
+  );
+  const targetYieldInput = await screen.findByLabelText("Target yield");
+  await user.clear(targetYieldInput);
+  await user.type(targetYieldInput, targetYield);
+  await user.click(screen.getByRole("button", { name: "Add meal" }));
+}
+
+/**
+ * Schedule redesign: the former inline `+ Planned meal`/allocation UI on
+ * each Meal card is now this dedicated section + modal. With exactly one
+ * Meal on the plan, the modal's "Meal" picker defaults to it, so these tests
+ * don't need to drive that Select directly.
+ */
+describe("MealPlanEditor Schedule section", () => {
+  it("starts empty, with Add schedule disabled until a Meal exists", async () => {
+    renderEditor([candidate()]);
+
+    expect(
+      screen.getByText("There is no schedule for this meal plan."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add schedule" })).toBeDisabled();
+  });
+
+  it("Plan meals commits a scheduled allocation, surfacing meal label, Meal, date, and servings", async () => {
+    const user = userEvent.setup();
+    renderEditor([candidate()]);
+    await addDefaultMeal(user);
+
+    expect(
+      screen.getByRole("button", { name: "Add schedule" }),
+    ).not.toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Add schedule" }));
+
+    await user.type(await screen.findByLabelText("Meal name"), "Sunday dinner");
+    await user.type(screen.getByLabelText("Servings"), "2");
+    await user.click(screen.getByRole("button", { name: "Add plan" }));
+    await user.click(screen.getByRole("button", { name: "Plan meals" }));
+
+    expect(screen.getByText("Sunday dinner")).toBeInTheDocument();
+    expect(screen.getByText("2 servings")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Edit schedule" }),
+    ).toBeInTheDocument();
+  });
+
+  it("prevents scheduling more servings than the Meal's target yield across entries (§77.2)", async () => {
+    const user = userEvent.setup();
+    renderEditor([candidate()]); // target yield 4 (candidate()'s yieldQuantity)
+    await addDefaultMeal(user);
+    await user.click(screen.getByRole("button", { name: "Add schedule" }));
+
+    await user.type(await screen.findByLabelText("Meal name"), "First");
+    await user.type(screen.getByLabelText("Servings"), "3");
+    await user.click(screen.getByRole("button", { name: "Add plan" }));
+    expect(
+      screen.getByText(/1 serving left for this meal/),
+    ).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("Meal name"), "Second");
+    await user.type(screen.getByLabelText("Servings"), "3");
+    await user.click(screen.getByRole("button", { name: "Add plan" }));
+
+    expect(
+      screen.getByText(/Only 1 serving left for this meal/),
+    ).toBeInTheDocument();
+    // The over-allocating second entry never joined the draft list.
+    expect(screen.queryByText("Second")).not.toBeInTheDocument();
+  });
+
+  it("removing the Meal a schedule entry belongs to clears that schedule entry too", async () => {
+    const user = userEvent.setup();
+    renderEditor([candidate()]);
+    await addDefaultMeal(user);
+    await user.click(screen.getByRole("button", { name: "Add schedule" }));
+    await user.type(await screen.findByLabelText("Meal name"), "Sunday dinner");
+    await user.type(screen.getByLabelText("Servings"), "2");
+    await user.click(screen.getByRole("button", { name: "Add plan" }));
+    await user.click(screen.getByRole("button", { name: "Plan meals" }));
+    expect(screen.getByText("Sunday dinner")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Remove meal" }));
+
+    expect(
+      screen.getByText("There is no schedule for this meal plan."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Sunday dinner")).not.toBeInTheDocument();
+  });
+
+  it("Save sends the schedule as scheduleAssignments keyed to the new entry's localKey", async () => {
+    const user = userEvent.setup();
+    renderEditor([candidate()]);
+    await addDefaultMeal(user);
+    await user.click(screen.getByRole("button", { name: "Add schedule" }));
+    await user.type(await screen.findByLabelText("Meal name"), "Sunday dinner");
+    await user.type(screen.getByLabelText("Servings"), "2");
+    await user.click(screen.getByRole("button", { name: "Add plan" }));
+    await user.click(screen.getByRole("button", { name: "Plan meals" }));
+
+    await user.click(screen.getByRole("button", { name: "Create meal plan" }));
+
+    await waitFor(() => expect(saveMealPlanEntryChanges).toHaveBeenCalled());
+    const call = saveMealPlanEntryChanges.mock.calls[0][0];
+    expect(call.newEntries).toHaveLength(1);
+    const localKey = call.newEntries[0].localKey;
+    expect(typeof localKey).toBe("string");
+    expect(call.scheduleAssignments).toEqual([
+      {
+        mealKey: localKey,
+        meals: [
+          expect.objectContaining({ label: "Sunday dinner", servings: 2 }),
+        ],
+      },
+    ]);
+  });
+
+  it("blocks Save with a clear message when a Meal's target yield drops below its already-scheduled servings", async () => {
+    const user = userEvent.setup();
+    renderEditor([candidate()]);
+    await addDefaultMeal(user); // target yield 4
+
+    await user.click(screen.getByRole("button", { name: "Add schedule" }));
+    await user.type(await screen.findByLabelText("Meal name"), "Sunday dinner");
+    await user.type(screen.getByLabelText("Servings"), "3");
+    await user.click(screen.getByRole("button", { name: "Add plan" }));
+    await user.click(screen.getByRole("button", { name: "Plan meals" }));
+
+    // Lower the Meal's target yield below what's already scheduled (3).
+    await user.click(screen.getByRole("button", { name: "Edit meal" }));
+    const targetYieldInput = await screen.findByLabelText("Target yield");
+    await user.clear(targetYieldInput);
+    await user.type(targetYieldInput, "2");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await user.click(screen.getByRole("button", { name: "Create meal plan" }));
+
+    expect(
+      await screen.findByText(
+        /Scheduled servings for "Weeknight Stir-Fry" \(3\) exceed its target yield of 2/,
+      ),
+    ).toBeInTheDocument();
+    expect(createMealPlan).not.toHaveBeenCalled();
+    expect(saveMealPlanEntryChanges).not.toHaveBeenCalled();
   });
 });

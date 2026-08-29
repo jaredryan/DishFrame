@@ -149,7 +149,7 @@ export function PartUsagePanel({
           {error}
         </p>
       )}
-      <ul className="flex flex-col gap-2">
+      <ul className="grid gap-2 md:grid-cols-2 md:items-start">
         {usages.map((usage) => {
           const outOfDate =
             !!currentVersionId &&

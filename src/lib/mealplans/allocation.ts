@@ -1,19 +1,20 @@
 /**
- * Planned-meal allocation feedback (PRODUCT_SPEC.md §77.2) — pure, DB-free.
- * DishFrame warns when allocated servings over/under-shoot a cooking
- * entry's expected yield; it never blocks the plan (§77.2's "leftovers or
- * extra food" may be intentional).
+ * Schedule-section allocation limit (PRODUCT_SPEC.md §77.2) — pure, DB-free.
+ * A Meal's total scheduled servings, across every schedule entry for it, may
+ * not exceed its target yield; DishFrame prevents an over-allocation rather
+ * than merely warning about it (`setScheduleForEntry` in `service.ts`
+ * enforces this server-side).
  */
 
-export type AllocationStatus = "unknown" | "under" | "balanced" | "over";
-
-export function computeAllocationStatus(
+/**
+ * Servings still available to schedule for a Meal, given what's already
+ * scheduled for it — `null` when the Meal has no target yield to compare
+ * against (nothing to cap). Never negative.
+ */
+export function remainingServings(
   targetYieldQuantity: number | null,
-  plannedMeals: Array<{ servings: number }>,
-): AllocationStatus {
-  if (targetYieldQuantity == null) return "unknown";
-  const allocated = plannedMeals.reduce((sum, m) => sum + m.servings, 0);
-  if (allocated < targetYieldQuantity) return "under";
-  if (allocated > targetYieldQuantity) return "over";
-  return "balanced";
+  alreadyScheduled: number,
+): number | null {
+  if (targetYieldQuantity == null) return null;
+  return Math.max(0, targetYieldQuantity - alreadyScheduled);
 }

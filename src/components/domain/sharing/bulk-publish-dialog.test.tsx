@@ -1,7 +1,20 @@
+import * as React from "react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { BulkPublishDialog } from "@/components/domain/sharing/bulk-publish-dialog";
+import { ToastProvider, Toaster } from "@/components/ui/toast";
+
+function renderDialog(
+  props: Partial<React.ComponentProps<typeof BulkPublishDialog>> = {},
+) {
+  return render(
+    <ToastProvider>
+      <BulkPublishDialog open onOpenChange={() => {}} {...props} />
+      <Toaster />
+    </ToastProvider>,
+  );
+}
 
 const mockListShareableItems = vi.fn();
 const mockPublishDishes = vi.fn();
@@ -89,7 +102,7 @@ describe("BulkPublishDialog", () => {
 
   it("Continue stays disabled until at least one item is selected", async () => {
     const user = userEvent.setup();
-    render(<BulkPublishDialog open onOpenChange={() => {}} />);
+    renderDialog();
     await waitFor(() =>
       expect(screen.getByText("Recipe One")).toBeInTheDocument(),
     );
@@ -121,13 +134,7 @@ describe("BulkPublishDialog", () => {
     });
     const onPublished = vi.fn();
     const user = userEvent.setup();
-    render(
-      <BulkPublishDialog
-        open
-        onOpenChange={() => {}}
-        onPublished={onPublished}
-      />,
-    );
+    renderDialog({ onPublished });
     await waitFor(() =>
       expect(screen.getByText("Recipe One")).toBeInTheDocument(),
     );
@@ -179,7 +186,7 @@ describe("BulkPublishDialog", () => {
       ],
     });
     const user = userEvent.setup();
-    render(<BulkPublishDialog open onOpenChange={() => {}} />);
+    renderDialog();
     await waitFor(() =>
       expect(screen.getByText("Recipe One")).toBeInTheDocument(),
     );
@@ -224,7 +231,7 @@ describe("BulkPublishDialog", () => {
       ],
     });
     const user = userEvent.setup();
-    render(<BulkPublishDialog open onOpenChange={() => {}} />);
+    renderDialog();
     await waitFor(() =>
       expect(screen.getByText("Recipe One")).toBeInTheDocument(),
     );

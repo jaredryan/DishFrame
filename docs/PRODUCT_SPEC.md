@@ -4388,6 +4388,8 @@ Combined items preserve their source breakdown.
 
 The user may reveal the individual source lines through an expandable or equivalent frontend treatment.
 
+Each revealed source line identifies which Recipe or Part it came from (not only its quantity/ingredient contribution), since several meals may contribute the same ingredient.
+
 ## 61.4 Uncombine
 
 Users may choose:
@@ -5293,16 +5295,15 @@ Wednesday lunch — 1 serving
 
 The internal concept may be represented as serving allocations.
 
-## 77.2 Allocation feedback
+Scheduling is managed through a dedicated Schedule section in Meal Plan Create/Edit, separate from the Meals section describing what's being prepared — not edited inline on an individual Meal card. A schedule entry associates a meal label, the Meal Plan meal (cooking entry) it refers to, a date, and servings.
 
-DishFrame may warn when planned allocations:
+## 77.2 Allocation limits
 
-- exceed expected yield;
-- leave expected yield unallocated.
+A scheduled date must fall within the Meal Plan's own start/end date range. An out-of-range date is not selectable, and is also rejected server-side.
 
-It does not block the plan.
+Total scheduled servings for a Meal may not exceed that Meal's target yield, counting every schedule entry for it together. DishFrame prevents an allocation that would exceed the target yield rather than merely warning about it — an over-allocating entry is rejected, both at entry and again in server-side validation.
 
-The user may intentionally want flexible leftovers or extra food.
+Leaving expected yield unallocated remains allowed: the user may intentionally want flexible leftovers or extra food, or may simply not have scheduled every serving yet.
 
 ## 77.3 No consumption tracking
 
@@ -5523,6 +5524,10 @@ DishFrame should preserve checkoff state where an equivalent generated item rema
 
 If a checked generated item materially changes or disappears, DishFrame should visibly flag the change rather than silently erasing evidence.
 
+A generated item the user deliberately removes stays removed through later, unrelated synchronization — it is not silently recreated merely because its source still produces the same contribution. A materially new or changed contribution from that same source may still appropriately reappear.
+
+A removal's suppression is scoped to the item's state at the time it was removed. If the user removes a generated item while its contribution is optional, that suppression holds only while the same contribution remains optional. If the same contribution later becomes required, the removal no longer applies — the required contribution appears, since a decision to skip an optional item does not mean the user has decided to skip a now-required one. Once a required change has lifted an earlier optional-removal suppression this way, DishFrame does not automatically reinstate that old suppression if a later change makes the same contribution optional again — the user would need to remove it again to suppress it going forward. A removal made while the contribution was already required is unaffected by this and keeps suppressing that contribution regardless of later optional/required changes.
+
 ## 81.5 Completion boundary
 
 Completing the grocery list freezes it as a historical record.
@@ -5534,6 +5539,20 @@ This preserves what the user actually shopped for.
 ## 81.6 Standalone lists
 
 A standalone grocery list not linked to a Meal Plan stores a generated snapshot and does not silently rewrite itself from later Recipe or Part changes.
+
+A standalone list retains its own independent Add-meal/source behavior (selecting an exact Version and target amount) regardless of any Meal Plan-linked behavior described below.
+
+## 81.7 List scope and Meal Plan entry selection
+
+One Meal Plan may feed multiple grocery lists, each covering a different selected subset of its entries — the selection is made at generation (§81.1) and remains adjustable afterward from the linked list itself.
+
+A Meal-Plan-linked grocery list's Meals section shows the linked Meal Plan's own entries and which of them currently contribute to this list. The user may toggle an entry's contribution to this list on or off; synchronized grocery content updates to match.
+
+Toggling an entry's contribution to one list never adds, removes, or otherwise edits the Meal Plan's own entries — a list's selected subset is distinct from the Meal Plan's own list of entries.
+
+Adding, removing, or otherwise changing the Meal Plan's actual entries happens on the Meal Plan itself. A Meal-Plan-linked list does not offer its own standalone Add-meal control; it instead offers navigation to the Meal Plan's Edit page ("Update meal plan").
+
+A Grocery List's chosen Meal subset is preserved when the Meal Plan later grows. When a new Meal Plan entry is added after one or more Grocery Lists are already linked to that plan, the new entry appears in each existing list's Meals section unchecked and does not contribute grocery content there — it does not assume the user wants it included just because it exists. The user may explicitly check it later to include it, and this choice is independent per Grocery List. This does not apply to a Grocery List's own generation, which continues to honor whatever Meal selection the user made at that time (§81.1).
 
 ---
 

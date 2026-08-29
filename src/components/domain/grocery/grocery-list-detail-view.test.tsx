@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { GroceryListDetailView } from "@/components/domain/grocery/grocery-list-detail-view";
+import { ToastProvider, Toaster } from "@/components/ui/toast";
 import type {
   GroceryContributionDto,
   GroceryListDetailDto,
@@ -11,6 +12,7 @@ import type {
   DishVersionYieldOption,
   GrocerySourceCandidate,
 } from "@/lib/grocery/queries";
+import type { ResyncMealPlanGroceryListsActionState } from "@/lib/mealplans/actions";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
@@ -67,8 +69,22 @@ vi.mock("@/lib/grocery/list-actions", () => ({
   generateGroceryList: vi.fn(async () => ({ status: "success", listId: "l" })),
 }));
 
+const { resyncMealPlanGroceryLists, setMealPlanGroceryListEntryIncluded } =
+  vi.hoisted(() => ({
+    resyncMealPlanGroceryLists: vi.fn(
+      async (): Promise<ResyncMealPlanGroceryListsActionState> => ({
+        status: "success",
+        summary: null,
+      }),
+    ),
+    setMealPlanGroceryListEntryIncluded: vi.fn(async () => ({
+      status: "success" as const,
+    })),
+  }));
+
 vi.mock("@/lib/mealplans/actions", () => ({
-  resyncMealPlanGroceryLists: vi.fn(async () => ({ status: "success" })),
+  resyncMealPlanGroceryLists,
+  setMealPlanGroceryListEntryIncluded,
 }));
 
 function contribution(
@@ -85,6 +101,7 @@ function contribution(
     selectedVariant: "PRIMARY",
     syncState: null,
     previousQuantityText: null,
+    sourceTitle: null,
     ...overrides,
   };
 }
@@ -122,14 +139,18 @@ function renderList(
     linkedMealPlanId: null,
     sources: [],
     items,
+    mealPlanEntries: [],
     ...listOverrides,
   };
   return render(
-    <GroceryListDetailView
-      list={list}
-      categoryOptions={[]}
-      sourceCandidates={sourceCandidates}
-    />,
+    <ToastProvider>
+      <GroceryListDetailView
+        list={list}
+        categoryOptions={[]}
+        sourceCandidates={sourceCandidates}
+      />
+      <Toaster />
+    </ToastProvider>,
   );
 }
 
@@ -512,5 +533,180 @@ describe("GroceryListDetailView — Add meal Version selection", () => {
         scaleFactor: 2,
       }),
     );
+  });
+});
+
+describe("GroceryListDetailView — Meal-Plan-linked Meals section (§81.7)", () => {
+  function linkedList(
+    mealPlanEntries: GroceryListDetailDto["mealPlanEntries"],
+  ): Partial<GroceryListDetailDto> {
+    return {
+      mode: "MEAL_PLAN_LINKED",
+      linkedMealPlanId: "plan-1",
+      sources: [],
+      mealPlanEntries,
+    };
+  }
+
+  it("populates Meals from the linked Meal Plan's own entries, not GroceryListSource rows", () => {
+    renderList(
+      [],
+      linkedList([
+        {
+          id: "entry-1",
+          dishKind: "RECIPE",
+          title: "Chili Crisp Bowl",
+          versionLabel: "V1.0",
+          targetYieldQuantity: 4,
+          targetYieldUnit: "servings",
+          included: true,
+        },
+      ]),
+    );
+
+    expect(screen.getByText("Chili Crisp Bowl")).toBeInTheDocument();
+    expect(
+      screen.queryByText("No meals in this list yet."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows Update meal plan navigation instead of Add meal, and never mutates the plan on click", () => {
+    renderList([], linkedList([]));
+
+    expect(
+      screen.queryByRole("button", { name: "Add meal" }),
+    ).not.toBeInTheDocument();
+    const link = screen.getByRole("link", { name: /Update meal plan/ });
+    expect(link).toHaveAttribute("href", "/meal-plans/plan-1/edit");
+  });
+
+  it("toggling an entry's checkbox calls setMealPlanGroceryListEntryIncluded, distinct from the plan's own entry list", async () => {
+    setMealPlanGroceryListEntryIncluded.mockClear();
+    const user = userEvent.setup();
+    renderList([], {
+      id: "list-9",
+      ...linkedList([
+        {
+          id: "entry-1",
+          dishKind: "RECIPE",
+          title: "Chili Crisp Bowl",
+          versionLabel: "V1.0",
+          targetYieldQuantity: 4,
+          targetYieldUnit: "servings",
+          included: true,
+        },
+      ]),
+    });
+
+    await user.click(
+      screen.getByRole("checkbox", { name: /Chili Crisp Bowl/ }),
+    );
+
+    expect(setMealPlanGroceryListEntryIncluded).toHaveBeenCalledWith({
+      mealPlanId: "plan-1",
+      listId: "list-9",
+      entryId: "entry-1",
+      included: false,
+    });
+  });
+
+  it("standalone lists keep Add meal and never show Update meal plan", () => {
+    renderList([]);
+    expect(
+      screen.getByRole("button", { name: "Add meal" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: /Update meal plan/ }),
+    ).not.toBeInTheDocument();
+  });
+});
+
+describe("GroceryListDetailView — Sync now feedback (§81.2 UX correction)", () => {
+  function syncableList(): Partial<GroceryListDetailDto> {
+    return {
+      mode: "MEAL_PLAN_LINKED",
+      linkedMealPlanId: "plan-1",
+      sources: [],
+      mealPlanEntries: [],
+    };
+  }
+
+  it("shows a success toast naming what changed when the sync applies changes", async () => {
+    resyncMealPlanGroceryLists.mockResolvedValueOnce({
+      status: "success",
+      summary: { added: 2, removed: 0, changed: 1 },
+    });
+    const user = userEvent.setup();
+    renderList([], syncableList());
+
+    await user.click(screen.getByRole("button", { name: /Sync now/ }));
+
+    expect(await screen.findByText("Grocery list synced")).toBeInTheDocument();
+    expect(
+      screen.getByText(/2 added, 1 updated from the Meal Plan\./),
+    ).toBeInTheDocument();
+  });
+
+  it("shows a neutral toast, not a success one, when nothing changed", async () => {
+    resyncMealPlanGroceryLists.mockResolvedValueOnce({
+      status: "success",
+      summary: { added: 0, removed: 0, changed: 0 },
+    });
+    const user = userEvent.setup();
+    renderList([], syncableList());
+
+    await user.click(screen.getByRole("button", { name: /Sync now/ }));
+
+    expect(await screen.findByText("Already up to date")).toBeInTheDocument();
+    expect(screen.queryByText("Grocery list synced")).not.toBeInTheDocument();
+  });
+
+  it("shows an error toast and leaves the list usable on failure", async () => {
+    resyncMealPlanGroceryLists.mockResolvedValueOnce({
+      status: "error",
+      message: "Could not reach the Meal Plan.",
+    });
+    const user = userEvent.setup();
+    renderList([], syncableList());
+
+    await user.click(screen.getByRole("button", { name: /Sync now/ }));
+
+    expect(
+      await screen.findByText("Could not reach the Meal Plan."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Sync now/ })).toBeEnabled();
+  });
+});
+
+describe("GroceryListDetailView — combined-item source breakdown (§61.3)", () => {
+  it("identifies which Recipe/Part each contribution in a combined item came from", async () => {
+    const user = userEvent.setup();
+    renderList([
+      item({
+        contributions: [
+          contribution({
+            id: "c1",
+            originalName: "Soy sauce",
+            quantityText: "4",
+            unit: "tbsp",
+            sourceTitle: "Chili Crisp Bowl",
+          }),
+          contribution({
+            id: "c2",
+            originalName: "Soy sauce",
+            quantityText: "2",
+            unit: "tbsp",
+            sourceTitle: "Vietnamese Nuoc Cham Bowl",
+          }),
+        ],
+      }),
+    ]);
+
+    await user.click(screen.getByRole("button", { name: /Show sources/ }));
+
+    expect(screen.getByText(/Chili Crisp Bowl · 4 tbsp/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Vietnamese Nuoc Cham Bowl · 2 tbsp/),
+    ).toBeInTheDocument();
   });
 });

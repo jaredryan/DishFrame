@@ -2,7 +2,17 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DirectShareReceivedList } from "@/components/domain/sharing/direct-share-received-list";
+import { ToastProvider, Toaster } from "@/components/ui/toast";
 import type { ReceivedItemView } from "@/lib/sharing/view-model";
+
+function renderList(items: ReceivedItemView[]) {
+  return render(
+    <ToastProvider>
+      <DirectShareReceivedList items={items} />
+      <Toaster />
+    </ToastProvider>,
+  );
+}
 
 const mockRefresh = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -80,14 +90,14 @@ describe("DirectShareReceivedList", () => {
   });
 
   it("places Preview, Decline, Accept together in that order for a pending item", () => {
-    render(<DirectShareReceivedList items={[PENDING_SINGLE]} />);
+    renderList([PENDING_SINGLE]);
     const buttons = screen.getAllByRole("button");
     const labels = buttons.map((b) => b.textContent);
     expect(labels).toEqual(["Preview", "Decline", "Accept"]);
   });
 
   it("gives Decline the destructive-text treatment and Accept the primary treatment", () => {
-    render(<DirectShareReceivedList items={[PENDING_SINGLE]} />);
+    renderList([PENDING_SINGLE]);
     expect(
       screen.getByRole("button", { name: "Decline" }).dataset.variant,
     ).toBe("destructive");
@@ -107,7 +117,7 @@ describe("DirectShareReceivedList", () => {
       dishId: "new-dish",
       dishKind: "RECIPE",
     });
-    render(<DirectShareReceivedList items={[PENDING_SINGLE]} />);
+    renderList([PENDING_SINGLE]);
     await user.click(screen.getByRole("button", { name: "Accept" }));
     expect(mockAccept).toHaveBeenCalledWith({ directShareId: "rshare-1" });
     await waitFor(() =>
@@ -118,20 +128,20 @@ describe("DirectShareReceivedList", () => {
   it("declines a single item via declineDirectShare", async () => {
     const user = userEvent.setup();
     mockDecline.mockResolvedValue({ status: "success", outcome: "declined" });
-    render(<DirectShareReceivedList items={[PENDING_SINGLE]} />);
+    renderList([PENDING_SINGLE]);
     await user.click(screen.getByRole("button", { name: "Decline" }));
     expect(mockDecline).toHaveBeenCalledWith({ directShareId: "rshare-1" });
   });
 
   it("shows a View your copy link once already accepted", () => {
-    render(<DirectShareReceivedList items={[ACCEPTED_SINGLE]} />);
+    renderList([ACCEPTED_SINGLE]);
     const link = screen.getByRole("link", { name: "View your copy" });
     expect(link).toHaveAttribute("href", "/recipes/dish-copy-1");
   });
 
   it("renders a multi-item group collapsed, expandable to show child statuses and a Review action", async () => {
     const user = userEvent.setup();
-    render(<DirectShareReceivedList items={[GROUP]} />);
+    renderList([GROUP]);
 
     expect(screen.getByText("Jordan")).toBeInTheDocument();
     expect(screen.getByText("1 pending")).toBeInTheDocument();
@@ -147,7 +157,7 @@ describe("DirectShareReceivedList", () => {
   });
 
   it("shows an empty-state message when nothing has been received", () => {
-    render(<DirectShareReceivedList items={[]} />);
+    renderList([]);
     expect(screen.getByText("Nothing sent to you yet.")).toBeInTheDocument();
   });
 });

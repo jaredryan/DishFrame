@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { DirectSharePreview } from "@/components/domain/sharing/direct-share-preview";
+import { useToast } from "@/components/ui/toast";
 import {
   getDirectShareCollectionDetail,
   acceptDirectShare,
@@ -40,8 +41,8 @@ export function DirectShareCollectionReviewDialog({
     React.useState<DirectShareCollectionDetail | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
-  const [submitError, setSubmitError] = React.useState<string | null>(null);
   const [done, setDone] = React.useState(false);
+  const { showToast } = useToast();
   const [, startLoadTransition] = React.useTransition();
   const [isPending, startTransition] = React.useTransition();
   // Real per-recipe progress (not a timer): each accepted item is its own
@@ -88,7 +89,6 @@ export function DirectShareCollectionReviewDialog({
         loadedRef.current = false;
         setDetail(null);
         setLoadError(null);
-        setSubmitError(null);
         setDone(false);
         setProgress(null);
       }
@@ -112,7 +112,6 @@ export function DirectShareCollectionReviewDialog({
   }
 
   function submit(acceptedShareIds: string[]) {
-    setSubmitError(null);
     const acceptedSet = new Set(acceptedShareIds);
     const declinedShareIds = pendingChildren
       .map((child) => child.id)
@@ -139,11 +138,13 @@ export function DirectShareCollectionReviewDialog({
 
       if (failures.length > 0) {
         setProgress(null);
-        setSubmitError(
-          failures.length === 1
-            ? failures[0]
-            : `${failures.length} items couldn't be processed — the rest were saved. Try again for the rest.`,
-        );
+        showToast({
+          variant: "error",
+          title:
+            failures.length === 1
+              ? failures[0]
+              : `${failures.length} items couldn't be processed — the rest were saved. Try again for the rest.`,
+        });
       } else {
         setDone(true);
       }
@@ -229,11 +230,6 @@ export function DirectShareCollectionReviewDialog({
                   {unselectedCount > 0
                     ? ` — the other ${unselectedCount} will be declined when you submit.`
                     : "."}
-                </p>
-              )}
-              {submitError && (
-                <p role="alert" className="text-destructive-text text-sm">
-                  {submitError}
                 </p>
               )}
               {detail.children.some((child) => child.status !== "PENDING") && (

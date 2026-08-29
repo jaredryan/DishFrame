@@ -158,10 +158,11 @@ export function PasteImportFlow({
       <Button
         type="button"
         onClick={handleParse}
-        disabled={isParsing || rawText.trim().length === 0}
+        disabled={rawText.trim().length === 0}
+        loading={isParsing}
         className="self-start"
       >
-        {isParsing ? "Parsing…" : `Parse ${kindLabel.toLowerCase()}`}
+        Parse {kindLabel.toLowerCase()}
       </Button>
     </div>
   );

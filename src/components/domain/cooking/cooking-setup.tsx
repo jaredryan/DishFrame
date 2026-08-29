@@ -10,6 +10,7 @@ import {
   CONTENT_CARD_TITLE_CLASS,
 } from "@/components/domain/dish/content-card";
 import { TooltipIconButton } from "@/components/domain/dish/reorder-buttons";
+import { useToast } from "@/components/ui/toast";
 import {
   Dialog,
   DialogContent,
@@ -124,7 +125,7 @@ export function CookingSetup({
     Record<string, number | null>
   >({});
   const [isPending, startTransition] = React.useTransition();
-  const [error, setError] = React.useState<string | null>(null);
+  const { showToast } = useToast();
   const [conflict, setConflict] = React.useState<{
     existingSessionId: string | null;
   } | null>(null);
@@ -157,7 +158,6 @@ export function CookingSetup({
   }
 
   function handleStart() {
-    setError(null);
     startTransition(async () => {
       const result = await startCookingSession({
         dishId,
@@ -174,7 +174,7 @@ export function CookingSetup({
       } else if (result.status === "conflict") {
         setConflict({ existingSessionId: result.existingSessionId });
       } else {
-        setError(result.message);
+        showToast({ variant: "error", title: result.message });
       }
     });
   }
@@ -331,19 +331,14 @@ export function CookingSetup({
         )}
       </ContentCard>
 
-      {error && (
-        <p role="alert" className="text-destructive-text text-sm">
-          {error}
-        </p>
-      )}
-
       <div className="flex flex-wrap items-center gap-2">
         <Button
           onClick={handleStart}
-          disabled={isPending || includedKeys.length === 0}
+          disabled={includedKeys.length === 0}
+          loading={isPending}
         >
           <ChefHat className="size-4" aria-hidden="true" />
-          {isPending ? "Starting…" : "Start cooking"}
+          Start cooking
         </Button>
         <Button variant="outline" asChild>
           <Link href={cancelHref}>Cancel</Link>
@@ -369,9 +364,10 @@ export function CookingSetup({
             <Button
               variant="destructive"
               onClick={handleEndExisting}
-              disabled={resolvingConflict || !conflict?.existingSessionId}
+              disabled={!conflict?.existingSessionId}
+              loading={resolvingConflict}
             >
-              {resolvingConflict ? "Ending…" : "End current session"}
+              End current session
             </Button>
             <Button
               disabled={!conflict?.existingSessionId}

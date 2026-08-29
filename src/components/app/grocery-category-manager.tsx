@@ -17,6 +17,7 @@ import { DragHandle } from "@/components/ui/drag-handle";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { DisabledActionHint } from "@/components/app/disabled-action-hint";
+import { usePendingAction } from "@/components/ui/use-pending-action";
 import { useReorderSensors } from "@/lib/dnd/sensors";
 import { createReorderAnnouncements } from "@/lib/dnd/announcements";
 import {
@@ -42,6 +43,8 @@ function SortableCategoryRow({
   setEditingId,
   onRename,
   onDelete,
+  isPending,
+  isRenaming,
 }: {
   category: CategoryDto;
   index: number;
@@ -50,6 +53,8 @@ function SortableCategoryRow({
   setEditingId: (id: string | null) => void;
   onRename: (id: string, name: string) => void;
   onDelete: (category: CategoryDto) => void;
+  isPending: boolean;
+  isRenaming: boolean;
 }) {
   const isEditing = editingId === category.id;
   const {
@@ -100,13 +105,14 @@ function SortableCategoryRow({
             autoFocus
             className="h-8"
           />
-          <Button type="submit" size="sm">
+          <Button type="submit" size="sm" loading={isRenaming}>
             Save
           </Button>
           <Button
             type="button"
             variant="ghost"
             size="sm"
+            disabled={isPending}
             onClick={() => setEditingId(null)}
           >
             Cancel
@@ -121,6 +127,7 @@ function SortableCategoryRow({
               type="button"
               variant="ghost"
               size="icon-sm"
+              disabled={isPending}
               onClick={() => setEditingId(category.id)}
               aria-label={`Rename ${category.displayName}`}
               title={`Rename ${category.displayName}`}
@@ -145,6 +152,7 @@ function SortableCategoryRow({
                 type="button"
                 variant="ghost"
                 size="icon-sm"
+                disabled={isPending}
                 onClick={() => onDelete(category)}
                 aria-label={`Delete ${category.displayName}`}
                 title={`Delete ${category.displayName}`}
@@ -170,7 +178,9 @@ export function GroceryCategoryManager({
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [renameError, setRenameError] = React.useState<string | null>(null);
   const [deleteError, setDeleteError] = React.useState<string | null>(null);
-  const [isPending, startTransition] = React.useTransition();
+  const { pendingAction, isPending, run } = usePendingAction<
+    "create" | "rename" | "delete" | "reorder"
+  >();
   const formRef = React.useRef<HTMLFormElement>(null);
   const sensors = useReorderSensors();
 
@@ -181,7 +191,7 @@ export function GroceryCategoryManager({
     if (!name) return;
 
     setCreateError(null);
-    startTransition(async () => {
+    run("create", async () => {
       const result = await createGroceryCategory(
         initialCreateCategoryActionState,
         formData,
@@ -204,7 +214,7 @@ export function GroceryCategoryManager({
     );
     setEditingId(null);
     setRenameError(null);
-    startTransition(async () => {
+    run("rename", async () => {
       const formData = new FormData();
       formData.set("id", id);
       formData.set("name", name);
@@ -220,7 +230,7 @@ export function GroceryCategoryManager({
     const previous = categories;
     setDeleteError(null);
     setCategories((prev) => prev.filter((c) => c.id !== category.id));
-    startTransition(async () => {
+    run("delete", async () => {
       const formData = new FormData();
       formData.set("id", category.id);
       const result = await deleteGroceryCategory(initialActionState, formData);
@@ -234,7 +244,7 @@ export function GroceryCategoryManager({
   function persistOrder(next: CategoryDto[]) {
     const previous = categories;
     setCategories(next);
-    startTransition(async () => {
+    run("reorder", async () => {
       const result = await reorderGroceryCategories(
         next.map((category) => category.id),
       );
@@ -304,6 +314,8 @@ export function GroceryCategoryManager({
                 setEditingId={setEditingId}
                 onRename={handleRename}
                 onDelete={handleDelete}
+                isPending={isPending}
+                isRenaming={pendingAction === "rename"}
               />
             ))}
             {categories.length === 0 && (
@@ -331,7 +343,7 @@ export function GroceryCategoryManager({
             disabled={isPending}
           />
         </div>
-        <Button type="submit" disabled={isPending}>
+        <Button type="submit" loading={pendingAction === "create"}>
           Add
         </Button>
       </form>

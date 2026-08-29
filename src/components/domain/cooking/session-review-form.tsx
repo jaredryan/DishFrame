@@ -26,14 +26,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useToast } from "@/components/ui/toast";
 import { StarRatingInput } from "@/components/domain/cooking/star-rating-input";
 import { CoachMark } from "@/components/onboarding/coach-mark";
 import { saveSessionReview, deleteSessionReview } from "@/lib/reviews/actions";
@@ -68,45 +62,6 @@ type ExistingReview = {
   // exists; a brand new Review has no saved selection yet to reopen.
   includedUnitIds: string[];
 } | null;
-
-/**
- * Small self-contained toast — no app-wide toast system exists yet
- * (post-cook review redesign item 4). Fixed-position and independent of
- * document flow so it never shifts the success screen's own layout, and
- * auto-dismisses so no lingering state needs manual clearing.
- */
-type ToastState = { kind: "success" | "error"; message: string } | null;
-
-function useToast() {
-  const [toast, setToast] = React.useState<ToastState>(null);
-  React.useEffect(() => {
-    if (!toast) return;
-    const timer = setTimeout(() => setToast(null), 4000);
-    return () => clearTimeout(timer);
-  }, [toast]);
-  return [toast, setToast] as const;
-}
-
-function ReviewToast({ toast }: { toast: ToastState }) {
-  if (!toast) return null;
-  return (
-    <div
-      role="status"
-      aria-live="polite"
-      className="fixed inset-x-0 bottom-6 z-50 flex justify-center px-4"
-    >
-      <div
-        className={`rounded-lg px-4 py-2 text-sm font-medium shadow-lg ${
-          toast.kind === "success"
-            ? "bg-success text-success-foreground"
-            : "bg-destructive text-destructive-foreground"
-        }`}
-      >
-        {toast.message}
-      </div>
-    </div>
-  );
-}
 
 function formatMinutes(seconds: number | null): string {
   if (seconds == null) return "";
@@ -241,7 +196,6 @@ export function SessionReviewForm({
   );
 
   const [isPending, startTransition] = React.useTransition();
-  const [error, setError] = React.useState<string | null>(null);
   const [justSaved, setJustSaved] = React.useState(false);
   const [deleteOpen, setDeleteOpen] = React.useState(false);
   const [isDeleting, startDeleteTransition] = React.useTransition();
@@ -259,7 +213,7 @@ export function SessionReviewForm({
     React.useState<RestorableStageValue>(defaultStage);
   const [persistedStage, setPersistedStage] =
     React.useState<RestorableStageValue>(defaultStage);
-  const [toast, setToast] = useToast();
+  const { showToast } = useToast();
 
   const hasExistingReview =
     existingReview != null || existingRatings.length > 0;
@@ -274,7 +228,6 @@ export function SessionReviewForm({
   }
 
   function handleSave() {
-    setError(null);
     const ratings = Object.entries(ratingValues)
       .filter((entry): entry is [string, number] => entry[1] != null)
       .map(([tasterId, value]) => ({ tasterId, value }));
@@ -300,7 +253,7 @@ export function SessionReviewForm({
         includedUnitIds: [...includedUnitIds],
       });
       if (result.status === "error") {
-        setError(result.message);
+        showToast({ variant: "error", title: result.message });
         return;
       }
       if (result.deleted) {
@@ -312,11 +265,10 @@ export function SessionReviewForm({
   }
 
   function handleDelete() {
-    setError(null);
     startDeleteTransition(async () => {
       const result = await deleteSessionReview({ sessionId });
       if (result.status === "error") {
-        setError(result.message);
+        showToast({ variant: "error", title: result.message });
         return;
       }
       router.push(`/cook/${sessionId}`);
@@ -335,9 +287,9 @@ export function SessionReviewForm({
         { dishId, stage },
       );
       if (result.status === "error") {
-        setToast({
-          kind: "error",
-          message: result.message ?? "Could not update stage.",
+        showToast({
+          variant: "error",
+          title: result.message ?? "Could not update stage.",
         });
         return;
       }
@@ -346,9 +298,9 @@ export function SessionReviewForm({
       // free to keep changing while this request is in flight.
       setPersistedStage(stage);
       setChangingStage(false);
-      setToast({
-        kind: "success",
-        message: `Stage updated to ${STAGE_LABEL[stage]}.`,
+      showToast({
+        variant: "success",
+        title: `Stage updated to ${STAGE_LABEL[stage]}.`,
       });
     });
   }
@@ -453,8 +405,6 @@ export function SessionReviewForm({
             </Link>
           </Button>
         </div>
-
-        <ReviewToast toast={toast} />
       </div>
     );
   }
@@ -575,8 +525,8 @@ export function SessionReviewForm({
               className="bg-card dark:bg-card h-8 flex-1"
               disabled={isAddingTaster}
             />
-            <Button type="submit" size="sm" disabled={isAddingTaster}>
-              {isAddingTaster ? "Adding…" : "Add"}
+            <Button type="submit" size="sm" loading={isAddingTaster}>
+              Add
             </Button>
             <Button
               type="button"
@@ -653,12 +603,6 @@ export function SessionReviewForm({
         </div>
       </details>
 
-      {error && (
-        <p role="alert" className="text-destructive-text text-sm">
-          {error}
-        </p>
-      )}
-
       <div className="flex flex-col gap-2">
         <Button onClick={handleSave} loading={isPending}>
           <Save className="size-4" aria-hidden="true" />
@@ -687,31 +631,23 @@ export function SessionReviewForm({
         </div>
       </div>
 
-      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete this Review?</DialogTitle>
-            <DialogDescription>
-              This removes the Review text and every rating you entered here —
-              rating summaries for {dishTitle} will recalculate. The Cooking
-              Session, checklist progress, timers, and Cooking notes are not
-              affected.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDelete}
-              loading={isDeleting}
-            >
-              Delete Review
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChangeAction={setDeleteOpen}
+        title="Delete this Review?"
+        description={
+          <>
+            This removes the Review text and every rating you entered here —
+            rating summaries for {dishTitle} will recalculate. The Cooking
+            Session, checklist progress, timers, and Cooking notes are not
+            affected.
+          </>
+        }
+        confirmLabel="Delete Review"
+        destructive
+        loading={isDeleting}
+        onConfirmAction={handleDelete}
+      />
     </div>
   );
 }

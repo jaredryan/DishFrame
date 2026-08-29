@@ -4,6 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { usePendingAction } from "@/components/ui/use-pending-action";
 import {
   revokeAuthSessionAction,
   revokeOtherAuthSessionsAction,
@@ -37,9 +38,10 @@ export function AuthSessionManager({
   sessions: AuthSessionSummary[];
 }) {
   const router = useRouter();
-  const [isPending, startTransition] = React.useTransition();
+  const { pendingAction, isPending, run } = usePendingAction<
+    "revoke-others" | `revoke-${string}`
+  >();
   const [error, setError] = React.useState<string | null>(null);
-  const [revokingId, setRevokingId] = React.useState<string | null>(null);
 
   if (status === "needs_reauth") {
     return (
@@ -49,21 +51,19 @@ export function AuthSessionManager({
 
   function handleRevoke(sessionId: string) {
     setError(null);
-    setRevokingId(sessionId);
-    startTransition(async () => {
+    run(`revoke-${sessionId}`, async () => {
       const result = await revokeAuthSessionAction({ sessionId });
       if (result.status === "success") {
         router.refresh();
       } else {
         setError(result.message);
       }
-      setRevokingId(null);
     });
   }
 
   function handleRevokeOthers() {
     setError(null);
-    startTransition(async () => {
+    run("revoke-others", async () => {
       const result = await revokeOtherAuthSessionsAction();
       if (result.status === "success") {
         router.refresh();
@@ -99,9 +99,10 @@ export function AuthSessionManager({
                 variant="outline"
                 size="sm"
                 disabled={isPending}
+                loading={pendingAction === `revoke-${s.id}`}
                 onClick={() => handleRevoke(s.id)}
               >
-                {revokingId === s.id ? "Signing out…" : "Sign out"}
+                Sign out
               </Button>
             )}
           </li>
@@ -120,6 +121,7 @@ export function AuthSessionManager({
           size="sm"
           className="self-start"
           disabled={isPending}
+          loading={pendingAction === "revoke-others"}
           onClick={handleRevokeOthers}
         >
           Sign out all other devices

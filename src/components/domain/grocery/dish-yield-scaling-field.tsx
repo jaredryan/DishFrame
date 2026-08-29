@@ -2,6 +2,7 @@ import * as React from "react";
 import { Input } from "@/components/ui/input";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { ScaleControl } from "@/components/domain/cooking/scale-control";
+import { formatYieldAmount } from "@/lib/dishes/format";
 
 export function parseServings(text: string): number | null {
   const trimmed = text.trim();
@@ -105,8 +106,8 @@ function ServingsScalingField({
         className="w-13"
       />
       <p className="text-muted-foreground text-sm">
-        Makes {parsed ?? defaultYield} servings. {kindLabel} will be scaled by{" "}
-        {formatFactor(factor ?? 1)}×.
+        Makes {formatYieldAmount(parsed ?? defaultYield)}. {kindLabel} will be
+        scaled by {formatFactor(factor ?? 1)}×.
       </p>
     </Field>
   );

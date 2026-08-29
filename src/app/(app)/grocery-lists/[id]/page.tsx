@@ -6,12 +6,14 @@ import {
   listGroceryCategories,
   listGrocerySourceCandidates,
 } from "@/lib/grocery/queries";
+import { getOwnedMealPlanOrThrow } from "@/lib/mealplans/queries";
 import { NotFoundError } from "@/lib/errors";
 import { decimalToNumber } from "@/lib/dishes/format";
 import { GroceryListDetailView } from "@/components/domain/grocery/grocery-list-detail-view";
 import type {
   GroceryListDetailDto,
   GroceryCategoryOptionDto,
+  GroceryListMealPlanEntryDto,
 } from "@/lib/grocery/list-schema";
 
 export async function generateMetadata({
@@ -55,6 +57,29 @@ export default async function GroceryListDetailPage({
     isFallback: c.isFallback,
   }));
   const sourceCandidates = await listGrocerySourceCandidates(session.user.id);
+
+  // §81.6 — a Meal-Plan-linked list's Meals section is populated straight
+  // from the linked Meal Plan's own entries, not from this list's
+  // (nonexistent, for this mode) `GroceryListSource` rows.
+  let mealPlanEntries: GroceryListMealPlanEntryDto[] = [];
+  if (list.mode === "MEAL_PLAN_LINKED" && list.linkedMealPlanId) {
+    const mealPlan = await getOwnedMealPlanOrThrow(
+      session.user.id,
+      list.linkedMealPlanId,
+    );
+    const excludedIds = new Set(
+      list.mealPlanEntryExclusions.map((e) => e.mealPlanEntryId),
+    );
+    mealPlanEntries = mealPlan.entries.map((entry) => ({
+      id: entry.id,
+      dishKind: entry.sourceDishKindSnapshot,
+      title: entry.sourceDishTitleSnapshot,
+      versionLabel: entry.sourceDishVersionLabelSnapshot,
+      targetYieldQuantity: decimalToNumber(entry.targetYieldQuantity),
+      targetYieldUnit: entry.targetYieldUnit,
+      included: !excludedIds.has(entry.id),
+    }));
+  }
 
   const dto: GroceryListDetailDto = {
     id: list.id,
@@ -126,9 +151,14 @@ export default async function GroceryListDetailPage({
           selectedVariant: c.selectedVariant,
           syncState: c.mealPlanEntryId != null ? c.state : null,
           previousQuantityText: c.previousQuantityText,
+          sourceTitle:
+            c.groceryListSource?.sourceDishTitleSnapshot ??
+            c.mealPlanEntry?.sourceDishTitleSnapshot ??
+            null,
         };
       }),
     })),
+    mealPlanEntries,
   };
 
   return (

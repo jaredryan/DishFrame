@@ -27,10 +27,14 @@ export type VersionOption = {
 
 /**
  * Shared row underlying every rich Version picker: prev/next controls
- * stepping sequentially through every saved Version, plus a Select that
- * jumps to the latest minor of a chosen major line. Navigation is either
- * callback-driven (`onNavigateAction`, used by field/dialog contexts) or
- * link-driven (`hrefForVersionAction`, used by `VersionSelector`'s routed
+ * stepping sequentially through every saved Version, plus a Select listing
+ * every saved Version (newest first) so any one of them — not just the
+ * latest minor of a major line — is directly selectable (bug fix, frontend
+ * interaction audit: the previous major-line-only Select showed a fixed
+ * "latest minor" label for a whole line, so navigating via prev/next within
+ * one line never visibly changed the displayed Version). Navigation is
+ * either callback-driven (`onNavigateAction`, used by field/dialog contexts)
+ * or link-driven (`hrefForVersionAction`, used by `VersionSelector`'s routed
  * Version History page so prev/next stay real anchors — middle-click/
  * open-in-new-tab keep working). `versions` must already be ordered
  * ascending by (majorVersion, minorVersion).
@@ -62,13 +66,8 @@ export function VersionLineRow({
       ? versions[activeIndex + 1]
       : null;
 
-  const latestPerMajor = new Map<number, VersionOption>();
-  for (const version of versions) {
-    latestPerMajor.set(version.majorVersion, version);
-  }
-  const majorLines = [...latestPerMajor.values()].sort(
-    (a, b) => a.majorVersion - b.majorVersion,
-  );
+  // Newest first — the natural order for picking a specific saved Version.
+  const orderedVersions = [...versions].reverse();
 
   function renderStep(
     target: VersionOption | null,
@@ -120,26 +119,16 @@ export function VersionLineRow({
       {renderStep(previous, "previous")}
 
       <Select
-        value={active ? String(active.majorVersion) : undefined}
-        onValueChange={(majorValue) => {
-          const target = latestPerMajor.get(Number(majorValue));
-          if (target) onNavigateAction(target.id);
-        }}
+        value={active?.id}
+        onValueChange={(versionId) => onNavigateAction(versionId)}
         disabled={disabled || versions.length === 0}
       >
-        <SelectTrigger
-          id={id}
-          aria-label="Jump to a major version line"
-          className="w-40"
-        >
+        <SelectTrigger id={id} aria-label="Select a Version" className="w-40">
           <SelectValue placeholder="Select a Version" />
         </SelectTrigger>
         <SelectContent>
-          {majorLines.map((version) => (
-            <SelectItem
-              key={version.majorVersion}
-              value={String(version.majorVersion)}
-            >
+          {orderedVersions.map((version) => (
+            <SelectItem key={version.id} value={version.id}>
               {versionLabel(version.majorVersion, version.minorVersion)}
               {version.id === currentVersionId ? " (current)" : ""}
             </SelectItem>
@@ -155,8 +144,8 @@ export function VersionLineRow({
 /**
  * The rich Version-picker treatment established on the Recipe Version/
  * Version History pages (`VersionSelector`): prev/next controls stepping
- * sequentially through every saved Version, plus a Select that jumps to the
- * latest minor of a chosen major line, labeled and wrapping `VersionLineRow`
+ * sequentially through every saved Version, plus a Select listing every
+ * saved Version directly, labeled and wrapping `VersionLineRow`
  * above. `VersionSelector` itself navigates via routing to that page's own
  * URL; this is the same interaction generalized to a plain value/callback
  * picker, used everywhere else Version choice is exposed (Cooking Setup,

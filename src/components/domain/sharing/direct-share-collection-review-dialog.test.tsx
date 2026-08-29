@@ -2,6 +2,20 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DirectShareCollectionReviewDialog } from "@/components/domain/sharing/direct-share-collection-review-dialog";
+import { ToastProvider, Toaster } from "@/components/ui/toast";
+
+function renderDialog() {
+  return render(
+    <ToastProvider>
+      <DirectShareCollectionReviewDialog
+        open
+        onOpenChange={() => {}}
+        collectionId="col1"
+      />
+      <Toaster />
+    </ToastProvider>,
+  );
+}
 
 const mockRefresh = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -58,13 +72,7 @@ describe("DirectShareCollectionReviewDialog", () => {
   });
 
   it("defaults every pending Recipe to selected (Accept all is one click)", async () => {
-    render(
-      <DirectShareCollectionReviewDialog
-        open
-        onOpenChange={() => {}}
-        collectionId="col1"
-      />,
-    );
+    renderDialog();
 
     await waitFor(() => expect(screen.getByText("Soup")).toBeInTheDocument());
     expect(screen.getByText("Accept all")).toBeInTheDocument();
@@ -74,13 +82,7 @@ describe("DirectShareCollectionReviewDialog", () => {
     const user = userEvent.setup();
     mockAccept.mockResolvedValue({ status: "success", outcome: "accepted" });
     mockDecline.mockResolvedValue({ status: "success", outcome: "declined" });
-    render(
-      <DirectShareCollectionReviewDialog
-        open
-        onOpenChange={() => {}}
-        collectionId="col1"
-      />,
-    );
+    renderDialog();
     await waitFor(() => expect(screen.getByText("Soup")).toBeInTheDocument());
 
     const checkboxes = screen.getAllByRole("checkbox");
@@ -116,13 +118,7 @@ describe("DirectShareCollectionReviewDialog", () => {
   it("Decline all declines every pending item and never calls accept", async () => {
     const user = userEvent.setup();
     mockDecline.mockResolvedValue({ status: "success", outcome: "declined" });
-    render(
-      <DirectShareCollectionReviewDialog
-        open
-        onOpenChange={() => {}}
-        collectionId="col1"
-      />,
-    );
+    renderDialog();
     await waitFor(() => expect(screen.getByText("Soup")).toBeInTheDocument());
 
     await user.click(screen.getByRole("button", { name: "Decline all" }));
@@ -135,13 +131,7 @@ describe("DirectShareCollectionReviewDialog", () => {
   });
 
   it("shows correct frozen Recipe titles and total count from the loaded detail", async () => {
-    render(
-      <DirectShareCollectionReviewDialog
-        open
-        onOpenChange={() => {}}
-        collectionId="col1"
-      />,
-    );
+    renderDialog();
     await waitFor(() => expect(screen.getByText("Soup")).toBeInTheDocument());
     expect(screen.getByText("Salad")).toBeInTheDocument();
     expect(screen.getByText(/From Jordan/)).toBeInTheDocument();

@@ -25,7 +25,12 @@ function formatQuantityValue(
  * itself is skipped, so typing "1 1/2" doesn't get reformatted to "1.5"
  * mid-keystroke.
  */
-function QuantityInput({
+/**
+ * Exported (Meal Plan Schedule redesign) for direct use outside a react-
+ * hook-form context — `NumberField` below stays the react-hook-form-bound
+ * wrapper for forms that use it, this is the bare controlled input.
+ */
+export function QuantityInput({
   value,
   onValueChange,
   emptyDisplay,

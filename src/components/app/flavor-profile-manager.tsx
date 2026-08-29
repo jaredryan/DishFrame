@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { DragHandle } from "@/components/ui/drag-handle";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { usePendingAction } from "@/components/ui/use-pending-action";
 import { useReorderSensors } from "@/lib/dnd/sensors";
 import { createReorderAnnouncements } from "@/lib/dnd/announcements";
 import {
@@ -39,12 +40,16 @@ function SortableFlavorProfileRow({
   setEditingId,
   onRename,
   onDelete,
+  isPending,
+  isRenaming,
 }: {
   flavorProfile: FlavorProfileDto;
   editingId: string | null;
   setEditingId: (id: string | null) => void;
   onRename: (id: string, name: string) => void;
   onDelete: (id: string) => void;
+  isPending: boolean;
+  isRenaming: boolean;
 }) {
   const isEditing = editingId === flavorProfile.id;
   const {
@@ -92,13 +97,14 @@ function SortableFlavorProfileRow({
             autoFocus
             className="h-8"
           />
-          <Button type="submit" size="sm">
+          <Button type="submit" size="sm" loading={isRenaming}>
             Save
           </Button>
           <Button
             type="button"
             variant="ghost"
             size="sm"
+            disabled={isPending}
             onClick={() => setEditingId(null)}
           >
             Cancel
@@ -112,6 +118,7 @@ function SortableFlavorProfileRow({
               type="button"
               variant="ghost"
               size="sm"
+              disabled={isPending}
               onClick={() => setEditingId(flavorProfile.id)}
               aria-label={`Rename ${flavorProfile.displayName}`}
               title={`Rename ${flavorProfile.displayName}`}
@@ -122,6 +129,7 @@ function SortableFlavorProfileRow({
               type="button"
               variant="ghost"
               size="sm"
+              disabled={isPending}
               onClick={() => onDelete(flavorProfile.id)}
               aria-label={`Delete ${flavorProfile.displayName}`}
               title={`Delete ${flavorProfile.displayName}`}
@@ -149,7 +157,9 @@ export function FlavorProfileManager({
     kind: "success" | "error";
     message: string;
   } | null>(null);
-  const [isPending, startTransition] = React.useTransition();
+  const { pendingAction, isPending, run } = usePendingAction<
+    "create" | "rename" | "delete" | "reorder"
+  >();
   const createFormRef = React.useRef<HTMLFormElement>(null);
   const sensors = useReorderSensors();
 
@@ -161,7 +171,7 @@ export function FlavorProfileManager({
 
     setCreateError(null);
     setFeedback(null);
-    startTransition(async () => {
+    run("create", async () => {
       const result = await createFlavorProfile(
         initialCreateFlavorProfileActionState,
         formData,
@@ -185,7 +195,7 @@ export function FlavorProfileManager({
     );
     setEditingId(null);
     setFeedback(null);
-    startTransition(async () => {
+    run("rename", async () => {
       const formData = new FormData();
       formData.set("id", id);
       formData.set("name", name);
@@ -206,7 +216,7 @@ export function FlavorProfileManager({
     const previous = flavorProfiles;
     setFlavorProfiles((prev) => prev.filter((value) => value.id !== id));
     setFeedback(null);
-    startTransition(async () => {
+    run("delete", async () => {
       const formData = new FormData();
       formData.set("id", id);
       const result = await deleteFlavorProfile(initialActionState, formData);
@@ -226,7 +236,7 @@ export function FlavorProfileManager({
     const previous = flavorProfiles;
     setFlavorProfiles(next);
     setFeedback(null);
-    startTransition(async () => {
+    run("reorder", async () => {
       const result = await reorderFlavorProfiles(next.map((value) => value.id));
       if (result.status !== "success") {
         setFlavorProfiles(previous);
@@ -295,6 +305,8 @@ export function FlavorProfileManager({
                 setEditingId={setEditingId}
                 onRename={handleRename}
                 onDelete={handleDelete}
+                isPending={isPending}
+                isRenaming={pendingAction === "rename"}
               />
             ))}
           </ul>
@@ -317,7 +329,7 @@ export function FlavorProfileManager({
             disabled={isPending}
           />
         </div>
-        <Button type="submit" disabled={isPending}>
+        <Button type="submit" loading={pendingAction === "create"}>
           Add
         </Button>
       </form>

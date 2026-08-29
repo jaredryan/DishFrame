@@ -7,9 +7,6 @@ export const mealPlanIdSchema = z.object({ mealPlanId: z.string().min(1) });
 export const entryIdSchema = mealPlanIdSchema.extend({
   entryId: z.string().min(1),
 });
-export const plannedMealIdSchema = entryIdSchema.extend({
-  plannedMealId: z.string().min(1),
-});
 
 const titleField = z
   .string()
@@ -102,6 +99,10 @@ const bulkNewEntrySchema = z.object({
   targetYieldQuantity,
   targetYieldUnit: z.string().trim().max(40).nullable().optional(),
   note: z.string().trim().max(2000).nullable().optional(),
+  // Schedule redesign — a client-generated draft-entry id, present only so
+  // `scheduleAssignments` below can address a Meal that doesn't have a real
+  // entryId yet (it's created in this same batch).
+  localKey: z.string().min(1).optional(),
 });
 
 const bulkReplacedEntrySchema = bulkNewEntrySchema.extend({
@@ -116,16 +117,8 @@ const bulkUpdatedEntrySchema = z.object({
   note: z.string().trim().max(2000).nullable().optional(),
 });
 
-export const saveMealPlanEntryChangesSchema = mealPlanIdSchema.extend({
-  removedEntryIds: z.array(z.string().min(1)),
-  replacedEntries: z.array(bulkReplacedEntrySchema),
-  updatedEntries: z.array(bulkUpdatedEntrySchema),
-  versionAdoptedEntryIds: z.array(z.string().min(1)),
-  newEntries: z.array(bulkNewEntrySchema),
-});
-
-export const addPlannedMealSchema = entryIdSchema.extend({
-  label: z.string().trim().min(1, "Enter a label.").max(80),
+const scheduleMealDraftSchema = z.object({
+  label: z.string().trim().min(1, "Enter a meal label.").max(80),
   date: z.coerce.date(),
   servings: z
     .number()
@@ -133,7 +126,24 @@ export const addPlannedMealSchema = entryIdSchema.extend({
     .lte(1000, "That amount is too large."),
 });
 
-export const removePlannedMealSchema = plannedMealIdSchema;
+// Schedule redesign (replaces the old per-Meal `+ Planned meal` inline UI):
+// one entry per Meal being scheduled, `mealKey` either a real entryId (an
+// already-saved Meal) or a `newEntries`/`replacedEntries` `localKey` (a Meal
+// created in this same batch) — `meals` is that Meal's *complete* desired
+// schedule, replacing whatever it already had.
+export const scheduleAssignmentSchema = z.object({
+  mealKey: z.string().min(1),
+  meals: z.array(scheduleMealDraftSchema),
+});
+
+export const saveMealPlanEntryChangesSchema = mealPlanIdSchema.extend({
+  removedEntryIds: z.array(z.string().min(1)),
+  replacedEntries: z.array(bulkReplacedEntrySchema),
+  updatedEntries: z.array(bulkUpdatedEntrySchema),
+  versionAdoptedEntryIds: z.array(z.string().min(1)),
+  newEntries: z.array(bulkNewEntrySchema),
+  scheduleAssignments: z.array(scheduleAssignmentSchema).default([]),
+});
 
 export const generateGroceryListFromMealPlanSchema = mealPlanIdSchema.extend({
   title: z
@@ -142,6 +152,15 @@ export const generateGroceryListFromMealPlanSchema = mealPlanIdSchema.extend({
     .min(1, "Enter a title for this grocery list.")
     .max(120),
   entryIds: z.array(z.string().min(1)).optional(),
+});
+
+export const resyncMealPlanGroceryListsSchema = mealPlanIdSchema.extend({
+  listId: z.string().min(1).optional(),
+});
+
+export const setMealPlanGroceryListEntryIncludedSchema = entryIdSchema.extend({
+  listId: z.string().min(1),
+  included: z.boolean(),
 });
 
 export type ActionState = {

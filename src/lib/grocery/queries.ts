@@ -163,9 +163,16 @@ const groceryListDetailInclude = {
     orderBy: { position: "asc" as const },
     include: {
       category: true,
-      contributions: { orderBy: { id: "asc" as const } },
+      contributions: {
+        orderBy: { id: "asc" as const },
+        include: {
+          groceryListSource: { select: { sourceDishTitleSnapshot: true } },
+          mealPlanEntry: { select: { sourceDishTitleSnapshot: true } },
+        },
+      },
     },
   },
+  mealPlanEntryExclusions: { select: { mealPlanEntryId: true } },
 } as const;
 
 // Wrapped in React's `cache()`: the grocery list detail page's

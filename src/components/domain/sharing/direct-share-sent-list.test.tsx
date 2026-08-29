@@ -2,7 +2,17 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DirectShareSentList } from "@/components/domain/sharing/direct-share-sent-list";
+import { ToastProvider, Toaster } from "@/components/ui/toast";
 import type { SentItemView } from "@/lib/sharing/view-model";
+
+function renderList(items: SentItemView[]) {
+  return render(
+    <ToastProvider>
+      <DirectShareSentList items={items} />
+      <Toaster />
+    </ToastProvider>,
+  );
+}
 
 const mockRefresh = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -54,7 +64,7 @@ describe("DirectShareSentList", () => {
   it("renders a single item as a normal card and cancels via its one-item collection", async () => {
     const user = userEvent.setup();
     mockCancelCollection.mockResolvedValue({ status: "success" });
-    render(<DirectShareSentList items={[SINGLE]} />);
+    renderList([SINGLE]);
 
     expect(screen.getByText("Ramen")).toBeInTheDocument();
     expect(screen.getByText(/To Alex/)).toBeInTheDocument();
@@ -66,7 +76,7 @@ describe("DirectShareSentList", () => {
   });
 
   it("flags a recipient who hasn't joined yet, and stays silent when they have", () => {
-    render(<DirectShareSentList items={[SINGLE, GROUP]} />);
+    renderList([SINGLE, GROUP]);
     expect(screen.getByText("Hasn't joined DishFrame yet")).toBeInTheDocument();
     // SINGLE has hasJoined: true, so only one badge should render.
     expect(screen.getAllByText("Hasn't joined DishFrame yet")).toHaveLength(1);
@@ -74,7 +84,7 @@ describe("DirectShareSentList", () => {
 
   it("renders a multi-item group collapsed by default, expandable to show child statuses", async () => {
     const user = userEvent.setup();
-    render(<DirectShareSentList items={[GROUP]} />);
+    renderList([GROUP]);
 
     expect(screen.getByText("Jordan")).toBeInTheDocument();
     expect(screen.getByText(/2 items/)).toBeInTheDocument();
@@ -88,7 +98,7 @@ describe("DirectShareSentList", () => {
   it("cancels a group's pending children via cancelDirectShareCollection", async () => {
     const user = userEvent.setup();
     mockCancelCollection.mockResolvedValue({ status: "success" });
-    render(<DirectShareSentList items={[GROUP]} />);
+    renderList([GROUP]);
 
     await user.click(screen.getByRole("button", { name: "Cancel pending" }));
     expect(mockCancelCollection).toHaveBeenCalledWith({
@@ -97,7 +107,7 @@ describe("DirectShareSentList", () => {
   });
 
   it("shows an empty-state message when nothing has been sent", () => {
-    render(<DirectShareSentList items={[]} />);
+    renderList([]);
     expect(
       screen.getByText("You haven't sent anything yet."),
     ).toBeInTheDocument();

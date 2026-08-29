@@ -6,6 +6,7 @@ import {
   CookingSetup,
   type SetupUnit,
 } from "@/components/domain/cooking/cooking-setup";
+import { ToastProvider, Toaster } from "@/components/ui/toast";
 
 const push = vi.fn();
 let mockSearchParams = new URLSearchParams();
@@ -44,20 +45,23 @@ function renderSetup(
   overrides: Partial<ComponentProps<typeof CookingSetup>> = {},
 ) {
   return render(
-    <CookingSetup
-      dishId="dish-1"
-      dishVersionId="v1"
-      dishTitle="Weeknight Stir-Fry"
-      versionLabel="V1.0"
-      isCurrent
-      currentVersionId="v1"
-      versions={VERSIONS}
-      units={UNITS}
-      sourceOutputQuantity={4}
-      sourceOutputUnit="servings"
-      cancelHref="/recipes/dish-1"
-      {...overrides}
-    />,
+    <ToastProvider>
+      <CookingSetup
+        dishId="dish-1"
+        dishVersionId="v1"
+        dishTitle="Weeknight Stir-Fry"
+        versionLabel="V1.0"
+        isCurrent
+        currentVersionId="v1"
+        versions={VERSIONS}
+        units={UNITS}
+        sourceOutputQuantity={4}
+        sourceOutputUnit="servings"
+        cancelHref="/recipes/dish-1"
+        {...overrides}
+      />
+      <Toaster />
+    </ToastProvider>,
   );
 }
 

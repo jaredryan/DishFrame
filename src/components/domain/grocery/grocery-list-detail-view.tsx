@@ -20,6 +20,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -29,6 +30,7 @@ import { Field, FieldLabel } from "@/components/ui/field";
 import { DatePickerField } from "@/components/ui/date-picker-field";
 import { DragHandle } from "@/components/ui/drag-handle";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
+import { useStepScrollReset } from "@/components/ui/use-step-scroll-reset";
 import {
   Select,
   SelectContent,
@@ -44,6 +46,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { usePendingAction } from "@/components/ui/use-pending-action";
+import { useToast } from "@/components/ui/toast";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -81,13 +86,17 @@ import {
   updateGroceryListSource,
   listGrocerySourceVersionOptions,
 } from "@/lib/grocery/list-actions";
-import { resyncMealPlanGroceryLists } from "@/lib/mealplans/actions";
+import {
+  resyncMealPlanGroceryLists,
+  setMealPlanGroceryListEntryIncluded,
+} from "@/lib/mealplans/actions";
 import Link from "next/link";
 import type {
   GroceryListDetailDto,
   GroceryListItemDto,
   GroceryListSourceDto,
   GroceryCategoryOptionDto,
+  GroceryListMealPlanEntryDto,
 } from "@/lib/grocery/list-schema";
 import type { GroceryListSourceRefreshPreview } from "@/lib/grocery/list-service";
 import type {
@@ -152,8 +161,10 @@ export function GroceryListDetailView({
   const [checkedIds, setCheckedIds] = React.useState(
     () => new Set(list.items.filter((i) => i.checkedAt).map((i) => i.id)),
   );
-  const [isPending, startTransition] = React.useTransition();
-  const [error, setError] = React.useState<string | null>(null);
+  const { pendingAction, isPending, run } = usePendingAction<
+    "other" | "remove-source" | "delete-list" | "sync"
+  >();
+  const { showToast } = useToast();
   const [editOpen, setEditOpen] = React.useState(false);
   const [deleteOpen, setDeleteOpen] = React.useState(false);
   const [refreshSourceId, setRefreshSourceId] = React.useState<string | null>(
@@ -180,6 +191,8 @@ export function GroceryListDetailView({
   }
 
   const isCompleted = list.completedAt != null;
+  const isMealPlanLinked =
+    list.mode === "MEAL_PLAN_LINKED" && list.linkedMealPlanId != null;
   const groups = groupByCategory(list.items);
 
   function refresh() {
@@ -193,7 +206,7 @@ export function GroceryListDetailView({
       else next.add(itemId);
       return next;
     });
-    startTransition(async () => {
+    run("other", async () => {
       const result = await toggleGroceryItem({ listId: list.id, itemId });
       if (result.status !== "success") {
         setCheckedIds((prev) => {
@@ -202,7 +215,10 @@ export function GroceryListDetailView({
           else next.add(itemId);
           return next;
         });
-        setError(result.message ?? "Could not update this item.");
+        showToast({
+          variant: "error",
+          title: result.message ?? "Could not update this item.",
+        });
       }
     });
   }
@@ -210,14 +226,64 @@ export function GroceryListDetailView({
   function runAction(
     action: () => Promise<{ status: string; message?: string }>,
   ) {
-    setError(null);
-    startTransition(async () => {
+    run("other", async () => {
       const result = await action();
       if (result.status !== "success") {
-        setError(result.message ?? "Something went wrong.");
+        showToast({
+          variant: "error",
+          title: result.message ?? "Something went wrong.",
+        });
       } else {
         refresh();
       }
+    });
+  }
+
+  /**
+   * §81.2 Sync now UX correction: the old version gave little or no
+   * feedback about whether anything actually changed. This distinguishes
+   * three outcomes with the shared toast system — changes applied (success,
+   * naming what changed), already up to date (neutral, not styled as a
+   * false "success"), and failure (error, list stays usable, retry by
+   * clicking again).
+   */
+  function handleSyncNow() {
+    if (!list.linkedMealPlanId) return;
+    const mealPlanId = list.linkedMealPlanId;
+    run("sync", async () => {
+      const result = await resyncMealPlanGroceryLists({
+        mealPlanId,
+        listId: list.id,
+      });
+      if (result.status !== "success") {
+        showToast({
+          variant: "error",
+          title: result.message ?? "Couldn't sync with the Meal Plan.",
+        });
+        return;
+      }
+      const summary = result.summary;
+      const hasChanges =
+        summary != null &&
+        (summary.added > 0 || summary.removed > 0 || summary.changed > 0);
+      if (!hasChanges) {
+        showToast({
+          variant: "default",
+          title: "Already up to date",
+          description: "No changes from the Meal Plan since the last sync.",
+        });
+        return;
+      }
+      const parts: string[] = [];
+      if (summary.added > 0) parts.push(`${summary.added} added`);
+      if (summary.changed > 0) parts.push(`${summary.changed} updated`);
+      if (summary.removed > 0) parts.push(`${summary.removed} removed`);
+      showToast({
+        variant: "success",
+        title: "Grocery list synced",
+        description: `${parts.join(", ")} from the Meal Plan.`,
+      });
+      refresh();
     });
   }
 
@@ -317,14 +383,14 @@ export function GroceryListDetailView({
               )}
               <DropdownMenuItem
                 onClick={() =>
-                  startTransition(async () => {
+                  run("other", async () => {
                     const result = await duplicateGroceryList({
                       listId: list.id,
                     });
                     if (result.status === "success") {
                       router.push(`/grocery-lists/${result.listId}`);
                     } else {
-                      setError(result.message);
+                      showToast({ variant: "error", title: result.message });
                     }
                   })
                 }
@@ -342,12 +408,6 @@ export function GroceryListDetailView({
         </div>
       </div>
 
-      {error && (
-        <p role="alert" className="text-destructive-text text-sm">
-          {error}
-        </p>
-      )}
-
       <section className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-1">
@@ -358,37 +418,71 @@ export function GroceryListDetailView({
               onClick={() => setMealsCollapsed((v) => !v)}
             />
           </div>
-          {!isCompleted && (
-            <Button
-              type="button"
-              size="sm"
-              className="shrink-0"
-              onClick={() => setAddMealOpen(true)}
-            >
-              <Plus aria-hidden="true" /> Add meal
-            </Button>
-          )}
-        </div>
-        {!mealsCollapsed && (
-          <div className="flex flex-col gap-2">
-            {list.sources.length === 0 ? (
-              <p className="text-muted-foreground text-sm">
-                No meals in this list yet.
-              </p>
+          {!isCompleted &&
+            (isMealPlanLinked ? (
+              <Button type="button" variant="outline" size="sm" asChild>
+                <Link href={`/meal-plans/${list.linkedMealPlanId}/edit`}>
+                  <Pencil aria-hidden="true" /> Update meal plan
+                </Link>
+              </Button>
             ) : (
-              list.sources.map((source) => (
-                <MealCard
-                  key={source.id}
-                  source={source}
-                  isCompleted={isCompleted}
-                  onSync={() => setRefreshSourceId(source.id)}
-                  onEdit={() => setEditingSource(source)}
-                  onDelete={() => setDeletingSourceId(source.id)}
-                />
-              ))
-            )}
-          </div>
-        )}
+              <Button
+                type="button"
+                size="sm"
+                className="shrink-0"
+                onClick={() => setAddMealOpen(true)}
+              >
+                <Plus aria-hidden="true" /> Add meal
+              </Button>
+            ))}
+        </div>
+        {!mealsCollapsed &&
+          (isMealPlanLinked ? (
+            <div className="flex flex-col gap-2">
+              {list.mealPlanEntries.length === 0 ? (
+                <p className="text-muted-foreground text-sm">
+                  This Meal Plan has no entries yet.
+                </p>
+              ) : (
+                list.mealPlanEntries.map((entry) => (
+                  <MealPlanEntryRow
+                    key={entry.id}
+                    entry={entry}
+                    disabled={isCompleted}
+                    onToggle={(included) =>
+                      runAction(() =>
+                        setMealPlanGroceryListEntryIncluded({
+                          mealPlanId: list.linkedMealPlanId!,
+                          listId: list.id,
+                          entryId: entry.id,
+                          included,
+                        }),
+                      )
+                    }
+                  />
+                ))
+              )}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {list.sources.length === 0 ? (
+                <p className="text-muted-foreground text-sm">
+                  No meals in this list yet.
+                </p>
+              ) : (
+                list.sources.map((source) => (
+                  <MealCard
+                    key={source.id}
+                    source={source}
+                    isCompleted={isCompleted}
+                    onSync={() => setRefreshSourceId(source.id)}
+                    onEdit={() => setEditingSource(source)}
+                    onDelete={() => setDeletingSourceId(source.id)}
+                  />
+                ))
+              )}
+            </div>
+          ))}
       </section>
 
       <section className="flex flex-col gap-2">
@@ -426,15 +520,10 @@ export function GroceryListDetailView({
                     variant="outline"
                     size="sm"
                     disabled={isPending}
-                    onClick={() =>
-                      runAction(() =>
-                        resyncMealPlanGroceryLists({
-                          mealPlanId: list.linkedMealPlanId!,
-                        }),
-                      )
-                    }
+                    loading={pendingAction === "sync"}
+                    onClick={handleSyncNow}
                   >
-                    Sync now
+                    <RefreshCw aria-hidden="true" /> Sync now
                   </Button>
                 </div>
               )}
@@ -591,39 +680,34 @@ export function GroceryListDetailView({
         />
       )}
 
-      <Dialog
+      <ConfirmDialog
         open={deletingSourceId != null}
-        onOpenChange={(open) => !open && setDeletingSourceId(null)}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Remove this meal?</DialogTitle>
-            <DialogDescription>
-              This removes its ingredients from the Groceries list below. This
-              can&apos;t be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeletingSourceId(null)}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              disabled={isPending}
-              onClick={() => {
-                if (!deletingSourceId) return;
-                const sourceId = deletingSourceId;
-                setDeletingSourceId(null);
-                runAction(() =>
-                  removeGroceryListSource({ listId: list.id, sourceId }),
-                );
-              }}
-            >
-              Remove
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onOpenChangeAction={(open) => !open && setDeletingSourceId(null)}
+        title="Remove this meal?"
+        description="This removes its ingredients from the Groceries list below. This can't be undone."
+        confirmLabel="Remove"
+        destructive
+        loading={pendingAction === "remove-source"}
+        onConfirmAction={() => {
+          if (!deletingSourceId) return;
+          const sourceId = deletingSourceId;
+          setDeletingSourceId(null);
+          run("remove-source", async () => {
+            const result = await removeGroceryListSource({
+              listId: list.id,
+              sourceId,
+            });
+            if (result.status !== "success") {
+              showToast({
+                variant: "error",
+                title: result.message ?? "Something went wrong.",
+              });
+            } else {
+              refresh();
+            }
+          });
+        }}
+      />
 
       {editOpen && (
         <EditGroceryListDialog
@@ -633,38 +717,29 @@ export function GroceryListDetailView({
         />
       )}
 
-      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete this grocery list?</DialogTitle>
-            <DialogDescription>
-              This permanently deletes the list and every item on it. This
-              can&apos;t be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() =>
-                startTransition(async () => {
-                  const result = await deleteGroceryList({ listId: list.id });
-                  if (result.status === "success") {
-                    router.push("/grocery-lists");
-                  } else {
-                    setError(result.message ?? "Could not delete this list.");
-                    setDeleteOpen(false);
-                  }
-                })
-              }
-            >
-              Delete
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChangeAction={setDeleteOpen}
+        title="Delete this grocery list?"
+        description="This permanently deletes the list and every item on it. This can't be undone."
+        confirmLabel="Delete"
+        destructive
+        loading={pendingAction === "delete-list"}
+        onConfirmAction={() =>
+          run("delete-list", async () => {
+            const result = await deleteGroceryList({ listId: list.id });
+            if (result.status === "success") {
+              router.push("/grocery-lists");
+            } else {
+              showToast({
+                variant: "error",
+                title: result.message ?? "Could not delete this list.",
+              });
+              setDeleteOpen(false);
+            }
+          })
+        }
+      />
 
       {refreshSourceId && (
         <RefreshSourceDialog
@@ -738,6 +813,62 @@ function MealCard({
   );
 }
 
+/**
+ * §81.7 — one Meal Plan entry as a whole-row checkbox, toggling whether it
+ * contributes to *this* Grocery List (the Meal Plan itself is untouched by
+ * this control — adding/removing actual entries happens on the linked Meal
+ * Plan's own Edit page via "Update meal plan" above).
+ */
+function MealPlanEntryRow({
+  entry,
+  disabled,
+  onToggle,
+}: {
+  entry: GroceryListMealPlanEntryDto;
+  disabled: boolean;
+  onToggle: (included: boolean) => void;
+}) {
+  const yieldText =
+    entry.targetYieldQuantity != null
+      ? [entry.targetYieldQuantity, entry.targetYieldUnit]
+          .filter(Boolean)
+          .join(" ")
+      : null;
+
+  return (
+    <div
+      onClick={() => !disabled && onToggle(!entry.included)}
+      className={cn(
+        "border-border bg-card flex items-center gap-2 rounded-lg border p-3",
+        disabled ? "opacity-60" : "hover:bg-muted/50 cursor-pointer",
+      )}
+    >
+      <Checkbox
+        checked={entry.included}
+        onCheckedChange={() => onToggle(!entry.included)}
+        // The row itself also toggles on click (below) — stopping
+        // propagation here keeps a direct checkbox click from ALSO
+        // reaching the row's handler and double-toggling (matches
+        // `SelectableDishRow`'s checkbox variant).
+        onClick={(event) => event.stopPropagation()}
+        disabled={disabled}
+        aria-label={`Include ${entry.title} in this grocery list`}
+      />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium">
+          {entry.title}{" "}
+          <span className="text-muted-foreground font-normal">
+            {entry.versionLabel}
+          </span>
+        </p>
+        {yieldText && (
+          <p className="text-muted-foreground text-xs">{yieldText}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /** Detail page's "Add meal" — the shared `RecipePartPicker` (same rich
  * search/tabs/row treatment as Cook/Send/Publish/Add-Edit-Meal), single-
  * select. Selecting a Recipe/Part transitions directly into a separate
@@ -771,8 +902,9 @@ function AddMealDialog({
     string | null
   >(null);
   const [scale, setScale] = React.useState<number | null>(1);
-  const [error, setError] = React.useState<string | null>(null);
   const [isPending, startTransition] = React.useTransition();
+  const scrollRef = useStepScrollReset(selectedDishId != null);
+  const { showToast } = useToast();
 
   const selected = candidates.find((c) => c.dishId === selectedDishId) ?? null;
   const selectedSet = React.useMemo(
@@ -823,7 +955,6 @@ function AddMealDialog({
 
   function handleAdd() {
     if (!selectedDishId || !selectedVersionId) return;
-    setError(null);
     startTransition(async () => {
       const result = await addGroceryListSource({
         listId,
@@ -834,14 +965,20 @@ function AddMealDialog({
       if (result.status === "success") {
         onAdded();
       } else {
-        setError(result.message ?? "Could not add this meal.");
+        showToast({
+          variant: "error",
+          title: result.message ?? "Could not add this meal.",
+        });
       }
     });
   }
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="flex max-h-[85vh] flex-col overflow-y-auto sm:max-w-md">
+      <DialogContent
+        ref={scrollRef}
+        className="flex max-h-[85vh] flex-col overflow-y-auto sm:max-w-md"
+      >
         <DialogHeader>
           <DialogTitle>Add meal</DialogTitle>
           <DialogDescription>
@@ -883,24 +1020,17 @@ function AddMealDialog({
             />
           </div>
         ) : (
-          <div className="-mx-1 flex min-h-0 flex-col overflow-y-auto px-1">
-            <RecipePartPicker
-              items={pickerItems}
-              itemsError={null}
-              search={search}
-              onSearchChange={setSearch}
-              showKindTabs
-              selectionMode="single"
-              selected={selectedSet}
-              onToggle={(id) => selectDish(id)}
-            />
-          </div>
-        )}
-
-        {error && (
-          <p role="alert" className="text-destructive-text text-sm">
-            {error}
-          </p>
+          <RecipePartPicker
+            items={pickerItems}
+            itemsError={null}
+            search={search}
+            onSearchChange={setSearch}
+            showKindTabs
+            selectionMode="single"
+            selected={selectedSet}
+            onToggle={(id) => selectDish(id)}
+            className="flex-1"
+          />
         )}
 
         <DialogFooter>
@@ -909,9 +1039,10 @@ function AddMealDialog({
           </Button>
           <Button
             onClick={handleAdd}
-            disabled={!selectedDishId || !selectedVersionId || isPending}
+            disabled={!selectedDishId || !selectedVersionId}
+            loading={isPending}
           >
-            {isPending ? "Adding…" : "Add meal"}
+            Add meal
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -942,8 +1073,8 @@ function EditMealDialog({
     source.dishVersionId ?? "",
   );
   const [scale, setScale] = React.useState<number | null>(source.scaleFactor);
-  const [error, setError] = React.useState<string | null>(null);
   const [isPending, startTransition] = React.useTransition();
+  const { showToast } = useToast();
 
   React.useEffect(() => {
     if (!source.dishId) return;
@@ -968,7 +1099,6 @@ function EditMealDialog({
 
   function handleSave() {
     if (!selectedVersionId) return;
-    setError(null);
     startTransition(async () => {
       const result = await updateGroceryListSource({
         listId,
@@ -979,7 +1109,10 @@ function EditMealDialog({
       if (result.status === "success") {
         onSaved();
       } else {
-        setError(result.message ?? "Could not save this meal.");
+        showToast({
+          variant: "error",
+          title: result.message ?? "Could not save this meal.",
+        });
       }
     });
   }
@@ -1023,11 +1156,6 @@ function EditMealDialog({
               }
               onScaleChange={setScale}
             />
-          )}
-          {error && (
-            <p role="alert" className="text-destructive-text text-sm">
-              {error}
-            </p>
           )}
         </div>
         <DialogFooter>
@@ -1344,10 +1472,16 @@ function GroceryItemRow({
         <ul className="text-muted-foreground border-border ml-7 flex flex-col gap-1 border-l pl-3 text-xs">
           {item.contributions.map((c) => (
             <li key={c.id}>
-              {[c.quantityText, c.unit, c.originalName]
+              {[
+                c.sourceTitle,
+                [c.quantityText, c.unit, c.originalName]
+                  .filter(Boolean)
+                  .join(" "),
+              ]
                 .filter(Boolean)
-                .join(" ")}
+                .join(" · ")}
               {c.isOptional && " · optional"}
+              {c.selectedVariant === "SUBSTITUTE" && " · substitute"}
             </li>
           ))}
         </ul>
@@ -1368,7 +1502,7 @@ function AddItemDialog({
   onAdded: () => void;
 }) {
   const [isPending, startTransition] = React.useTransition();
-  const [error, setError] = React.useState<string | null>(null);
+  const { showToast } = useToast();
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -1384,7 +1518,6 @@ function AddItemDialog({
             const formData = new FormData(e.currentTarget);
             const name = String(formData.get("name") ?? "").trim();
             if (!name) return;
-            setError(null);
             const categoryId =
               String(formData.get("categoryId") ?? "").trim() || null;
             startTransition(async () => {
@@ -1399,7 +1532,10 @@ function AddItemDialog({
               if (result.status === "success") {
                 onAdded();
               } else {
-                setError(result.message ?? "Could not add this item.");
+                showToast({
+                  variant: "error",
+                  title: result.message ?? "Could not add this item.",
+                });
               }
             });
           }}
@@ -1447,11 +1583,6 @@ function AddItemDialog({
               </SelectContent>
             </Select>
           </div>
-          {error && (
-            <p role="alert" className="text-destructive-text text-sm">
-              {error}
-            </p>
-          )}
         </form>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
@@ -1460,9 +1591,9 @@ function AddItemDialog({
           <Button
             type="submit"
             form="add-grocery-item-form"
-            disabled={isPending}
+            loading={isPending}
           >
-            {isPending ? "Adding…" : "Add"}
+            Add
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1484,11 +1615,10 @@ function EditGroceryListDialog({
     toIsoDateOnly(new Date(list.plannedDate)),
   );
   const [isActive, setIsActive] = React.useState(list.completedAt == null);
-  const [error, setError] = React.useState<string | null>(null);
   const [isPending, startTransition] = React.useTransition();
+  const { showToast } = useToast();
 
   function handleSave() {
-    setError(null);
     startTransition(async () => {
       const result = await updateGroceryListDetails({
         listId: list.id,
@@ -1500,7 +1630,10 @@ function EditGroceryListDialog({
         onSaved();
         onClose();
       } else {
-        setError(result.message ?? "Could not save these changes.");
+        showToast({
+          variant: "error",
+          title: result.message ?? "Could not save these changes.",
+        });
       }
     });
   }
@@ -1540,11 +1673,6 @@ function EditGroceryListDialog({
               aria-label="Active"
             />
           </div>
-          {error && (
-            <p role="alert" className="text-destructive-text text-sm">
-              {error}
-            </p>
-          )}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
@@ -1572,8 +1700,9 @@ function RefreshSourceDialog({
 }) {
   const [preview, setPreview] =
     React.useState<GroceryListSourceRefreshPreview | null>(null);
-  const [error, setError] = React.useState<string | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const [isPending, startTransition] = React.useTransition();
+  const { showToast } = useToast();
 
   React.useEffect(() => {
     startTransition(async () => {
@@ -1584,7 +1713,7 @@ function RefreshSourceDialog({
       if (result.status === "success") {
         setPreview(result.preview);
       } else {
-        setError(result.message);
+        setLoadError(result.message);
       }
     });
   }, [listId, sourceId]);
@@ -1596,7 +1725,10 @@ function RefreshSourceDialog({
         onApplied();
         onClose();
       } else {
-        setError(result.message ?? "Could not apply this refresh.");
+        showToast({
+          variant: "error",
+          title: result.message ?? "Could not apply this refresh.",
+        });
       }
     });
   }
@@ -1618,9 +1750,9 @@ function RefreshSourceDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {error && (
+        {loadError && (
           <p role="alert" className="text-destructive-text text-sm">
-            {error}
+            {loadError}
           </p>
         )}
 
@@ -1673,8 +1805,12 @@ function RefreshSourceDialog({
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={handleApply} disabled={isPending || !hasChanges}>
-            {isPending ? "Applying…" : "Apply refresh"}
+          <Button
+            onClick={handleApply}
+            disabled={!hasChanges}
+            loading={isPending}
+          >
+            Apply refresh
           </Button>
         </DialogFooter>
       </DialogContent>

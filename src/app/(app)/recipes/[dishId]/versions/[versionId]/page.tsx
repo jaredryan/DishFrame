@@ -20,7 +20,7 @@ import {
   toNutritionSummaryData,
 } from "@/components/domain/dish/nutrition-summary";
 import { versionContentToInput } from "@/lib/dishes/mappers";
-import { decimalToNumber } from "@/lib/dishes/format";
+import { decimalToNumber, formatYieldAmount } from "@/lib/dishes/format";
 import { versionLabel as formatVersionLabel } from "@/lib/dishes/version-note";
 import {
   resolvePartLinkTrees,
@@ -191,8 +191,11 @@ export default async function RecipeVersionPage({
             {version.yieldQuantity != null && (
               <Badge variant="outline" className="gap-1">
                 <Soup className="size-3" aria-hidden="true" />
-                Makes {decimalToNumber(version.yieldQuantity)}{" "}
-                {version.yieldUnit ?? "servings"}
+                Makes{" "}
+                {formatYieldAmount(
+                  decimalToNumber(version.yieldQuantity) ?? 0,
+                  version.yieldUnit,
+                )}
               </Badge>
             )}
             {version.prepTimeMinutes != null && (

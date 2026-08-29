@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
 import { SemanticChip } from "@/components/domain/dish/semantic-chip";
 import { cancelDirectShareCollection } from "@/lib/sharing/actions";
 import type { DirectShareStatusValue } from "@/lib/sharing/schema";
@@ -33,10 +34,9 @@ function SentSingleCard({
 }) {
   const router = useRouter();
   const [isPending, startTransition] = React.useTransition();
-  const [error, setError] = React.useState<string | null>(null);
+  const { showToast } = useToast();
 
   function handleCancel() {
-    setError(null);
     startTransition(async () => {
       const result = await cancelDirectShareCollection({
         collectionId: item.id,
@@ -44,7 +44,7 @@ function SentSingleCard({
       if (result.status === "success") {
         router.refresh();
       } else {
-        setError(result.message);
+        showToast({ variant: "error", title: result.message });
       }
     });
   }
@@ -71,11 +71,6 @@ function SentSingleCard({
         <NotJoinedBadge hasJoined={item.hasJoined} />
       </div>
       {item.note && <p className="text-sm italic">&ldquo;{item.note}&rdquo;</p>}
-      {error && (
-        <p role="alert" className="text-destructive-text text-sm">
-          {error}
-        </p>
-      )}
       {item.status === "PENDING" && (
         <Button
           variant="destructive"
@@ -97,13 +92,12 @@ function SentGroupCard({
 }) {
   const router = useRouter();
   const [isPending, startTransition] = React.useTransition();
-  const [error, setError] = React.useState<string | null>(null);
   const [expanded, setExpanded] = React.useState(false);
   const counts = statusCounts(item.children);
   const hasPending = (counts.PENDING ?? 0) > 0;
+  const { showToast } = useToast();
 
   function handleCancel() {
-    setError(null);
     startTransition(async () => {
       const result = await cancelDirectShareCollection({
         collectionId: item.id,
@@ -111,7 +105,7 @@ function SentGroupCard({
       if (result.status === "success") {
         router.refresh();
       } else {
-        setError(result.message);
+        showToast({ variant: "error", title: result.message });
       }
     });
   }
@@ -183,12 +177,6 @@ function SentGroupCard({
             </li>
           ))}
         </ul>
-      )}
-
-      {error && (
-        <p role="alert" className="text-destructive-text text-sm">
-          {error}
-        </p>
       )}
     </li>
   );

@@ -7,14 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { usePendingAction } from "@/components/ui/use-pending-action";
 import { createTag, deleteTag, renameTag } from "@/lib/tags/actions";
 import {
   initialActionState,
@@ -42,7 +36,9 @@ export function TagManager({ initialTags }: { initialTags: TagDto[] }) {
     kind: "success" | "error";
     message: string;
   } | null>(null);
-  const [isPending, startTransition] = React.useTransition();
+  const { pendingAction, isPending, run } = usePendingAction<
+    "create" | "rename" | "delete"
+  >();
   const createFormRef = React.useRef<HTMLFormElement>(null);
 
   const [pendingRename, setPendingRename] = React.useState<{
@@ -60,7 +56,7 @@ export function TagManager({ initialTags }: { initialTags: TagDto[] }) {
 
     setCreateError(null);
     setFeedback(null);
-    startTransition(async () => {
+    run("create", async () => {
       const result = await createTag(initialCreateTagActionState, formData);
       if (result.status === "success" && result.tag) {
         setTags((prev) => [...prev, result.tag!]);
@@ -76,7 +72,7 @@ export function TagManager({ initialTags }: { initialTags: TagDto[] }) {
     setEditingId(null);
     setFeedback(null);
     const previous = tags;
-    startTransition(async () => {
+    run("rename", async () => {
       const formData = new FormData();
       formData.set("id", id);
       formData.set("name", name);
@@ -138,7 +134,7 @@ export function TagManager({ initialTags }: { initialTags: TagDto[] }) {
     setTags((prev) => prev.filter((tag) => tag.id !== id));
     setPendingDelete(null);
     setFeedback(null);
-    startTransition(async () => {
+    run("delete", async () => {
       const formData = new FormData();
       formData.set("id", id);
       const result = await deleteTag(initialActionState, formData);
@@ -185,13 +181,18 @@ export function TagManager({ initialTags }: { initialTags: TagDto[] }) {
                     autoFocus
                     className="h-8"
                   />
-                  <Button type="submit" size="sm">
+                  <Button
+                    type="submit"
+                    size="sm"
+                    loading={pendingAction === "rename"}
+                  >
                     Save
                   </Button>
                   <Button
                     type="button"
                     variant="ghost"
                     size="sm"
+                    disabled={isPending}
                     onClick={() => setEditingId(null)}
                   >
                     Cancel
@@ -216,7 +217,7 @@ export function TagManager({ initialTags }: { initialTags: TagDto[] }) {
                       type="button"
                       variant="ghost"
                       size="sm"
-                      disabled={tag.isFavorite}
+                      disabled={tag.isFavorite || isPending}
                       onClick={() => setEditingId(tag.id)}
                       aria-label={`Rename ${tag.displayName}`}
                       title={
@@ -231,7 +232,7 @@ export function TagManager({ initialTags }: { initialTags: TagDto[] }) {
                       type="button"
                       variant="ghost"
                       size="sm"
-                      disabled={tag.isFavorite}
+                      disabled={tag.isFavorite || isPending}
                       onClick={() => handleDelete(tag)}
                       aria-label={`Delete ${tag.displayName}`}
                       title={
@@ -266,7 +267,7 @@ export function TagManager({ initialTags }: { initialTags: TagDto[] }) {
             disabled={isPending}
           />
         </div>
-        <Button type="submit" disabled={isPending}>
+        <Button type="submit" loading={pendingAction === "create"}>
           Add
         </Button>
       </form>
@@ -297,64 +298,41 @@ export function TagManager({ initialTags }: { initialTags: TagDto[] }) {
         )}
       </div>
 
-      <Dialog
+      <ConfirmDialog
         open={pendingRename != null}
-        onOpenChange={(open) => !open && setPendingRename(null)}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              Merge into &ldquo;{pendingRename?.destinationName}&rdquo;?
-            </DialogTitle>
-            <DialogDescription>
-              A tag named &ldquo;{pendingRename?.destinationName}&rdquo; already
-              exists. Every Recipe and Part using this tag will be retagged
-              &ldquo;{pendingRename?.destinationName}&rdquo; instead, and this
-              tag will be removed.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setPendingRename(null)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={() => {
-                if (!pendingRename) return;
-                submitRename(pendingRename.id, pendingRename.name);
-                setPendingRename(null);
-              }}
-            >
-              Merge
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onOpenChangeAction={(open) => !open && setPendingRename(null)}
+        title={<>Merge into &ldquo;{pendingRename?.destinationName}&rdquo;?</>}
+        description={
+          <>
+            A tag named &ldquo;{pendingRename?.destinationName}&rdquo; already
+            exists. Every Recipe and Part using this tag will be retagged
+            &ldquo;{pendingRename?.destinationName}&rdquo; instead, and this tag
+            will be removed.
+          </>
+        }
+        confirmLabel="Merge"
+        loading={pendingAction === "rename"}
+        onConfirmAction={() => {
+          if (!pendingRename) return;
+          submitRename(pendingRename.id, pendingRename.name);
+          setPendingRename(null);
+        }}
+      />
 
-      <Dialog
+      <ConfirmDialog
         open={pendingDelete != null}
-        onOpenChange={(open) => !open && setPendingDelete(null)}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              Delete &ldquo;{pendingDelete?.displayName}&rdquo;?
-            </DialogTitle>
-            <DialogDescription>
-              {pendingDelete && pendingDelete.dishCount > 0
-                ? `This removes the tag from ${pendingDelete.dishCount} item${pendingDelete.dishCount === 1 ? "" : "s"}. Those Recipes and Parts are not deleted.`
-                : "This tag isn't used by anything yet."}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setPendingDelete(null)}>
-              Cancel
-            </Button>
-            <Button variant="destructive" onClick={confirmDelete}>
-              Delete
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onOpenChangeAction={(open) => !open && setPendingDelete(null)}
+        title={<>Delete &ldquo;{pendingDelete?.displayName}&rdquo;?</>}
+        description={
+          pendingDelete && pendingDelete.dishCount > 0
+            ? `This removes the tag from ${pendingDelete.dishCount} item${pendingDelete.dishCount === 1 ? "" : "s"}. Those Recipes and Parts are not deleted.`
+            : "This tag isn't used by anything yet."
+        }
+        confirmLabel="Delete"
+        destructive
+        loading={pendingAction === "delete"}
+        onConfirmAction={confirmDelete}
+      />
     </div>
   );
 }

@@ -633,8 +633,18 @@ export async function editGroceryItem(
   });
 }
 
-/** §62.1: the user may remove an (optional or any other) item before or
- * after generation — after generation is this action. */
+/**
+ * §62.1: the user may remove an (optional or any other) item before or
+ * after generation — after generation is this action. On a `MEAL_PLAN_LINKED`
+ * list, deleting the item would otherwise leave no trace that the removal
+ * was deliberate — `resyncGroceryListFromMealPlan` matches strictly by
+ * (mealPlanEntryId, ingredientLineageId), so a later unrelated resync would
+ * see the still-live source as newly "Added" and silently recreate it. A
+ * tombstone row per removed contribution (same identity key, never by name)
+ * prevents that recreation while leaving every other sync case — a
+ * genuinely new contribution, a changed one, source refresh, Uncombine —
+ * untouched (§81.4 correction).
+ */
 export async function removeGroceryItem(
   ownerId: string,
   listId: string,
@@ -642,8 +652,39 @@ export async function removeGroceryItem(
 ) {
   const list = await getOwnedGroceryListOrThrow(ownerId, listId);
   assertListActive(list);
-  findOwnedItem(list, itemId);
-  await prisma.groceryListItem.delete({ where: { id: itemId } });
+  const item = findOwnedItem(list, itemId);
+
+  await prisma.$transaction(async (tx) => {
+    if (list.mode === "MEAL_PLAN_LINKED") {
+      const tombstones = item.contributions.filter(
+        (c) => c.mealPlanEntryId && c.ingredientLineageId,
+      );
+      for (const c of tombstones) {
+        await tx.groceryListRemovedContribution.upsert({
+          where: {
+            groceryListId_mealPlanEntryId_ingredientLineageId: {
+              groceryListId: listId,
+              mealPlanEntryId: c.mealPlanEntryId!,
+              ingredientLineageId: c.ingredientLineageId!,
+            },
+          },
+          create: {
+            groceryListId: listId,
+            mealPlanEntryId: c.mealPlanEntryId!,
+            ingredientLineageId: c.ingredientLineageId!,
+            wasOptional: c.isOptional,
+          },
+          // A re-removal (this lineage reappeared after an earlier
+          // invalidation, or after being re-included, and is now removed
+          // again) refreshes the recorded optionality to what it is *now* —
+          // stale bookkeeping from a prior removal must never govern a new
+          // one.
+          update: { removedAt: new Date(), wasOptional: c.isOptional },
+        });
+      }
+    }
+    await tx.groceryListItem.delete({ where: { id: itemId } });
+  });
 }
 
 export async function recategorizeGroceryItem(
@@ -1482,6 +1523,53 @@ function mealPlanContributionKey(
 }
 
 /**
+ * §81.7 — toggles whether one Meal Plan entry contributes to one
+ * `MEAL_PLAN_LINKED` Grocery List. Takes `tx` so `mealplans/service.ts` can
+ * run this in the same transaction as the resync it triggers immediately
+ * after (mirroring every other Meal-Plan-mutation-then-resync pairing in
+ * that module). Ownership of the Meal Plan/entry itself is the caller's
+ * responsibility (`mealplans/service.ts` already holds it via
+ * `getOwnedMealPlanOrThrow`) — this only verifies the Grocery List side:
+ * owned, actually linked to `mealPlanId`, and not frozen.
+ */
+export async function setGroceryListMealPlanEntryExclusion(
+  tx: Prisma.TransactionClient,
+  ownerId: string,
+  listId: string,
+  mealPlanId: string,
+  mealPlanEntryId: string,
+  excluded: boolean,
+): Promise<void> {
+  const list = await tx.groceryList.findFirst({
+    where: {
+      id: listId,
+      ownerId,
+      mode: "MEAL_PLAN_LINKED",
+      linkedMealPlanId: mealPlanId,
+    },
+  });
+  if (!list) throw new NotFoundError("Grocery list not found.");
+  assertListActive(list);
+
+  if (excluded) {
+    await tx.groceryListMealPlanEntryExclusion.upsert({
+      where: {
+        groceryListId_mealPlanEntryId: {
+          groceryListId: listId,
+          mealPlanEntryId,
+        },
+      },
+      create: { groceryListId: listId, mealPlanEntryId },
+      update: {},
+    });
+  } else {
+    await tx.groceryListMealPlanEntryExclusion.deleteMany({
+      where: { groceryListId: listId, mealPlanEntryId },
+    });
+  }
+}
+
+/**
  * Generates a `MEAL_PLAN_LINKED` grocery list from a Meal Plan's entries
  * (§81.1) — the entire plan, or the caller-selected subset of `entries`
  * already filtered by id/date-range in `mealplans/service.ts`. One
@@ -1685,6 +1773,21 @@ async function recomputeMealPlanItemSync(
  * isn't an active `MEAL_PLAN_LINKED` list (already completed — §81.5's
  * freeze — or not found/not owned).
  */
+/** Sync now (§81.2 UX correction) — lets the caller distinguish "changes
+ * applied" from "already synchronized" instead of a single silent outcome.
+ * Counts contributions, not items, since one item can carry several. */
+export type GroceryListResyncSummary = {
+  added: number;
+  removed: number;
+  changed: number;
+};
+
+const NO_RESYNC_CHANGES: GroceryListResyncSummary = {
+  added: 0,
+  removed: 0,
+  changed: 0,
+};
+
 export async function resyncGroceryListFromMealPlan(
   tx: Prisma.TransactionClient,
   ownerId: string,
@@ -1694,14 +1797,51 @@ export async function resyncGroceryListFromMealPlan(
    * caller and pass the same result to each list, rather than re-walking
    * identical entries per list. */
   fresh: PendingMealPlanContribution[],
-): Promise<void> {
+): Promise<GroceryListResyncSummary> {
   const list = await tx.groceryList.findFirst({
     where: { id: groceryListId, ownerId, mode: "MEAL_PLAN_LINKED" },
   });
-  if (!list || list.completedAt != null) return;
+  if (!list || list.completedAt != null) return NO_RESYNC_CHANGES;
+
+  // §81.7 — an entry the user has toggled off for this list is treated
+  // exactly like it disappeared from the plan for this list alone: filtered
+  // out before diffing, so its existing contributions flow through the same
+  // "Removed" (flagged, not deleted) path below, and re-including it later
+  // flows back through the same "Changed"/reappear path.
+  const exclusions = await tx.groceryListMealPlanEntryExclusion.findMany({
+    where: { groceryListId },
+    select: { mealPlanEntryId: true },
+  });
+  const excludedEntryIds = new Set(exclusions.map((e) => e.mealPlanEntryId));
+  const includedFresh = fresh.filter(
+    (f) => !excludedEntryIds.has(f.mealPlanEntryId),
+  );
+
+  // §81.4 correction — a contribution the user deliberately removed
+  // (`removeGroceryItem`'s tombstone) never comes back merely because its
+  // source still produces the same (entry, ingredient) pairing. Keyed by
+  // (mealPlanEntryId, ingredientLineageId), not by id alone, so the Added
+  // loop below can both look a tombstone up by key and, for an
+  // optional-at-removal tombstone whose lineage has since become required
+  // (§81.4 required-transition correction), delete that specific row.
+  const removedTombstones = await tx.groceryListRemovedContribution.findMany({
+    where: { groceryListId },
+    select: {
+      id: true,
+      mealPlanEntryId: true,
+      ingredientLineageId: true,
+      wasOptional: true,
+    },
+  });
+  const removedByKey = new Map(
+    removedTombstones.map((r) => [
+      mealPlanContributionKey(r.mealPlanEntryId, r.ingredientLineageId),
+      r,
+    ]),
+  );
 
   const freshByKey = new Map(
-    fresh
+    includedFresh
       .filter((f) => f.occurrence.ingredientLineageId)
       .map((f) => [
         mealPlanContributionKey(
@@ -1728,6 +1868,11 @@ export async function resyncGroceryListFromMealPlan(
   );
 
   const touchedItemIds = new Set<string>();
+  const summary: GroceryListResyncSummary = {
+    added: 0,
+    removed: 0,
+    changed: 0,
+  };
 
   // Removed — the plan no longer produces this ingredient occurrence.
   // Flagged, never deleted (Correction 5).
@@ -1742,6 +1887,7 @@ export async function resyncGroceryListFromMealPlan(
     if (key && freshByKey.has(key)) continue;
     touchedItemIds.add(contribution.groceryListItemId);
     if (contribution.state === "REMOVED") continue;
+    summary.removed++;
     await tx.groceryItemContribution.update({
       where: { id: contribution.id },
       data: {
@@ -1812,6 +1958,7 @@ export async function resyncGroceryListFromMealPlan(
       existing.substituteUnit !== freshSubstituteFields.substituteUnit;
     const stickyUnacknowledgedChange =
       existing.state === "CHANGED" && existing.acknowledgedAt === null;
+    if (!stickyUnacknowledgedChange && differsFromStoredLive) summary.changed++;
     // A currently-SUBSTITUTE selection reverts to PRIMARY only when the
     // refreshed content no longer has a substitute at all — same rule as
     // `applyGroceryListSourceRefresh` (Slice 12 correction 2).
@@ -1880,7 +2027,26 @@ export async function resyncGroceryListFromMealPlan(
 
   for (const [key, freshEntry] of freshByKey) {
     if (existingByKey.has(key)) continue;
+    const tombstone = removedByKey.get(key);
+    if (tombstone) {
+      // §81.4 required-transition correction: an optional-at-removal
+      // tombstone stops applying once this lineage's live occurrence is no
+      // longer optional — the removal decision was specifically about an
+      // optional item, not this now-required one. Deleting the tombstone
+      // (rather than just skipping it this once) means it is never
+      // automatically revived if a later Version makes the lineage optional
+      // again — that would need a fresh, explicit removal. A tombstone from
+      // removing an already-required contribution keeps suppressing
+      // unconditionally (ordinary lineage-match semantics, unchanged).
+      const becameRequired =
+        tombstone.wasOptional && !freshEntry.occurrence.isOptional;
+      if (!becameRequired) continue;
+      await tx.groceryListRemovedContribution.delete({
+        where: { id: tombstone.id },
+      });
+    }
     const occurrence = freshEntry.occurrence;
+    summary.added++;
 
     const combinable = candidateItems.find(
       (candidate) =>
@@ -1947,6 +2113,8 @@ export async function resyncGroceryListFromMealPlan(
   for (const itemId of touchedItemIds) {
     await recomputeMealPlanItemSync(tx, itemId);
   }
+
+  return summary;
 }
 
 /**

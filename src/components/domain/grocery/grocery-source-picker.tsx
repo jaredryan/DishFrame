@@ -23,6 +23,8 @@ import {
 } from "@/components/domain/dish/selectable-dish-row";
 import { RecipePartPicker } from "@/components/domain/dish/recipe-part-picker";
 import { RichVersionPickerField } from "@/components/domain/dish/version-picker-field";
+import { useStepScrollReset } from "@/components/ui/use-step-scroll-reset";
+import { useToast } from "@/components/ui/toast";
 import { DisabledActionHint } from "@/components/app/disabled-action-hint";
 import {
   generateGroceryList,
@@ -145,9 +147,10 @@ export function GrocerySourcePickerPanel({
   const [selectedVersionByDishId, setSelectedVersionByDishId] = React.useState<
     Record<string, string>
   >({});
-  const [error, setError] = React.useState<string | null>(null);
   const [isPending, startTransition] = React.useTransition();
   const [search, setSearch] = React.useState("");
+  const scrollRef = useStepScrollReset(step);
+  const { showToast } = useToast();
 
   const candidatesById = React.useMemo(
     () => new Map(candidates.map((c) => [c.dishId, c])),
@@ -211,12 +214,10 @@ export function GrocerySourcePickerPanel({
     setVersionsByDishId({});
     setVersionLoadErrors({});
     setSelectedVersionByDishId({});
-    setError(null);
     setSearch("");
   }
 
   function handleGenerate() {
-    setError(null);
     startTransition(async () => {
       const result = await generateGroceryList({
         title,
@@ -231,7 +232,7 @@ export function GrocerySourcePickerPanel({
         close();
         router.push(`/grocery-lists/${result.listId}`);
       } else {
-        setError(result.message);
+        showToast({ variant: "error", title: result.message });
       }
     });
   }
@@ -253,7 +254,10 @@ export function GrocerySourcePickerPanel({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="-mx-1 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-1">
+        <div
+          ref={scrollRef}
+          className="-mx-1 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-1"
+        >
           {step === "select" ? (
             <>
               <div className="flex flex-col gap-2">
@@ -346,12 +350,6 @@ export function GrocerySourcePickerPanel({
               })}
             </div>
           )}
-
-          {error && (
-            <p role="alert" className="text-destructive-text text-sm">
-              {error}
-            </p>
-          )}
         </div>
 
         <DialogFooter>
@@ -378,9 +376,10 @@ export function GrocerySourcePickerPanel({
               </Button>
               <Button
                 onClick={handleGenerate}
-                disabled={isPending || !canGenerate}
+                disabled={!canGenerate}
+                loading={isPending}
               >
-                {isPending ? "Generating…" : "Generate"}
+                Generate
               </Button>
             </>
           )}

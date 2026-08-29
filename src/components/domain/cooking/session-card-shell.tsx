@@ -4,15 +4,8 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { CirclePlay, CircleStop, Clock, Eye, Trash2 } from "lucide-react";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useToast } from "@/components/ui/toast";
 import { TooltipIconButton } from "@/components/domain/dish/reorder-buttons";
 import { endCookingSession, deleteCookingSession } from "@/lib/cooking/actions";
 import {
@@ -58,12 +51,11 @@ export function ActiveSessionCardShell({
 }) {
   const router = useRouter();
   const [isPending, startTransition] = React.useTransition();
-  const [error, setError] = React.useState<string | null>(null);
   const [endOpen, setEndOpen] = React.useState(false);
   const [notesOpen, setNotesOpen] = React.useState(false);
+  const { showToast } = useToast();
 
   function confirmEnd() {
-    setError(null);
     startTransition(async () => {
       const result = await endCookingSession({
         sessionId: session.id,
@@ -73,7 +65,10 @@ export function ActiveSessionCardShell({
       if (result.status === "success") {
         router.refresh();
       } else {
-        setError(result.message ?? "Could not end this session.");
+        showToast({
+          variant: "error",
+          title: result.message ?? "Could not end this session.",
+        });
       }
     });
   }
@@ -124,32 +119,15 @@ export function ActiveSessionCardShell({
         </DisclosureDetail>
       )}
 
-      {error && (
-        <p role="alert" className="text-destructive-text text-xs">
-          {error}
-        </p>
-      )}
-
-      <Dialog open={endOpen} onOpenChange={setEndOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>End {dialogSubject}?</DialogTitle>
-            <DialogDescription>
-              This marks the session Completed and moves it to your Completed
-              history. Its checked-off progress and timers stay recorded — this
-              can&apos;t be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEndOpen(false)}>
-              Cancel
-            </Button>
-            <Button disabled={isPending} onClick={confirmEnd}>
-              End session
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ConfirmDialog
+        open={endOpen}
+        onOpenChangeAction={setEndOpen}
+        title={<>End {dialogSubject}?</>}
+        description="This marks the session Completed and moves it to your Completed history. Its checked-off progress and timers stay recorded — this can't be undone."
+        confirmLabel="End session"
+        loading={isPending}
+        onConfirmAction={confirmEnd}
+      />
     </li>
   );
 }
@@ -169,20 +147,22 @@ export function CompletedSessionCardShell({
 }) {
   const router = useRouter();
   const [isPending, startTransition] = React.useTransition();
-  const [error, setError] = React.useState<string | null>(null);
   const [deleteOpen, setDeleteOpen] = React.useState(false);
   const [ratingsOpen, setRatingsOpen] = React.useState(false);
   const [notesOpen, setNotesOpen] = React.useState(false);
+  const { showToast } = useToast();
 
   function confirmDelete() {
-    setError(null);
     startTransition(async () => {
       const result = await deleteCookingSession({ sessionId: session.id });
       setDeleteOpen(false);
       if (result.status === "success") {
         router.refresh();
       } else {
-        setError(result.message ?? "Could not delete this session.");
+        showToast({
+          variant: "error",
+          title: result.message ?? "Could not delete this session.",
+        });
       }
     });
   }
@@ -252,35 +232,16 @@ export function CompletedSessionCardShell({
         </DisclosureDetail>
       )}
 
-      {error && (
-        <p role="alert" className="text-destructive-text text-xs">
-          {error}
-        </p>
-      )}
-
-      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete {dialogSubject}?</DialogTitle>
-            <DialogDescription>
-              This permanently discards the session record, including its
-              cooking history. This can&apos;t be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              disabled={isPending}
-              onClick={confirmDelete}
-            >
-              Delete
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChangeAction={setDeleteOpen}
+        title={<>Delete {dialogSubject}?</>}
+        description="This permanently discards the session record, including its cooking history. This can't be undone."
+        confirmLabel="Delete"
+        destructive
+        loading={isPending}
+        onConfirmAction={confirmDelete}
+      />
     </li>
   );
 }

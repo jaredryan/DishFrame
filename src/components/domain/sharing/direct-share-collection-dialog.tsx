@@ -14,6 +14,8 @@ import {
 import { RecipePartPicker } from "@/components/domain/dish/recipe-part-picker";
 import { SelectableDishRow } from "@/components/domain/dish/selectable-dish-row";
 import { RichDishVersionPicker } from "@/components/domain/dish/version-picker-field";
+import { useToast } from "@/components/ui/toast";
+import { useStepScrollReset } from "@/components/ui/use-step-scroll-reset";
 import {
   listShareableItemsForSender,
   sendDirectShareCollection,
@@ -22,7 +24,7 @@ import {
 import { DIRECT_SHARE_MAX_ITEMS } from "@/lib/sharing/schema";
 import type { ShareableItemSummary } from "@/lib/sharing/collections";
 
-type Step = "select" | "configure" | "sent";
+type Step = "select" | "configure";
 
 type ShareHistoryStatus = "ACCEPTED" | "PENDING";
 
@@ -69,8 +71,9 @@ export function DirectShareCollectionDialog({
     Record<string, string>
   >({});
   const [note, setNote] = React.useState("");
-  const [sendError, setSendError] = React.useState<string | null>(null);
   const [isPending, startTransition] = React.useTransition();
+  const { showToast } = useToast();
+  const scrollRef = useStepScrollReset(step);
 
   const loadedRef = React.useRef(false);
 
@@ -145,7 +148,6 @@ export function DirectShareCollectionDialog({
     setRecipientHistory(null);
     setSelectedVersionByDishId({});
     setNote("");
-    setSendError(null);
   }
 
   const canConfigure = isValidEmail && selected.size > 0;
@@ -190,7 +192,8 @@ export function DirectShareCollectionDialog({
   }
 
   function handleSend() {
-    setSendError(null);
+    const sentCount = selected.size;
+    const recipient = email.trim();
     startTransition(async () => {
       const result = await sendDirectShareCollection({
         recipientEmail: email,
@@ -201,10 +204,14 @@ export function DirectShareCollectionDialog({
         note: note.trim().length > 0 ? note.trim() : null,
       });
       if (result.status === "error") {
-        setSendError(result.message);
+        showToast({ variant: "error", title: result.message });
         return;
       }
-      setStep("sent");
+      showToast({
+        variant: "success",
+        title: `Sent ${sentCount} item${sentCount === 1 ? "" : "s"} to ${recipient}.`,
+      });
+      close();
     });
   }
 
@@ -214,21 +221,17 @@ export function DirectShareCollectionDialog({
         <DialogHeader>
           <DialogTitle>Send</DialogTitle>
           <DialogDescription>
-            {step === "sent"
-              ? "Sent."
-              : step === "configure"
-                ? "Choose a Version to send for each selected item."
-                : "Choose who to send to and which items to include."}
+            {step === "configure"
+              ? "Choose a Version to send for each selected item."
+              : "Choose who to send to and which items to include."}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="-mx-1 flex min-h-0 flex-1 flex-col overflow-y-auto px-1">
-          {step === "sent" ? (
-            <p className="text-sm">
-              Sent {selected.size} item{selected.size === 1 ? "" : "s"} to{" "}
-              {email.trim()}.
-            </p>
-          ) : step === "configure" ? (
+        <div
+          ref={scrollRef}
+          className="-mx-1 flex min-h-0 flex-1 flex-col overflow-y-auto px-1"
+        >
+          {step === "configure" ? (
             <div className="space-y-4">
               <div className="border-border rounded-lg border p-3 text-sm">
                 <p>
@@ -278,12 +281,6 @@ export function DirectShareCollectionDialog({
                   rows={3}
                 />
               </div>
-
-              {sendError && (
-                <p role="alert" className="text-destructive-text text-sm">
-                  {sendError}
-                </p>
-              )}
             </div>
           ) : (
             <div className="space-y-4">
@@ -321,9 +318,7 @@ export function DirectShareCollectionDialog({
         </div>
 
         <DialogFooter>
-          {step === "sent" ? (
-            <Button onClick={close}>Done</Button>
-          ) : step === "configure" ? (
+          {step === "configure" ? (
             <>
               <Button
                 variant="outline"

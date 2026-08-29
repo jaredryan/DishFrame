@@ -6,6 +6,7 @@ import {
   GrocerySourcePickerTrigger,
   GrocerySourcePickerPanel,
 } from "@/components/domain/grocery/grocery-source-picker";
+import { ToastProvider, Toaster } from "@/components/ui/toast";
 import type { GrocerySourceCandidate } from "@/lib/grocery/queries";
 
 vi.mock("next/navigation", () => ({
@@ -65,10 +66,13 @@ beforeEach(() => {
 
 function renderPicker(candidates: GrocerySourceCandidate[]) {
   return render(
-    <GrocerySourcePickerProvider>
-      <GrocerySourcePickerTrigger hasCandidates={candidates.length > 0} />
-      <GrocerySourcePickerPanel candidates={candidates} />
-    </GrocerySourcePickerProvider>,
+    <ToastProvider>
+      <GrocerySourcePickerProvider>
+        <GrocerySourcePickerTrigger hasCandidates={candidates.length > 0} />
+        <GrocerySourcePickerPanel candidates={candidates} />
+      </GrocerySourcePickerProvider>
+      <Toaster />
+    </ToastProvider>,
   );
 }
 

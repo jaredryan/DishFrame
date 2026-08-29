@@ -28,6 +28,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { usePendingAction } from "@/components/ui/use-pending-action";
+import { useToast } from "@/components/ui/toast";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -58,7 +61,12 @@ import { formatDateOnly } from "@/lib/date";
  */
 
 type ActionResult = { status: string; message?: string };
-type RunAction = (action: () => Promise<ActionResult>) => void;
+type EntryPendingAction =
+  `status-${string}-${"COOKED" | "SKIPPED"}` | `start-${string}`;
+type RunEntryAction = (
+  actionKey: EntryPendingAction,
+  action: () => Promise<ActionResult>,
+) => void;
 
 function isoDate(iso: string): string {
   return iso.slice(0, 10);
@@ -80,18 +88,22 @@ const STATUS_SEMANTIC: Record<string, ChipSemantic> = {
 
 export function MealPlanView({ mealPlan }: { mealPlan: MealPlanDetailDto }) {
   const router = useRouter();
-  const [isPending, startTransition] = React.useTransition();
-  const [error, setError] = React.useState<string | null>(null);
+  const { pendingAction, isPending, run } = usePendingAction<
+    EntryPendingAction | "delete-plan"
+  >();
   const [deleteOpen, setDeleteOpen] = React.useState(false);
   const [generateOpen, setGenerateOpen] = React.useState(false);
   const [reuseOpen, setReuseOpen] = React.useState(false);
+  const { showToast } = useToast();
 
-  const runAction: RunAction = (action) => {
-    setError(null);
-    startTransition(async () => {
+  const runEntryAction: RunEntryAction = (actionKey, action) => {
+    run(actionKey, async () => {
       const result = await action();
       if (result.status !== "success") {
-        setError(result.message ?? "Something went wrong.");
+        showToast({
+          variant: "error",
+          title: result.message ?? "Something went wrong.",
+        });
       } else {
         router.refresh();
       }
@@ -99,8 +111,7 @@ export function MealPlanView({ mealPlan }: { mealPlan: MealPlanDetailDto }) {
   };
 
   function handleStartSession(entryId: string) {
-    setError(null);
-    startTransition(async () => {
+    run(`start-${entryId}`, async () => {
       const result = await startSessionFromEntry({
         mealPlanId: mealPlan.id,
         entryId,
@@ -108,7 +119,7 @@ export function MealPlanView({ mealPlan }: { mealPlan: MealPlanDetailDto }) {
       if (result.status === "success") {
         router.push(`/cook/${result.sessionId}`);
       } else {
-        setError(result.message);
+        showToast({ variant: "error", title: result.message });
       }
     });
   }
@@ -180,12 +191,6 @@ export function MealPlanView({ mealPlan }: { mealPlan: MealPlanDetailDto }) {
         </div>
       </div>
 
-      {error && (
-        <p role="alert" className="text-destructive-text text-sm">
-          {error}
-        </p>
-      )}
-
       <div className="flex flex-col gap-3">
         <h2 className="font-heading text-lg font-medium">Meals</h2>
         {sortedEntries.length === 0 ? (
@@ -207,7 +212,8 @@ export function MealPlanView({ mealPlan }: { mealPlan: MealPlanDetailDto }) {
                 mealPlanId={mealPlan.id}
                 entry={entry}
                 isPending={isPending}
-                runAction={runAction}
+                pendingAction={pendingAction}
+                runEntryAction={runEntryAction}
                 onStartSession={() => handleStartSession(entry.id)}
               />
             ))}
@@ -253,40 +259,31 @@ export function MealPlanView({ mealPlan }: { mealPlan: MealPlanDetailDto }) {
         </Button>
       </div>
 
-      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete this meal plan?</DialogTitle>
-            <DialogDescription>
-              Linked grocery lists are kept as standalone lists rather than
-              deleted. This can&apos;t be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() =>
-                startTransition(async () => {
-                  const result = await deleteMealPlan({
-                    mealPlanId: mealPlan.id,
-                  });
-                  if (result.status === "success") {
-                    router.push("/meal-plans");
-                  } else {
-                    setError(result.message ?? "Could not delete this plan.");
-                    setDeleteOpen(false);
-                  }
-                })
-              }
-            >
-              Delete
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChangeAction={setDeleteOpen}
+        title="Delete this meal plan?"
+        description="Linked grocery lists are kept as standalone lists rather than deleted. This can't be undone."
+        confirmLabel="Delete"
+        destructive
+        loading={pendingAction === "delete-plan"}
+        onConfirmAction={() =>
+          run("delete-plan", async () => {
+            const result = await deleteMealPlan({
+              mealPlanId: mealPlan.id,
+            });
+            if (result.status === "success") {
+              router.push("/meal-plans");
+            } else {
+              showToast({
+                variant: "error",
+                title: result.message ?? "Could not delete this plan.",
+              });
+              setDeleteOpen(false);
+            }
+          })
+        }
+      />
 
       {generateOpen && (
         <GenerateGroceryListDialog
@@ -422,13 +419,15 @@ function ViewEntryCard({
   mealPlanId,
   entry,
   isPending,
-  runAction,
+  pendingAction,
+  runEntryAction,
   onStartSession,
 }: {
   mealPlanId: string;
   entry: MealPlanEntryDto;
   isPending: boolean;
-  runAction: RunAction;
+  pendingAction: EntryPendingAction | "delete-plan" | null;
+  runEntryAction: RunEntryAction;
   onStartSession: () => void;
 }) {
   const canStartSession =
@@ -465,7 +464,12 @@ function ViewEntryCard({
 
       <div className="flex flex-wrap items-center gap-2">
         {canStartSession && (
-          <Button size="sm" disabled={isPending} onClick={onStartSession}>
+          <Button
+            size="sm"
+            disabled={isPending}
+            loading={pendingAction === `start-${entry.id}`}
+            onClick={onStartSession}
+          >
             Start cooking
           </Button>
         )}
@@ -479,8 +483,9 @@ function ViewEntryCard({
             size="sm"
             variant="ghost"
             disabled={isPending}
+            loading={pendingAction === `status-${entry.id}-COOKED`}
             onClick={() =>
-              runAction(() =>
+              runEntryAction(`status-${entry.id}-COOKED`, () =>
                 setMealPlanEntryStatus({
                   mealPlanId,
                   entryId: entry.id,
@@ -497,8 +502,9 @@ function ViewEntryCard({
             size="sm"
             variant="ghost"
             disabled={isPending}
+            loading={pendingAction === `status-${entry.id}-SKIPPED`}
             onClick={() =>
-              runAction(() =>
+              runEntryAction(`status-${entry.id}-SKIPPED`, () =>
                 setMealPlanEntryStatus({
                   mealPlanId,
                   entryId: entry.id,
@@ -594,7 +600,8 @@ function GenerateGroceryListDialog({
             Cancel
           </Button>
           <Button
-            disabled={isPending || selectedIds.length === 0}
+            disabled={selectedIds.length === 0}
+            loading={isPending}
             onClick={() =>
               startTransition(async () => {
                 const result = await generateGroceryListFromMealPlan({
@@ -610,7 +617,7 @@ function GenerateGroceryListDialog({
               })
             }
           >
-            {isPending ? "Generating…" : "Generate"}
+            Generate
           </Button>
         </DialogFooter>
       </DialogContent>

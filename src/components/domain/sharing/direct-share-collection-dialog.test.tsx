@@ -2,6 +2,16 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DirectShareCollectionDialog } from "@/components/domain/sharing/direct-share-collection-dialog";
+import { ToastProvider, Toaster } from "@/components/ui/toast";
+
+function renderDialog(onOpenChange: (open: boolean) => void = () => {}) {
+  return render(
+    <ToastProvider>
+      <DirectShareCollectionDialog open onOpenChange={onOpenChange} />
+      <Toaster />
+    </ToastProvider>,
+  );
+}
 
 const mockListShareableItems = vi.fn();
 const mockSendCollection = vi.fn();
@@ -114,7 +124,7 @@ describe("DirectShareCollectionDialog", () => {
   });
 
   it("is the generalized flow: `/share`'s Send opens with nothing preselected", async () => {
-    render(<DirectShareCollectionDialog open onOpenChange={() => {}} />);
+    renderDialog();
 
     await waitFor(() =>
       expect(screen.getByText("Recipe One")).toBeInTheDocument(),
@@ -127,7 +137,7 @@ describe("DirectShareCollectionDialog", () => {
 
   it("Select all checks every loaded item (Recipes and Parts alike), and individual rows can be deselected", async () => {
     const user = userEvent.setup();
-    render(<DirectShareCollectionDialog open onOpenChange={() => {}} />);
+    renderDialog();
     await waitFor(() =>
       expect(screen.getByText("Recipe One")).toBeInTheDocument(),
     );
@@ -143,7 +153,7 @@ describe("DirectShareCollectionDialog", () => {
   });
 
   it("does not expose whether the entered email belongs to an existing account", async () => {
-    render(<DirectShareCollectionDialog open onOpenChange={() => {}} />);
+    renderDialog();
     await waitFor(() =>
       expect(screen.getByText("Recipe One")).toBeInTheDocument(),
     );
@@ -156,7 +166,7 @@ describe("DirectShareCollectionDialog", () => {
 
   it("enables Review once a plausible email is entered and an item is selected", async () => {
     const user = userEvent.setup();
-    render(<DirectShareCollectionDialog open onOpenChange={() => {}} />);
+    renderDialog();
     await waitFor(() =>
       expect(screen.getByText("Recipe One")).toBeInTheDocument(),
     );
@@ -186,7 +196,8 @@ describe("DirectShareCollectionDialog", () => {
       collectionId: "collection1",
     });
     const user = userEvent.setup();
-    render(<DirectShareCollectionDialog open onOpenChange={() => {}} />);
+    const onOpenChange = vi.fn();
+    renderDialog(onOpenChange);
     await waitFor(() =>
       expect(screen.getByText("Recipe One")).toBeInTheDocument(),
     );
@@ -220,6 +231,45 @@ describe("DirectShareCollectionDialog", () => {
         ]),
       }),
     );
+
+    // Closes and hands off to a toast instead of a dedicated Sent screen.
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(
+      await screen.findByText("Sent 2 items to person@example.invalid."),
+    ).toBeInTheDocument();
+  });
+
+  it("on failure, keeps the dialog open and shows an error toast", async () => {
+    mockSendCollection.mockResolvedValue({
+      status: "error",
+      message: "Could not send — try again.",
+    });
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    renderDialog(onOpenChange);
+    await waitFor(() =>
+      expect(screen.getByText("Recipe One")).toBeInTheDocument(),
+    );
+
+    await user.type(
+      screen.getByLabelText("Recipient's email"),
+      "person@example.invalid",
+    );
+    await user.click(screen.getByLabelText("Select Recipe One"));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Next" })).toBeEnabled(),
+    );
+    await user.click(screen.getByRole("button", { name: "Next" }));
+
+    const versionTrigger = await screen.findByRole("combobox");
+    await waitFor(() => expect(versionTrigger).not.toBeDisabled());
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(
+      await screen.findByText("Could not send — try again."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument();
   });
 
   it("disables items already shared (accepted or pending) to the entered recipient and excludes them from Select all", async () => {
@@ -228,7 +278,7 @@ describe("DirectShareCollectionDialog", () => {
       history: { r1: "ACCEPTED", p1: "PENDING" },
     });
     const user = userEvent.setup();
-    render(<DirectShareCollectionDialog open onOpenChange={() => {}} />);
+    renderDialog();
     await waitFor(() =>
       expect(screen.getByText("Recipe One")).toBeInTheDocument(),
     );

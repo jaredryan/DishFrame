@@ -821,9 +821,80 @@ model GroceryList {
 
   sources GroceryListSource[]
   items   GroceryListItem[]
+  mealPlanEntryExclusions   GroceryListMealPlanEntryExclusion[]
+  removedMealPlanContributions GroceryListRemovedContribution[]
 
   @@index([ownerId])
   @@index([linkedMealPlanId])
+}
+
+// Slice: Meal-Plan-linked Grocery Lists may draw from a caller-selected
+// subset of their linked Meal Plan's entries (PRODUCT_SPEC.md §81.7) — one
+// Meal Plan can feed several lists, each covering a different subset. A row
+// here means "this entry is EXCLUDED from this list"; an entry with no row
+// is included by default. `resyncGroceryListFromMealPlan` filters live
+// entries against this table per-list before diffing, so excluding an entry
+// behaves exactly like that entry disappearing from the plan for this list
+// alone (flagged REMOVED, never deleted, matching every other disappearance
+// case it already handles) — re-including it flows back through the same
+// CHANGED path.
+//
+// Correction (§81.7): a brand-new entry does NOT default to included on an
+// already-existing list — `addMealPlanEntry` (mealplans/service.ts) writes
+// an explicit exclusion row for it on every Grocery List that already
+// existed at that moment, before its own resync runs, so a list's chosen
+// subset survives later Meal Plan growth. "Absence means included" still
+// governs a Grocery List's own generation (`generateGroceryListFromMealPlan`
+// persists exclusions only for entries left OUT of the selected subset) and
+// the manual per-list toggle (`setGroceryListMealPlanEntryExclusion`) — the
+// auto-exclusion-on-add above is the one place this table's rows are
+// written proactively rather than in response to an explicit user choice.
+model GroceryListMealPlanEntryExclusion {
+  id              String   @id @default(cuid())
+  groceryListId   String
+  mealPlanEntryId String
+  createdAt       DateTime @default(now())
+
+  groceryList GroceryList @relation(fields: [groceryListId], references: [id], onDelete: Cascade)
+
+  @@unique([groceryListId, mealPlanEntryId])
+  @@index([groceryListId])
+}
+
+// Slice: preserves a user's deliberate removal of a generated Meal-Plan-
+// linked item across later, unrelated resyncs (PRODUCT_SPEC.md §81.4
+// correction) — without this, `removeGroceryItem` deleting the item's
+// contributions left no trace, so the next resync triggered by an unrelated
+// Meal Plan mutation treated the still-live source as newly "Added" and
+// silently recreated it. A row here is keyed by the same
+// (mealPlanEntryId, ingredientLineageId) identity `resyncGroceryListFromMealPlan`
+// already uses to match contributions — never by name — so it only
+// suppresses recreation of the exact same source/ingredient pairing the
+// user removed; a genuinely different contribution (a different entry, or
+// the same entry's ingredient swapped for a different one) is unaffected.
+model GroceryListRemovedContribution {
+  id                  String   @id @default(cuid())
+  groceryListId       String
+  mealPlanEntryId     String
+  ingredientLineageId String
+  // Whether the contribution being removed was optional at removal time
+  // (structured state, not a name heuristic) — a tombstone suppresses this
+  // lineage only while that condition still holds. If a later resync finds
+  // the same lineage now required, the removal decision no longer applies:
+  // the tombstone is invalidated (deleted) and the required contribution is
+  // allowed through, and is never automatically revived even if a later
+  // Version makes the same lineage optional again (that would need a fresh,
+  // explicit removal to tombstone it anew). A tombstone recorded from
+  // removing an already-required contribution (`wasOptional: false`) keeps
+  // the prior unconditional lineage-match suppression — this invalidation
+  // rule is optional-removal-specific.
+  wasOptional         Boolean
+  removedAt           DateTime @default(now())
+
+  groceryList GroceryList @relation(fields: [groceryListId], references: [id], onDelete: Cascade)
+
+  @@unique([groceryListId, mealPlanEntryId, ingredientLineageId])
+  @@index([groceryListId])
 }
 
 model GroceryListSource {

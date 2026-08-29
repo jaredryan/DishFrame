@@ -4,15 +4,22 @@ import { render as rtlRender, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SessionReviewForm } from "@/components/domain/cooking/session-review-form";
 import { OnboardingProvider } from "@/components/onboarding/onboarding-provider";
+import { ToastProvider, Toaster } from "@/components/ui/toast";
 import { saveSessionReview } from "@/lib/reviews/actions";
 import { updateDishStage } from "@/lib/dishes/actions";
 
 // SessionReviewForm renders CoachMark, which requires an ancestor
-// OnboardingProvider now that useOnboarding() throws without one.
+// OnboardingProvider now that useOnboarding() throws without one, and now
+// calls useToast() too.
 function render(ui: ReactElement) {
   return rtlRender(ui, {
     wrapper: ({ children }) => (
-      <OnboardingProvider initialState={{}}>{children}</OnboardingProvider>
+      <OnboardingProvider initialState={{}}>
+        <ToastProvider>
+          {children}
+          <Toaster />
+        </ToastProvider>
+      </OnboardingProvider>
     ),
   });
 }

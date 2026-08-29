@@ -1,11 +1,22 @@
+import type { ReactElement } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render as rtlRender, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PartAttachPicker } from "@/components/domain/dish/part-attach-picker";
+import { ToastProvider, Toaster } from "@/components/ui/toast";
 import {
   listAttachableParts,
   validatePartAttachment,
 } from "@/lib/sections/actions";
+
+function render(ui: ReactElement) {
+  return rtlRender(
+    <ToastProvider>
+      {ui}
+      <Toaster />
+    </ToastProvider>,
+  );
+}
 
 vi.mock("@/lib/sections/actions", () => ({
   listAttachableParts: vi.fn(),

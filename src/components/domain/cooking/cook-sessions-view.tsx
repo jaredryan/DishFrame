@@ -3,15 +3,8 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { ChefHat, CirclePlay, CircleStop, Clock } from "lucide-react";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useToast } from "@/components/ui/toast";
 import { TooltipIconButton } from "@/components/domain/dish/reorder-buttons";
 import { formatRelativeAge } from "@/lib/format/relative-time";
 import { endCookingSession } from "@/lib/cooking/actions";
@@ -56,11 +49,10 @@ export function ActiveCookSessionCard({
 }) {
   const router = useRouter();
   const [isPending, startTransition] = React.useTransition();
-  const [error, setError] = React.useState<string | null>(null);
   const [endOpen, setEndOpen] = React.useState(false);
+  const { showToast } = useToast();
 
   function confirmEnd() {
-    setError(null);
     startTransition(async () => {
       const result = await endCookingSession({
         sessionId: session.id,
@@ -70,7 +62,10 @@ export function ActiveCookSessionCard({
       if (result.status === "success") {
         router.refresh();
       } else {
-        setError(result.message ?? "Could not end this session.");
+        showToast({
+          variant: "error",
+          title: result.message ?? "Could not end this session.",
+        });
       }
     });
   }
@@ -97,11 +92,6 @@ export function ActiveCookSessionCard({
             {formatElapsedLabel(session.startedAt)}
           </StaticPill>
         </div>
-        {error && (
-          <p role="alert" className="text-destructive-text mt-1 text-xs">
-            {error}
-          </p>
-        )}
       </div>
       <div className="flex shrink-0 items-center gap-1">
         <TooltipIconButton
@@ -118,26 +108,15 @@ export function ActiveCookSessionCard({
         />
       </div>
 
-      <Dialog open={endOpen} onOpenChange={setEndOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>End &ldquo;{session.dishTitle}&rdquo;?</DialogTitle>
-            <DialogDescription>
-              This marks the session Completed and moves it to your Completed
-              history. Its checked-off progress and timers stay recorded — this
-              can&apos;t be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEndOpen(false)}>
-              Cancel
-            </Button>
-            <Button disabled={isPending} onClick={confirmEnd}>
-              End session
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ConfirmDialog
+        open={endOpen}
+        onOpenChangeAction={setEndOpen}
+        title={<>End &ldquo;{session.dishTitle}&rdquo;?</>}
+        description="This marks the session Completed and moves it to your Completed history. Its checked-off progress and timers stay recorded — this can't be undone."
+        confirmLabel="End session"
+        loading={isPending}
+        onConfirmAction={confirmEnd}
+      />
     </li>
   );
 }

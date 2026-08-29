@@ -6,6 +6,8 @@ import Link from "next/link";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { usePendingAction } from "@/components/ui/use-pending-action";
+import { useToast } from "@/components/ui/toast";
 import { SemanticChip } from "@/components/domain/dish/semantic-chip";
 import { acceptDirectShare, declineDirectShare } from "@/lib/sharing/actions";
 import {
@@ -54,8 +56,9 @@ function ReceivedSingleCard({
   item: Extract<ReceivedItemView, { kind: "single" }>;
 }) {
   const router = useRouter();
-  const [isPending, startTransition] = React.useTransition();
-  const [error, setError] = React.useState<string | null>(null);
+  const { pendingAction, isPending, run } = usePendingAction<
+    "accept" | "decline"
+  >();
   const [copyLink, setCopyLink] = React.useState<{
     dishId: string;
     dishKind: DishKindValue;
@@ -65,30 +68,31 @@ function ReceivedSingleCard({
       : null,
   );
   const preview = useDirectSharePreview(item.id);
+  const { showToast } = useToast();
 
   function handleAccept() {
-    setError(null);
-    startTransition(async () => {
+    run("accept", async () => {
       const result = await acceptDirectShare({ directShareId: item.id });
       if (result.status === "error") {
-        setError(result.message);
+        showToast({ variant: "error", title: result.message });
         return;
       }
       if (result.outcome === "accepted") {
         setCopyLink({ dishId: result.dishId, dishKind: result.dishKind });
       } else if (result.outcome === "accepted_copy_deleted") {
-        setError("You previously accepted this, but that copy was deleted.");
+        showToast({
+          title: "You previously accepted this, but that copy was deleted.",
+        });
       }
       router.refresh();
     });
   }
 
   function handleDecline() {
-    setError(null);
-    startTransition(async () => {
+    run("decline", async () => {
       const result = await declineDirectShare({ directShareId: item.id });
       if (result.status === "error") {
-        setError(result.message);
+        showToast({ variant: "error", title: result.message });
         return;
       }
       router.refresh();
@@ -114,12 +118,6 @@ function ReceivedSingleCard({
       </p>
       {item.note && <p className="text-sm italic">&ldquo;{item.note}&rdquo;</p>}
 
-      {error && (
-        <p role="alert" className="text-destructive-text text-sm">
-          {error}
-        </p>
-      )}
-
       {item.status === "PENDING" && (
         <div className="flex items-center gap-2">
           <Button
@@ -136,6 +134,7 @@ function ReceivedSingleCard({
             className="h-[1.875rem]"
             onClick={handleDecline}
             disabled={isPending}
+            loading={pendingAction === "decline"}
           >
             Decline
           </Button>
@@ -144,6 +143,7 @@ function ReceivedSingleCard({
             className="h-[1.875rem]"
             onClick={handleAccept}
             disabled={isPending}
+            loading={pendingAction === "accept"}
           >
             Accept
           </Button>

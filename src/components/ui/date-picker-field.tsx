@@ -32,18 +32,26 @@ export function DatePickerField({
   onChange,
   ariaLabel,
   className,
+  min,
+  max,
 }: {
   id?: string;
   value: string;
   onChange: (value: string) => void;
   ariaLabel?: string;
   className?: string;
+  /** Inclusive ISO `yyyy-mm-dd` bounds — a day outside this range renders
+   * disabled rather than merely unstyled, so it can't be clicked. */
+  min?: string;
+  max?: string;
 }) {
   const [open, setOpen] = React.useState(false);
   const selected = parseDateOnly(value);
   const [viewMonth, setViewMonth] = React.useState(
     () => new Date(selected.getFullYear(), selected.getMonth(), 1),
   );
+  const minDate = min ? parseDateOnly(min) : null;
+  const maxDate = max ? parseDateOnly(max) : null;
 
   function openChange(next: boolean) {
     if (next) {
@@ -137,13 +145,17 @@ export function DatePickerField({
               {label}
             </span>
           ))}
-          {cells.map((date, i) =>
-            date ? (
+          {cells.map((date, i) => {
+            if (!date) return <span key={i} aria-hidden="true" />;
+            const outOfRange =
+              (minDate && date < minDate) || (maxDate && date > maxDate);
+            return (
               <Button
                 key={i}
                 type="button"
                 variant={isSameDay(date, selected) ? "default" : "ghost"}
                 size="icon-sm"
+                disabled={!!outOfRange}
                 className="w-full tabular-nums"
                 onClick={() => {
                   onChange(toIsoDateOnly(date));
@@ -152,10 +164,8 @@ export function DatePickerField({
               >
                 {date.getDate()}
               </Button>
-            ) : (
-              <span key={i} aria-hidden="true" />
-            ),
-          )}
+            );
+          })}
         </div>
       </PopoverContent>
     </Popover>

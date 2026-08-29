@@ -119,6 +119,10 @@ export type GroceryContributionDto = {
    * `MEAL_PLAN_LINKED` list's contributions. */
   syncState: "ACTIVE" | "CHANGED" | "REMOVED" | null;
   previousQuantityText: string | null;
+  /** The contributing Recipe/Part's snapshot title (from the owning
+   * `GroceryListSource` or `MealPlanEntry`) — null only for legacy/mixed
+   * data with neither snapshot available. */
+  sourceTitle: string | null;
 };
 
 export type GroceryListItemDto = {
@@ -150,6 +154,20 @@ export type GroceryListSourceDto = {
   isDeleted: boolean;
 };
 
+/** §81.6 — one of the linked Meal Plan's own entries, shown in this list's
+ * Meals section with a checkbox reflecting whether it currently contributes
+ * to this particular list (a selection distinct from the Meal Plan's own
+ * list of Meals — toggling here never adds/removes the actual entry). */
+export type GroceryListMealPlanEntryDto = {
+  id: string;
+  dishKind: "RECIPE" | "PART";
+  title: string;
+  versionLabel: string;
+  targetYieldQuantity: number | null;
+  targetYieldUnit: string | null;
+  included: boolean;
+};
+
 export type GroceryListDetailDto = {
   id: string;
   title: string;
@@ -160,4 +178,6 @@ export type GroceryListDetailDto = {
   linkedMealPlanId: string | null;
   sources: GroceryListSourceDto[];
   items: GroceryListItemDto[];
+  /** Populated only for a `MEAL_PLAN_LINKED` list. */
+  mealPlanEntries: GroceryListMealPlanEntryDto[];
 };

@@ -3,14 +3,8 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useToast } from "@/components/ui/toast";
 import { promoteHistoricalVersion } from "@/lib/dishes/actions";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
 import type { DishKindValue } from "@/lib/dishes/schema";
@@ -36,10 +30,9 @@ export function PromoteVersionButton({
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [isPending, startTransition] = React.useTransition();
-  const [error, setError] = React.useState<string | null>(null);
+  const { showToast } = useToast();
 
   function handlePromote() {
-    setError(null);
     startTransition(async () => {
       const result = await promoteHistoricalVersion(kind, {
         dishId,
@@ -50,7 +43,10 @@ export function PromoteVersionButton({
         router.push(`${dishBasePath(kind)}/${dishId}`);
         router.refresh();
       } else {
-        setError(result.message ?? "Could not promote this version.");
+        showToast({
+          variant: "error",
+          title: result.message ?? "Could not promote this version.",
+        });
       }
     });
   }
@@ -60,35 +56,21 @@ export function PromoteVersionButton({
       <Button variant="outline" onClick={() => setOpen(true)}>
         Promote to a new version
       </Button>
-      <Dialog open={open} onOpenChange={(next) => !isPending && setOpen(next)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Make this direction current again?</DialogTitle>
-            <DialogDescription>
-              Creates {newMajorLabel} with this version&apos;s content exactly
-              as it is, and makes it the current version. Nothing about this
-              historical version changes.
-            </DialogDescription>
-          </DialogHeader>
-          {error && (
-            <p role="alert" className="text-destructive-text text-sm">
-              {error}
-            </p>
-          )}
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setOpen(false)}
-              disabled={isPending}
-            >
-              Cancel
-            </Button>
-            <Button onClick={handlePromote} disabled={isPending}>
-              {isPending ? "Promoting…" : "Promote"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ConfirmDialog
+        open={open}
+        onOpenChangeAction={(next) => !isPending && setOpen(next)}
+        title="Make this direction current again?"
+        description={
+          <>
+            Creates {newMajorLabel} with this version&apos;s content exactly as
+            it is, and makes it the current version. Nothing about this
+            historical version changes.
+          </>
+        }
+        confirmLabel="Promote"
+        loading={isPending}
+        onConfirmAction={handlePromote}
+      />
     </>
   );
 }

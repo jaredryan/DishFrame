@@ -95,7 +95,22 @@ export function RecipePartPicker({
   }, [tabItems, search]);
 
   return (
-    <div className={cn("flex min-h-0 flex-col gap-2", className)}>
+    <div
+      className={cn(
+        // Owns its own scroll container (bug fix, frontend interaction
+        // audit): every caller used to wrap this in its own ad hoc
+        // `overflow-y-auto` div, some forgetting the horizontal-only inset
+        // that kept the sticky search header's focus ring from being
+        // clipped — and none reserved any *vertical* room, so the ring's
+        // top edge (the header sits flush at `top-0`) was clipped by this
+        // element's own scrolling ancestor regardless. Centralizing the
+        // scroll boundary and a matching inset (`-m-1`/`p-1`, canceling out
+        // visually) here means every caller gets full-edge focus-ring
+        // clearance for free, with no per-caller padding to remember.
+        "-m-1 flex min-h-0 flex-col gap-2 overflow-y-auto p-1",
+        className,
+      )}
+    >
       <div className="bg-popover sticky top-0 z-10 flex flex-col gap-2 pb-2">
         {!isSingle && onSelectAll && items && items.length > 0 && (
           <div className="flex items-center justify-end">

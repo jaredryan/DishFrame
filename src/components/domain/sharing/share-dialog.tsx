@@ -19,6 +19,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { createShareLink } from "@/lib/sharing/actions";
+import { useToast } from "@/components/ui/toast";
 import type { ShareLinkModeValue } from "@/lib/sharing/schema";
 import type { DishKindValue } from "@/lib/dishes/schema";
 
@@ -42,13 +43,12 @@ export function ShareDialog({
   const [showCreatorName, setShowCreatorName] = React.useState(false);
   const [expiresAt, setExpiresAt] = React.useState("");
   const [isPending, startTransition] = React.useTransition();
-  const [error, setError] = React.useState<string | null>(null);
   const [result, setResult] = React.useState<{ url: string } | null>(null);
   const [copied, setCopied] = React.useState(false);
+  const { showToast } = useToast();
 
   function close() {
     onOpenChange(false);
-    setError(null);
     setResult(null);
     setCopied(false);
     setMode("FIXED_SNAPSHOT");
@@ -57,7 +57,6 @@ export function ShareDialog({
   }
 
   function handleCreate() {
-    setError(null);
     startTransition(async () => {
       const response = await createShareLink({
         dishId,
@@ -68,7 +67,7 @@ export function ShareDialog({
       if (response.status === "success") {
         setResult({ url: response.url });
       } else {
-        setError(response.message);
+        showToast({ variant: "error", title: response.message });
       }
     });
   }
@@ -142,12 +141,6 @@ export function ShareDialog({
                 className="border-input bg-background flex h-9 w-full rounded-md border px-3 py-1 text-sm shadow-xs"
               />
             </div>
-
-            {error && (
-              <p role="alert" className="text-destructive-text text-sm">
-                {error}
-              </p>
-            )}
           </div>
         )}
 

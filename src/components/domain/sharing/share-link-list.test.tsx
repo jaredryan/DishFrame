@@ -113,4 +113,24 @@ describe("ShareLinkList", () => {
     expect(screen.queryByText("Regenerate")).not.toBeInTheDocument();
     expect(screen.queryByText("Revoke")).not.toBeInTheDocument();
   });
+
+  it("Disable link requires confirmation before revoking — matches every other destructive action's confirm step", async () => {
+    const user = userEvent.setup();
+    render(<ShareLinkList shareLinks={[ACTIVE]} />);
+
+    await user.click(screen.getByRole("button", { name: "Disable link" }));
+    expect(mockRevoke).not.toHaveBeenCalled();
+    expect(screen.getByText("Disable this link?")).toBeInTheDocument();
+
+    mockRevoke.mockResolvedValue({ status: "success" });
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(mockRevoke).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Disable link" }));
+    await user.click(
+      screen.getAllByRole("button", { name: "Disable link" })[1],
+    );
+    expect(mockRevoke).toHaveBeenCalledWith({ shareLinkId: "link-1" });
+    expect(mockRefresh).toHaveBeenCalled();
+  });
 });

@@ -6,6 +6,9 @@ import { Copy as CopyIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { usePendingAction } from "@/components/ui/use-pending-action";
+import { useToast } from "@/components/ui/toast";
 import {
   revokeShareLink,
   regenerateShareLink,
@@ -37,10 +40,13 @@ const MODE_DESCRIPTION: Record<ShareLinkModeValue, string> = {
 
 function ShareLinkRow({ link }: { link: ShareLinkSummary }) {
   const router = useRouter();
-  const [isPending, startTransition] = React.useTransition();
+  const { pendingAction, isPending, run } = usePendingAction<
+    "replace" | "disable" | "toggle-attribution"
+  >();
   const [url, setUrl] = React.useState(link.url);
   const [copied, setCopied] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
+  const [disableOpen, setDisableOpen] = React.useState(false);
+  const { showToast } = useToast();
 
   const lifecycle = shareLinkLifecycle(link);
 
@@ -50,34 +56,32 @@ function ShareLinkRow({ link }: { link: ShareLinkSummary }) {
   }
 
   function handleDisable() {
-    setError(null);
-    startTransition(async () => {
+    run("disable", async () => {
       const result = await revokeShareLink({ shareLinkId: link.id });
       if (result.status === "success") {
+        setDisableOpen(false);
         router.refresh();
       } else {
-        setError(result.message);
+        showToast({ variant: "error", title: result.message });
       }
     });
   }
 
   function handleReplace() {
-    setError(null);
-    startTransition(async () => {
+    run("replace", async () => {
       const result = await regenerateShareLink({ shareLinkId: link.id });
       if (result.status === "success") {
         setUrl(result.url);
         setCopied(false);
         router.refresh();
       } else {
-        setError(result.message);
+        showToast({ variant: "error", title: result.message });
       }
     });
   }
 
   function handleToggleAttribution(next: boolean) {
-    setError(null);
-    startTransition(async () => {
+    run("toggle-attribution", async () => {
       const result = await updateShareLinkSettings({
         shareLinkId: link.id,
         showCreatorName: next,
@@ -85,7 +89,7 @@ function ShareLinkRow({ link }: { link: ShareLinkSummary }) {
       if (result.status === "success") {
         router.refresh();
       } else {
-        setError(result.message);
+        showToast({ variant: "error", title: result.message });
       }
     });
   }
@@ -142,12 +146,6 @@ function ShareLinkRow({ link }: { link: ShareLinkSummary }) {
         </div>
       )}
 
-      {error && (
-        <p role="alert" className="text-destructive-text text-sm">
-          {error}
-        </p>
-      )}
-
       {lifecycle !== "disabled" && (
         <div className="flex gap-2">
           <Button
@@ -155,6 +153,7 @@ function ShareLinkRow({ link }: { link: ShareLinkSummary }) {
             size="sm"
             onClick={handleReplace}
             disabled={isPending}
+            loading={pendingAction === "replace"}
           >
             Replace link
           </Button>
@@ -162,7 +161,7 @@ function ShareLinkRow({ link }: { link: ShareLinkSummary }) {
             <Button
               variant="destructive"
               size="sm"
-              onClick={handleDisable}
+              onClick={() => setDisableOpen(true)}
               disabled={isPending}
             >
               Disable link
@@ -170,6 +169,17 @@ function ShareLinkRow({ link }: { link: ShareLinkSummary }) {
           )}
         </div>
       )}
+
+      <ConfirmDialog
+        open={disableOpen}
+        onOpenChangeAction={setDisableOpen}
+        title="Disable this link?"
+        description="Anyone who already has this link will no longer be able to view it. This can't be undone."
+        confirmLabel="Disable link"
+        destructive
+        loading={pendingAction === "disable"}
+        onConfirmAction={handleDisable}
+      />
     </li>
   );
 }

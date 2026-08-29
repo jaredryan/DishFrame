@@ -9,15 +9,8 @@ import {
   RotateCcw,
   Trash2,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useToast } from "@/components/ui/toast";
 import { TooltipIconButton } from "@/components/domain/dish/reorder-buttons";
 import {
   deleteMealPlan,
@@ -58,32 +51,36 @@ export function MealPlanCard({
 }) {
   const router = useRouter();
   const [isPending, startTransition] = React.useTransition();
-  const [error, setError] = React.useState<string | null>(null);
   const [deleteOpen, setDeleteOpen] = React.useState(false);
+  const { showToast } = useToast();
 
   function runStatusChange(
     action: () => Promise<{ status: string; message?: string }>,
   ) {
-    setError(null);
     startTransition(async () => {
       const result = await action();
       if (result.status === "success") {
         router.refresh();
       } else {
-        setError(result.message ?? "Something went wrong.");
+        showToast({
+          variant: "error",
+          title: result.message ?? "Something went wrong.",
+        });
       }
     });
   }
 
   function confirmDelete() {
-    setError(null);
     startTransition(async () => {
       const result = await deleteMealPlan({ mealPlanId: plan.id });
       setDeleteOpen(false);
       if (result.status === "success") {
         router.refresh();
       } else {
-        setError(result.message ?? "Could not delete this plan.");
+        showToast({
+          variant: "error",
+          title: result.message ?? "Could not delete this plan.",
+        });
       }
     });
   }
@@ -102,11 +99,6 @@ export function MealPlanCard({
             entr{plan._count.entries === 1 ? "y" : "ies"}
           </span>
         </div>
-        {error && (
-          <p role="alert" className="text-destructive-text mt-1 text-xs">
-            {error}
-          </p>
-        )}
       </div>
       <div className="flex shrink-0 items-center gap-1">
         <TooltipIconButton
@@ -145,29 +137,16 @@ export function MealPlanCard({
         />
       </div>
 
-      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete &ldquo;{plan.title}&rdquo;?</DialogTitle>
-            <DialogDescription>
-              Linked grocery lists are kept as standalone lists rather than
-              deleted. This can&apos;t be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              disabled={isPending}
-              onClick={confirmDelete}
-            >
-              Delete
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChangeAction={setDeleteOpen}
+        title={<>Delete &ldquo;{plan.title}&rdquo;?</>}
+        description="Linked grocery lists are kept as standalone lists rather than deleted. This can't be undone."
+        confirmLabel="Delete"
+        destructive
+        loading={isPending}
+        onConfirmAction={confirmDelete}
+      />
     </li>
   );
 }

@@ -16,6 +16,7 @@ import {
 import { signOut } from "@/lib/auth/client";
 import { deleteAccountAction } from "@/lib/account/actions";
 import { ReauthenticatePrompt } from "@/components/app/reauthenticate-prompt";
+import { useToast } from "@/components/ui/toast";
 
 /**
  * PRODUCT_SPEC.md §91: explicit destructive confirmation (typing the exact
@@ -28,19 +29,17 @@ export function DeleteAccountDialog({ email }: { email: string }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [confirmEmail, setConfirmEmail] = React.useState("");
-  const [error, setError] = React.useState<string | null>(null);
   const [needsReauth, setNeedsReauth] = React.useState(false);
   const [isPending, startTransition] = React.useTransition();
+  const { showToast } = useToast();
 
   function close() {
     setOpen(false);
     setConfirmEmail("");
-    setError(null);
     setNeedsReauth(false);
   }
 
   function handleDelete() {
-    setError(null);
     startTransition(async () => {
       const result = await deleteAccountAction({ confirmEmail });
       if (result.status === "success") {
@@ -50,7 +49,7 @@ export function DeleteAccountDialog({ email }: { email: string }) {
       } else if (result.status === "needs_reauth") {
         setNeedsReauth(true);
       } else {
-        setError(result.message);
+        showToast({ variant: "error", title: result.message });
       }
     });
   }
@@ -107,11 +106,6 @@ export function DeleteAccountDialog({ email }: { email: string }) {
                   autoComplete="off"
                 />
               </div>
-              {error && (
-                <p role="alert" className="text-destructive-text text-sm">
-                  {error}
-                </p>
-              )}
               <DialogFooter>
                 <Button variant="outline" onClick={close}>
                   Cancel

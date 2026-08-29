@@ -871,7 +871,7 @@ describe("mealplans service", () => {
       expect(afterResync.position).toBe(0);
     });
 
-    it("documents that a manually removed optional item may be re-added by a later resync if the plan still produces it (Slice 21A review item, not changed here)", async () => {
+    it("keeps a manually removed optional item removed through an unrelated later resync (§81.4 correction, formerly a Slice 21A known gap)", async () => {
       const { mealPlanId } = await setupMealPlan();
       const dishId = await dishService.createDish(
         userId!,
@@ -916,12 +916,10 @@ describe("mealplans service", () => {
       });
       expect(removed).toHaveLength(0);
 
-      // The entry that produces Cilantro is untouched — a plan mutation
-      // elsewhere still triggers a resync of this same list, and the
-      // "added" fold-in has no record that this occurrence was ever
-      // deliberately removed, so it reappears. This mirrors
-      // `applyGroceryListSourceRefresh`'s existing accepted behavior from
-      // Slice 12 and is an explicit Slice 21A review item, not a defect.
+      // The entry that produces Cilantro is untouched, and a plan mutation
+      // elsewhere still triggers a resync of every active linked list — but
+      // `removeGroceryItem` tombstoned this exact (entry, ingredient)
+      // pairing, so the "Added" fold-in skips recreating it.
       const otherDish = await dishService.createDish(
         userId!,
         "RECIPE",
@@ -949,10 +947,731 @@ describe("mealplans service", () => {
       const afterResync = await prisma.groceryListItem.findMany({
         where: { groceryListId: listId },
       });
-      expect(afterResync.map((i) => i.name).sort()).toEqual([
-        "Cilantro",
-        "Salt",
+      expect(afterResync.map((i) => i.name).sort()).toEqual(["Salt"]);
+    });
+
+    it("lets a materially different contribution from the same removed ingredient reappear (different lineage, not the same removed identity)", async () => {
+      const { mealPlanId } = await setupMealPlan();
+      const dishId = await dishService.createDish(
+        userId!,
+        "RECIPE",
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({
+                  name: "Cilantro",
+                  quantity: 1,
+                  unit: null,
+                  isOptional: true,
+                }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      const entryId = await mealPlanService.addMealPlanEntry(
+        userId!,
+        mealPlanId,
+        { dishId, cookDate: new Date("2026-08-03T00:00:00.000Z") },
+      );
+      const listId = await mealPlanService.generateGroceryListFromMealPlan(
+        userId!,
+        mealPlanId,
+        { title: "Shopping" },
+      );
+      const item = await prisma.groceryListItem.findFirstOrThrow({
+        where: { groceryListId: listId },
+      });
+      await listService.removeGroceryItem(userId!, listId, item.id);
+
+      // A genuinely new Version of the same entry's Recipe (a new
+      // lineageId for its Cilantro line, since editing without carrying the
+      // lineage forward mints a fresh one) is a materially different
+      // contribution identity — it should reappear rather than staying
+      // suppressed by the earlier removal.
+      await dishService.editDish(
+        userId!,
+        dishId,
+        await currentVersionId(dishId),
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({
+                  name: "Cilantro",
+                  quantity: 2,
+                  unit: null,
+                  isOptional: true,
+                }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+        "MAJOR",
+      );
+      await mealPlanService.adoptNewerVersionInEntry(
+        userId!,
+        mealPlanId,
+        entryId,
+        await currentVersionId(dishId),
+      );
+
+      const afterAdopt = await prisma.groceryListItem.findMany({
+        where: { groceryListId: listId },
+      });
+      expect(afterAdopt.map((i) => i.name)).toEqual(["Cilantro"]);
+    });
+  });
+
+  describe("Meal Plan entry selection per list (§81.7)", () => {
+    async function addDishEntry(
+      mealPlanId: string,
+      title: string,
+      ingredientName: string,
+      cookDate: string,
+    ) {
+      const dishId = await dishService.createDish(
+        userId!,
+        "RECIPE",
+        content({
+          title,
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [ingredient({ name: ingredientName, quantity: 1 })],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      const entryId = await mealPlanService.addMealPlanEntry(
+        userId!,
+        mealPlanId,
+        { dishId, cookDate: new Date(cookDate) },
+      );
+      return { dishId, entryId };
+    }
+
+    it("generating from a selected subset excludes the rest, and that exclusion survives an unrelated later resync", async () => {
+      const { mealPlanId } = await setupMealPlan();
+      const a = await addDishEntry(
+        mealPlanId,
+        "Dish A",
+        "Garlic",
+        "2026-08-03T00:00:00.000Z",
+      );
+      const b = await addDishEntry(
+        mealPlanId,
+        "Dish B",
+        "Onion",
+        "2026-08-04T00:00:00.000Z",
+      );
+
+      const listId = await mealPlanService.generateGroceryListFromMealPlan(
+        userId!,
+        mealPlanId,
+        { title: "Just A", entryIds: [a.entryId] },
+      );
+
+      const initialItems = await prisma.groceryListItem.findMany({
+        where: { groceryListId: listId },
+      });
+      expect(initialItems.map((i) => i.name)).toEqual(["Garlic"]);
+
+      // An unrelated mutation (adding a third, unselected entry) resyncs
+      // every active linked list — the excluded entry (Dish B) must not be
+      // pulled in just because the plan itself now has more entries.
+      await addDishEntry(
+        mealPlanId,
+        "Dish C",
+        "Ginger",
+        "2026-08-05T00:00:00.000Z",
+      );
+
+      const afterUnrelatedMutation = await prisma.groceryListItem.findMany({
+        where: { groceryListId: listId },
+      });
+      expect(afterUnrelatedMutation.map((i) => i.name)).toEqual(["Garlic"]);
+
+      // One Meal Plan may feed a second list covering a different subset.
+      const secondListId =
+        await mealPlanService.generateGroceryListFromMealPlan(
+          userId!,
+          mealPlanId,
+          { title: "Just B", entryIds: [b.entryId] },
+        );
+      const secondListItems = await prisma.groceryListItem.findMany({
+        where: { groceryListId: secondListId },
+      });
+      expect(secondListItems.map((i) => i.name)).toEqual(["Onion"]);
+    });
+
+    it("toggling an entry off removes its contributions from this list (flagged, not deleted); toggling it back on restores them", async () => {
+      const { mealPlanId } = await setupMealPlan();
+      const a = await addDishEntry(
+        mealPlanId,
+        "Dish A",
+        "Garlic",
+        "2026-08-03T00:00:00.000Z",
+      );
+
+      const listId = await mealPlanService.generateGroceryListFromMealPlan(
+        userId!,
+        mealPlanId,
+        { title: "Shopping" },
+      );
+
+      await mealPlanService.setMealPlanGroceryListEntryIncluded(
+        userId!,
+        mealPlanId,
+        listId,
+        a.entryId,
+        false,
+      );
+      const excluded = await prisma.groceryListItem.findFirstOrThrow({
+        where: { groceryListId: listId },
+      });
+      expect(excluded.syncFlag).toBe("REMOVED");
+
+      await mealPlanService.setMealPlanGroceryListEntryIncluded(
+        userId!,
+        mealPlanId,
+        listId,
+        a.entryId,
+        true,
+      );
+      const restored = await prisma.groceryListItem.findFirstOrThrow({
+        where: { groceryListId: listId },
+      });
+      expect(restored.syncFlag).not.toBe("REMOVED");
+      expect(restored.name).toBe("Garlic");
+    });
+
+    it("toggling an entry never adds, removes, or edits the Meal Plan's own entries", async () => {
+      const { mealPlanId } = await setupMealPlan();
+      const a = await addDishEntry(
+        mealPlanId,
+        "Dish A",
+        "Garlic",
+        "2026-08-03T00:00:00.000Z",
+      );
+      const listId = await mealPlanService.generateGroceryListFromMealPlan(
+        userId!,
+        mealPlanId,
+        { title: "Shopping" },
+      );
+
+      await mealPlanService.setMealPlanGroceryListEntryIncluded(
+        userId!,
+        mealPlanId,
+        listId,
+        a.entryId,
+        false,
+      );
+
+      const mealPlan = await getOwnedMealPlanOrThrow(userId!, mealPlanId);
+      expect(mealPlan.entries.map((e) => e.id)).toEqual([a.entryId]);
+    });
+
+    it("a new entry added after Grocery Lists already exist appears unchecked in each, without contributing items, and explicit inclusion is per-list", async () => {
+      const { mealPlanId } = await setupMealPlan();
+      const a = await addDishEntry(
+        mealPlanId,
+        "Dish A",
+        "Garlic",
+        "2026-08-03T00:00:00.000Z",
+      );
+      const b = await addDishEntry(
+        mealPlanId,
+        "Dish B",
+        "Onion",
+        "2026-08-04T00:00:00.000Z",
+      );
+
+      // Two existing lists, each already covering a different subset.
+      const listAId = await mealPlanService.generateGroceryListFromMealPlan(
+        userId!,
+        mealPlanId,
+        { title: "List A", entryIds: [a.entryId] },
+      );
+      const listBId = await mealPlanService.generateGroceryListFromMealPlan(
+        userId!,
+        mealPlanId,
+        { title: "List B", entryIds: [b.entryId] },
+      );
+
+      // A brand-new entry, added after both lists already exist.
+      const c = await addDishEntry(
+        mealPlanId,
+        "Dish C",
+        "Ginger",
+        "2026-08-05T00:00:00.000Z",
+      );
+
+      // Neither pre-existing list gains Ginger automatically.
+      const listAItems = await prisma.groceryListItem.findMany({
+        where: { groceryListId: listAId },
+      });
+      const listBItems = await prisma.groceryListItem.findMany({
+        where: { groceryListId: listBId },
+      });
+      expect(listAItems.map((i) => i.name)).toEqual(["Garlic"]);
+      expect(listBItems.map((i) => i.name)).toEqual(["Onion"]);
+
+      // It is available (excluded, i.e. present-but-unchecked) in both.
+      const exclusionInA =
+        await prisma.groceryListMealPlanEntryExclusion.findUnique({
+          where: {
+            groceryListId_mealPlanEntryId: {
+              groceryListId: listAId,
+              mealPlanEntryId: c.entryId,
+            },
+          },
+        });
+      const exclusionInB =
+        await prisma.groceryListMealPlanEntryExclusion.findUnique({
+          where: {
+            groceryListId_mealPlanEntryId: {
+              groceryListId: listBId,
+              mealPlanEntryId: c.entryId,
+            },
+          },
+        });
+      expect(exclusionInA).not.toBeNull();
+      expect(exclusionInB).not.toBeNull();
+      const mealPlan = await getOwnedMealPlanOrThrow(userId!, mealPlanId);
+      expect(mealPlan.entries.map((e) => e.id)).toContain(c.entryId);
+
+      // Explicitly including it in List A only affects List A.
+      await mealPlanService.setMealPlanGroceryListEntryIncluded(
+        userId!,
+        mealPlanId,
+        listAId,
+        c.entryId,
+        true,
+      );
+      const listAAfterInclude = await prisma.groceryListItem.findMany({
+        where: { groceryListId: listAId },
+      });
+      const listBAfterInclude = await prisma.groceryListItem.findMany({
+        where: { groceryListId: listBId },
+      });
+      expect(listAAfterInclude.map((i) => i.name).sort()).toEqual([
+        "Garlic",
+        "Ginger",
       ]);
+      expect(listBAfterInclude.map((i) => i.name)).toEqual(["Onion"]);
+    });
+
+    it("does not exclude a Meal Plan entry from a Grocery List generated after that entry already exists (generation's own selection is unaffected)", async () => {
+      const { mealPlanId } = await setupMealPlan();
+      const a = await addDishEntry(
+        mealPlanId,
+        "Dish A",
+        "Garlic",
+        "2026-08-03T00:00:00.000Z",
+      );
+
+      const listId = await mealPlanService.generateGroceryListFromMealPlan(
+        userId!,
+        mealPlanId,
+        { title: "Shopping" },
+      );
+      const items = await prisma.groceryListItem.findMany({
+        where: { groceryListId: listId },
+      });
+      expect(items.map((i) => i.name)).toEqual(["Garlic"]);
+      const exclusion =
+        await prisma.groceryListMealPlanEntryExclusion.findUnique({
+          where: {
+            groceryListId_mealPlanEntryId: {
+              groceryListId: listId,
+              mealPlanEntryId: a.entryId,
+            },
+          },
+        });
+      expect(exclusion).toBeNull();
+    });
+  });
+
+  describe("optional-item tombstone invalidation on a required transition (§81.4 correction)", () => {
+    async function setupRemovedOptionalCilantro() {
+      const { mealPlanId } = await setupMealPlan();
+      const dishId = await dishService.createDish(
+        userId!,
+        "RECIPE",
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({
+                  name: "Cilantro",
+                  quantity: 1,
+                  unit: null,
+                  isOptional: true,
+                }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      const entryId = await mealPlanService.addMealPlanEntry(
+        userId!,
+        mealPlanId,
+        { dishId, cookDate: new Date("2026-08-03T00:00:00.000Z") },
+      );
+      const listId = await mealPlanService.generateGroceryListFromMealPlan(
+        userId!,
+        mealPlanId,
+        { title: "Shopping" },
+      );
+      const item = await prisma.groceryListItem.findFirstOrThrow({
+        where: { groceryListId: listId },
+      });
+      const lineage = await primaryIngredientLineage(dishId);
+      await listService.removeGroceryItem(userId!, listId, item.id);
+
+      const tombstone =
+        await prisma.groceryListRemovedContribution.findUniqueOrThrow({
+          where: {
+            groceryListId_mealPlanEntryId_ingredientLineageId: {
+              groceryListId: listId,
+              mealPlanEntryId: entryId,
+              ingredientLineageId: lineage.lineageId,
+            },
+          },
+        });
+      expect(tombstone.wasOptional).toBe(true);
+
+      return { mealPlanId, dishId, entryId, listId, lineage };
+    }
+
+    it("invalidates the tombstone once the same lineage becomes required, letting the required contribution appear", async () => {
+      const { mealPlanId, dishId, entryId, listId, lineage } =
+        await setupRemovedOptionalCilantro();
+
+      // Same lineageId carried forward, isOptional flipped to false.
+      await dishService.editDish(
+        userId!,
+        dishId,
+        await currentVersionId(dishId),
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({
+                  lineageId: lineage.lineageId,
+                  name: "Cilantro",
+                  quantity: 1,
+                  unit: null,
+                  isOptional: false,
+                }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+        "MINOR",
+      );
+      await mealPlanService.adoptNewerVersionInEntry(
+        userId!,
+        mealPlanId,
+        entryId,
+        await currentVersionId(dishId),
+      );
+
+      const items = await prisma.groceryListItem.findMany({
+        where: { groceryListId: listId },
+      });
+      expect(items.map((i) => i.name)).toEqual(["Cilantro"]);
+      expect(items[0].isOptional).toBe(false);
+
+      const tombstoneAfter =
+        await prisma.groceryListRemovedContribution.findUnique({
+          where: {
+            groceryListId_mealPlanEntryId_ingredientLineageId: {
+              groceryListId: listId,
+              mealPlanEntryId: entryId,
+              ingredientLineageId: lineage.lineageId,
+            },
+          },
+        });
+      expect(tombstoneAfter).toBeNull();
+    });
+
+    it("does not automatically revive the old suppression if the lineage becomes optional again after a required transition", async () => {
+      const { mealPlanId, dishId, entryId, listId, lineage } =
+        await setupRemovedOptionalCilantro();
+
+      // First transition: optional -> required (invalidates the tombstone).
+      await dishService.editDish(
+        userId!,
+        dishId,
+        await currentVersionId(dishId),
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({
+                  lineageId: lineage.lineageId,
+                  name: "Cilantro",
+                  quantity: 1,
+                  unit: null,
+                  isOptional: false,
+                }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+        "MINOR",
+      );
+      await mealPlanService.adoptNewerVersionInEntry(
+        userId!,
+        mealPlanId,
+        entryId,
+        await currentVersionId(dishId),
+      );
+
+      // Second transition: required -> optional again, same lineage.
+      await dishService.editDish(
+        userId!,
+        dishId,
+        await currentVersionId(dishId),
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({
+                  lineageId: lineage.lineageId,
+                  name: "Cilantro",
+                  quantity: 1,
+                  unit: null,
+                  isOptional: true,
+                }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+        "MINOR",
+      );
+      await mealPlanService.adoptNewerVersionInEntry(
+        userId!,
+        mealPlanId,
+        entryId,
+        await currentVersionId(dishId),
+      );
+
+      // The old (already-invalidated) tombstone must not resurface and
+      // suppress it again — it stays present, now optional.
+      const items = await prisma.groceryListItem.findMany({
+        where: { groceryListId: listId },
+      });
+      expect(items.map((i) => i.name)).toEqual(["Cilantro"]);
+      expect(items[0].isOptional).toBe(true);
+    });
+
+    it("keeps unconditionally suppressing a tombstone recorded from removing an already-required contribution, even if it later becomes optional", async () => {
+      const { mealPlanId } = await setupMealPlan();
+      const dishId = await dishService.createDish(
+        userId!,
+        "RECIPE",
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({ name: "Salt", quantity: 1, unit: null }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      const entryId = await mealPlanService.addMealPlanEntry(
+        userId!,
+        mealPlanId,
+        { dishId, cookDate: new Date("2026-08-03T00:00:00.000Z") },
+      );
+      const listId = await mealPlanService.generateGroceryListFromMealPlan(
+        userId!,
+        mealPlanId,
+        { title: "Shopping" },
+      );
+      const item = await prisma.groceryListItem.findFirstOrThrow({
+        where: { groceryListId: listId },
+      });
+      const lineage = await primaryIngredientLineage(dishId);
+      await listService.removeGroceryItem(userId!, listId, item.id);
+
+      const tombstone =
+        await prisma.groceryListRemovedContribution.findUniqueOrThrow({
+          where: {
+            groceryListId_mealPlanEntryId_ingredientLineageId: {
+              groceryListId: listId,
+              mealPlanEntryId: entryId,
+              ingredientLineageId: lineage.lineageId,
+            },
+          },
+        });
+      expect(tombstone.wasOptional).toBe(false);
+
+      // Same lineage, now made optional — an already-required-at-removal
+      // tombstone is unaffected by this rule and keeps suppressing.
+      await dishService.editDish(
+        userId!,
+        dishId,
+        await currentVersionId(dishId),
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({
+                  lineageId: lineage.lineageId,
+                  name: "Salt",
+                  quantity: 1,
+                  unit: null,
+                  isOptional: true,
+                }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+        "MINOR",
+      );
+      await mealPlanService.adoptNewerVersionInEntry(
+        userId!,
+        mealPlanId,
+        entryId,
+        await currentVersionId(dishId),
+      );
+
+      const items = await prisma.groceryListItem.findMany({
+        where: { groceryListId: listId },
+      });
+      expect(items).toHaveLength(0);
+    });
+  });
+
+  describe("Sync now outcome summary (§81.2 UX correction)", () => {
+    it("reports added/removed/changed counts for the list the user actually synced", async () => {
+      const { mealPlanId } = await setupMealPlan();
+      const dishId = await dishService.createDish(
+        userId!,
+        "RECIPE",
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [ingredient({ name: "Garlic", quantity: 1 })],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      await mealPlanService.addMealPlanEntry(userId!, mealPlanId, {
+        dishId,
+        cookDate: new Date("2026-08-03T00:00:00.000Z"),
+      });
+      const listId = await mealPlanService.generateGroceryListFromMealPlan(
+        userId!,
+        mealPlanId,
+        { title: "Shopping" },
+      );
+
+      const noopSummary = await mealPlanService.resyncMealPlanGroceryLists(
+        userId!,
+        mealPlanId,
+        listId,
+      );
+      expect(noopSummary).toEqual({ added: 0, removed: 0, changed: 0 });
+
+      await mealPlanService.addMealPlanEntry(userId!, mealPlanId, {
+        dishId: await dishService.createDish(
+          userId!,
+          "RECIPE",
+          content({
+            title: "Dish B",
+            sections: [
+              {
+                name: null,
+                guidanceNote: null,
+                position: 0,
+                ingredients: [ingredient({ name: "Onion", quantity: 1 })],
+                instructions: [],
+                partLinks: [],
+              },
+            ],
+          }),
+        ),
+        cookDate: new Date("2026-08-04T00:00:00.000Z"),
+      });
+      // The Meal Plan mutation above already resynced this list automatically
+      // (§81.2) — a further manual sync with nothing new to find reports no
+      // changes, distinct from the first sync that actually added Onion.
+      const afterAddSummary = await mealPlanService.resyncMealPlanGroceryLists(
+        userId!,
+        mealPlanId,
+        listId,
+      );
+      expect(afterAddSummary).toEqual({ added: 0, removed: 0, changed: 0 });
+
+      const items = await prisma.groceryListItem.findMany({
+        where: { groceryListId: listId },
+      });
+      expect(items.map((i) => i.name).sort()).toEqual(["Garlic", "Onion"]);
+    });
+
+    it("returns null for a Meal Plan mutation's own automatic resync (no focus list requested)", async () => {
+      const { mealPlanId } = await setupMealPlan();
+      const summary = await mealPlanService.resyncMealPlanGroceryLists(
+        userId!,
+        mealPlanId,
+      );
+      expect(summary).toBeNull();
     });
   });
 
@@ -1539,6 +2258,284 @@ describe("mealplans service", () => {
         where: { id: entryId },
       });
       expect(entry).toBeNull();
+    });
+  });
+
+  describe("Schedule assignments (Schedule-section redesign, §77.1/§77.2)", () => {
+    it("replaces a Meal's complete schedule, discarding whatever it had before", async () => {
+      const { mealPlanId } = await setupMealPlan();
+      const dishA = await dishService.createDish(userId!, "RECIPE", content());
+      const entryId = await mealPlanService.addMealPlanEntry(
+        userId!,
+        mealPlanId,
+        {
+          dishId: dishA,
+          cookDate: new Date("2026-08-03T00:00:00.000Z"),
+          targetYieldQuantity: 6,
+        },
+      );
+
+      const result = await mealPlanService.saveMealPlanEntryChanges(
+        userId!,
+        mealPlanId,
+        {
+          removedEntryIds: [],
+          replacedEntries: [],
+          updatedEntries: [],
+          versionAdoptedEntryIds: [],
+          newEntries: [],
+          scheduleAssignments: [
+            {
+              mealKey: entryId,
+              meals: [
+                {
+                  label: "Sunday dinner",
+                  date: new Date("2026-08-03T00:00:00.000Z"),
+                  servings: 2,
+                },
+                {
+                  label: "Monday lunch",
+                  date: new Date("2026-08-04T00:00:00.000Z"),
+                  servings: 2,
+                },
+              ],
+            },
+          ],
+        },
+      );
+      expect(result.hadEntryError).toBe(false);
+      expect(
+        await prisma.plannedMeal.findMany({ where: { entryId } }),
+      ).toHaveLength(2);
+
+      // A second assignment for the same Meal replaces, not appends.
+      const result2 = await mealPlanService.saveMealPlanEntryChanges(
+        userId!,
+        mealPlanId,
+        {
+          removedEntryIds: [],
+          replacedEntries: [],
+          updatedEntries: [],
+          versionAdoptedEntryIds: [],
+          newEntries: [],
+          scheduleAssignments: [
+            {
+              mealKey: entryId,
+              meals: [
+                {
+                  label: "Tuesday lunch",
+                  date: new Date("2026-08-05T00:00:00.000Z"),
+                  servings: 1,
+                },
+              ],
+            },
+          ],
+        },
+      );
+      expect(result2.hadEntryError).toBe(false);
+      const mealsAfter = await prisma.plannedMeal.findMany({
+        where: { entryId },
+      });
+      expect(mealsAfter).toHaveLength(1);
+      expect(mealsAfter[0]?.label).toBe("Tuesday lunch");
+    });
+
+    it("rejects a scheduled date outside the Meal Plan's own range", async () => {
+      const { mealPlanId } = await setupMealPlan(); // 2026-08-03..2026-08-09
+      const dishA = await dishService.createDish(userId!, "RECIPE", content());
+      const entryId = await mealPlanService.addMealPlanEntry(
+        userId!,
+        mealPlanId,
+        {
+          dishId: dishA,
+          cookDate: new Date("2026-08-03T00:00:00.000Z"),
+          targetYieldQuantity: 6,
+        },
+      );
+
+      const result = await mealPlanService.saveMealPlanEntryChanges(
+        userId!,
+        mealPlanId,
+        {
+          removedEntryIds: [],
+          replacedEntries: [],
+          updatedEntries: [],
+          versionAdoptedEntryIds: [],
+          newEntries: [],
+          scheduleAssignments: [
+            {
+              mealKey: entryId,
+              meals: [
+                {
+                  label: "Too late",
+                  date: new Date("2026-08-15T00:00:00.000Z"),
+                  servings: 1,
+                },
+              ],
+            },
+          ],
+        },
+      );
+
+      expect(result.hadEntryError).toBe(true);
+      expect(
+        await prisma.plannedMeal.findMany({ where: { entryId } }),
+      ).toHaveLength(0);
+    });
+
+    it("rejects total scheduled servings exceeding the Meal's target yield, atomically", async () => {
+      const { mealPlanId } = await setupMealPlan();
+      const dishA = await dishService.createDish(userId!, "RECIPE", content());
+      const entryId = await mealPlanService.addMealPlanEntry(
+        userId!,
+        mealPlanId,
+        {
+          dishId: dishA,
+          cookDate: new Date("2026-08-03T00:00:00.000Z"),
+          targetYieldQuantity: 6,
+        },
+      );
+
+      const result = await mealPlanService.saveMealPlanEntryChanges(
+        userId!,
+        mealPlanId,
+        {
+          removedEntryIds: [],
+          replacedEntries: [],
+          updatedEntries: [],
+          versionAdoptedEntryIds: [],
+          newEntries: [],
+          scheduleAssignments: [
+            {
+              mealKey: entryId,
+              meals: [
+                {
+                  label: "A",
+                  date: new Date("2026-08-03T00:00:00.000Z"),
+                  servings: 4,
+                },
+                {
+                  label: "B",
+                  date: new Date("2026-08-04T00:00:00.000Z"),
+                  servings: 3,
+                },
+              ],
+            },
+          ],
+        },
+      );
+
+      expect(result.hadEntryError).toBe(true);
+      // Rejected before the transaction runs — neither row was created.
+      expect(
+        await prisma.plannedMeal.findMany({ where: { entryId } }),
+      ).toHaveLength(0);
+    });
+
+    it("resolves a new entry's localKey to its created entryId within the same batch", async () => {
+      const { mealPlanId } = await setupMealPlan();
+      const dishA = await dishService.createDish(userId!, "RECIPE", content());
+
+      const result = await mealPlanService.saveMealPlanEntryChanges(
+        userId!,
+        mealPlanId,
+        {
+          removedEntryIds: [],
+          replacedEntries: [],
+          updatedEntries: [],
+          versionAdoptedEntryIds: [],
+          newEntries: [
+            {
+              dishId: dishA,
+              cookDate: new Date("2026-08-03T00:00:00.000Z"),
+              targetYieldQuantity: 4,
+              localKey: "draft-1",
+            },
+          ],
+          scheduleAssignments: [
+            {
+              mealKey: "draft-1",
+              meals: [
+                {
+                  label: "Sunday dinner",
+                  date: new Date("2026-08-03T00:00:00.000Z"),
+                  servings: 2,
+                },
+              ],
+            },
+          ],
+        },
+      );
+
+      expect(result.hadEntryError).toBe(false);
+      const entry = await prisma.mealPlanEntry.findFirstOrThrow({
+        where: { mealPlanId, dishId: dishA },
+      });
+      const meals = await prisma.plannedMeal.findMany({
+        where: { entryId: entry.id },
+      });
+      expect(meals).toHaveLength(1);
+      expect(meals[0]?.label).toBe("Sunday dinner");
+    });
+
+    it("redirects a replaced entry's schedule (keyed by its old entryId) onto the row created in its place", async () => {
+      const { mealPlanId } = await setupMealPlan();
+      const dishA = await dishService.createDish(userId!, "RECIPE", content());
+      const dishB = await dishService.createDish(
+        userId!,
+        "RECIPE",
+        content({ title: "Second Recipe" }),
+      );
+      const entryId = await mealPlanService.addMealPlanEntry(
+        userId!,
+        mealPlanId,
+        {
+          dishId: dishA,
+          cookDate: new Date("2026-08-03T00:00:00.000Z"),
+          targetYieldQuantity: 4,
+        },
+      );
+
+      const result = await mealPlanService.saveMealPlanEntryChanges(
+        userId!,
+        mealPlanId,
+        {
+          removedEntryIds: [],
+          replacedEntries: [
+            {
+              entryId,
+              dishId: dishB,
+              cookDate: new Date("2026-08-03T00:00:00.000Z"),
+              targetYieldQuantity: 4,
+            },
+          ],
+          updatedEntries: [],
+          versionAdoptedEntryIds: [],
+          newEntries: [],
+          scheduleAssignments: [
+            {
+              mealKey: entryId,
+              meals: [
+                {
+                  label: "Sunday dinner",
+                  date: new Date("2026-08-03T00:00:00.000Z"),
+                  servings: 2,
+                },
+              ],
+            },
+          ],
+        },
+      );
+
+      expect(result.hadEntryError).toBe(false);
+      const newEntry = await prisma.mealPlanEntry.findFirstOrThrow({
+        where: { mealPlanId, dishId: dishB },
+      });
+      const meals = await prisma.plannedMeal.findMany({
+        where: { entryId: newEntry.id },
+      });
+      expect(meals).toHaveLength(1);
+      expect(meals[0]?.label).toBe("Sunday dinner");
     });
   });
 

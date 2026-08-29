@@ -40,6 +40,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useToast } from "@/components/ui/toast";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -113,8 +115,8 @@ export function DishDetailActions({
   const [restoreStage, setRestoreStage] =
     React.useState<RestorableStageValue>("ACTIVE");
   const [isPending, startTransition] = React.useTransition();
-  const [error, setError] = React.useState<string | null>(null);
   const [resolutionOpen, setResolutionOpen] = React.useState(false);
+  const { showToast } = useToast();
   // Defaults to the current Version each time the dialog opens (PRODUCT_SPEC.md
   // §55.2, Slice 11 correction pass) — reset in `close()` below.
   const [exportVersionValue, setExportVersionValue] =
@@ -167,25 +169,25 @@ export function DishDetailActions({
 
   function close() {
     setOpenDialog(null);
-    setError(null);
     setExportVersionValue(currentVersionId);
   }
 
   function handleArchive() {
-    setError(null);
     startTransition(async () => {
       const result = await archiveDish(kind, dishId);
       if (result.status === "success") {
         close();
         router.refresh();
       } else {
-        setError(result.message ?? "Could not archive.");
+        showToast({
+          variant: "error",
+          title: result.message ?? "Could not archive.",
+        });
       }
     });
   }
 
   function handleRestore() {
-    setError(null);
     startTransition(async () => {
       const result = await restoreDish(kind, {
         dishId,
@@ -195,26 +197,30 @@ export function DishDetailActions({
         close();
         router.refresh();
       } else {
-        setError(result.message ?? "Could not restore.");
+        showToast({
+          variant: "error",
+          title: result.message ?? "Could not restore.",
+        });
       }
     });
   }
 
   function handleDuplicate() {
-    setError(null);
     startTransition(async () => {
       const result = await duplicateDish(kind, { dishId });
       if (result.status === "success" && result.dishId) {
         close();
         router.push(`${basePath}/${result.dishId}`);
       } else {
-        setError(result.message ?? "Could not duplicate.");
+        showToast({
+          variant: "error",
+          title: result.message ?? "Could not duplicate.",
+        });
       }
     });
   }
 
   function handleDelete() {
-    setError(null);
     startTransition(async () => {
       const result = await deleteDish(kind, dishId);
       if (result.status === "success") {
@@ -223,7 +229,10 @@ export function DishDetailActions({
         close();
         setResolutionOpen(true);
       } else {
-        setError(result.message ?? "Could not delete.");
+        showToast({
+          variant: "error",
+          title: result.message ?? "Could not delete.",
+        });
       }
     });
   }
@@ -314,34 +323,21 @@ export function DishDetailActions({
         </DropdownMenu>
       </div>
 
-      <Dialog
+      <ConfirmDialog
         open={openDialog === "archive"}
-        onOpenChange={(open) => !open && close()}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Archive this {label}?</DialogTitle>
-            <DialogDescription>
-              Archiving hides this {label} from your library and cooking
-              choices, but keeps every Version, Cooking Session, and rating. You
-              can restore it later.
-            </DialogDescription>
-          </DialogHeader>
-          {error && (
-            <p role="alert" className="text-destructive-text text-sm">
-              {error}
-            </p>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={close}>
-              Cancel
-            </Button>
-            <Button onClick={handleArchive} loading={isPending}>
-              Archive
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onOpenChangeAction={(open) => !open && close()}
+        title={<>Archive this {label}?</>}
+        description={
+          <>
+            Archiving hides this {label} from your library and cooking choices,
+            but keeps every Version, Cooking Session, and rating. You can
+            restore it later.
+          </>
+        }
+        confirmLabel="Archive"
+        loading={isPending}
+        onConfirmAction={handleArchive}
+      />
 
       <Dialog
         open={openDialog === "restore"}
@@ -371,11 +367,6 @@ export function DishDetailActions({
               ))}
             </SelectContent>
           </Select>
-          {error && (
-            <p role="alert" className="text-destructive-text text-sm">
-              {error}
-            </p>
-          )}
           <DialogFooter>
             <Button variant="outline" onClick={close}>
               Cancel
@@ -387,32 +378,21 @@ export function DishDetailActions({
         </DialogContent>
       </Dialog>
 
-      <Dialog
+      <ConfirmDialog
         open={openDialog === "duplicate"}
-        onOpenChange={(open) => !open && close()}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Duplicate this {label}?</DialogTitle>
-            <DialogDescription>
-              {`Creates a separate ${label} starting from this one's current content, at V1.0. Its own Version history, Cooking Sessions, and ratings start empty.`}
-            </DialogDescription>
-          </DialogHeader>
-          {error && (
-            <p role="alert" className="text-destructive-text text-sm">
-              {error}
-            </p>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={close}>
-              Cancel
-            </Button>
-            <Button onClick={handleDuplicate} loading={isPending}>
-              Duplicate
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onOpenChangeAction={(open) => !open && close()}
+        title={<>Duplicate this {label}?</>}
+        description={
+          <>
+            Creates a separate {label} starting from this one&apos;s current
+            content, at V1.0. Its own Version history, Cooking Sessions, and
+            ratings start empty.
+          </>
+        }
+        confirmLabel="Duplicate"
+        loading={isPending}
+        onConfirmAction={handleDuplicate}
+      />
 
       <Dialog
         open={openDialog === "export"}
@@ -539,38 +519,22 @@ export function DishDetailActions({
         </DialogContent>
       </Dialog>
 
-      <Dialog
+      <ConfirmDialog
         open={openDialog === "delete"}
-        onOpenChange={(open) => !open && close()}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Permanently delete this {label}?</DialogTitle>
-            <DialogDescription>
-              This removes the {label}, every Version, Cooking Session, Session
-              Review, rating, and its other owned relationships. This cannot be
-              undone.
-            </DialogDescription>
-          </DialogHeader>
-          {error && (
-            <p role="alert" className="text-destructive-text text-sm">
-              {error}
-            </p>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={close}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDelete}
-              loading={isPending}
-            >
-              Delete permanently
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onOpenChangeAction={(open) => !open && close()}
+        title={<>Permanently delete this {label}?</>}
+        description={
+          <>
+            This removes the {label}, every Version, Cooking Session, Session
+            Review, rating, and its other owned relationships. This cannot be
+            undone.
+          </>
+        }
+        confirmLabel="Delete permanently"
+        destructive
+        loading={isPending}
+        onConfirmAction={handleDelete}
+      />
 
       {kind === "PART" && (
         <PartUsageResolutionDialog

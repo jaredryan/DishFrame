@@ -15,7 +15,9 @@ import {
   generateGroceryListFromMealPlan as generateGroceryListFromMealPlanService,
   resyncGroceryListFromMealPlan,
   collectMealPlanOccurrences,
+  setGroceryListMealPlanEntryExclusion,
   type MealPlanContributionEntry,
+  type GroceryListResyncSummary,
 } from "@/lib/grocery/list-service";
 import {
   getOwnedMealPlanOrThrow,
@@ -65,12 +67,13 @@ async function resyncLinkedLists(
   ownerId: string,
   mealPlanId: string,
   freshEntries: MealPlanContributionEntry[],
-): Promise<void> {
+): Promise<Map<string, GroceryListResyncSummary>> {
+  const summaries = new Map<string, GroceryListResyncSummary>();
   const lists = await tx.groceryList.findMany({
     where: { linkedMealPlanId: mealPlanId, completedAt: null },
     select: { id: true },
   });
-  if (lists.length === 0) return;
+  if (lists.length === 0) return summaries;
 
   // Computed once and reused across every linked list — every list resyncs
   // against the same live entry set within this one mutation, so there's no
@@ -78,8 +81,15 @@ async function resyncLinkedLists(
   // trees.
   const fresh = await collectMealPlanOccurrences(ownerId, freshEntries);
   for (const list of lists) {
-    await resyncGroceryListFromMealPlan(tx, ownerId, list.id, fresh);
+    const summary = await resyncGroceryListFromMealPlan(
+      tx,
+      ownerId,
+      list.id,
+      fresh,
+    );
+    summaries.set(list.id, summary);
   }
+  return summaries;
 }
 
 // ---------------------------------------------------------------------------
@@ -330,6 +340,32 @@ export async function addMealPlanEntry(
       },
     });
 
+    // §81.7 correction: a Grocery List's chosen Meal subset must survive
+    // later Meal Plan growth — a brand-new entry should never silently
+    // start contributing to a list that already existed before it (the
+    // user hasn't reviewed it for that list yet). Every list linked to this
+    // plan found *before* this entry existed is exactly `preexistingLists`
+    // below; excluding the new entry there before resyncing makes it land
+    // in each such list's Meals section unchecked, not contributing, via
+    // the same exclusion path §81.7's manual toggle already uses — no new
+    // sync logic. A brand-new *list*, generated after this entry already
+    // exists, is unaffected: `generateGroceryListFromMealPlan`'s own
+    // `entryIds` selection (unchanged) is what decides its initial subset.
+    const preexistingLists = await tx.groceryList.findMany({
+      where: { linkedMealPlanId: mealPlanId, completedAt: null },
+      select: { id: true },
+    });
+    for (const list of preexistingLists) {
+      await setGroceryListMealPlanEntryExclusion(
+        tx,
+        ownerId,
+        list.id,
+        mealPlanId,
+        entry.id,
+        true,
+      );
+    }
+
     const freshEntries = [
       ...mealPlan.entries.map(toContributionEntry),
       toContributionEntry(entry),
@@ -498,12 +534,19 @@ export async function adoptNewerVersionInEntry(
   });
 }
 
+export type ScheduleMealDraft = { label: string; date: Date; servings: number };
+export type ScheduleAssignment = {
+  mealKey: string;
+  meals: ScheduleMealDraft[];
+};
+
 export type MealPlanEntryChanges = {
   removedEntryIds: string[];
   replacedEntries: (AddMealPlanEntryInput & { entryId: string })[];
   updatedEntries: (UpdateMealPlanEntryInput & { entryId: string })[];
   versionAdoptedEntryIds: string[];
-  newEntries: AddMealPlanEntryInput[];
+  newEntries: (AddMealPlanEntryInput & { localKey?: string })[];
+  scheduleAssignments?: ScheduleAssignment[];
 };
 
 /**
@@ -538,6 +581,10 @@ export async function saveMealPlanEntryChanges(
   changes: MealPlanEntryChanges,
 ): Promise<{ hadEntryError: boolean }> {
   let hadEntryError = false;
+  // Resolves a schedule `mealKey` (either a real, already-saved entryId, or
+  // a `localKey` a `newEntries`/`replacedEntries` draft carried) to the
+  // entryId it ends up as once this batch's entry mutations below have run.
+  const keyToEntryId = new Map<string, string>();
 
   for (const entryId of changes.removedEntryIds) {
     try {
@@ -557,7 +604,11 @@ export async function saveMealPlanEntryChanges(
       continue;
     }
     try {
-      await addMealPlanEntry(ownerId, mealPlanId, input);
+      const newEntryId = await addMealPlanEntry(ownerId, mealPlanId, input);
+      // The client's schedule state still keys a replaced Meal by its old
+      // (now-deleted) entryId, since editing a Meal never changes its local
+      // identity until Save — redirect that key onto the new row.
+      keyToEntryId.set(entryId, newEntryId);
     } catch {
       hadEntryError = true;
     }
@@ -585,50 +636,87 @@ export async function saveMealPlanEntryChanges(
     }
   }
 
-  for (const draft of changes.newEntries) {
+  for (const { localKey, ...draft } of changes.newEntries) {
     try {
-      await addMealPlanEntry(ownerId, mealPlanId, draft);
+      const newEntryId = await addMealPlanEntry(ownerId, mealPlanId, draft);
+      if (localKey) keyToEntryId.set(localKey, newEntryId);
     } catch {
       hadEntryError = true;
+    }
+  }
+
+  // Schedule assignments run last, once every entry mutation above has
+  // settled, so `keyToEntryId` and the Meal Plan's live entry set (target
+  // yields included) are both final.
+  const scheduleAssignments = changes.scheduleAssignments ?? [];
+  if (scheduleAssignments.length > 0) {
+    const mealPlan = await getOwnedMealPlanOrThrow(ownerId, mealPlanId);
+    const validEntryIds = new Set(mealPlan.entries.map((e) => e.id));
+    for (const assignment of scheduleAssignments) {
+      const resolvedEntryId =
+        keyToEntryId.get(assignment.mealKey) ?? assignment.mealKey;
+      // A Meal removed in this same batch (or a draft Meal whose add
+      // failed) simply has nothing left to schedule against — drop it
+      // rather than surfacing a confusing "not found" error.
+      if (!validEntryIds.has(resolvedEntryId)) continue;
+      try {
+        await setScheduleForEntry(mealPlan, resolvedEntryId, assignment.meals);
+      } catch {
+        hadEntryError = true;
+      }
     }
   }
 
   return { hadEntryError };
 }
 
-// ---------------------------------------------------------------------------
-// Planned meals (§77.1)
-// ---------------------------------------------------------------------------
-
-export async function addPlannedMeal(
-  ownerId: string,
-  mealPlanId: string,
+/**
+ * Replaces one Meal's *complete* schedule (§77.1) with `meals` — the
+ * Schedule section's modal always submits a Meal's full desired list, not
+ * an incremental add/remove, so this deletes and recreates rather than
+ * diffing. Validates both constraints PRODUCT_SPEC.md §77.2 now enforces
+ * rather than merely warns about: every date must fall within the Meal
+ * Plan's own range, and total scheduled servings may not exceed the Meal's
+ * target yield.
+ */
+async function setScheduleForEntry(
+  mealPlan: OwnedMealPlan,
   entryId: string,
-  input: { label: string; date: Date; servings: number },
+  meals: { label: string; date: Date; servings: number }[],
 ): Promise<void> {
-  const mealPlan = await getOwnedMealPlanOrThrow(ownerId, mealPlanId);
-  findOwnedEntry(mealPlan, entryId);
-  await prisma.plannedMeal.create({
-    data: {
-      entryId,
-      label: input.label.trim(),
-      date: input.date,
-      servings: input.servings,
-    },
-  });
-}
-
-export async function removePlannedMeal(
-  ownerId: string,
-  mealPlanId: string,
-  entryId: string,
-  plannedMealId: string,
-): Promise<void> {
-  const mealPlan = await getOwnedMealPlanOrThrow(ownerId, mealPlanId);
   const entry = findOwnedEntry(mealPlan, entryId);
-  const meal = entry.plannedMeals.find((m) => m.id === plannedMealId);
-  if (!meal) throw new NotFoundError("Planned meal not found.");
-  await prisma.plannedMeal.delete({ where: { id: plannedMealId } });
+  const start = mealPlan.startDate.getTime();
+  const end = mealPlan.endDate.getTime();
+  for (const meal of meals) {
+    if (meal.date.getTime() < start || meal.date.getTime() > end) {
+      throw new ValidationError(
+        `"${meal.label}" falls outside this Meal Plan's date range.`,
+      );
+    }
+  }
+  const targetYield = decimalToNumber(entry.targetYieldQuantity);
+  if (targetYield != null) {
+    const totalServings = meals.reduce((sum, m) => sum + m.servings, 0);
+    if (totalServings > targetYield) {
+      throw new ValidationError(
+        `Scheduled servings for "${entry.sourceDishTitleSnapshot}" (${totalServings}) exceed its target yield of ${targetYield}.`,
+      );
+    }
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.plannedMeal.deleteMany({ where: { entryId } });
+    if (meals.length > 0) {
+      await tx.plannedMeal.createMany({
+        data: meals.map((meal) => ({
+          entryId,
+          label: meal.label,
+          date: meal.date,
+          servings: meal.servings,
+        })),
+      });
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -689,6 +777,15 @@ export async function startSessionFromEntry(
 // Grocery generation & manual re-sync (§81.1, §81.2)
 // ---------------------------------------------------------------------------
 
+/**
+ * §81.1/§81.7: one Meal Plan may feed multiple Grocery Lists, each covering a
+ * different selected subset of entries. When the caller selects a subset
+ * (`entryIds` narrower than the full plan), every entry left out is recorded
+ * as an exclusion for the new list — otherwise the very next unrelated Meal
+ * Plan mutation would resync this list against the *full* live entry set
+ * (every mutating action resyncs every active linked list, §81.2) and
+ * silently pull the deselected entries back in.
+ */
 export async function generateGroceryListFromMealPlan(
   ownerId: string,
   mealPlanId: string,
@@ -704,24 +801,92 @@ export async function generateGroceryListFromMealPlan(
     );
   }
 
-  return generateGroceryListFromMealPlanService(ownerId, mealPlanId, {
-    title: input.title,
-    entries: selected.map(toContributionEntry),
-  });
+  const listId = await generateGroceryListFromMealPlanService(
+    ownerId,
+    mealPlanId,
+    {
+      title: input.title,
+      entries: selected.map(toContributionEntry),
+    },
+  );
+
+  if (input.entryIds) {
+    const selectedIds = new Set(input.entryIds);
+    const excluded = mealPlan.entries.filter((e) => !selectedIds.has(e.id));
+    if (excluded.length > 0) {
+      await prisma.$transaction(
+        excluded.map((entry) =>
+          prisma.groceryListMealPlanEntryExclusion.upsert({
+            where: {
+              groceryListId_mealPlanEntryId: {
+                groceryListId: listId,
+                mealPlanEntryId: entry.id,
+              },
+            },
+            create: { groceryListId: listId, mealPlanEntryId: entry.id },
+            update: {},
+          }),
+        ),
+      );
+    }
+  }
+
+  return listId;
 }
 
 /**
  * Manual "sync now" — the same resync step every mutating action already
  * runs automatically, exposed directly for the case nothing internal to
  * this module triggered it (e.g. the source Recipe/Part was edited or
- * deleted from outside the Meal Plan entirely).
+ * deleted from outside the Meal Plan entirely). Every active linked list
+ * resyncs, matching §81.2, but only `focusListId`'s own outcome — the list
+ * the user actually clicked "Sync now" on — is returned, so its own page
+ * can report exactly what changed rather than an aggregate across every
+ * sibling list this same Meal Plan feeds.
  */
 export async function resyncMealPlanGroceryLists(
   ownerId: string,
   mealPlanId: string,
+  focusListId?: string,
+): Promise<GroceryListResyncSummary | null> {
+  const mealPlan = await getOwnedMealPlanOrThrow(ownerId, mealPlanId);
+  return prisma.$transaction(async (tx) => {
+    const summaries = await resyncLinkedLists(
+      tx,
+      ownerId,
+      mealPlanId,
+      mealPlan.entries.map(toContributionEntry),
+    );
+    return focusListId ? (summaries.get(focusListId) ?? null) : null;
+  });
+}
+
+/**
+ * §81.7 — toggles whether one Meal Plan entry contributes to one linked
+ * Grocery List's own scope, then immediately resyncs every active linked
+ * list (same transaction, same §81.2 convention every other entry mutation
+ * follows) so the toggled list's contents reflect the new selection right
+ * away.
+ */
+export async function setMealPlanGroceryListEntryIncluded(
+  ownerId: string,
+  mealPlanId: string,
+  listId: string,
+  entryId: string,
+  included: boolean,
 ): Promise<void> {
   const mealPlan = await getOwnedMealPlanOrThrow(ownerId, mealPlanId);
+  findOwnedEntry(mealPlan, entryId);
+
   await prisma.$transaction(async (tx) => {
+    await setGroceryListMealPlanEntryExclusion(
+      tx,
+      ownerId,
+      listId,
+      mealPlanId,
+      entryId,
+      !included,
+    );
     await resyncLinkedLists(
       tx,
       ownerId,

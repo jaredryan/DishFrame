@@ -30,15 +30,23 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Dialog,
   DialogClose,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { DatePickerField } from "@/components/ui/date-picker-field";
+import { useStepScrollReset } from "@/components/ui/use-step-scroll-reset";
 import { TooltipIconButton } from "@/components/domain/dish/reorder-buttons";
 import { STAGE_LABEL } from "@/components/domain/dish/stage-badge";
 import { FilterPopover } from "@/components/domain/dish/filter-popover";
@@ -51,6 +59,7 @@ import {
   type DishSelectionItem,
 } from "@/components/domain/dish/selectable-dish-row";
 import { RichVersionPickerField } from "@/components/domain/dish/version-picker-field";
+import { QuantityInput } from "@/components/domain/dish/number-field";
 import {
   listDishVersionOptions,
   type DishVersionOption,
@@ -60,10 +69,8 @@ import {
   createMealPlan,
   updateMealPlan,
   saveMealPlanEntryChanges,
-  addPlannedMeal,
-  removePlannedMeal,
 } from "@/lib/mealplans/actions";
-import { computeAllocationStatus } from "@/lib/mealplans/allocation";
+import { remainingServings } from "@/lib/mealplans/allocation";
 import { formatDateOnly, toIsoDateOnly } from "@/lib/date";
 import { cn } from "@/lib/utils";
 import { useUnsavedChangesGuard } from "@/components/domain/dish/use-unsaved-changes-guard";
@@ -84,17 +91,16 @@ import type {
 } from "@/components/domain/dish/library-filter-bar";
 
 /**
- * Meal Plan create/edit — a single reusable form (Slice 22/23 redesign) for
- * both `/meal-plans/new` and `/meal-plans/[id]/edit`. A new MealPlan record
- * is created only by the final Save action at the bottom; in edit mode
- * nothing about Details or Meals composition (adding/removing/editing a
- * Meal, adopting a newer Version) reaches the server before that same Save
- * either — every one of those is a local draft, reconciled against
- * `mealPlan` and sent as a batch of calls at Save time. The one deliberate
- * exception (owner decision, out of scope for this pass) is Planned-meal
- * management inside `EditEntryCard` below — that keeps persisting
- * immediately exactly as before, pending a separate redesign of that
- * feature.
+ * Meal Plan create/edit — a single reusable form (Slice 22/23 redesign,
+ * Schedule redesign) for both `/meal-plans/new` and `/meal-plans/[id]/edit`.
+ * Three sections: Details, Meals (what's being prepared), and Schedule
+ * (when/how each Meal's servings are allocated — the former inline
+ * `+ Planned meal` UI on each Meal card, now a dedicated section + modal). A
+ * new MealPlan record is created only by the final Save action at the
+ * bottom; nothing in any section — Details, Meals composition, or the
+ * Schedule — reaches the server before that same Save. Every one of those is
+ * a local draft, reconciled against `mealPlan` (edit mode) and sent as one
+ * batch via `saveMealPlanEntryChanges` at Save time.
  */
 
 const SECTION_HEADING_CLASS = "font-heading text-lg font-medium";
@@ -133,9 +139,6 @@ function yieldChipLabel(quantity: number | null, unit: string | null): string {
     ? `Makes ${quantity} ${unit ?? ""}`.trim()
     : "No specified yield";
 }
-
-type ActionResult = { status: string; message?: string };
-type RunAction = (action: () => Promise<ActionResult>) => void;
 
 type DraftEntry = {
   localId: string;
@@ -176,6 +179,28 @@ type MealModalState =
       initialValues: MealValues;
     };
 
+// Schedule redesign — one Schedule-section entry. `mealKey` addresses the
+// Meal it's scheduled against: a saved entry's `entry.id`, or (an
+// as-yet-unsaved Meal) a `DraftEntry.localId` — resolved to a real entryId
+// server-side at Save time (`saveMealPlanEntryChanges`'s `localKey`).
+type ScheduleItem = {
+  localId: string;
+  mealKey: string;
+  label: string;
+  date: string;
+  servings: number;
+};
+
+// The Schedule modal's "Meal from this Meal Plan" picker options — every
+// current Meal, saved or still-drafted, in whichever form the page's own
+// edits currently show it (title/target yield included).
+type MealOption = {
+  key: string;
+  title: string;
+  versionLabel: string;
+  targetYieldQuantity: number | null;
+};
+
 type StoredDraft = {
   title: string;
   startDate: string;
@@ -184,6 +209,7 @@ type StoredDraft = {
   removedEntryIds: string[];
   versionUpdateEntryIds: string[];
   entryEdits: Record<string, MealValues>;
+  schedule: ScheduleItem[];
 };
 
 // A queued edit for an already-saved entry may also change which Recipe/
@@ -213,6 +239,49 @@ function mergeEntryEdit(
     targetYieldUnit: edit.targetYieldUnit,
     note: edit.note,
   };
+}
+
+// Schedule redesign — groups the Schedule section's flat `schedule` draft by
+// Meal for the batch save call, sending one assignment (possibly empty) per
+// `mealKey` in `mealKeys` so a Meal whose schedule was cleared to nothing
+// still reaches the server as an explicit "no entries" rather than being
+// silently skipped.
+// Client-side mirror of `setScheduleForEntry`'s server-side yield check
+// (service.ts) — catches a Meal whose target yield was edited down below
+// what's already scheduled for it *before* Save, rather than letting the
+// batch call reject it server-side and surface only the generic "some meal
+// changes could not be applied" message. The server-side check stays as the
+// final integrity guard regardless.
+function findScheduleYieldConflict(
+  mealOptions: MealOption[],
+  schedule: ScheduleItem[],
+): { option: MealOption; totalServings: number } | null {
+  for (const option of mealOptions) {
+    if (option.targetYieldQuantity == null) continue;
+    const totalServings = schedule
+      .filter((item) => item.mealKey === option.key)
+      .reduce((sum, item) => sum + item.servings, 0);
+    if (totalServings > option.targetYieldQuantity) {
+      return { option, totalServings };
+    }
+  }
+  return null;
+}
+
+function buildScheduleAssignments(
+  mealKeys: string[],
+  schedule: ScheduleItem[],
+) {
+  return mealKeys.map((mealKey) => ({
+    mealKey,
+    meals: schedule
+      .filter((item) => item.mealKey === mealKey)
+      .map((item) => ({
+        label: item.label,
+        date: item.date,
+        servings: item.servings,
+      })),
+  }));
 }
 
 export function MealPlanEditor(
@@ -265,8 +334,33 @@ export function MealPlanEditor(
   >({});
   const [mealModal, setMealModal] = React.useState<MealModalState | null>(null);
 
-  const [entryError, setEntryError] = React.useState<string | null>(null);
-  const [, startTransition] = React.useTransition();
+  // Schedule redesign — the whole Schedule section's draft, seeded (edit
+  // mode) from every existing entry's `plannedMeals`, keyed back to that
+  // entry's id. `initialScheduleRef` is that starting snapshot, used to
+  // detect a schedule-only change (see `isDirty`/`hasEntryChanges` below).
+  const initialSchedule = React.useMemo<ScheduleItem[]>(
+    () =>
+      mealPlan
+        ? mealPlan.entries.flatMap((entry) =>
+            entry.plannedMeals.map((meal) => ({
+              localId: meal.id,
+              mealKey: entry.id,
+              label: meal.label,
+              date: dateOnly(meal.date),
+              servings: meal.servings,
+            })),
+          )
+        : [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+  const initialScheduleRef = React.useRef(JSON.stringify(initialSchedule));
+  const [schedule, setSchedule] =
+    React.useState<ScheduleItem[]>(initialSchedule);
+  const [scheduleModalKey, setScheduleModalKey] = React.useState<string | null>(
+    null,
+  );
+
   const [serverError, setServerError] = React.useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
@@ -300,6 +394,7 @@ export function MealPlanEditor(
           !Array.isArray(stored.entryEdits)
         )
           setEntryEdits(stored.entryEdits);
+        if (Array.isArray(stored.schedule)) setSchedule(stored.schedule);
       }
     } catch {
       // Corrupt/incompatible stored draft — ignore, keep defaults.
@@ -319,6 +414,7 @@ export function MealPlanEditor(
       removedEntryIds: [...removedEntryIds],
       versionUpdateEntryIds: [...versionUpdateEntryIds],
       entryEdits,
+      schedule,
     };
     try {
       window.localStorage.setItem(storageKey, JSON.stringify(stored));
@@ -334,6 +430,7 @@ export function MealPlanEditor(
     removedEntryIds,
     versionUpdateEntryIds,
     entryEdits,
+    schedule,
     storageKey,
   ]);
 
@@ -345,6 +442,9 @@ export function MealPlanEditor(
     }
   }
 
+  const scheduleChanged =
+    JSON.stringify(schedule) !== initialScheduleRef.current;
+
   const isDirty =
     title !== initial.title ||
     startDate !== initial.start ||
@@ -352,7 +452,8 @@ export function MealPlanEditor(
     draftEntries.length > 0 ||
     removedEntryIds.size > 0 ||
     versionUpdateEntryIds.size > 0 ||
-    Object.keys(entryEdits).length > 0;
+    Object.keys(entryEdits).length > 0 ||
+    scheduleChanged;
 
   const guard = useUnsavedChangesGuard(isDirty && !isSubmitting);
 
@@ -360,18 +461,6 @@ export function MealPlanEditor(
     clearDraftStorage();
     guard.discardChanges();
   }
-
-  const runAction: RunAction = (action) => {
-    setEntryError(null);
-    startTransition(async () => {
-      const result = await action();
-      if (result.status !== "success") {
-        setEntryError(result.message ?? "Something went wrong.");
-      } else {
-        router.refresh();
-      }
-    });
-  };
 
   function openDetails() {
     detailsSnapshotRef.current = { title, startDate, endDate };
@@ -506,6 +595,14 @@ export function MealPlanEditor(
       setDetailsExpanded(true);
       return;
     }
+    const yieldConflict = findScheduleYieldConflict(mealOptions, schedule);
+    if (yieldConflict) {
+      const { option, totalServings } = yieldConflict;
+      setServerError(
+        `Scheduled servings for "${option.title}" (${totalServings}) exceed its target yield of ${option.targetYieldQuantity}. Edit its schedule before saving.`,
+      );
+      return;
+    }
 
     setIsSubmitting(true);
 
@@ -518,7 +615,10 @@ export function MealPlanEditor(
       }
       const { mealPlanId } = result;
       // F10 (docs/performance-architecture-audit.md): every draft entry in
-      // one request instead of one `addMealPlanEntry` call per entry.
+      // one request instead of one `addMealPlanEntry` call per entry. Every
+      // Meal here is a fresh draft, so every schedule assignment addresses
+      // one by its `localId` (resolved server-side to the real entryId it's
+      // created with in this same batch).
       if (draftEntries.length > 0) {
         const entriesResult = await saveMealPlanEntryChanges({
           mealPlanId,
@@ -533,7 +633,12 @@ export function MealPlanEditor(
             targetYieldQuantity: entry.targetYieldQuantity,
             targetYieldUnit: entry.targetYieldUnit,
             note: entry.note,
+            localKey: entry.localId,
           })),
+          scheduleAssignments: buildScheduleAssignments(
+            draftEntries.map((entry) => entry.localId),
+            schedule,
+          ),
         });
         if (entriesResult.status !== "success" || entriesResult.hadEntryError) {
           setServerError(
@@ -624,11 +729,19 @@ export function MealPlanEditor(
         replacedEntries.length > 0 ||
         updatedEntries.length > 0 ||
         versionUpdateEntryIds.size > 0 ||
-        draftEntries.length > 0;
+        draftEntries.length > 0 ||
+        scheduleChanged;
 
       // F10: every queued remove/replace/update/adopt-newer-Version/add in
       // one request instead of one server-action call per changed entry.
+      // Schedule redesign: the Schedule section's current draft rides along
+      // too — one assignment per still-visible Meal (saved or newly drafted)
+      // — whenever anything in this batch changed, schedule included.
       if (hasEntryChanges) {
+        const visibleMealKeys = [
+          ...visibleEntries.map((entry) => entry.id),
+          ...draftEntries.map((entry) => entry.localId),
+        ];
         const entriesResult = await saveMealPlanEntryChanges({
           mealPlanId: mealPlan.id,
           removedEntryIds: [...removedEntryIds],
@@ -642,7 +755,12 @@ export function MealPlanEditor(
             targetYieldQuantity: entry.targetYieldQuantity,
             targetYieldUnit: entry.targetYieldUnit,
             note: entry.note,
+            localKey: entry.localId,
           })),
+          scheduleAssignments: buildScheduleAssignments(
+            visibleMealKeys,
+            schedule,
+          ),
         });
         if (entriesResult.status !== "success" || entriesResult.hadEntryError) {
           setServerError(
@@ -680,6 +798,42 @@ export function MealPlanEditor(
         .sort((a, b) => a.cookDate.localeCompare(b.cookDate))
     : [];
   const hasNoMeals = visibleEntries.length === 0 && draftEntries.length === 0;
+
+  // Schedule redesign — every current Meal, saved or still-drafted, as the
+  // Schedule modal's "Meal from this Meal Plan" options.
+  const mealOptions: MealOption[] = [
+    ...visibleEntries.map((entry) => ({
+      key: entry.id,
+      title: entry.title,
+      versionLabel: entry.versionLabel,
+      targetYieldQuantity: entry.targetYieldQuantity,
+    })),
+    ...draftEntries.map((entry) => ({
+      key: entry.localId,
+      title: entry.title,
+      versionLabel: entry.versionLabel,
+      targetYieldQuantity: entry.targetYieldQuantity,
+    })),
+  ];
+  const mealTitleByKey = new Map(
+    mealOptions.map((option) => [
+      option.key,
+      `${option.title} ${option.versionLabel}`.trim(),
+    ]),
+  );
+  const sortedSchedule = [...schedule].sort((a, b) =>
+    a.date.localeCompare(b.date),
+  );
+
+  function queueRemoveMeal(entryId: string) {
+    queueRemove(entryId);
+    setSchedule((prev) => prev.filter((item) => item.mealKey !== entryId));
+  }
+
+  function removeDraftMeal(localId: string) {
+    removeDraft(localId);
+    setSchedule((prev) => prev.filter((item) => item.mealKey !== localId));
+  }
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6 pb-24">
@@ -763,15 +917,13 @@ export function MealPlanEditor(
             No meals yet — add one below.
           </p>
         ) : (
-          <ul className="flex flex-col gap-3">
+          <ul className="grid gap-3 md:grid-cols-2 md:items-start">
             {visibleEntries.map((entry) => (
               <EditEntryCard
                 key={entry.id}
-                mealPlanId={mealPlan!.id}
                 entry={entry}
-                runAction={runAction}
                 versionUpdateQueued={versionUpdateEntryIds.has(entry.id)}
-                onQueueRemove={() => queueRemove(entry.id)}
+                onQueueRemove={() => queueRemoveMeal(entry.id)}
                 onQueueVersionUpdate={() => queueVersionUpdate(entry.id)}
                 onEdit={() => openEditEntry(entry)}
               />
@@ -781,17 +933,11 @@ export function MealPlanEditor(
                 key={entry.localId}
                 entry={entry}
                 showDraftBadge={props.mode === "edit"}
-                onRemove={() => removeDraft(entry.localId)}
+                onRemove={() => removeDraftMeal(entry.localId)}
                 onEdit={() => openEditDraft(entry)}
               />
             ))}
           </ul>
-        )}
-
-        {entryError && (
-          <p role="alert" className="text-destructive-text text-sm">
-            {entryError}
-          </p>
         )}
 
         <div className="flex flex-wrap gap-2">
@@ -820,6 +966,54 @@ export function MealPlanEditor(
         />
       </div>
 
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between gap-4">
+          <h2 className={SECTION_HEADING_CLASS}>Schedule</h2>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={mealOptions.length === 0}
+            onClick={() => setScheduleModalKey(crypto.randomUUID())}
+          >
+            {schedule.length === 0 ? "Add schedule" : "Edit schedule"}
+          </Button>
+        </div>
+
+        {schedule.length === 0 ? (
+          <p className="text-muted-foreground text-sm">
+            There is no schedule for this meal plan.
+          </p>
+        ) : (
+          <ul className="grid gap-2 md:grid-cols-2 md:items-start">
+            {sortedSchedule.map((item) => (
+              <ScheduleRow
+                key={item.localId}
+                item={item}
+                mealTitle={mealTitleByKey.get(item.mealKey) ?? "—"}
+              />
+            ))}
+          </ul>
+        )}
+
+        {scheduleModalKey && (
+          <ScheduleModal
+            key={scheduleModalKey}
+            mealOptions={mealOptions}
+            schedule={schedule}
+            planStartDate={startDate}
+            planEndDate={endDate}
+            onOpenChange={(next) => {
+              if (!next) setScheduleModalKey(null);
+            }}
+            onSubmit={(next) => {
+              setSchedule(next);
+              setScheduleModalKey(null);
+            }}
+          />
+        )}
+      </div>
+
       <div className="bg-background/95 sticky bottom-0 flex items-center justify-between gap-4 border-t py-4 backdrop-blur-sm">
         {serverError ? (
           <p
@@ -846,26 +1040,16 @@ export function MealPlanEditor(
         </div>
       </div>
 
-      <Dialog
+      <ConfirmDialog
         open={guard.isPromptOpen}
-        onOpenChange={(open) => !open && guard.keepEditing()}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Discard unsaved changes?</DialogTitle>
-            <DialogDescription>
-              You have unsaved changes to this Meal Plan. If you leave now, they
-              will be lost.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="destructive" onClick={discardDraftAndLeave}>
-              Discard changes
-            </Button>
-            <Button onClick={guard.keepEditing}>Keep editing</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onOpenChangeAction={(open) => !open && guard.keepEditing()}
+        title="Discard unsaved changes?"
+        description="You have unsaved changes to this Meal Plan. If you leave now, they will be lost."
+        cancelLabel="Keep editing"
+        confirmLabel="Discard changes"
+        destructive
+        onConfirmAction={discardDraftAndLeave}
+      />
     </div>
   );
 }
@@ -958,36 +1142,27 @@ function DraftEntryCard({
 }
 
 /**
- * A persisted Meal (Slice 24 chosen-meal card redesign) — every lifecycle/
- * status action (Start cooking, Mark cooked/skipped, Resume session) lives
- * on the read-only View page instead. Sync/Edit/Remove only queue a draft
- * change here (applied at the page's own final Save); Planned-meal
- * management below still persists immediately — left as-is deliberately
- * (owner decision: that feature gets its own redesign pass separately, out
- * of scope here).
+ * A persisted Meal (Slice 24 chosen-meal card redesign; Schedule redesign
+ * removed the inline `+ Planned meal`/allocation UI this card used to carry
+ * — that's now the dedicated Schedule section below, driven off the same
+ * data). Every lifecycle/status action (Start cooking, Mark cooked/skipped,
+ * Resume session) lives on the read-only View page instead; Sync/Edit/
+ * Remove only queue a draft change here, applied at the page's own final
+ * Save.
  */
 function EditEntryCard({
-  mealPlanId,
   entry,
-  runAction,
   versionUpdateQueued,
   onQueueRemove,
   onQueueVersionUpdate,
   onEdit,
 }: {
-  mealPlanId: string;
   entry: MealPlanEntryDto;
-  runAction: RunAction;
   versionUpdateQueued: boolean;
   onQueueRemove: () => void;
   onQueueVersionUpdate: () => void;
   onEdit: () => void;
 }) {
-  const [addingMeal, setAddingMeal] = React.useState(false);
-  const allocation = computeAllocationStatus(
-    entry.targetYieldQuantity,
-    entry.plannedMeals,
-  );
   return (
     <li className="border-border bg-card flex items-center justify-between gap-3 rounded-lg border p-4">
       <div className="flex min-w-0 flex-1 flex-col gap-2">
@@ -1015,117 +1190,6 @@ function EditEntryCard({
             Source deleted — kept for history.
           </p>
         )}
-
-        {/* "+ Planned meal" (unchanged, Slice 24 owner decision — kept as a
-            separate row pending its own redesign pass). */}
-        <div className="flex flex-col gap-1">
-          {entry.plannedMeals.length > 0 && (
-            <ul className="flex flex-col gap-1">
-              {entry.plannedMeals.map((meal) => (
-                <li
-                  key={meal.id}
-                  className="text-muted-foreground flex items-center justify-between gap-2 text-xs"
-                >
-                  <span>
-                    {meal.label} — {meal.servings} serving
-                    {meal.servings === 1 ? "" : "s"} (
-                    {formatDateOnly(meal.date)})
-                  </span>
-                  <button
-                    type="button"
-                    className="cursor-pointer underline"
-                    onClick={() =>
-                      runAction(() =>
-                        removePlannedMeal({
-                          mealPlanId,
-                          entryId: entry.id,
-                          plannedMealId: meal.id,
-                        }),
-                      )
-                    }
-                  >
-                    Remove
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          {allocation !== "unknown" && (
-            <Badge
-              variant={allocation === "balanced" ? "outline" : "secondary"}
-              className="w-fit"
-            >
-              {allocation === "under" && "Yield not fully allocated"}
-              {allocation === "over" && "Allocated more than expected yield"}
-              {allocation === "balanced" && "Fully allocated"}
-            </Badge>
-          )}
-          {addingMeal ? (
-            <form
-              className="mt-1 flex flex-wrap items-end gap-2"
-              onSubmit={(e) => {
-                e.preventDefault();
-                const formData = new FormData(e.currentTarget);
-                const label = String(formData.get("label") ?? "").trim();
-                const date = String(formData.get("date") ?? "");
-                const servings = Number(formData.get("servings") ?? 0);
-                if (label && date && servings > 0) {
-                  runAction(() =>
-                    addPlannedMeal({
-                      mealPlanId,
-                      entryId: entry.id,
-                      label,
-                      date: new Date(date),
-                      servings,
-                    }),
-                  );
-                  setAddingMeal(false);
-                }
-              }}
-            >
-              <Input
-                name="label"
-                placeholder="e.g. Monday lunch"
-                className="h-8 w-40"
-              />
-              <Input
-                name="date"
-                type="date"
-                defaultValue={dateOnly(entry.cookDate)}
-                className="h-8"
-              />
-              <Input
-                name="servings"
-                type="number"
-                step="any"
-                min="0"
-                placeholder="Servings"
-                className="h-8 w-24"
-              />
-              <Button type="submit" size="sm">
-                Add
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                onClick={() => setAddingMeal(false)}
-              >
-                Cancel
-              </Button>
-            </form>
-          ) : (
-            <Button
-              type="button"
-              size="sm"
-              variant="link"
-              className="h-auto w-fit px-0"
-              onClick={() => setAddingMeal(true)}
-            >
-              + Planned meal
-            </Button>
-          )}
-        </div>
       </div>
 
       <MealCardActions
@@ -1136,6 +1200,296 @@ function EditEntryCard({
         onRemove={onQueueRemove}
       />
     </li>
+  );
+}
+
+/** One Schedule-section entry — meal label, the Meal Plan meal it refers to,
+ * date, and servings, the four values PRODUCT_SPEC.md §77.1 calls out. */
+function ScheduleRow({
+  item,
+  mealTitle,
+}: {
+  item: ScheduleItem;
+  mealTitle: string;
+}) {
+  return (
+    <li className="border-border bg-card flex items-center justify-between gap-3 rounded-lg border p-3">
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <p className="text-foreground text-sm font-medium">{item.label}</p>
+        <p className="text-muted-foreground truncate text-xs">{mealTitle}</p>
+      </div>
+      <div className="flex shrink-0 items-center gap-1.5">
+        <Badge variant="outline" className="gap-1">
+          <CalendarDays className="size-3" aria-hidden="true" />
+          {formatDateOnly(item.date)}
+        </Badge>
+        <SemanticChip semantic="orange">
+          {item.servings} serving{item.servings === 1 ? "" : "s"}
+        </SemanticChip>
+      </div>
+    </li>
+  );
+}
+
+/**
+ * The Schedule section's "Add schedule"/"Edit schedule" modal (replaces the
+ * former per-Meal `+ Planned meal` inline UI). Builds one draft schedule
+ * transaction locally — `Add plan` only appends to that in-modal draft, and
+ * only `Plan meals` hands the complete list back to the page's own `schedule`
+ * draft (itself only reaching the server at the page's final Save). Cancel/
+ * close discards the in-modal draft entirely, preserving whatever schedule
+ * the page already had.
+ */
+function ScheduleModal({
+  mealOptions,
+  schedule,
+  planStartDate,
+  planEndDate,
+  onOpenChange,
+  onSubmit,
+}: {
+  mealOptions: MealOption[];
+  schedule: ScheduleItem[];
+  planStartDate: string;
+  planEndDate: string;
+  onOpenChange: (open: boolean) => void;
+  onSubmit: (next: ScheduleItem[]) => void;
+}) {
+  const [draft, setDraft] = React.useState<ScheduleItem[]>(schedule);
+  const [label, setLabel] = React.useState("");
+  const [mealKey, setMealKey] = React.useState<string | null>(
+    mealOptions[0]?.key ?? null,
+  );
+  const [date, setDate] = React.useState(planStartDate);
+  const [servings, setServings] = React.useState<number | null>(null);
+  const [formError, setFormError] = React.useState<string | null>(null);
+  const [editingLocalId, setEditingLocalId] = React.useState<string | null>(
+    null,
+  );
+
+  const mealTitleByKey = new Map(
+    mealOptions.map((option) => [
+      option.key,
+      `${option.title} ${option.versionLabel}`.trim(),
+    ]),
+  );
+  const selectedMeal = mealOptions.find((option) => option.key === mealKey);
+  const alreadyScheduledForMeal = draft
+    .filter(
+      (item) => item.mealKey === mealKey && item.localId !== editingLocalId,
+    )
+    .reduce((sum, item) => sum + item.servings, 0);
+  const remaining = selectedMeal
+    ? remainingServings(
+        selectedMeal.targetYieldQuantity,
+        alreadyScheduledForMeal,
+      )
+    : null;
+
+  function resetForm() {
+    setLabel("");
+    setServings(null);
+    setEditingLocalId(null);
+    setFormError(null);
+  }
+
+  function startEdit(item: ScheduleItem) {
+    setLabel(item.label);
+    setMealKey(item.mealKey);
+    setDate(item.date);
+    setServings(item.servings);
+    setEditingLocalId(item.localId);
+    setFormError(null);
+  }
+
+  function removeDraftItem(localId: string) {
+    setDraft((prev) => prev.filter((item) => item.localId !== localId));
+    if (editingLocalId === localId) resetForm();
+  }
+
+  function handleAddPlan() {
+    if (!label.trim()) {
+      setFormError("Enter a meal name.");
+      return;
+    }
+    if (!mealKey || !selectedMeal) {
+      setFormError("Choose a meal from this Meal Plan.");
+      return;
+    }
+    if (!date || date < planStartDate || date > planEndDate) {
+      setFormError("Choose a date within this Meal Plan's range.");
+      return;
+    }
+    if (servings == null || servings <= 0) {
+      setFormError("Enter the servings for this schedule entry.");
+      return;
+    }
+    if (remaining != null && servings > remaining) {
+      setFormError(
+        `Only ${remaining} serving${remaining === 1 ? "" : "s"} left for this meal.`,
+      );
+      return;
+    }
+
+    const item: ScheduleItem = {
+      localId: editingLocalId ?? crypto.randomUUID(),
+      mealKey,
+      label: label.trim(),
+      date,
+      servings,
+    };
+    setDraft((prev) =>
+      editingLocalId
+        ? prev.map((i) => (i.localId === editingLocalId ? item : i))
+        : [...prev, item],
+    );
+    resetForm();
+  }
+
+  const sortedDraft = [...draft].sort((a, b) => a.date.localeCompare(b.date));
+
+  return (
+    <Dialog open onOpenChange={(next) => !next && onOpenChange(false)}>
+      <DialogContent
+        showCloseButton={false}
+        className="flex max-h-[85vh] w-full max-w-2xl flex-col gap-0 overflow-hidden px-0"
+      >
+        <DialogHeader className="bg-muted/50 -mt-4 flex shrink-0 flex-row items-center justify-between gap-2 rounded-t-xl border-b p-4">
+          <DialogTitle>Schedule</DialogTitle>
+          <DialogClose asChild>
+            <Button variant="ghost" size="icon-sm" className="-my-1.5">
+              <X />
+              <span className="sr-only">Close</span>
+            </Button>
+          </DialogClose>
+        </DialogHeader>
+
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pt-4 pb-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field>
+              <FieldLabel htmlFor="schedule-label">Meal name</FieldLabel>
+              <Input
+                id="schedule-label"
+                placeholder="e.g. Monday lunch"
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="schedule-meal">Meal</FieldLabel>
+              <Select
+                value={mealKey ?? undefined}
+                onValueChange={setMealKey}
+                disabled={mealOptions.length === 0}
+              >
+                <SelectTrigger id="schedule-meal">
+                  <SelectValue placeholder="Choose a meal" />
+                </SelectTrigger>
+                <SelectContent>
+                  {mealOptions.map((option) => (
+                    <SelectItem key={option.key} value={option.key}>
+                      {option.title} {option.versionLabel}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field>
+              <FieldLabel htmlFor="schedule-date">Date</FieldLabel>
+              <DatePickerField
+                id="schedule-date"
+                value={date}
+                onChange={setDate}
+                min={planStartDate}
+                max={planEndDate}
+                ariaLabel="Schedule date"
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="schedule-servings">Servings</FieldLabel>
+              <QuantityInput
+                id="schedule-servings"
+                className="w-20"
+                value={servings}
+                onValueChange={setServings}
+              />
+              {remaining != null && (
+                <p className="text-muted-foreground text-xs">
+                  {remaining} serving{remaining === 1 ? "" : "s"} left for this
+                  meal.
+                </p>
+              )}
+            </Field>
+          </div>
+
+          <FieldError>{formError}</FieldError>
+
+          <div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={handleAddPlan}
+            >
+              {editingLocalId ? "Update plan" : "Add plan"}
+            </Button>
+          </div>
+
+          <div className="border-border flex flex-col gap-2 border-t pt-4">
+            {draft.length === 0 ? (
+              <p className="text-muted-foreground text-sm">
+                No schedule entries yet.
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {sortedDraft.map((item) => (
+                  <li
+                    key={item.localId}
+                    className="border-border bg-muted/30 flex items-center justify-between gap-3 rounded-lg border p-2.5"
+                  >
+                    <div className="flex min-w-0 flex-col gap-0.5">
+                      <p className="text-foreground text-sm font-medium">
+                        {item.label}
+                      </p>
+                      <p className="text-muted-foreground truncate text-xs">
+                        {mealTitleByKey.get(item.mealKey) ?? "—"} ·{" "}
+                        {formatDateOnly(item.date)} · {item.servings} serving
+                        {item.servings === 1 ? "" : "s"}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <TooltipIconButton
+                        label="Edit schedule entry"
+                        icon={Pencil}
+                        onClick={() => startEdit(item)}
+                      />
+                      <TooltipIconButton
+                        label="Remove schedule entry"
+                        icon={Trash2}
+                        onClick={() => removeDraftItem(item.localId)}
+                        className="text-destructive-text hover:bg-destructive/10 hover:text-destructive-text"
+                      />
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+
+        <DialogFooter className="mx-0 shrink-0">
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button type="button" onClick={() => onSubmit(draft)}>
+            Plan meals
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1383,6 +1737,7 @@ function MealPickerModal({
     direction: SortDirectionValue;
   }>({ property: "recentlyCooked", direction: "asc" });
 
+  const scrollRef = useStepScrollReset(selectedDishId != null);
   const selectedCandidate = candidates.find((c) => c.dishId === selectedDishId);
   const selectedVersion = dishVersions?.find((v) => v.id === selectedVersionId);
   // The selected Version's own yield once loaded; falls back to the
@@ -1662,7 +2017,10 @@ function MealPickerModal({
           </DialogClose>
         </DialogHeader>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pt-4 pb-4">
+        <div
+          ref={scrollRef}
+          className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pt-4 pb-4"
+        >
           <Field>
             <FieldLabel htmlFor="meal-modal-cook-date">Cook date</FieldLabel>
             <DatePickerField
@@ -1708,18 +2066,13 @@ function MealPickerModal({
                     Target yield
                   </FieldLabel>
                   <div className="flex items-center gap-2">
-                    <Input
+                    <QuantityInput
                       id="meal-modal-target-yield"
-                      type="number"
-                      inputMode="decimal"
-                      step="any"
-                      min="0"
                       className="w-13"
-                      value={targetYieldQuantity ?? ""}
-                      onChange={(e) => {
-                        const raw = e.target.value;
+                      value={targetYieldQuantity}
+                      onValueChange={(value) => {
                         setTargetYieldTouched(true);
-                        setTargetYieldQuantity(raw === "" ? null : Number(raw));
+                        setTargetYieldQuantity(value);
                       }}
                     />
                     {effectiveYieldUnit && (

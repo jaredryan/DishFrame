@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Copy } from "lucide-react";
-import { useFieldArray, useFormContext, useWatch } from "react-hook-form";
+import { useFieldArray, useFormContext } from "react-hook-form";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { DragHandle } from "@/components/ui/drag-handle";
@@ -10,6 +10,7 @@ import {
 } from "@/components/domain/dish/reorder-buttons";
 import { PartLinkFields } from "@/components/domain/dish/part-link-fields";
 import { ConvertSectionToPartDialog } from "@/components/domain/dish/convert-section-to-part-dialog";
+import { ReplaceSectionWithPartDialog } from "@/components/domain/dish/replace-section-with-part-dialog";
 import {
   SectionEditorDialog,
   type SectionEditorResult,
@@ -60,16 +61,20 @@ export function SectionFields({
   const prefix = `sections.${sectionIndex}`;
   const sectionName: string = watch(`${prefix}.name`);
   const guidanceNote: string = watch(`${prefix}.guidanceNote`);
-  const watchedIngredients: IngredientInput[] =
-    useWatch({ control, name: `${prefix}.ingredients` }) ?? [];
-  const watchedInstructions: InstructionInput[] =
-    useWatch({ control, name: `${prefix}.instructions` }) ?? [];
 
   const ingredients = useFieldArray({ control, name: `${prefix}.ingredients` });
+  // `.fields` (not a parallel `useWatch`) drives the collapsed view below — it's this hook's own structural state, so `replace()` can't leave it stale.
+  const ingredientFields = ingredients.fields as unknown as (IngredientInput & {
+    id: string;
+  })[];
   const instructions = useFieldArray({
     control,
     name: `${prefix}.instructions`,
   });
+  const instructionFields =
+    instructions.fields as unknown as (InstructionInput & {
+      id: string;
+    })[];
   const partLinks = useFieldArray({ control, name: `${prefix}.partLinks` });
 
   // The Section modal never opens on its own — not for a freshly loaded
@@ -99,7 +104,10 @@ export function SectionFields({
   // in the first place.
   function handleEditorClose(result: SectionEditorResult) {
     setEditing(false);
-    if (result.action === "convert-to-part") {
+    if (
+      result.action === "convert-to-part" ||
+      result.action === "replace-with-part"
+    ) {
       onConvertToPart(result.link);
       return;
     }
@@ -225,6 +233,14 @@ export function SectionFields({
             defaultName={sectionName || ""}
             onConverted={onConvertToPart}
           />
+          <ReplaceSectionWithPartDialog
+            containerDishId={containerDishId}
+            containerKind={containerKind}
+            excludeDishId={containerDishId ?? undefined}
+            sectionLabel={label}
+            sectionName={sectionName || ""}
+            onReplaced={onConvertToPart}
+          />
           <ItemToolbar
             label={label}
             toggleLabel={sectionName || sectionNumberLabel}
@@ -245,10 +261,10 @@ export function SectionFields({
           ingredients/instructions, reordering, substitutes) requires the
           explicit Edit action above, which opens the Section modal. */}
       <div className="flex flex-col gap-3">
-        {watchedIngredients.length > 0 && (
+        {ingredientFields.length > 0 && (
           <ul className="flex flex-col gap-1">
-            {watchedIngredients.map((ingredient, index) => (
-              <li key={index} className="text-sm">
+            {ingredientFields.map((ingredient) => (
+              <li key={ingredient.id} className="text-sm">
                 {formatIngredientLine(ingredient)}
                 {ingredient.isOptional && (
                   <span className="text-muted-foreground"> (optional)</span>
@@ -262,10 +278,10 @@ export function SectionFields({
             ))}
           </ul>
         )}
-        {watchedInstructions.length > 0 && (
+        {instructionFields.length > 0 && (
           <ol className="flex flex-col gap-1.5">
-            {watchedInstructions.map((instruction, index) => (
-              <li key={index} className="flex gap-2 text-sm">
+            {instructionFields.map((instruction, index) => (
+              <li key={instruction.id} className="flex gap-2 text-sm">
                 <span className="text-muted-foreground tabular-nums">
                   {index + 1}.
                 </span>
@@ -274,8 +290,8 @@ export function SectionFields({
             ))}
           </ol>
         )}
-        {watchedIngredients.length === 0 &&
-          watchedInstructions.length === 0 &&
+        {ingredientFields.length === 0 &&
+          instructionFields.length === 0 &&
           partLinks.fields.length === 0 && (
             <p className="text-muted-foreground text-sm">
               No content yet — Edit to add ingredients or instructions.

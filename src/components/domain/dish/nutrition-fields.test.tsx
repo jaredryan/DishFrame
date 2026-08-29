@@ -230,6 +230,8 @@ describe("detach from source", () => {
   it("clears source attribution while preserving nutrition values", async () => {
     const user = userEvent.setup();
     render(<DishEditor kind="RECIPE" dish={existingDishWithNutrition} />);
+    // Nutrition starts collapsed for an already-saved Recipe/Part.
+    await user.click(screen.getByRole("button", { name: "Expand Nutrition" }));
 
     expect(
       screen.getByText(/Sourced from USDA FoodData Central/),
@@ -253,6 +255,7 @@ describe("More nutrients", () => {
   it("shows and edits the recognized whitelist", async () => {
     const user = userEvent.setup();
     render(<DishEditor kind="RECIPE" dish={existingDishWithNutrition} />);
+    await user.click(screen.getByRole("button", { name: "Expand Nutrition" }));
 
     await user.click(screen.getByText("More nutrients"));
 

@@ -22,6 +22,7 @@ export function TooltipIconButton({
   icon: Icon,
   className,
   disabled,
+  loading,
 }: {
   label: string;
   // Defaults to `label` — pass explicitly when the tooltip should say more
@@ -32,6 +33,10 @@ export function TooltipIconButton({
   icon: LucideIcon;
   className?: string;
   disabled?: boolean;
+  /** Forwards to the shared Button loading treatment — pass only when this
+   * specific icon button initiated the pending action, not merely because
+   * some other row/action shares the same pending flag. */
+  loading?: boolean;
 }) {
   return (
     <TooltipProvider>
@@ -43,6 +48,7 @@ export function TooltipIconButton({
             size="icon-sm"
             onClick={onClick}
             disabled={disabled}
+            loading={loading}
             aria-label={label}
             className={className}
           >

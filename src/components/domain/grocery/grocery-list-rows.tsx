@@ -4,15 +4,8 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Eye, ShoppingCart, Trash2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useToast } from "@/components/ui/toast";
 import { TooltipIconButton } from "@/components/domain/dish/reorder-buttons";
 import { deleteGroceryList } from "@/lib/grocery/list-actions";
 
@@ -33,18 +26,20 @@ export type GroceryListRowItem = {
 export function GroceryListCard({ list }: { list: GroceryListRowItem }) {
   const router = useRouter();
   const [isPending, startTransition] = React.useTransition();
-  const [error, setError] = React.useState<string | null>(null);
   const [deleteOpen, setDeleteOpen] = React.useState(false);
+  const { showToast } = useToast();
 
   function confirmDelete() {
-    setError(null);
     startTransition(async () => {
       const result = await deleteGroceryList({ listId: list.id });
       setDeleteOpen(false);
       if (result.status === "success") {
         router.refresh();
       } else {
-        setError(result.message ?? "Could not delete this list.");
+        showToast({
+          variant: "error",
+          title: result.message ?? "Could not delete this list.",
+        });
       }
     });
   }
@@ -64,11 +59,6 @@ export function GroceryListCard({ list }: { list: GroceryListRowItem }) {
           {list.createdAt.toLocaleDateString()} · {list._count.items} item
           {list._count.items === 1 ? "" : "s"}
         </p>
-        {error && (
-          <p role="alert" className="text-destructive-text mt-1 text-xs">
-            {error}
-          </p>
-        )}
       </div>
       <div className="relative z-10 flex shrink-0 items-center gap-1">
         <TooltipIconButton
@@ -86,26 +76,16 @@ export function GroceryListCard({ list }: { list: GroceryListRowItem }) {
         />
       </div>
 
-      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete &ldquo;{list.title}&rdquo;?</DialogTitle>
-            <DialogDescription>This can&apos;t be undone.</DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              disabled={isPending}
-              onClick={confirmDelete}
-            >
-              Delete
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChangeAction={setDeleteOpen}
+        title={<>Delete &ldquo;{list.title}&rdquo;?</>}
+        description="This can't be undone."
+        confirmLabel="Delete"
+        destructive
+        loading={isPending}
+        onConfirmAction={confirmDelete}
+      />
     </li>
   );
 }

@@ -4,13 +4,18 @@ import { render as rtlRender, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DishEditor } from "@/components/domain/dish/dish-editor";
 import { OnboardingProvider } from "@/components/onboarding/onboarding-provider";
+import { ToastProvider, Toaster } from "@/components/ui/toast";
 import {
   createDish,
   editDish,
   updateVersionNote,
   setDefaultScale,
 } from "@/lib/dishes/actions";
-import { listAttachablePartVersions } from "@/lib/sections/actions";
+import {
+  listAttachablePartVersions,
+  listAttachableParts,
+  validatePartAttachment,
+} from "@/lib/sections/actions";
 import type { DishFormValues } from "@/components/domain/dish/dish-form-values";
 
 // DishEditor renders CoachMark, which requires an ancestor
@@ -25,6 +30,26 @@ function render(ui: ReactElement) {
   });
 }
 
+// "Replace with Part" surfaces server-side eligibility failures via the app
+// toast, which throws without an ancestor `ToastProvider` — the plain
+// `render` above doesn't include one since no other DishEditor flow needs
+// it.
+function renderWithToast(ui: ReactElement) {
+  return rtlRender(
+    <>
+      {ui}
+      <Toaster />
+    </>,
+    {
+      wrapper: ({ children }) => (
+        <OnboardingProvider initialState={{}}>
+          <ToastProvider>{children}</ToastProvider>
+        </OnboardingProvider>
+      ),
+    },
+  );
+}
+
 const push = vi.fn();
 const refresh = vi.fn();
 
@@ -37,6 +62,13 @@ vi.mock("@/lib/dishes/actions", () => ({
   editDish: vi.fn(async () => ({ status: "idle" })),
   updateVersionNote: vi.fn(async () => ({ status: "success" })),
   setDefaultScale: vi.fn(async () => ({ status: "success" })),
+  // "Replace with Part"'s Version picker (`RichDishVersionPicker`) fetches
+  // this itself once a Part is selected.
+  listDishVersionOptions: vi.fn(async () => ({
+    status: "success",
+    versions: [{ id: "target-part-v1", majorVersion: 1, minorVersion: 0 }],
+    currentVersionId: "target-part-v1",
+  })),
 }));
 
 vi.mock("@/lib/sections/actions", () => ({
@@ -59,11 +91,52 @@ vi.mock("@/lib/sections/actions", () => ({
   resolvePartVersionForDetach: vi.fn(),
 }));
 
+// The Reorder modal's own drag-and-drop rendering/mechanics are covered in
+// `top-level-reorder-dialog.test.tsx`; here it's stubbed to a plain summary
+// of the entries it received plus a "Test cancel"/"Test apply reversed"
+// pair, so DishEditor's own wiring (which entries it hands over, and how it
+// repositions the draft on Apply) can be tested without needing dnd-kit
+// pointer/keyboard drag gestures to work in jsdom.
+vi.mock("@/components/domain/dish/top-level-reorder-dialog", () => ({
+  TopLevelReorderDialog: (props: {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    entries: Array<{ kind: string; fieldId: string; label?: string }>;
+    onApply: (orderedFieldIds: string[]) => void;
+  }) => {
+    if (!props.open) return null;
+    const labels = props.entries
+      .map((entry) => (entry.kind === "section" ? entry.label : "linked Part"))
+      .join(", ");
+    return (
+      <div>
+        <p data-testid="reorder-entries">{labels}</p>
+        <button onClick={() => props.onOpenChange(false)}>Test cancel</button>
+        <button
+          onClick={() => {
+            props.onApply(
+              props.entries
+                .map((entry) => entry.fieldId)
+                .slice()
+                .reverse(),
+            );
+            props.onOpenChange(false);
+          }}
+        >
+          Test apply reversed
+        </button>
+      </div>
+    );
+  },
+}));
+
 const mockedCreateDish = vi.mocked(createDish);
 const mockedEditDish = vi.mocked(editDish);
 const mockedUpdateVersionNote = vi.mocked(updateVersionNote);
 const mockedSetDefaultScale = vi.mocked(setDefaultScale);
 const mockedListAttachablePartVersions = vi.mocked(listAttachablePartVersions);
+const mockedListAttachableParts = vi.mocked(listAttachableParts);
+const mockedValidatePartAttachment = vi.mocked(validatePartAttachment);
 
 const existingDish: {
   id: string;
@@ -818,6 +891,8 @@ describe("DishEditor consolidated note and default scale", () => {
     const user = userEvent.setup();
     render(<DishEditor kind="RECIPE" dish={existingDish} />);
 
+    // Details starts collapsed for an already-saved Recipe/Part.
+    await user.click(screen.getByRole("button", { name: "Expand Details" }));
     await user.type(screen.getByLabelText("Version note"), "Tried less salt.");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
@@ -859,6 +934,7 @@ describe("DishEditor consolidated note and default scale", () => {
       },
     };
     render(<DishEditor kind="RECIPE" dish={dishWithYield} />);
+    await user.click(screen.getByRole("button", { name: "Expand Details" }));
 
     const scaleInput = screen.getByLabelText("Default scale multiplier");
     // A Dish with no stored custom defaultScale (null) displays "1", not blank.
@@ -882,9 +958,11 @@ describe("DishEditor consolidated note and default scale", () => {
     ).toBeInTheDocument();
   });
 
-  it("displays a stored custom scale as-is", () => {
+  it("displays a stored custom scale as-is", async () => {
+    const user = userEvent.setup();
     const dishWithCustomScale = { ...existingDish, defaultScale: 2 };
     render(<DishEditor kind="RECIPE" dish={dishWithCustomScale} />);
+    await user.click(screen.getByRole("button", { name: "Expand Details" }));
 
     expect(screen.getByLabelText("Default scale multiplier")).toHaveValue("2");
   });
@@ -893,6 +971,7 @@ describe("DishEditor consolidated note and default scale", () => {
     const user = userEvent.setup();
     const dishWithCustomScale = { ...existingDish, defaultScale: 2 };
     render(<DishEditor kind="RECIPE" dish={dishWithCustomScale} />);
+    await user.click(screen.getByRole("button", { name: "Expand Details" }));
 
     const scaleInput = screen.getByLabelText("Default scale multiplier");
     await user.clear(scaleInput);
@@ -904,6 +983,7 @@ describe("DishEditor consolidated note and default scale", () => {
   it("persists the default scale via setDefaultScale only when it changed", async () => {
     const user = userEvent.setup();
     render(<DishEditor kind="RECIPE" dish={existingDish} />);
+    await user.click(screen.getByRole("button", { name: "Expand Details" }));
 
     const scaleInput = screen.getByLabelText("Default scale multiplier");
     await user.clear(scaleInput);
@@ -920,6 +1000,7 @@ describe("DishEditor consolidated note and default scale", () => {
   it("does not call setDefaultScale when an unset scale is explicitly typed as 1", async () => {
     const user = userEvent.setup();
     render(<DishEditor kind="RECIPE" dish={existingDish} />);
+    await user.click(screen.getByRole("button", { name: "Expand Details" }));
 
     const scaleInput = screen.getByLabelText("Default scale multiplier");
     await user.clear(scaleInput);
@@ -934,6 +1015,7 @@ describe("DishEditor consolidated note and default scale", () => {
     const user = userEvent.setup();
     const dishWithCustomScale = { ...existingDish, defaultScale: 2 };
     render(<DishEditor kind="RECIPE" dish={dishWithCustomScale} />);
+    await user.click(screen.getByRole("button", { name: "Expand Details" }));
 
     await user.click(screen.getByRole("button", { name: "Reset" }));
     await user.click(screen.getByRole("button", { name: "Save" }));
@@ -1000,6 +1082,190 @@ describe("DishEditor Convert Section to Part", () => {
     // stays in the editor — no automatic save, no navigation.
     expect(mockedEditDish).not.toHaveBeenCalled();
     expect(push).not.toHaveBeenCalled();
+  });
+});
+
+describe("DishEditor Replace Section with Part", () => {
+  const dishWithTwoSections: typeof existingDish = {
+    ...existingDish,
+    values: {
+      ...existingDish.values,
+      sections: [
+        {
+          lineageId: "section-apple",
+          name: "Apple section",
+          guidanceNote: null,
+          position: 0,
+          ingredients: [
+            {
+              lineageId: "ingredient-flour",
+              name: "Flour",
+              quantity: null,
+              quantityEnd: null,
+              isApproximate: false,
+              unit: null,
+              displayText: null,
+              preparationNote: null,
+              isOptional: false,
+              substitute: null,
+            },
+          ],
+          instructions: [],
+          partLinks: [],
+        },
+        {
+          lineageId: "section-zebra",
+          name: "Zebra section",
+          guidanceNote: null,
+          position: 1,
+          ingredients: [
+            {
+              lineageId: "ingredient-sugar",
+              name: "Sugar",
+              quantity: null,
+              quantityEnd: null,
+              isApproximate: false,
+              unit: null,
+              displayText: null,
+              preparationNote: null,
+              isOptional: false,
+              substitute: null,
+            },
+          ],
+          instructions: [],
+          partLinks: [],
+        },
+      ],
+      partLinks: [],
+    },
+  };
+
+  const COCONUT_MILK = {
+    id: "target-part",
+    stage: "ACTIVE" as const,
+    cuisine: null,
+    currentTitle: "Coconut Milk",
+    currentVersionId: "target-part-v1",
+    versionLabel: "V1.0",
+    imageAssetId: null,
+    tags: [],
+    rating: { kind: "none" as const },
+  };
+
+  beforeEach(() => {
+    mockedListAttachableParts.mockReset();
+    mockedValidatePartAttachment.mockReset();
+  });
+
+  it("replaces the Section with the selected Part at the Section's exact position, leaving the rest of the order untouched", async () => {
+    const user = userEvent.setup();
+    mockedListAttachableParts.mockResolvedValue({
+      status: "success",
+      parts: [COCONUT_MILK],
+    });
+    mockedValidatePartAttachment.mockResolvedValue({
+      status: "success",
+      target: {
+        targetDishId: "target-part",
+        targetTitle: "Coconut Milk",
+        targetVersionId: "target-part-v1",
+        majorVersion: 1,
+        minorVersion: 0,
+      },
+    });
+
+    const { container } = renderWithToast(
+      <DishEditor kind="RECIPE" dish={dishWithTwoSections} />,
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Replace Apple section with an existing Part",
+      }),
+    );
+
+    // Prefilled from the Section's own title.
+    expect(screen.getByPlaceholderText("Search your Parts")).toHaveValue(
+      "Apple section",
+    );
+
+    await user.click(await screen.findByText("Coconut Milk"));
+    await screen.findByText("V1.0");
+    await user.click(screen.getByRole("button", { name: "Replace" }));
+
+    expect(mockedValidatePartAttachment).toHaveBeenCalledTimes(1);
+
+    // The Section (and its "Flour" ingredient) is gone, replaced by a
+    // linked-Part row — the other Section is untouched and unmoved.
+    expect(screen.queryByText("Flour")).not.toBeInTheDocument();
+    expect(await screen.findByText("Nuoc Cham")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Section 1 — Zebra section" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Sugar")).toBeInTheDocument();
+
+    // The new PartLink took over the replaced Section's own position
+    // (first) rather than being appended after the remaining Section.
+    const html = container.innerHTML;
+    expect(html.indexOf("Nuoc Cham")).toBeLessThan(
+      html.indexOf("Zebra section"),
+    );
+  });
+
+  it("Cancel leaves the Section unchanged", async () => {
+    const user = userEvent.setup();
+    mockedListAttachableParts.mockResolvedValue({
+      status: "success",
+      parts: [COCONUT_MILK],
+    });
+
+    renderWithToast(<DishEditor kind="RECIPE" dish={dishWithTwoSections} />);
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Replace Apple section with an existing Part",
+      }),
+    );
+    await screen.findByText("Coconut Milk");
+    await user.click(screen.getByRole("button", { name: "Close" }));
+
+    expect(
+      screen.getByRole("heading", { name: "Section 1 — Apple section" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Flour")).toBeInTheDocument();
+    expect(mockedValidatePartAttachment).not.toHaveBeenCalled();
+  });
+
+  it("still relies on server-side eligibility validation, not just the fetched candidate list", async () => {
+    const user = userEvent.setup();
+    mockedListAttachableParts.mockResolvedValue({
+      status: "success",
+      parts: [COCONUT_MILK],
+    });
+    mockedValidatePartAttachment.mockResolvedValue({
+      status: "error",
+      message: "That Part can't be attached here.",
+    });
+
+    renderWithToast(<DishEditor kind="RECIPE" dish={dishWithTwoSections} />);
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Replace Apple section with an existing Part",
+      }),
+    );
+    await user.click(await screen.findByText("Coconut Milk"));
+    await screen.findByText("V1.0");
+    await user.click(screen.getByRole("button", { name: "Replace" }));
+
+    expect(
+      await screen.findByText("That Part can't be attached here."),
+    ).toBeInTheDocument();
+    // The Section is untouched — the failed validation never reaches the draft.
+    expect(
+      screen.getByRole("heading", { name: "Section 1 — Apple section" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Flour")).toBeInTheDocument();
   });
 });
 
@@ -1137,5 +1403,179 @@ describe("DishEditor session evidence", () => {
     expect(screen.queryByText("Great texture")).not.toBeInTheDocument();
 
     expect(titleInput).toHaveValue("Edited while reviewing evidence");
+  });
+});
+
+// Design pass: long Recipes/Parts get a compact Reorder modal alongside the
+// existing inline drag-and-drop, plus collapsible Details/Nutrition.
+describe("DishEditor Details/Nutrition collapse", () => {
+  it("starts Details and Nutrition collapsed when editing an existing Recipe/Part", () => {
+    render(<DishEditor kind="RECIPE" dish={existingDish} />);
+
+    expect(screen.queryByLabelText("Description")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Expand Details" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText("Calories")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Expand Nutrition" }),
+    ).toBeInTheDocument();
+  });
+
+  it("starts Details and Nutrition expanded when creating a new Recipe/Part", () => {
+    render(<DishEditor kind="RECIPE" />);
+
+    expect(screen.getByLabelText("Description")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Collapse Details" }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Calories")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Collapse Nutrition" }),
+    ).toBeInTheDocument();
+  });
+
+  // Slice 11's paste-and-review importer seeds `initialValues` with no
+  // `dish` prop — same create-mode branch, so it must preserve today's
+  // expanded-by-default behavior too.
+  it("starts Details and Nutrition expanded for an import/create-review flow", () => {
+    render(<DishEditor kind="RECIPE" initialValues={existingDish.values} />);
+
+    expect(screen.getByLabelText("Description")).toBeInTheDocument();
+    expect(screen.getByLabelText("Calories")).toBeInTheDocument();
+  });
+
+  it("collapsing Details preserves the entered values", async () => {
+    const user = userEvent.setup();
+    render(<DishEditor kind="RECIPE" dish={existingDish} />);
+
+    await user.click(screen.getByRole("button", { name: "Expand Details" }));
+    await user.type(screen.getByLabelText("Description"), "A weeknight bowl.");
+
+    await user.click(screen.getByRole("button", { name: "Collapse Details" }));
+    expect(screen.queryByLabelText("Description")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Expand Details" }));
+    expect(screen.getByLabelText("Description")).toHaveValue(
+      "A weeknight bowl.",
+    );
+  });
+
+  it("collapsing Nutrition preserves the entered values", async () => {
+    const user = userEvent.setup();
+    render(<DishEditor kind="RECIPE" dish={existingDish} />);
+
+    await user.click(screen.getByRole("button", { name: "Expand Nutrition" }));
+    await user.type(screen.getByLabelText("Calories"), "250");
+
+    await user.click(
+      screen.getByRole("button", { name: "Collapse Nutrition" }),
+    );
+    expect(screen.queryByLabelText("Calories")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Expand Nutrition" }));
+    expect(screen.getByLabelText("Calories")).toHaveValue("250");
+  });
+
+  it("expands Details and Nutrition independently of one another", async () => {
+    const user = userEvent.setup();
+    render(<DishEditor kind="RECIPE" dish={existingDish} />);
+
+    await user.click(screen.getByRole("button", { name: "Expand Details" }));
+
+    expect(screen.getByLabelText("Description")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Calories")).not.toBeInTheDocument();
+  });
+});
+
+describe("DishEditor Reorder", () => {
+  const dishWithInterleavedOrder: typeof existingDish = {
+    ...existingDish,
+    values: {
+      ...existingDish.values,
+      sections: [
+        {
+          lineageId: "section-zebra",
+          name: "Zebra section",
+          guidanceNote: null,
+          position: 2,
+          ingredients: [],
+          instructions: [],
+          partLinks: [],
+        },
+        {
+          lineageId: "section-apple",
+          name: "Apple section",
+          guidanceNote: null,
+          position: 0,
+          ingredients: [],
+          instructions: [],
+          partLinks: [],
+        },
+      ],
+      partLinks: [
+        {
+          lineageId: "link-1",
+          targetDishId: "part-1",
+          targetDishVersionId: "part-1-v1",
+          position: 1,
+          multiplier: 1,
+        },
+      ],
+    },
+  };
+
+  it("hides the Reorder action when there's nothing to reorder", () => {
+    // A brand-new create form starts with exactly one blank Section.
+    render(<DishEditor kind="RECIPE" />);
+    expect(
+      screen.queryByRole("button", { name: "Reorder" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("opens the Reorder modal with the editor's current top-level order", async () => {
+    const user = userEvent.setup();
+    render(<DishEditor kind="RECIPE" dish={dishWithInterleavedOrder} />);
+
+    await user.click(screen.getByRole("button", { name: "Reorder" }));
+
+    expect(screen.getByTestId("reorder-entries")).toHaveTextContent(
+      "Apple section, linked Part, Zebra section",
+    );
+  });
+
+  it("Cancel leaves the editor's order unchanged", async () => {
+    const user = userEvent.setup();
+    render(<DishEditor kind="RECIPE" dish={dishWithInterleavedOrder} />);
+
+    await user.click(screen.getByRole("button", { name: "Reorder" }));
+    await user.click(screen.getByRole("button", { name: "Test cancel" }));
+
+    expect(
+      screen.getByRole("heading", { name: "Section 1 — Apple section" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Section 2 — Zebra section" }),
+    ).toBeInTheDocument();
+  });
+
+  it("Apply updates the editor's draft order immediately, without saving a Version", async () => {
+    const user = userEvent.setup();
+    render(<DishEditor kind="RECIPE" dish={dishWithInterleavedOrder} />);
+
+    await user.click(screen.getByRole("button", { name: "Reorder" }));
+    await user.click(
+      screen.getByRole("button", { name: "Test apply reversed" }),
+    );
+
+    // Reversed order — Zebra, linked Part, Apple — so Zebra now numbers
+    // first among Sections and Apple second.
+    expect(
+      screen.getByRole("heading", { name: "Section 1 — Zebra section" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Section 2 — Apple section" }),
+    ).toBeInTheDocument();
+    expect(mockedEditDish).not.toHaveBeenCalled();
   });
 });

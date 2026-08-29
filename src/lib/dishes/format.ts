@@ -5,6 +5,21 @@ export function decimalToNumber(value: Prisma.Decimal | null): number | null {
 }
 
 /**
+ * "Makes {quantity} {unit}" — when no unit was authored, falls back to
+ * "serving"/"servings" agreeing with `quantity` (not a bare literal
+ * "servings", which reads as "Makes 1 servings" for a singular yield). An
+ * authored unit is shown as-is; pluralizing arbitrary user-typed unit text
+ * is out of scope here.
+ */
+export function formatYieldAmount(
+  quantity: number,
+  unit?: string | null,
+): string {
+  if (unit) return `${quantity} ${unit}`;
+  return `${quantity} serving${quantity === 1 ? "" : "s"}`;
+}
+
+/**
  * Shared by every server-rendered Ingredient/Substitute line (the Recipe/
  * Part detail view, the Version-history view, the comparison view) — the
  * read-side counterpart to `ingredient-summary.ts`'s

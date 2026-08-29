@@ -11,10 +11,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useToast } from "@/components/ui/toast";
 import { sendDirectShareCollection } from "@/lib/sharing/actions";
 import type { DishKindValue } from "@/lib/dishes/schema";
 
-type Step = "compose" | "review" | "sent";
+type Step = "compose" | "review";
 
 /**
  * Contextual "Send" from a Recipe/Part detail page: sends this specific
@@ -42,21 +43,19 @@ export function DirectShareSingleItemDialog({
   const [step, setStep] = React.useState<Step>("compose");
   const [email, setEmail] = React.useState("");
   const [note, setNote] = React.useState("");
-  const [sendError, setSendError] = React.useState<string | null>(null);
   const [isPending, startTransition] = React.useTransition();
+  const { showToast } = useToast();
 
   function close() {
     onOpenChange(false);
     setStep("compose");
     setEmail("");
     setNote("");
-    setSendError(null);
   }
 
   const canReview = /\S+@\S+\.\S+/.test(email.trim());
 
   function handleSend() {
-    setSendError(null);
     startTransition(async () => {
       const result = await sendDirectShareCollection({
         recipientEmail: email,
@@ -64,10 +63,14 @@ export function DirectShareSingleItemDialog({
         note: note.trim().length > 0 ? note.trim() : null,
       });
       if (result.status === "error") {
-        setSendError(result.message);
+        showToast({ variant: "error", title: result.message });
         return;
       }
-      setStep("sent");
+      showToast({
+        variant: "success",
+        title: `Sent "${dishTitle}" to ${email.trim()}.`,
+      });
+      close();
     });
   }
 
@@ -80,17 +83,11 @@ export function DirectShareSingleItemDialog({
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
-            {step === "sent"
-              ? "Sent."
-              : "Choose who to send it to, then review before sending."}
+            Choose who to send it to, then review before sending.
           </DialogDescription>
         </DialogHeader>
 
-        {step === "sent" ? (
-          <p className="text-sm">
-            Sent &ldquo;{dishTitle}&rdquo; to {email.trim()}.
-          </p>
-        ) : step === "review" ? (
+        {step === "review" ? (
           <div className="space-y-4">
             <div className="border-border rounded-lg border p-3 text-sm">
               <p>
@@ -100,11 +97,6 @@ export function DirectShareSingleItemDialog({
             </div>
             {note.trim().length > 0 && (
               <p className="text-sm italic">&ldquo;{note.trim()}&rdquo;</p>
-            )}
-            {sendError && (
-              <p role="alert" className="text-destructive-text text-sm">
-                {sendError}
-              </p>
             )}
           </div>
         ) : (
@@ -138,19 +130,11 @@ export function DirectShareSingleItemDialog({
                 rows={3}
               />
             </div>
-
-            {sendError && (
-              <p role="alert" className="text-destructive-text text-sm">
-                {sendError}
-              </p>
-            )}
           </div>
         )}
 
         <DialogFooter>
-          {step === "sent" ? (
-            <Button onClick={close}>Done</Button>
-          ) : step === "review" ? (
+          {step === "review" ? (
             <>
               <Button
                 variant="outline"

@@ -155,8 +155,12 @@ export function FdcSearchPicker({
                 onChange={(event) => setQuery(event.target.value)}
                 aria-label="Search USDA FoodData Central"
               />
-              <Button type="submit" disabled={isSearching || !query.trim()}>
-                {isSearching ? "Searching…" : "Search"}
+              <Button
+                type="submit"
+                disabled={!query.trim()}
+                loading={isSearching}
+              >
+                Search
               </Button>
             </form>
           )}

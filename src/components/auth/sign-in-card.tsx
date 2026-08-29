@@ -108,11 +108,12 @@ export function SignInCard({
           <Button
             size="lg"
             className="w-full"
-            disabled={!googleConfigured || pending}
+            disabled={!googleConfigured}
+            loading={pending}
             onClick={handleGoogleSignIn}
           >
             <GoogleIcon />
-            {pending ? "Redirecting…" : "Continue with Google"}
+            Continue with Google
           </Button>
 
           <p className="text-muted-foreground text-center text-xs">

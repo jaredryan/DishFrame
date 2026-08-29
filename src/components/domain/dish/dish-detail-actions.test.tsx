@@ -1,7 +1,18 @@
+import * as React from "react";
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DishDetailActions } from "@/components/domain/dish/dish-detail-actions";
+import { ToastProvider, Toaster } from "@/components/ui/toast";
+
+function renderActions(props: React.ComponentProps<typeof DishDetailActions>) {
+  return render(
+    <ToastProvider>
+      <DishDetailActions {...props} />
+      <Toaster />
+    </ToastProvider>,
+  );
+}
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
@@ -32,15 +43,13 @@ vi.mock("@/lib/dishes/actions", () => ({
 
 async function openExportDialog() {
   const user = userEvent.setup();
-  render(
-    <DishDetailActions
-      dishId="dish1"
-      dishTitle="Test Recipe"
-      kind="RECIPE"
-      stage="ACTIVE"
-      currentVersionId="v2"
-    />,
-  );
+  renderActions({
+    dishId: "dish1",
+    dishTitle: "Test Recipe",
+    kind: "RECIPE",
+    stage: "ACTIVE",
+    currentVersionId: "v2",
+  });
   await user.click(screen.getByRole("button", { name: "More actions" }));
   await user.click(await screen.findByRole("menuitem", { name: "Export" }));
   await waitFor(() =>
@@ -52,15 +61,13 @@ async function openExportDialog() {
 describe("DishDetailActions — contextual sharing stays single-item", () => {
   it("Send opens a dialog locked to this item, with no searchable item selector", async () => {
     const user = userEvent.setup();
-    render(
-      <DishDetailActions
-        dishId="dish1"
-        dishTitle="Grandma's Chili"
-        kind="RECIPE"
-        stage="ACTIVE"
-        currentVersionId="v2"
-      />,
-    );
+    renderActions({
+      dishId: "dish1",
+      dishTitle: "Grandma's Chili",
+      kind: "RECIPE",
+      stage: "ACTIVE",
+      currentVersionId: "v2",
+    });
     await user.click(screen.getByRole("button", { name: "More actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Send" }));
 
@@ -78,15 +85,13 @@ describe("DishDetailActions — contextual sharing stays single-item", () => {
 
   it("Publish stays single-item, offering the fixed/latest version wording", async () => {
     const user = userEvent.setup();
-    render(
-      <DishDetailActions
-        dishId="dish1"
-        dishTitle="Grandma's Chili"
-        kind="RECIPE"
-        stage="ACTIVE"
-        currentVersionId="v2"
-      />,
-    );
+    renderActions({
+      dishId: "dish1",
+      dishTitle: "Grandma's Chili",
+      kind: "RECIPE",
+      stage: "ACTIVE",
+      currentVersionId: "v2",
+    });
     await user.click(screen.getByRole("button", { name: "More actions" }));
     await user.click(await screen.findByRole("menuitem", { name: "Publish" }));
 
@@ -105,18 +110,42 @@ describe("DishDetailActions — contextual sharing stays single-item", () => {
   });
 });
 
+describe("DishDetailActions — operation failures use a toast, not an inline message", () => {
+  it("on Archive failure, keeps the dialog open and shows an error toast", async () => {
+    const { archiveDish } = await import("@/lib/dishes/actions");
+    vi.mocked(archiveDish).mockResolvedValueOnce({
+      status: "error",
+      message: "Could not archive — try again.",
+    } as never);
+    const user = userEvent.setup();
+    renderActions({
+      dishId: "dish1",
+      dishTitle: "Grandma's Chili",
+      kind: "RECIPE",
+      stage: "ACTIVE",
+      currentVersionId: "v2",
+    });
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Archive" }));
+    await user.click(screen.getByRole("button", { name: "Archive" }));
+
+    expect(
+      await screen.findByText("Could not archive — try again."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Archive this recipe?")).toBeInTheDocument();
+  });
+});
+
 describe("DishDetailActions overflow menu — Cooking history", () => {
   it("links a Recipe's 'Cooking history' action to its own dedicated history page", async () => {
     const user = userEvent.setup();
-    render(
-      <DishDetailActions
-        dishId="dish1"
-        dishTitle="Test Recipe"
-        kind="RECIPE"
-        stage="ACTIVE"
-        currentVersionId="v2"
-      />,
-    );
+    renderActions({
+      dishId: "dish1",
+      dishTitle: "Test Recipe",
+      kind: "RECIPE",
+      stage: "ACTIVE",
+      currentVersionId: "v2",
+    });
     await user.click(screen.getByRole("button", { name: "More actions" }));
 
     const link = await screen.findByRole("menuitem", {
@@ -127,15 +156,13 @@ describe("DishDetailActions overflow menu — Cooking history", () => {
 
   it("also offers a Part's own 'Cooking history' action, distinct from its composition-based history", async () => {
     const user = userEvent.setup();
-    render(
-      <DishDetailActions
-        dishId="part1"
-        dishTitle="Test Part"
-        kind="PART"
-        stage="ACTIVE"
-        currentVersionId="v2"
-      />,
-    );
+    renderActions({
+      dishId: "part1",
+      dishTitle: "Test Part",
+      kind: "PART",
+      stage: "ACTIVE",
+      currentVersionId: "v2",
+    });
     await user.click(screen.getByRole("button", { name: "More actions" }));
 
     const link = await screen.findByRole("menuitem", {

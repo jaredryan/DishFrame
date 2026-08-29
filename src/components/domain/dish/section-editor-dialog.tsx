@@ -32,6 +32,7 @@ import { PartLinkFields } from "@/components/domain/dish/part-link-fields";
 import { PartAttachPicker } from "@/components/domain/dish/part-attach-picker";
 import { CreatePartLink } from "@/components/domain/dish/create-part-link";
 import { ConvertSectionToPartDialog } from "@/components/domain/dish/convert-section-to-part-dialog";
+import { ReplaceSectionWithPartDialog } from "@/components/domain/dish/replace-section-with-part-dialog";
 import { isBlankSubstitute } from "@/lib/dishes/schema";
 import type {
   DishKindValue,
@@ -60,6 +61,10 @@ export type SectionEditorResult =
   | { action: "cancel" }
   | {
       action: "convert-to-part";
+      link: { targetDishId: string; targetDishVersionId: string };
+    }
+  | {
+      action: "replace-with-part";
       link: { targetDishId: string; targetDishVersionId: string };
     };
 
@@ -495,17 +500,30 @@ export function SectionEditorDialog({
             `-mb-4` (from the default classes) is still needed to cancel the
             parent's bottom padding. */}
         <DialogFooter className="mx-0 shrink-0 sm:justify-between">
-          <FormProvider {...form}>
-            <ConvertSectionToPartDialog
-              prefix=""
+          <div className="flex flex-wrap gap-2">
+            <FormProvider {...form}>
+              <ConvertSectionToPartDialog
+                prefix=""
+                sectionLabel={sectionTitle}
+                defaultName={watchedName || ""}
+                triggerVariant="button"
+                onConverted={(link) =>
+                  onClose({ action: "convert-to-part", link })
+                }
+              />
+            </FormProvider>
+            <ReplaceSectionWithPartDialog
+              containerDishId={containerDishId}
+              containerKind={containerKind}
+              excludeDishId={containerDishId ?? undefined}
               sectionLabel={sectionTitle}
-              defaultName={watchedName || ""}
+              sectionName={watchedName || ""}
               triggerVariant="button"
-              onConverted={(link) =>
-                onClose({ action: "convert-to-part", link })
+              onReplaced={(link) =>
+                onClose({ action: "replace-with-part", link })
               }
             />
-          </FormProvider>
+          </div>
           <div className="flex gap-2">
             <Button type="button" variant="outline" onClick={handleCancel}>
               Cancel
