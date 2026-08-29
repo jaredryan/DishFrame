@@ -8,6 +8,13 @@ export const proposeImportFromPasteSchema = z.object({
   rawText: z.string().trim().min(1, "Paste some recipe text first.").max(20000),
 });
 
+// Website import: a raw URL string, validated for shape here — the
+// SSRF-sensitive protocol/destination checks happen server-side in
+// `url-fetch.ts`, not in this schema.
+export const proposeImportFromUrlSchema = z.object({
+  url: z.string().trim().min(1, "Enter a recipe URL.").max(2000),
+});
+
 export const confirmImportSchema = z.object({
   kind: z.enum(dishKindValues),
 });

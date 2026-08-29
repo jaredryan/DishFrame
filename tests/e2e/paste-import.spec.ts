@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { cleanup, login } from "./helpers";
+import { cleanup, clickAndWaitForServerAction, login } from "./helpers";
 
 /**
  * BUILD_PLAN.md Slice 11, PRODUCT_SPEC.md §56.1/§59: paste raw recipe text,
@@ -62,7 +62,16 @@ test.describe("Paste-and-review import", () => {
       .getByRole("button", { name: "Finish section" })
       .click();
 
+    // Importer follow-up pass: Save no longer persists directly — it opens
+    // a Recipe/Part confirmation dialog first (PRODUCT_SPEC's "not
+    // necessarily a Recipe" decision), and confirming that dialog is what
+    // actually triggers the `confirmImport` Server Action.
     await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Save" })).toBeVisible();
+    await clickAndWaitForServerAction(
+      page,
+      page.getByRole("button", { name: "Save as recipe" }),
+    );
 
     await expect(page).toHaveURL(/\/recipes\/[^/]+$/);
     await expect(page.getByRole("heading", { name: title })).toBeVisible();

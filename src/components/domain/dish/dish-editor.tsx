@@ -177,6 +177,8 @@ export function DishEditor({
   cuisineOptions = [],
   initialValues,
   onCreate,
+  confirmCreateTargetAction,
+  onCreatedAction,
   heading,
   importHref,
 }: {
@@ -195,6 +197,22 @@ export function DishEditor({
   // ordinary action so every existing "New Recipe/Part" caller is
   // unaffected.
   onCreate?: typeof createDish;
+  // Importer follow-up pass: when set, called in create mode just before
+  // persisting, in place of the fixed `kind` prop — lets the import Save
+  // flow ask "Recipe or Part?" per PRODUCT_SPEC's "not necessarily a
+  // Recipe" decision instead of assuming `kind`. Resolving to `null` means
+  // the user canceled: the save is aborted, the form stays exactly as-is,
+  // no error is shown. Never set outside the import flow, so ordinary
+  // create/edit Save behavior is unaffected.
+  confirmCreateTargetAction?: (
+    values: DishFormValues,
+  ) => Promise<DishKindValue | null>;
+  // Importer follow-up pass: when set, called instead of the default
+  // `router.push` after a successful create-mode save — used by the batch
+  // importer's per-item Review step, which must return to the batch list
+  // rather than navigate to a newly created Dish's detail page (nothing is
+  // actually persisted there; see `onCreate`'s override in that case).
+  onCreatedAction?: (dishId: string, kind: DishKindValue) => void;
   // Slice 11: overrides the computed "New Recipe/Part" heading — the
   // importer uses this for "Review imported recipe/part" so the reviewer
   // understands they're confirming a parsed proposal, not starting blank.
@@ -542,6 +560,17 @@ export function DishEditor({
     extras: EditorExtras,
     versionChoice?: VersionChoiceValue,
   ) {
+    // Resolved before `isSubmitting` flips, so a confirmation dialog (the
+    // import flow's Recipe/Part choice) doesn't show the Save button as
+    // loading while it's waiting on the user. A `null` resolution is a
+    // cancel: bail out with the form untouched, no error shown.
+    let saveKind = kind;
+    if (!dish && confirmCreateTargetAction) {
+      const chosen = await confirmCreateTargetAction(cleaned);
+      if (!chosen) return;
+      saveKind = chosen;
+    }
+
     setIsSubmitting(true);
     try {
       const result = dish
@@ -552,7 +581,7 @@ export function DishEditor({
             cleaned,
             versionChoice,
           )
-        : await (onCreate ?? createDish)(kind, cleaned);
+        : await (onCreate ?? createDish)(saveKind, cleaned);
 
       if (result.status === "success" && result.dishId) {
         await applyEditorExtras(extras);
@@ -564,7 +593,12 @@ export function DishEditor({
         // here raced the two navigations (the exact "stuck on Saving" bug
         // this fixes — the push to the new Dish's route never completed).
         if (dish) router.refresh();
-        router.push(`${basePath}/${result.dishId}`);
+        if (onCreatedAction && !dish) {
+          onCreatedAction(result.dishId, saveKind);
+        } else {
+          const savedBasePath = saveKind === "PART" ? "/parts" : "/recipes";
+          router.push(`${savedBasePath}/${result.dishId}`);
+        }
       } else {
         setServerError(result.message ?? "Could not save. Please try again.");
         setIsSubmitting(false);

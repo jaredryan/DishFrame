@@ -166,7 +166,7 @@ function looksLikeBareHeading(line: string): boolean {
 // unsupported or ambiguous fields").
 const UNSTRUCTURED_LINE_LENGTH_THRESHOLD = 140;
 
-function parseIngredientLine(raw: string): IngredientInput {
+export function parseIngredientLine(raw: string): IngredientInput {
   let line = raw.replace(BULLET_PREFIX, "").trim();
 
   let isApproximate = false;
@@ -235,7 +235,11 @@ function parseInstructionLine(raw: string): string {
   return raw.replace(BULLET_PREFIX, "").trim();
 }
 
-type WorkingSection = {
+// The shared normalized intermediate representation every import source
+// (paste, file upload, website) converges on before `buildParseResult`
+// assembles it into the same `PasteParseResult`/`DishFormValues` shape —
+// source-specific adapters only ever need to produce `WorkingSection[]`.
+export type WorkingSection = {
   name: string | null;
   ingredients: IngredientInput[];
   instructions: { text: string }[];
@@ -259,7 +263,13 @@ export type PasteParseResult = {
  * `parseSectionFromPastedText` (on a whole pasted block, with no title
  * line) — one parser, not two that could drift apart.
  */
-function buildSections(lines: string[]): {
+// Exported so other source adapters (website-import.ts's HTML/JSON-LD path
+// builds `WorkingSection[]` directly rather than calling this; the Recipe
+// Gallery archive adapter, recipe-gallery-import.ts, calls this directly on
+// each contained recipe's plain-text body) can reuse the exact same
+// line-classification core `parsePastedRecipe` itself is built on, instead
+// of a second recipe-body parser.
+export function buildSections(lines: string[]): {
   sections: WorkingSection[];
   needsReview: string[];
 } {
@@ -376,20 +386,43 @@ function buildSections(lines: string[]): {
   return { sections, needsReview };
 }
 
-export function parsePastedRecipe(raw: string): PasteParseResult {
-  const rawLines = raw.split(/\r\n|\r|\n/).map((line) => line.trim());
+// Overridable top-level fields a source adapter (paste/file text, website
+// JSON-LD) can supply on top of `buildParseResult`'s own IDEA/null
+// defaults — kept to the fields an adapter can actually derive; everything
+// else (difficulty, image, More-nutrients, sourced-nutrition attribution)
+// stays reviewer-entered only, never guessed at import time.
+export type ImportFieldOverrides = Partial<
+  Pick<
+    DishFormValues,
+    | "title"
+    | "description"
+    | "cuisine"
+    | "yieldQuantity"
+    | "yieldUnit"
+    | "prepTimeMinutes"
+    | "cookTimeMinutes"
+    | "calories"
+    | "protein"
+    | "carbs"
+    | "fat"
+    | "nutritionBasis"
+    | "nutritionBasisQuantity"
+    | "nutritionBasisUnit"
+  >
+>;
 
-  let idx = 0;
-  while (idx < rawLines.length && rawLines[idx] === "") idx++;
-  const titleLine = idx < rawLines.length ? rawLines[idx] : "";
-  // A "# Recipe Name" Markdown H1 title line names the recipe by its
-  // heading text, not the literal "# Recipe Name" string.
-  const titleHeadingMatch = titleLine.match(MARKDOWN_HEADING);
-  const title = titleHeadingMatch ? titleHeadingMatch[1].trim() : titleLine;
-  if (idx < rawLines.length) idx++;
-
-  const { sections, needsReview } = buildSections(rawLines.slice(idx));
-
+/**
+ * The convergence point every import source adapter funnels through:
+ * `WorkingSection[]` (+ any top-level field overrides) → the same
+ * `PasteParseResult` the review editor consumes, including the shared
+ * "Needs review" trailing-Section treatment for lines/steps a source
+ * couldn't confidently place.
+ */
+export function buildParseResult(
+  fields: ImportFieldOverrides,
+  sections: WorkingSection[],
+  needsReview: string[],
+): PasteParseResult {
   const outputSections: SectionInput[] = sections
     .filter(
       (section) =>
@@ -418,16 +451,27 @@ export function parsePastedRecipe(raw: string): PasteParseResult {
 
   return {
     values: {
-      title,
+      title: fields.title ?? "",
       stage: "IDEA",
-      cuisine: null,
-      description: null,
-      yieldQuantity: null,
-      yieldUnit: null,
-      prepTimeMinutes: null,
-      cookTimeMinutes: null,
+      cuisine: fields.cuisine ?? null,
+      description: fields.description ?? null,
+      yieldQuantity: fields.yieldQuantity ?? null,
+      yieldUnit: fields.yieldUnit ?? null,
+      prepTimeMinutes: fields.prepTimeMinutes ?? null,
+      cookTimeMinutes: fields.cookTimeMinutes ?? null,
       difficulty: null,
       imageAssetId: null,
+      calories: fields.calories ?? null,
+      protein: fields.protein ?? null,
+      carbs: fields.carbs ?? null,
+      fat: fields.fat ?? null,
+      nutritionBasis: fields.nutritionBasis ?? null,
+      nutritionBasisQuantity: fields.nutritionBasisQuantity ?? null,
+      nutritionBasisUnit: fields.nutritionBasisUnit ?? null,
+      moreNutrients: null,
+      nutritionSourceProvider: null,
+      nutritionSourceId: null,
+      nutritionSourceName: null,
       sections: outputSections.length
         ? outputSections
         : [
@@ -444,6 +488,23 @@ export function parsePastedRecipe(raw: string): PasteParseResult {
     },
     needsReviewCount: needsReview.length,
   };
+}
+
+export function parsePastedRecipe(raw: string): PasteParseResult {
+  const rawLines = raw.split(/\r\n|\r|\n/).map((line) => line.trim());
+
+  let idx = 0;
+  while (idx < rawLines.length && rawLines[idx] === "") idx++;
+  const titleLine = idx < rawLines.length ? rawLines[idx] : "";
+  // A "# Recipe Name" Markdown H1 title line names the recipe by its
+  // heading text, not the literal "# Recipe Name" string.
+  const titleHeadingMatch = titleLine.match(MARKDOWN_HEADING);
+  const title = titleHeadingMatch ? titleHeadingMatch[1].trim() : titleLine;
+  if (idx < rawLines.length) idx++;
+
+  const { sections, needsReview } = buildSections(rawLines.slice(idx));
+
+  return buildParseResult({ title }, sections, needsReview);
 }
 
 /**
