@@ -13,6 +13,7 @@ if (typeof window !== "undefined") {
   window.HTMLElement.prototype.setPointerCapture ??= () => {};
   window.HTMLElement.prototype.releasePointerCapture ??= () => {};
   window.HTMLElement.prototype.scrollIntoView ??= () => {};
+  window.HTMLElement.prototype.scrollTo ??= () => {};
 
   if (typeof window.ResizeObserver === "undefined") {
     window.ResizeObserver = class ResizeObserver {

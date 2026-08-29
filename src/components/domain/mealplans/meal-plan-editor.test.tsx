@@ -77,6 +77,10 @@ function renderEditor(candidates: MealPlanEntryCandidate[]) {
 }
 
 beforeEach(() => {
+  // MealPlanEditor persists its create-mode draft to localStorage and
+  // rehydrates from it on mount — clear it so a prior test's un-saved
+  // draft (e.g. a staged meal/schedule) never bleeds into the next render.
+  window.localStorage.clear();
   createMealPlan.mockReset();
   saveMealPlanEntryChanges.mockReset();
   listDishVersionOptions.mockReset();
@@ -211,11 +215,11 @@ describe("MealPlanEditor Add-meal picker — Version selection and yield sync", 
     // Switch away from the default (current) Version to a specific one.
     await waitFor(() =>
       expect(
-        screen.getByRole("combobox", { name: "Jump to a major version line" }),
+        screen.getByRole("combobox", { name: "Select a Version" }),
       ).not.toBeDisabled(),
     );
     await user.click(
-      screen.getByRole("combobox", { name: "Jump to a major version line" }),
+      screen.getByRole("combobox", { name: "Select a Version" }),
     );
     await user.click(await screen.findByRole("option", { name: "V2.0" }));
 
@@ -253,11 +257,11 @@ describe("MealPlanEditor Add-meal picker — Version selection and yield sync", 
 
     await waitFor(() =>
       expect(
-        screen.getByRole("combobox", { name: "Jump to a major version line" }),
+        screen.getByRole("combobox", { name: "Select a Version" }),
       ).not.toBeDisabled(),
     );
     await user.click(
-      screen.getByRole("combobox", { name: "Jump to a major version line" }),
+      screen.getByRole("combobox", { name: "Select a Version" }),
     );
     await user.click(await screen.findByRole("option", { name: "V2.0" }));
 

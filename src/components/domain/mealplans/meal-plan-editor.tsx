@@ -354,7 +354,9 @@ export function MealPlanEditor(
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
-  const initialScheduleRef = React.useRef(JSON.stringify(initialSchedule));
+  const [initialScheduleSnapshot] = React.useState(() =>
+    JSON.stringify(initialSchedule),
+  );
   const [schedule, setSchedule] =
     React.useState<ScheduleItem[]>(initialSchedule);
   const [scheduleModalKey, setScheduleModalKey] = React.useState<string | null>(
@@ -442,8 +444,7 @@ export function MealPlanEditor(
     }
   }
 
-  const scheduleChanged =
-    JSON.stringify(schedule) !== initialScheduleRef.current;
+  const scheduleChanged = JSON.stringify(schedule) !== initialScheduleSnapshot;
 
   const isDirty =
     title !== initial.title ||

@@ -1,15 +1,29 @@
+import type { ReactElement } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render as rtlRender, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
   DishCookSessionsView,
   DishActiveSessionCard,
   DishCompletedSessionCard,
 } from "@/components/domain/cooking/dish-cook-sessions-view";
+import { ToastProvider, Toaster } from "@/components/ui/toast";
 import type {
   DishActiveSessionData,
   DishCompletedSessionData,
 } from "@/lib/cooking/queries";
+
+// These cards now call useToast() via their shared session-card-shell.
+function render(ui: ReactElement) {
+  return rtlRender(ui, {
+    wrapper: ({ children }) => (
+      <ToastProvider>
+        {children}
+        <Toaster />
+      </ToastProvider>
+    ),
+  });
+}
 
 const push = vi.fn();
 vi.mock("next/navigation", () => ({

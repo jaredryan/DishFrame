@@ -1,7 +1,20 @@
+import type { ReactElement } from "react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render as rtlRender, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DeleteAccountDialog } from "@/components/app/delete-account-dialog";
+import { ToastProvider, Toaster } from "@/components/ui/toast";
+
+function render(ui: ReactElement) {
+  return rtlRender(ui, {
+    wrapper: ({ children }) => (
+      <ToastProvider>
+        {children}
+        <Toaster />
+      </ToastProvider>
+    ),
+  });
+}
 
 const mockPush = vi.fn();
 vi.mock("next/navigation", () => ({

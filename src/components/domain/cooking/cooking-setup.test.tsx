@@ -82,7 +82,7 @@ describe("CookingSetup — Version selection drives Whole-session scale content"
     renderSetup();
 
     await user.click(
-      screen.getByRole("combobox", { name: "Jump to a major version line" }),
+      screen.getByRole("combobox", { name: "Select a Version" }),
     );
     await user.click(await screen.findByRole("option", { name: "V2.0" }));
 

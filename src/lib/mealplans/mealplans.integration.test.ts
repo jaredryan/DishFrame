@@ -238,10 +238,24 @@ describe("mealplans service", () => {
           ],
         }),
       );
-      await mealPlanService.addMealPlanEntry(userId!, mealPlanId, {
-        dishId: dishB,
-        cookDate: new Date("2026-08-04T00:00:00.000Z"),
-      });
+      const entryBId = await mealPlanService.addMealPlanEntry(
+        userId!,
+        mealPlanId,
+        {
+          dishId: dishB,
+          cookDate: new Date("2026-08-04T00:00:00.000Z"),
+        },
+      );
+      // §81.7: a new entry lands unchecked in a preexisting list by
+      // default — explicitly include it to exercise "adds new
+      // contributions" here.
+      await mealPlanService.setMealPlanGroceryListEntryIncluded(
+        userId!,
+        mealPlanId,
+        listId,
+        entryBId,
+        true,
+      );
 
       const list = await prisma.groceryList.findUniqueOrThrow({
         where: { id: listId },
@@ -939,10 +953,24 @@ describe("mealplans service", () => {
           ],
         }),
       );
-      await mealPlanService.addMealPlanEntry(userId!, mealPlanId, {
-        dishId: otherDish,
-        cookDate: new Date("2026-08-04T00:00:00.000Z"),
-      });
+      const otherEntryId = await mealPlanService.addMealPlanEntry(
+        userId!,
+        mealPlanId,
+        {
+          dishId: otherDish,
+          cookDate: new Date("2026-08-04T00:00:00.000Z"),
+        },
+      );
+      // §81.7: the new entry lands unchecked in this preexisting list by
+      // default — include it to exercise the unrelated resync this test is
+      // actually about.
+      await mealPlanService.setMealPlanGroceryListEntryIncluded(
+        userId!,
+        mealPlanId,
+        listId,
+        otherEntryId,
+        true,
+      );
 
       const afterResync = await prisma.groceryListItem.findMany({
         where: { groceryListId: listId },
@@ -1629,35 +1657,49 @@ describe("mealplans service", () => {
       );
       expect(noopSummary).toEqual({ added: 0, removed: 0, changed: 0 });
 
-      await mealPlanService.addMealPlanEntry(userId!, mealPlanId, {
-        dishId: await dishService.createDish(
-          userId!,
-          "RECIPE",
-          content({
-            title: "Dish B",
-            sections: [
-              {
-                name: null,
-                guidanceNote: null,
-                position: 0,
-                ingredients: [ingredient({ name: "Onion", quantity: 1 })],
-                instructions: [],
-                partLinks: [],
-              },
-            ],
-          }),
-        ),
-        cookDate: new Date("2026-08-04T00:00:00.000Z"),
-      });
-      // The Meal Plan mutation above already resynced this list automatically
-      // (§81.2) — a further manual sync with nothing new to find reports no
-      // changes, distinct from the first sync that actually added Onion.
+      const entryBId = await mealPlanService.addMealPlanEntry(
+        userId!,
+        mealPlanId,
+        {
+          dishId: await dishService.createDish(
+            userId!,
+            "RECIPE",
+            content({
+              title: "Dish B",
+              sections: [
+                {
+                  name: null,
+                  guidanceNote: null,
+                  position: 0,
+                  ingredients: [ingredient({ name: "Onion", quantity: 1 })],
+                  instructions: [],
+                  partLinks: [],
+                },
+              ],
+            }),
+          ),
+          cookDate: new Date("2026-08-04T00:00:00.000Z"),
+        },
+      );
+      // §81.7: the new entry lands unchecked in this preexisting list, so
+      // the Meal Plan mutation's own automatic resync (§81.2) leaves this
+      // list untouched — a further manual sync with nothing new to find
+      // reports no changes.
       const afterAddSummary = await mealPlanService.resyncMealPlanGroceryLists(
         userId!,
         mealPlanId,
         listId,
       );
       expect(afterAddSummary).toEqual({ added: 0, removed: 0, changed: 0 });
+
+      // Explicitly including the new entry is what actually adds Onion.
+      await mealPlanService.setMealPlanGroceryListEntryIncluded(
+        userId!,
+        mealPlanId,
+        listId,
+        entryBId,
+        true,
+      );
 
       const items = await prisma.groceryListItem.findMany({
         where: { groceryListId: listId },

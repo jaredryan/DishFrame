@@ -1,8 +1,22 @@
+import type { ReactElement } from "react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render as rtlRender, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ShareLinkList } from "@/components/domain/sharing/share-link-list";
 import type { ShareLinkSummary } from "@/components/domain/sharing/share-link-list";
+import { ToastProvider, Toaster } from "@/components/ui/toast";
+
+// ShareLinkRow now calls useToast().
+function render(ui: ReactElement) {
+  return rtlRender(ui, {
+    wrapper: ({ children }) => (
+      <ToastProvider>
+        {children}
+        <Toaster />
+      </ToastProvider>
+    ),
+  });
+}
 
 const mockRefresh = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -114,7 +128,11 @@ describe("ShareLinkList", () => {
     expect(screen.queryByText("Revoke")).not.toBeInTheDocument();
   });
 
-  it("Disable link requires confirmation before revoking — matches every other destructive action's confirm step", async () => {
+  // Split into separate renders (rather than cancel-then-reopen in one
+  // test) so neither case depends on Radix's async dialog-close teardown
+  // (scroll-lock/pointer-events restoration) settling before the next
+  // interaction — that teardown timing is not itself under test here.
+  it("Disable link shows a confirm step and Cancel does not revoke", async () => {
     const user = userEvent.setup();
     render(<ShareLinkList shareLinks={[ACTIVE]} />);
 
@@ -122,13 +140,19 @@ describe("ShareLinkList", () => {
     expect(mockRevoke).not.toHaveBeenCalled();
     expect(screen.getByText("Disable this link?")).toBeInTheDocument();
 
-    mockRevoke.mockResolvedValue({ status: "success" });
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(mockRevoke).not.toHaveBeenCalled();
+  });
+
+  it("confirming Disable link revokes the share link", async () => {
+    const user = userEvent.setup();
+    mockRevoke.mockResolvedValue({ status: "success" });
+    render(<ShareLinkList shareLinks={[ACTIVE]} />);
 
     await user.click(screen.getByRole("button", { name: "Disable link" }));
+    const dialog = screen.getByRole("dialog");
     await user.click(
-      screen.getAllByRole("button", { name: "Disable link" })[1],
+      within(dialog).getByRole("button", { name: "Disable link" }),
     );
     expect(mockRevoke).toHaveBeenCalledWith({ shareLinkId: "link-1" });
     expect(mockRefresh).toHaveBeenCalled();

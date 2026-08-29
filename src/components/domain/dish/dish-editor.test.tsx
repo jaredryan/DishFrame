@@ -111,8 +111,11 @@ vi.mock("@/components/domain/dish/top-level-reorder-dialog", () => ({
     return (
       <div>
         <p data-testid="reorder-entries">{labels}</p>
-        <button onClick={() => props.onOpenChange(false)}>Test cancel</button>
+        <button type="button" onClick={() => props.onOpenChange(false)}>
+          Test cancel
+        </button>
         <button
+          type="button"
           onClick={() => {
             props.onApply(
               props.entries
@@ -1185,10 +1188,12 @@ describe("DishEditor Replace Section with Part", () => {
     );
 
     // Prefilled from the Section's own title.
-    expect(screen.getByPlaceholderText("Search your Parts")).toHaveValue(
-      "Apple section",
-    );
+    const searchInput = screen.getByPlaceholderText("Search your Parts");
+    expect(searchInput).toHaveValue("Apple section");
 
+    // The prefilled text is a convenience default, not a hard filter — the
+    // user clears it to browse for an unrelated Part.
+    await user.clear(searchInput);
     await user.click(await screen.findByText("Coconut Milk"));
     await screen.findByText("V1.0");
     await user.click(screen.getByRole("button", { name: "Replace" }));
@@ -1226,6 +1231,7 @@ describe("DishEditor Replace Section with Part", () => {
         name: "Replace Apple section with an existing Part",
       }),
     );
+    await user.clear(screen.getByPlaceholderText("Search your Parts"));
     await screen.findByText("Coconut Milk");
     await user.click(screen.getByRole("button", { name: "Close" }));
 
@@ -1254,6 +1260,7 @@ describe("DishEditor Replace Section with Part", () => {
         name: "Replace Apple section with an existing Part",
       }),
     );
+    await user.clear(screen.getByPlaceholderText("Search your Parts"));
     await user.click(await screen.findByText("Coconut Milk"));
     await screen.findByText("V1.0");
     await user.click(screen.getByRole("button", { name: "Replace" }));
@@ -1261,6 +1268,9 @@ describe("DishEditor Replace Section with Part", () => {
     expect(
       await screen.findByText("That Part can't be attached here."),
     ).toBeInTheDocument();
+    // The dialog stays open on error — close it to check the background,
+    // which Radix marks aria-hidden while the dialog is mounted.
+    await user.click(screen.getByRole("button", { name: "Close" }));
     // The Section is untouched — the failed validation never reaches the draft.
     expect(
       screen.getByRole("heading", { name: "Section 1 — Apple section" }),
@@ -1489,6 +1499,10 @@ describe("DishEditor Details/Nutrition collapse", () => {
 });
 
 describe("DishEditor Reorder", () => {
+  beforeEach(() => {
+    mockedEditDish.mockClear();
+  });
+
   const dishWithInterleavedOrder: typeof existingDish = {
     ...existingDish,
     values: {

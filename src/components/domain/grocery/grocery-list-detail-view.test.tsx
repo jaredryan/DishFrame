@@ -440,7 +440,7 @@ describe("GroceryListDetailView — Edit meal Version/yield recalculation", () =
     expect(servingsInput).toHaveValue("6");
 
     await user.click(
-      screen.getByRole("combobox", { name: "Jump to a major version line" }),
+      screen.getByRole("combobox", { name: "Select a Version" }),
     );
     await user.click(await screen.findByRole("option", { name: "V2.0" }));
 
@@ -518,7 +518,7 @@ describe("GroceryListDetailView — Add meal Version selection", () => {
     // "never reset on Version switch" behavior), so the scale factor is
     // recomputed against V1.0's own yield (8 / 4 = 2x) instead.
     await user.click(
-      screen.getByRole("combobox", { name: "Jump to a major version line" }),
+      screen.getByRole("combobox", { name: "Select a Version" }),
     );
     await user.click(await screen.findByRole("option", { name: "V1.0" }));
     expect(servingsInput).toHaveValue("8");

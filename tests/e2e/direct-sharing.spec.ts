@@ -34,8 +34,11 @@ async function createAndSendRecipe(
   await sendDialog.getByLabel("Recipient's email").fill(recipientEmail);
   await sendDialog.getByRole("button", { name: "Review" }).click();
   await sendDialog.getByRole("button", { name: "Send" }).click();
-  await expect(sendDialog.getByText("Sent.")).toBeVisible();
-  await sendDialog.getByRole("button", { name: "Done" }).click();
+  // On success the dialog closes itself and shows a transient success toast
+  // rather than an inline "Sent." confirmation step.
+  await expect(
+    page.getByText(`Sent "${title}" to ${recipientEmail}.`),
+  ).toBeVisible();
   await expect(sendDialog).not.toBeVisible();
 
   return { title };

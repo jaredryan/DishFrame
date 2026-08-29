@@ -75,10 +75,18 @@ export async function buildMealPlanFixtures(
     targetYieldUnit: "servings",
     note: "Family dinner, doubling for leftovers.",
   });
-  await mealPlanService.addPlannedMeal(ownerId, plan1Id, e1, {
-    label: "Dinner",
-    date: daysFromNow(0),
-    servings: 6,
+  await mealPlanService.saveMealPlanEntryChanges(ownerId, plan1Id, {
+    removedEntryIds: [],
+    replacedEntries: [],
+    updatedEntries: [],
+    versionAdoptedEntryIds: [],
+    newEntries: [],
+    scheduleAssignments: [
+      {
+        mealKey: e1,
+        meals: [{ label: "Dinner", date: daysFromNow(0), servings: 6 }],
+      },
+    ],
   });
 
   // E2 — over-allocated (target 3 vs. authored 2), linked + Cooked: the
@@ -115,10 +123,20 @@ export async function buildMealPlanFixtures(
     dishId: ramen.dishId,
     cookDate: daysFromNow(2),
   });
-  await mealPlanService.addPlannedMeal(ownerId, plan1Id, e4, {
-    label: "Weekend project",
-    date: daysFromNow(2),
-    servings: 2,
+  await mealPlanService.saveMealPlanEntryChanges(ownerId, plan1Id, {
+    removedEntryIds: [],
+    replacedEntries: [],
+    updatedEntries: [],
+    versionAdoptedEntryIds: [],
+    newEntries: [],
+    scheduleAssignments: [
+      {
+        mealKey: e4,
+        meals: [
+          { label: "Weekend project", date: daysFromNow(2), servings: 2 },
+        ],
+      },
+    ],
   });
 
   // E5 — standalone Part entry (Recipe and Part entries share one model,

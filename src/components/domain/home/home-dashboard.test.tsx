@@ -1,5 +1,6 @@
+import type { ReactElement } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render as rtlRender, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
   HomeDashboard,
@@ -8,6 +9,19 @@ import {
 import type { SessionRowData } from "@/components/domain/cooking/cook-sessions-view";
 import type { MealPlanRowData } from "@/components/domain/mealplans/meal-plan-list-view";
 import type { GroceryListRowItem } from "@/components/domain/grocery/grocery-list-rows";
+import { ToastProvider, Toaster } from "@/components/ui/toast";
+
+// Session/meal-plan/grocery-list row cards now call useToast().
+function render(ui: ReactElement) {
+  return rtlRender(ui, {
+    wrapper: ({ children }) => (
+      <ToastProvider>
+        {children}
+        <Toaster />
+      </ToastProvider>
+    ),
+  });
+}
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),

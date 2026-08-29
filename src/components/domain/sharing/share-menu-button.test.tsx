@@ -1,7 +1,21 @@
+import type { ReactElement } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render as rtlRender, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ShareMenuButton } from "@/components/domain/sharing/share-menu-button";
+import { ToastProvider, Toaster } from "@/components/ui/toast";
+
+// The Send flow opens DirectShareCollectionDialog, which calls useToast().
+function render(ui: ReactElement) {
+  return rtlRender(ui, {
+    wrapper: ({ children }) => (
+      <ToastProvider>
+        {children}
+        <Toaster />
+      </ToastProvider>
+    ),
+  });
+}
 
 const refresh = vi.fn();
 vi.mock("next/navigation", () => ({

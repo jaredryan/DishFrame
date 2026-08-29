@@ -12,6 +12,7 @@ import {
   type CookingModeUnit,
 } from "@/components/domain/cooking/cooking-mode-shell";
 import { OnboardingProvider } from "@/components/onboarding/onboarding-provider";
+import { ToastProvider, Toaster } from "@/components/ui/toast";
 import {
   toggleChecklistItem,
   updateSessionScale,
@@ -20,11 +21,17 @@ import {
 } from "@/lib/cooking/actions";
 
 // CookingModeShell renders CoachMark, which requires an ancestor
-// OnboardingProvider now that useOnboarding() throws without one.
+// OnboardingProvider now that useOnboarding() throws without one, and now
+// calls useToast() too (via CookingPlanManager).
 function render(ui: ReactElement) {
   return rtlRender(ui, {
     wrapper: ({ children }) => (
-      <OnboardingProvider initialState={{}}>{children}</OnboardingProvider>
+      <OnboardingProvider initialState={{}}>
+        <ToastProvider>
+          {children}
+          <Toaster />
+        </ToastProvider>
+      </OnboardingProvider>
     ),
   });
 }
