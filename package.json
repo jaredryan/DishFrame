@@ -48,6 +48,8 @@
     "db:clear": "NODE_OPTIONS=--conditions=react-server DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dishframe SHADOW_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dishframe_shadow DATABASE_DRIVER=pg tsx scripts/db-clear.ts",
     "db:reset": "NODE_OPTIONS=--conditions=react-server DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dishframe SHADOW_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dishframe_shadow DATABASE_DRIVER=pg tsx scripts/db-reset.ts",
     "db:backfill:part-usage": "NODE_OPTIONS=--conditions=react-server tsx scripts/backfill-cooking-session-part-usage.ts",
+    "cleanup:imports": "NODE_OPTIONS=--conditions=react-server tsx scripts/cleanup-imports.ts",
+    "cleanup:imports:production": "node scripts/cleanup-imports-production.mjs",
     "db:deploy:upgrade": "prisma migrate deploy && pnpm db:backfill:part-usage",
     "db:deploy:production": "node scripts/db-deploy-production.mjs",
     "release:production": "node scripts/release-production.mjs"

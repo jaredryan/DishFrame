@@ -166,6 +166,23 @@ function looksLikeBareHeading(line: string): boolean {
 // unsupported or ambiguous fields").
 const UNSTRUCTURED_LINE_LENGTH_THRESHOLD = 140;
 
+// Mirrors `ingredientInputSchema.name`'s own 200-char cap
+// (`src/lib/dishes/schema.ts`) — live-QA root cause: once a Section's mode
+// is already "INGREDIENTS" (set by an "Ingredients:" heading or an earlier
+// short ingredient line), every later line fell straight into
+// `parseIngredientLine` regardless of length, so a long hand-typed prose
+// line (common in Recipe Gallery's non-templated exports — see
+// docs/importer-enhancement-implementation.md's "~78%
+// INGREDIENTS:/INSTRUCTIONS:, rest messy personal notes") could produce an
+// ingredient `name` over the schema's limit. That failure only ever
+// surfaced at persistence time, as a raw "Too big: expected string to have
+// <=200 characters" Zod message with no indication of which line caused it.
+// Checking the *parsed* name's length here — not just the raw line's, so a
+// long line with a genuine leading quantity/unit still gets a chance to fit
+// — routes it to "Needs review" instead, matching the treatment an
+// unstructured paragraph already gets under `UNKNOWN` mode above.
+const INGREDIENT_NAME_MAX_LENGTH = 200;
+
 export function parseIngredientLine(raw: string): IngredientInput {
   let line = raw.replace(BULLET_PREFIX, "").trim();
 
@@ -245,6 +262,13 @@ export type WorkingSection = {
   instructions: { text: string }[];
   mode: "UNKNOWN" | "INGREDIENTS" | "INSTRUCTIONS";
 };
+
+// Importer live-QA polish pass (task §8): the exact marker name `dish-
+// editor.tsx` matches on to give this Section a dedicated orange-accent
+// warning treatment instead of ordinary Section chrome — exported so both
+// sides read the same literal rather than risking silent drift between two
+// copies of the string.
+export const NEEDS_REVIEW_SECTION_NAME = "Needs review";
 
 export type PasteParseResult = {
   values: DishFormValues;
@@ -371,16 +395,25 @@ export function buildSections(lines: string[]): {
       continue;
     }
 
-    if (
-      current().mode === "UNKNOWN" &&
-      line.length > UNSTRUCTURED_LINE_LENGTH_THRESHOLD
-    ) {
+    // Only a line with neither a recognized quantity nor unit — where
+    // `name` ends up being the raw line itself — is the unstructured-prose
+    // case this threshold targets; a long line with real leading quantity/
+    // unit data is judged solely by the 200-char name cap below.
+    const candidateIngredient = parseIngredientLine(line);
+    const looksUnstructured =
+      candidateIngredient.quantity === null &&
+      candidateIngredient.unit === null;
+    if (looksUnstructured && line.length > UNSTRUCTURED_LINE_LENGTH_THRESHOLD) {
+      needsReview.push(line);
+      continue;
+    }
+    if (candidateIngredient.name.length > INGREDIENT_NAME_MAX_LENGTH) {
       needsReview.push(line);
       continue;
     }
 
     current().mode = "INGREDIENTS";
-    current().ingredients.push(parseIngredientLine(line));
+    current().ingredients.push(candidateIngredient);
   }
 
   return { sections, needsReview };
@@ -418,6 +451,24 @@ export type ImportFieldOverrides = Partial<
  * "Needs review" trailing-Section treatment for lines/steps a source
  * couldn't confidently place.
  */
+// Task §9: the same investigation that found the ingredient-name overflow
+// above also asked whether *other* fields a source adapter derives from
+// free-form text (a website's Schema.org `name`, a Recipe Gallery `Title`,
+// a joined `recipeCuisine` list, an over-length Markdown heading) could
+// exceed their own persistence caps (`dishContentSchema`,
+// `src/lib/dishes/schema.ts`) the same way. Clamping the handful of
+// text-derived override fields here — the one place every adapter's output
+// converges — is cheaper and safer than teaching each adapter its own
+// limit, and matches those exact caps so a clamp here can never itself
+// produce a value the server would still reject.
+const TITLE_MAX_LENGTH = 200;
+const CUISINE_MAX_LENGTH = 60;
+const SECTION_NAME_MAX_LENGTH = 80;
+
+function clamp(value: string, maxLength: number): string {
+  return value.length > maxLength ? value.slice(0, maxLength) : value;
+}
+
 export function buildParseResult(
   fields: ImportFieldOverrides,
   sections: WorkingSection[],
@@ -429,7 +480,7 @@ export function buildParseResult(
         section.ingredients.length > 0 || section.instructions.length > 0,
     )
     .map((section, position) => ({
-      name: section.name,
+      name: section.name ? clamp(section.name, SECTION_NAME_MAX_LENGTH) : null,
       guidanceNote: null,
       ingredients: section.ingredients,
       instructions: section.instructions,
@@ -439,7 +490,7 @@ export function buildParseResult(
 
   if (needsReview.length > 0) {
     outputSections.push({
-      name: "Needs review",
+      name: NEEDS_REVIEW_SECTION_NAME,
       guidanceNote:
         "The importer could not confidently structure these lines — check, correct, or move them before saving.",
       ingredients: [],
@@ -451,9 +502,11 @@ export function buildParseResult(
 
   return {
     values: {
-      title: fields.title ?? "",
+      title: clamp(fields.title ?? "", TITLE_MAX_LENGTH),
       stage: "IDEA",
-      cuisine: fields.cuisine ?? null,
+      cuisine: fields.cuisine
+        ? clamp(fields.cuisine, CUISINE_MAX_LENGTH)
+        : null,
       description: fields.description ?? null,
       yieldQuantity: fields.yieldQuantity ?? null,
       yieldUnit: fields.yieldUnit ?? null,

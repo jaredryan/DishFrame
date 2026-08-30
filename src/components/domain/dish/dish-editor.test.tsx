@@ -1593,3 +1593,76 @@ describe("DishEditor Reorder", () => {
     expect(mockedEditDish).not.toHaveBeenCalled();
   });
 });
+
+// Importer live-QA polish pass: `submitLabel`/`onCancelAction` are optional
+// props only the batch-review import flow sets — every test above (neither
+// prop passed) already proves ordinary Save/Cancel is unaffected; these
+// exercise the override behavior itself.
+describe("DishEditor import-review overrides", () => {
+  beforeEach(() => {
+    mockedCreateDish.mockClear();
+  });
+
+  it("submitLabel overrides the primary button's text", () => {
+    render(<DishEditor kind="RECIPE" submitLabel="Finish review" />);
+    expect(
+      screen.getByRole("button", { name: "Finish review" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Save" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("onCancelAction replaces the Cancel link with a callback and never navigates", async () => {
+    const onCancelAction = vi.fn();
+    const user = userEvent.setup();
+    render(<DishEditor kind="RECIPE" onCancelAction={onCancelAction} />);
+
+    const cancelButton = screen.getByRole("button", { name: "Cancel" });
+    expect(cancelButton).not.toHaveAttribute("href");
+    await user.click(cancelButton);
+
+    expect(onCancelAction).toHaveBeenCalledTimes(1);
+    expect(mockedCreateDish).not.toHaveBeenCalled();
+  });
+
+  // Task §8: a Section named exactly "Needs review" (the importer's own
+  // marker — `paste-parser.ts`'s `NEEDS_REVIEW_SECTION_NAME`) gets a
+  // dedicated warning treatment instead of ordinary Section chrome.
+  it("shows the orange Needs-review warning and a working jump link for an imported Needs-review Section", async () => {
+    render(
+      <DishEditor
+        kind="RECIPE"
+        initialValues={{
+          ...existingDish.values,
+          sections: [
+            ...existingDish.values.sections,
+            {
+              name: "Needs review",
+              guidanceNote:
+                "The importer could not confidently structure these.",
+              ingredients: [],
+              instructions: [{ text: "2 unidentified splashes of something" }],
+              partLinks: [],
+              position: 1,
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByText("Some imported lines need review"),
+    ).toBeInTheDocument();
+    // Appears twice by design: once in the warning card's line list, once
+    // in the flagged Section's own (orange-bordered) view-mode content.
+    expect(
+      screen.getAllByText("2 unidentified splashes of something"),
+    ).toHaveLength(2);
+
+    const jumpLink = screen.getByRole("link", { name: "Jump to these lines" });
+    expect(jumpLink.getAttribute("href")).toMatch(/^#/);
+    const anchorId = jumpLink.getAttribute("href")!.slice(1);
+    expect(document.getElementById(anchorId)).toBeInTheDocument();
+  });
+});

@@ -148,6 +148,73 @@ describe("parsePastedRecipe", () => {
     expect(reviewSection.instructions[0].text).toBe(longLine);
   });
 
+  // Importer live-QA polish pass (task §9) — the actual root cause of the
+  // real Recipe Gallery migration's "Too big: expected string to have
+  // <=200 characters" failures: once a Section's mode is already
+  // "INGREDIENTS" (set by a short earlier ingredient line, as in genuinely
+  // messy hand-typed personal-note recipes), a later long prose line used
+  // to fall straight into `parseIngredientLine` regardless of length. The
+  // `UNSTRUCTURED_LINE_LENGTH_THRESHOLD` (140) guard above only ever fired
+  // while the Section's mode was still "UNKNOWN".
+  it("flags a long line as needing review instead of producing an over-length ingredient name, even once the Section is already in ingredient mode", () => {
+    const longLine =
+      "a splash of the good olive oil my aunt brought back from her trip to Sicily last summer, the one with the green label and the hand-written note";
+    expect(longLine.length).toBeGreaterThan(140);
+    const result = parsePastedRecipe(
+      ["Family Recipe", "1 cup rice", longLine].join("\n"),
+    );
+
+    expect(result.needsReviewCount).toBe(1);
+    const reviewSection = result.values.sections.at(-1)!;
+    expect(reviewSection.name).toBe("Needs review");
+    expect(reviewSection.instructions[0].text).toBe(longLine);
+    // The short ingredient before it is unaffected.
+    expect(result.values.sections[0].ingredients).toHaveLength(1);
+    expect(result.values.sections[0].ingredients[0].name).toBe("rice");
+  });
+
+  // Follow-up to task §9: the 140-char heuristic only targets lines the
+  // parser found no leading quantity/unit for (raw line ≈ parsed name) — a
+  // long line already in "INSTRUCTIONS" mode never reaches that check at
+  // all, so it isn't flagged merely for being long.
+  it("keeps a legitimate instruction over 140 characters as an instruction, not Needs review", () => {
+    const longInstruction =
+      "Whisk the eggs and sugar together in a large bowl until pale and doubled in volume, then fold in the sifted flour a third at a time to keep the batter light.";
+    expect(longInstruction.length).toBeGreaterThan(140);
+    const result = parsePastedRecipe(
+      ["Family Recipe", "Instructions:", longInstruction].join("\n"),
+    );
+
+    expect(result.needsReviewCount).toBe(0);
+    expect(result.values.sections[0].instructions).toHaveLength(1);
+    expect(result.values.sections[0].instructions[0].text).toBe(
+      longInstruction,
+    );
+  });
+
+  // Follow-up to task §9: a line with a recognized leading quantity/unit is
+  // real structured ingredient data, not unstructured prose — it's checked
+  // against the schema's own 200-char name cap instead of the 140-char
+  // heuristic, so a merely-verbose (but still parseable) ingredient isn't
+  // flagged just for being longer than 140 characters.
+  it("routes a parsed ingredient name over 200 characters to Needs review, even with a recognized quantity/unit", () => {
+    const longName = "a".repeat(210);
+    const longLine = `2 cups ${longName}`;
+    const result = parsePastedRecipe(["Family Recipe", longLine].join("\n"));
+
+    expect(result.needsReviewCount).toBe(1);
+    expect(result.values.sections[0].ingredients).toHaveLength(0);
+    const reviewSection = result.values.sections.at(-1)!;
+    expect(reviewSection.name).toBe("Needs review");
+    expect(reviewSection.instructions[0].text).toBe(longLine);
+  });
+
+  it("clamps an over-length title to the persistence schema's own limit instead of producing a value that would fail to save", () => {
+    const longTitle = "T".repeat(250);
+    const result = parsePastedRecipe([longTitle, "1 cup rice"].join("\n"));
+    expect(result.values.title).toHaveLength(200);
+  });
+
   it("never invents linked Parts", () => {
     const result = parsePastedRecipe(["Title", "1 cup rice"].join("\n"));
     expect(result.values.partLinks).toEqual([]);

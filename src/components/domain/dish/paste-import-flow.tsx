@@ -2,8 +2,14 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { AlertCircle, CircleCheck, CircleX } from "lucide-react";
+import {
+  AlertCircle,
+  ChevronDown,
+  ChevronUp,
+  CircleCheck,
+  CircleX,
+  Pencil,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -12,6 +18,13 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -19,8 +32,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { DishEditor } from "@/components/domain/dish/dish-editor";
+import { FileDropzone } from "@/components/domain/dish/file-dropzone";
 import {
   proposeImportFromPaste,
   proposeImportFromUrl,
@@ -28,6 +43,7 @@ import {
   confirmImportBatch,
   type BulkImportItemInput,
   type BulkImportItemResult,
+  type BulkImportMetadataRef,
 } from "@/lib/importExport/actions";
 import {
   SUPPORTED_IMPORT_FILE_EXTENSIONS,
@@ -37,6 +53,11 @@ import {
 } from "@/lib/importExport/file-sources";
 import type { PasteParseResult } from "@/lib/importExport/paste-parser";
 import type { ArchiveImportDraft } from "@/lib/importExport/recipe-gallery-import";
+import { validateDishContentForPersistence } from "@/lib/dishes/validation-messages";
+import { createTag } from "@/lib/tags/actions";
+import { initialCreateTagActionState } from "@/lib/tags/schema";
+import { createFlavorProfile } from "@/lib/flavor-profiles/actions";
+import { initialCreateFlavorProfileActionState } from "@/lib/flavor-profiles/schema";
 import type {
   DishActionState,
   DishContentInput,
@@ -47,7 +68,7 @@ const ARCHIVE_SOURCE_LABEL_MAX_LENGTH = 200;
 // Task §3: keeps each `confirmImportBatch` Server Action call's sequential
 // persistence work well under a typical serverless function's execution
 // time ceiling for a large (e.g. 65-recipe) archive, without going as far
-// as one call per item — see handleBulkImport below.
+// as one call per item — see `runChunkedConfirm` below.
 const BULK_IMPORT_CHUNK_SIZE = 15;
 
 type ImportMethod = "paste" | "upload" | "website";
@@ -57,6 +78,29 @@ const METHOD_LABEL: Record<ImportMethod, string> = {
   upload: "Upload file",
   website: "Import from website",
 };
+
+type OkArchiveDraft = Extract<ArchiveImportDraft, { status: "ok" }>;
+
+export type ImportTagOption = { id: string; displayName: string };
+export type ImportFlavorProfileOption = { id: string; displayName: string };
+
+// Source-metadata mapping (task §5): what to do with one discovered Recipe
+// Gallery `Category` value. Cuisine has no separate entity to create (it's
+// free text on the Dish itself, matching `CuisineField`), so a "cuisine"
+// mapping is applied directly; Tag/Flavor profile mappings resolve to a
+// real id — either an existing one the user picked, or one this pass
+// creates via the exact same `createTag`/`createFlavorProfile` actions
+// Settings' Tag/Flavor-profile managers use (same normalized-name dedup,
+// so re-resolving is always safe).
+type CategoryMapping =
+  | { target: "ignore" }
+  | { target: "cuisine" }
+  | { target: "tag"; selection: string } // "create" | `existing:${id}`
+  | { target: "flavorProfile"; selection: string };
+
+function normalizeForMatch(value: string): string {
+  return value.trim().toLowerCase();
+}
 
 function pluralize(count: number, singular: string, plural: string): string {
   return `${count} ${count === 1 ? singular : plural}`;
@@ -74,11 +118,28 @@ function buildFullSuccessSummary(recipes: number, parts: number): string {
   return `Imported ${segments[0]} and ${segments[1]}.`;
 }
 
-// Task §6: "Imported 62 items. 3 could not be imported." for a partial
-// failure — deliberately Recipe/Part-agnostic, matching the task's own
-// example copy.
-function buildPartialSummary(imported: number, failed: number): string {
-  return `Imported ${pluralize(imported, "item", "items")}. ${failed} could not be imported.`;
+// Task §12: results-section summary — deliberately Recipe/Part-agnostic,
+// matching the task's own "62 imported, 3 failed" phrasing; counts are
+// always computed fresh from the live `batchResults` map at render time.
+function buildResultsSummary(imported: number, failed: number): string {
+  if (failed === 0) {
+    return imported === 1
+      ? "1 recipe imported."
+      : `${imported} recipes imported.`;
+  }
+  return `${imported} imported, ${failed} failed.`;
+}
+
+// Task §12: "Recipes added" assumes every success was a Recipe — wrong for
+// a mixed batch, so the section label reflects what actually succeeded.
+function successSectionLabel(recipes: number, parts: number): string {
+  if (recipes > 0 && parts === 0) return "Recipes added";
+  if (parts > 0 && recipes === 0) return "Parts added";
+  return "Items added";
+}
+
+function resultsTargetPath(recipes: number, parts: number): string {
+  return recipes === 0 && parts > 0 ? "/parts" : "/recipes";
 }
 
 /**
@@ -91,23 +152,26 @@ function buildPartialSummary(imported: number, failed: number): string {
  * confirmation is the same validated Save path every other Recipe/Part
  * creation goes through (`confirmImport`, which only additionally tags
  * `sourceKind: "IMPORT"` and a source-specific label).
- * Slice 22 logged-in polish pass: `kind` drives whether the parsed content
- * is reviewed and confirmed as a Recipe or a Part — everything else
- * (parsing, review, confirm) is identical either way.
- * Importer follow-up pass: for a *single*-item import, `kind` no longer
- * decides the persisted target on its own — Save opens an explicit
- * Recipe/Part confirmation dialog (task §3). A *batch* (`.rga`) import
- * instead classifies each row up front (defaulting to Recipe, task §4) and
- * persists the whole selection in one `confirmImportBatch` call (task §5).
+ *
+ * Importer live-QA polish pass: this file additionally covers the
+ * drag-and-drop upload control, the Needs-review/Ready-to-import batch
+ * grouping, source-category-to-metadata mapping, batch-review
+ * navigation/"Finish review" semantics, bulk-import preflight validation
+ * and chunk-based progress, and the post-import Results/Failed/Added
+ * screen with a retry lifecycle — see
+ * docs/importer-live-qa-polish-report.md for the full design rationale.
  */
 export function PasteImportFlow({
   kind = "RECIPE",
   cuisineOptions,
+  tagOptions: initialTagOptions = [],
+  flavorProfileOptions: initialFlavorProfileOptions = [],
 }: {
   kind?: DishKindValue;
   cuisineOptions: string[];
+  tagOptions?: ImportTagOption[];
+  flavorProfileOptions?: ImportFlavorProfileOption[];
 }) {
-  const router = useRouter();
   const { showToast } = useToast();
   const kindLabel = kind === "PART" ? "Part" : "recipe";
   const collectionLabel = kind === "PART" ? "Parts" : "Recipes";
@@ -131,10 +195,9 @@ export function PasteImportFlow({
   const [originalText, setOriginalText] = React.useState<string | null>(null);
   const [showOriginal, setShowOriginal] = React.useState(false);
 
-  // Single-item import Save confirmation (task §3): resolves the promise
-  // `DishEditor`'s `confirmCreateTargetAction` hands back — `null` when the
-  // user cancels. Never used for a batch-item Review save (see
-  // `batchReviewIndex` below), which never shows this dialog.
+  // Single-item import Save confirmation (task §3, prior pass): resolves
+  // the promise `DishEditor`'s `confirmCreateTargetAction` hands back —
+  // `null` when the user cancels. Never used for a batch-item Review save.
   const [saveTargetResolver, setSaveTargetResolver] = React.useState<
     ((choice: DishKindValue | null) => void) | null
   >(null);
@@ -149,23 +212,71 @@ export function PasteImportFlow({
   const [batchSelection, setBatchSelection] = React.useState<Set<number>>(
     new Set(),
   );
-  // Per-row Recipe/Part classification (task §4) — every successfully
-  // parsed row defaults to Recipe; only present for "ok" rows.
+  // Per-row Recipe/Part classification — every successfully parsed row
+  // defaults to Recipe; only present for "ok" rows.
   const [batchDraftKinds, setBatchDraftKinds] = React.useState<
     Map<number, DishKindValue>
   >(new Map());
   // Which row (if any) is open in the shared review step below. Reviewing a
   // batch row reuses that exact same `DishEditor` review UI, but Save there
-  // (task §4's "Batch Review behavior") only updates the pending draft in
-  // memory and returns here — it never persists or navigates away.
+  // only updates the pending draft in memory and returns here — it never
+  // persists or navigates away.
   const [batchReviewIndex, setBatchReviewIndex] = React.useState<number | null>(
     null,
   );
   const [batchImporting, setBatchImporting] = React.useState(false);
+  const [importProgress, setImportProgress] = React.useState(0);
   const [batchResults, setBatchResults] = React.useState<Map<
     number,
     BulkImportItemResult
   > | null>(null);
+  const [collapsedFailedIndices, setCollapsedFailedIndices] = React.useState<
+    Set<number>
+  >(new Set());
+
+  // Task §4: tracked so "Discard import" only confirms when there's real
+  // pending work to lose (a reviewed draft, a reclassification, or a
+  // metadata mapping) — not on every "Start over" click.
+  const [hasReviewedAnyDraft, setHasReviewedAnyDraft] = React.useState(false);
+  const [discardConfirmOpen, setDiscardConfirmOpen] = React.useState(false);
+
+  // Metadata-mapping follow-up: indices whose Cuisine was manually edited
+  // during Review — once set, a category→Cuisine mapping stops overwriting
+  // that draft's Cuisine on later Apply/Import/Retry (the manual edit wins).
+  const [manualCuisineOverrides, setManualCuisineOverrides] = React.useState<
+    Set<number>
+  >(new Set());
+
+  // Source-metadata mapping (task §5).
+  const [categoryMappings, setCategoryMappings] = React.useState<
+    Map<string, CategoryMapping>
+  >(new Map());
+  const [tagOptions, setTagOptions] = React.useState(initialTagOptions);
+  const [flavorProfileOptions, setFlavorProfileOptions] = React.useState(
+    initialFlavorProfileOptions,
+  );
+  const [mappingsApplied, setMappingsApplied] = React.useState(false);
+
+  // Bulk-import preflight (task §10): every "ok" draft validated against
+  // the exact persistence schema, recomputed whenever drafts change (a
+  // Review edit, an applied cuisine mapping). Also feeds the Needs-review
+  // grouping below, per task §10's "integrate ... into the same review
+  // model" — a persistence-blocking problem is surfaced before the user
+  // ever clicks Import, not only after a long bulk operation fails.
+  const preflightIssuesByIndex = React.useMemo(() => {
+    const map = new Map<number, string[]>();
+    batchDrafts?.forEach((draft, index) => {
+      if (draft.status !== "ok") return;
+      const result = validateDishContentForPersistence(draft.result.values);
+      if (!result.ok) map.set(index, result.messages);
+    });
+    return map;
+  }, [batchDrafts]);
+
+  const [preflightBlockOpen, setPreflightBlockOpen] = React.useState(false);
+  const [preflightBlockedIndices, setPreflightBlockedIndices] = React.useState<
+    number[]
+  >([]);
 
   function archiveDraftSourceLabel(draft: ArchiveImportDraft): string {
     const name =
@@ -190,13 +301,7 @@ export function PasteImportFlow({
     }
   }
 
-  async function handleFileSelected(
-    event: React.ChangeEvent<HTMLInputElement>,
-  ) {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
-
+  async function handleFileSelectedFromDropzone(file: File) {
     if (getImportFileKind(file.name) === "archive") {
       await handleArchiveFileSelected(file);
       return;
@@ -246,7 +351,7 @@ export function PasteImportFlow({
           .filter((index) => index !== -1),
       ),
     );
-    // Task §4: every successfully parsed row defaults to Recipe.
+    // Every successfully parsed row defaults to Recipe.
     setBatchDraftKinds(
       new Map(
         result.drafts
@@ -257,6 +362,10 @@ export function PasteImportFlow({
       ),
     );
     setBatchResults(null);
+    setCategoryMappings(new Map());
+    setHasReviewedAnyDraft(false);
+    setMappingsApplied(false);
+    setManualCuisineOverrides(new Set());
   }
 
   function handleToggleDraftSelection(index: number) {
@@ -294,17 +403,18 @@ export function PasteImportFlow({
   function handleReviewDraft(index: number) {
     const draft = batchDrafts?.[index];
     if (!draft || draft.status !== "ok") return;
+    setPreflightBlockOpen(false);
     setBatchReviewIndex(index);
     setParseResult(draft.result);
     setSourceLabel(archiveDraftSourceLabel(draft));
     setOriginalText(null);
   }
 
-  // Batch Review's `onCreate` override (task §4): never calls the server —
-  // it only writes the edited values back into the pending batch draft and
-  // reports a synthetic success so `DishEditor` treats the Save as
-  // complete. Classification (Recipe/Part) is controlled by the row toggle
-  // in the list, not by this step, and is left untouched here.
+  // Batch Review's `onCreate` override: never calls the server — it only
+  // writes the edited values back into the pending batch draft and reports
+  // a synthetic success so `DishEditor` treats the Save ("Finish review",
+  // task §7) as complete. Classification (Recipe/Part) is controlled by the
+  // row toggle in the list, not by this step, and is left untouched here.
   async function handleBatchItemReviewSave(
     _targetKind: DishKindValue,
     values: DishContentInput,
@@ -313,59 +423,335 @@ export function PasteImportFlow({
       return { status: "error", message: "Nothing to update." };
     }
     const index = batchReviewIndex;
+    const draft = batchDrafts?.[index];
+    if (!draft || draft.status !== "ok") {
+      return { status: "error", message: "Nothing to update." };
+    }
+    // Metadata-mapping follow-up: a Cuisine actually changed during Review
+    // is a manual, authoritative edit — locks this index out of future
+    // category→Cuisine mapping application (Apply/Import/Retry).
+    if (draft.result.values.cuisine !== values.cuisine) {
+      setManualCuisineOverrides((prev) => {
+        const next = new Set(prev);
+        next.add(index);
+        return next;
+      });
+    }
     setBatchDrafts((prev) => {
       if (!prev) return prev;
-      const draft = prev[index];
-      if (draft.status !== "ok") return prev;
+      const current = prev[index];
+      if (current.status !== "ok") return prev;
       const next = [...prev];
-      next[index] = { ...draft, result: { ...draft.result, values } };
+      next[index] = { ...current, result: { ...current.result, values } };
       return next;
     });
+    setHasReviewedAnyDraft(true);
     return { status: "success", dishId: "pending" };
   }
 
-  function handleStartOverBatch() {
+  // Task §6: returning from a batch Review step (via "Back to import list"
+  // or Cancel) never applies the current form edits — it only clears the
+  // review-step state, leaving whichever of the pending batch list or the
+  // post-import results screen was active underneath untouched, so it's
+  // shown again automatically.
+  function handleExitBatchReview() {
+    setParseResult(null);
+    setSourceLabel(undefined);
+    setOriginalText(null);
+    setShowOriginal(false);
+    setError(null);
+    setBatchReviewIndex(null);
+  }
+
+  function handleDiscardSingleItem() {
+    setParseResult(null);
+    setSourceLabel(undefined);
+    setOriginalText(null);
+    setShowOriginal(false);
+    setError(null);
+  }
+
+  const hasUnsavedBatchWork =
+    hasReviewedAnyDraft ||
+    [...batchDraftKinds.values()].some((value) => value !== "RECIPE") ||
+    [...categoryMappings.values()].some(
+      (mapping) => mapping.target !== "ignore",
+    );
+
+  function performDiscardBatch() {
+    setDiscardConfirmOpen(false);
     setBatchDrafts(null);
     setBatchSelection(new Set());
     setBatchDraftKinds(new Map());
     setBatchReviewIndex(null);
     setBatchResults(null);
+    setCollapsedFailedIndices(new Set());
+    setCategoryMappings(new Map());
+    setHasReviewedAnyDraft(false);
+    setMappingsApplied(false);
+    setManualCuisineOverrides(new Set());
     setError(null);
   }
 
-  async function handleBulkImport() {
-    if (!batchDrafts || batchSelection.size === 0) return;
-    const indices = [...batchSelection].sort((a, b) => a - b);
+  // Task §4: "Discard import" replaces "Start over" — confirms first only
+  // when the user would actually lose something (a reviewed draft, a
+  // reclassification, or a metadata-mapping choice).
+  function requestDiscardBatch() {
+    if (hasUnsavedBatchWork) setDiscardConfirmOpen(true);
+    else performDiscardBatch();
+  }
 
-    const items: Array<{ index: number; input: BulkImportItemInput }> = [];
-    for (const index of indices) {
-      const draft = batchDrafts[index];
-      if (draft.status !== "ok") continue;
-      items.push({
-        index,
-        input: {
-          sourceRef: draft.sourceRef,
-          kind: batchDraftKinds.get(index) ?? "RECIPE",
-          values: draft.result.values,
-          sourceLabel: archiveDraftSourceLabel(draft),
+  // Source-metadata mapping (task §5) ---------------------------------
+
+  const categoryStats = React.useMemo(() => {
+    if (!batchDrafts) return [] as { category: string; count: number }[];
+    const counts = new Map<string, number>();
+    batchDrafts.forEach((draft) => {
+      if (draft.status === "ok" && draft.sourceCategory) {
+        counts.set(
+          draft.sourceCategory,
+          (counts.get(draft.sourceCategory) ?? 0) + 1,
+        );
+      }
+    });
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([category, count]) => ({ category, count }));
+  }, [batchDrafts]);
+
+  function handleSetCategoryTarget(
+    category: string,
+    target: CategoryMapping["target"],
+  ) {
+    setCategoryMappings((prev) => {
+      const next = new Map(prev);
+      if (target === "ignore" || target === "cuisine") {
+        next.set(category, { target });
+      } else {
+        const options = target === "tag" ? tagOptions : flavorProfileOptions;
+        const match = options.find(
+          (option) =>
+            normalizeForMatch(option.displayName) ===
+            normalizeForMatch(category),
+        );
+        next.set(category, {
+          target,
+          selection: match ? `existing:${match.id}` : "create",
+        });
+      }
+      return next;
+    });
+    setMappingsApplied(false);
+  }
+
+  function handleSetCategorySelection(category: string, selection: string) {
+    setCategoryMappings((prev) => {
+      const current = prev.get(category);
+      if (
+        !current ||
+        (current.target !== "tag" && current.target !== "flavorProfile")
+      ) {
+        return prev;
+      }
+      const next = new Map(prev);
+      next.set(category, { target: current.target, selection });
+      return next;
+    });
+    setMappingsApplied(false);
+  }
+
+  // Applies any pending "cuisine" category mapping directly into the
+  // matching drafts' `cuisine` field — a *default*, not an authoritative
+  // value: a draft whose Cuisine was manually changed during Review
+  // (`manualCuisineOverrides`) is skipped, so that explicit edit stays
+  // authoritative instead of being overwritten on a later Apply/Import/
+  // Retry. Pure/local — no Server Action calls — so it's safe to run from
+  // "Apply mappings" as well as automatically before Import/Retry.
+  function applyCuisineMappingsToDrafts(
+    drafts: ArchiveImportDraft[],
+  ): ArchiveImportDraft[] {
+    return drafts.map((draft, index) => {
+      if (draft.status !== "ok" || !draft.sourceCategory) return draft;
+      if (manualCuisineOverrides.has(index)) return draft;
+      const mapping = categoryMappings.get(draft.sourceCategory);
+      if (mapping?.target !== "cuisine") return draft;
+      const existingMatch = cuisineOptions.find(
+        (option) =>
+          normalizeForMatch(option) ===
+          normalizeForMatch(draft.sourceCategory!),
+      );
+      const cuisineValue = existingMatch ?? draft.sourceCategory;
+      if (draft.result.values.cuisine === cuisineValue) return draft;
+      return {
+        ...draft,
+        result: {
+          ...draft.result,
+          values: { ...draft.result.values, cuisine: cuisineValue },
         },
-      });
-    }
-    if (items.length === 0) return;
+      };
+    });
+  }
 
-    setBatchImporting(true);
-    // Task §2/§3: one `confirmImportBatch` call per ~15 items rather than
-    // one call for the whole selection. The normalized payload itself is
-    // comfortably small even for a real 65-recipe archive (well under
-    // typical Server Action body limits), but persisting each item is its
-    // own DB transaction (createDish/createDishWithVersion) — 65 of those
-    // run sequentially in one call risks a large archive's import
-    // approaching a serverless function's execution-time ceiling. A chunk
-    // failing outright (e.g. a timeout) is caught and reported as a failed
-    // result for just that chunk's items — it never stops the rest.
+  function handleApplyCategoryMappings() {
+    if (batchDrafts) setBatchDrafts(applyCuisineMappingsToDrafts(batchDrafts));
+    setMappingsApplied(true);
+  }
+
+  // Resolves every pending "create a new Tag/Flavor profile" mapping into a
+  // real id, via the same `createTag`/`createFlavorProfile` actions
+  // Settings' managers use (normalized-name deduped, so re-resolving on a
+  // later retry is always safe) — called only at actual import-commit time
+  // (Import/Retry), never from "Apply mappings", so choosing "Create new"
+  // and then discarding the import never leaves account data behind.
+  // Returns the freshly resolved state rather than relying on the (stale,
+  // async) React state right after calling this, so the caller's own
+  // immediate build of the bulk-import payload doesn't race its own
+  // `setCategoryMappings`/`setTagOptions`/`setFlavorProfileOptions` calls.
+  async function resolveMetadataMappingsForCommit(): Promise<{
+    mappings: Map<string, CategoryMapping>;
+    tagOptions: ImportTagOption[];
+    flavorProfileOptions: ImportFlavorProfileOption[];
+  }> {
+    const workingMappings = new Map(categoryMappings);
+    let workingTagOptions = tagOptions;
+    let workingFlavorProfileOptions = flavorProfileOptions;
+
+    for (const { category } of categoryStats) {
+      const mapping = workingMappings.get(category);
+      if (mapping?.target === "tag" && mapping.selection === "create") {
+        const formData = new FormData();
+        formData.set("name", category);
+        const result = await createTag(initialCreateTagActionState, formData);
+        if (result.status === "success" && result.tag) {
+          workingTagOptions = [
+            ...workingTagOptions,
+            { id: result.tag.id, displayName: result.tag.displayName },
+          ];
+          workingMappings.set(category, {
+            target: "tag",
+            selection: `existing:${result.tag.id}`,
+          });
+        }
+      } else if (
+        mapping?.target === "flavorProfile" &&
+        mapping.selection === "create"
+      ) {
+        const formData = new FormData();
+        formData.set("name", category);
+        const result = await createFlavorProfile(
+          initialCreateFlavorProfileActionState,
+          formData,
+        );
+        if (result.status === "success" && result.flavorProfile) {
+          workingFlavorProfileOptions = [
+            ...workingFlavorProfileOptions,
+            {
+              id: result.flavorProfile.id,
+              displayName: result.flavorProfile.displayName,
+            },
+          ];
+          workingMappings.set(category, {
+            target: "flavorProfile",
+            selection: `existing:${result.flavorProfile.id}`,
+          });
+        }
+      }
+    }
+
+    setCategoryMappings(workingMappings);
+    setTagOptions(workingTagOptions);
+    setFlavorProfileOptions(workingFlavorProfileOptions);
+
+    return {
+      mappings: workingMappings,
+      tagOptions: workingTagOptions,
+      flavorProfileOptions: workingFlavorProfileOptions,
+    };
+  }
+
+  function metadataForDraft(
+    draft: OkArchiveDraft,
+    mappings: Map<string, CategoryMapping>,
+    tagOpts: ImportTagOption[],
+    flavorOpts: ImportFlavorProfileOption[],
+  ): {
+    tags: BulkImportMetadataRef[];
+    flavorProfiles: BulkImportMetadataRef[];
+  } {
+    if (!draft.sourceCategory) return { tags: [], flavorProfiles: [] };
+    const mapping = mappings.get(draft.sourceCategory);
+    if (
+      mapping?.target === "tag" &&
+      mapping.selection.startsWith("existing:")
+    ) {
+      const id = mapping.selection.slice("existing:".length);
+      const displayName =
+        tagOpts.find((option) => option.id === id)?.displayName ??
+        draft.sourceCategory;
+      return { tags: [{ id, displayName }], flavorProfiles: [] };
+    }
+    if (
+      mapping?.target === "flavorProfile" &&
+      mapping.selection.startsWith("existing:")
+    ) {
+      const id = mapping.selection.slice("existing:".length);
+      const displayName =
+        flavorOpts.find((option) => option.id === id)?.displayName ??
+        draft.sourceCategory;
+      return { tags: [], flavorProfiles: [{ id, displayName }] };
+    }
+    return { tags: [], flavorProfiles: [] };
+  }
+
+  function buildBulkImportItemInput(
+    draft: OkArchiveDraft,
+    index: number,
+    mappings: Map<string, CategoryMapping>,
+    tagOpts: ImportTagOption[],
+    flavorOpts: ImportFlavorProfileOption[],
+  ): BulkImportItemInput {
+    const metadata = metadataForDraft(draft, mappings, tagOpts, flavorOpts);
+    return {
+      sourceRef: draft.sourceRef,
+      kind: batchDraftKinds.get(index) ?? "RECIPE",
+      values: draft.result.values,
+      sourceLabel: archiveDraftSourceLabel(draft),
+      ...metadata,
+    };
+  }
+
+  // Bulk import + progress (task §3/§11) -------------------------------
+
+  // Chunk boundaries are the only real progress checkpoints (we only know
+  // true progress when a whole chunk's Server Action resolves) — this
+  // smoothly animates toward, but deliberately stops short of, each
+  // chunk's own boundary while its call is in flight, then commits exactly
+  // to that boundary the moment it resolves, before animating the next
+  // segment. No fake per-recipe count is ever shown.
+  async function runChunkedConfirm(
+    items: Array<{ index: number; input: BulkImportItemInput }>,
+  ): Promise<BulkImportItemResult[]> {
+    const totalChunks = Math.max(
+      1,
+      Math.ceil(items.length / BULK_IMPORT_CHUNK_SIZE),
+    );
+    setImportProgress(0);
     const results: BulkImportItemResult[] = [];
-    for (let i = 0; i < items.length; i += BULK_IMPORT_CHUNK_SIZE) {
-      const chunk = items.slice(i, i + BULK_IMPORT_CHUNK_SIZE);
+
+    for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+      const chunk = items.slice(
+        chunkIndex * BULK_IMPORT_CHUNK_SIZE,
+        (chunkIndex + 1) * BULK_IMPORT_CHUNK_SIZE,
+      );
+      const segmentStart = (chunkIndex / totalChunks) * 100;
+      const segmentEnd = ((chunkIndex + 1) / totalChunks) * 100;
+      const cap = segmentStart + (segmentEnd - segmentStart) * 0.9;
+      const interval = setInterval(() => {
+        setImportProgress((prev) =>
+          prev >= cap ? prev : prev + (cap - prev) * 0.15,
+        );
+      }, 150);
+
       try {
         results.push(
           ...(await confirmImportBatch(chunk.map((item) => item.input))),
@@ -378,43 +764,171 @@ export function PasteImportFlow({
             message: "This item could not be imported.",
           });
         }
+      } finally {
+        clearInterval(interval);
       }
+      setImportProgress(segmentEnd);
     }
-    setBatchImporting(false);
 
-    const nextResults = new Map<number, BulkImportItemResult>();
+    return results;
+  }
+
+  function applyBulkResults(
+    items: Array<{ index: number; input: BulkImportItemInput }>,
+    results: BulkImportItemResult[],
+  ) {
+    setBatchResults((prev) => {
+      const next = new Map(prev ?? []);
+      items.forEach((item, i) => {
+        const result = results[i];
+        if (result) next.set(item.index, result);
+      });
+      return next;
+    });
+  }
+
+  async function handleImportClick() {
+    if (!batchDrafts || batchSelection.size === 0) return;
+    const drafts = applyCuisineMappingsToDrafts(batchDrafts);
+    setBatchDrafts(drafts);
+    const {
+      mappings,
+      tagOptions: tagOpts,
+      flavorProfileOptions: flavorOpts,
+    } = await resolveMetadataMappingsForCommit();
+    const indices = [...batchSelection].sort((a, b) => a - b);
+
+    const blocked = indices.filter((index) => {
+      const draft = drafts[index];
+      return (
+        draft.status === "ok" &&
+        !validateDishContentForPersistence(draft.result.values).ok
+      );
+    });
+    if (blocked.length > 0) {
+      setPreflightBlockedIndices(blocked);
+      setPreflightBlockOpen(true);
+      return;
+    }
+
+    const items: Array<{ index: number; input: BulkImportItemInput }> = [];
+    for (const index of indices) {
+      const draft = drafts[index];
+      if (draft.status !== "ok") continue;
+      items.push({
+        index,
+        input: buildBulkImportItemInput(
+          draft,
+          index,
+          mappings,
+          tagOpts,
+          flavorOpts,
+        ),
+      });
+    }
+    if (items.length === 0) return;
+
+    setBatchImporting(true);
+    const results = await runChunkedConfirm(items);
+    setBatchImporting(false);
+    applyBulkResults(items, results);
+
     let importedRecipes = 0;
     let importedParts = 0;
     let failed = 0;
-    items.forEach(({ index, input }, i) => {
-      const result = results[i];
-      if (result) nextResults.set(index, result);
-      if (result?.status === "success") {
-        if (input.kind === "PART") importedParts++;
+    items.forEach((item, i) => {
+      if (results[i]?.status === "success") {
+        if (item.input.kind === "PART") importedParts++;
         else importedRecipes++;
       } else {
         failed++;
       }
     });
-    setBatchResults(nextResults);
 
-    if (failed === 0) {
-      showToast({
-        title: buildFullSuccessSummary(importedRecipes, importedParts),
-        variant: "success",
-      });
-      // Task §4: all-Recipes → /recipes, all-Parts → /parts, mixed → /recipes
-      // (a mixed batch has no single natural collection page).
-      router.push(
-        importedRecipes === 0 && importedParts > 0 ? "/parts" : "/recipes",
+    showToast(
+      failed === 0
+        ? {
+            title: buildFullSuccessSummary(importedRecipes, importedParts),
+            variant: "success",
+          }
+        : {
+            title: `Imported ${pluralize(importedRecipes + importedParts, "item", "items")}. ${failed} could not be imported.`,
+            variant: "error",
+            durationMs: null,
+          },
+    );
+  }
+
+  // Task §13/§14: retries only drafts still marked "error" in the current
+  // results — a partial retry leaves untouched failures exactly as they
+  // were, still reviewable/retryable again.
+  async function handleRetryFailed() {
+    if (!batchDrafts || !batchResults) return;
+    const failedIndices = [...batchResults.entries()]
+      .filter(([, result]) => result.status === "error")
+      .map(([index]) => index)
+      .filter((index) => batchDrafts[index]?.status === "ok");
+    if (failedIndices.length === 0) return;
+
+    const drafts = applyCuisineMappingsToDrafts(batchDrafts);
+    setBatchDrafts(drafts);
+    const {
+      mappings,
+      tagOptions: tagOpts,
+      flavorProfileOptions: flavorOpts,
+    } = await resolveMetadataMappingsForCommit();
+
+    const blocked = failedIndices.filter((index) => {
+      const draft = drafts[index];
+      return (
+        draft.status === "ok" &&
+        !validateDishContentForPersistence(draft.result.values).ok
       );
-    } else {
-      showToast({
-        title: buildPartialSummary(importedRecipes + importedParts, failed),
-        variant: "error",
-        durationMs: null,
-      });
+    });
+    if (blocked.length > 0) {
+      setPreflightBlockedIndices(blocked);
+      setPreflightBlockOpen(true);
+      return;
     }
+
+    const items = failedIndices.map((index) => {
+      const draft = drafts[index] as OkArchiveDraft;
+      return {
+        index,
+        input: buildBulkImportItemInput(
+          draft,
+          index,
+          mappings,
+          tagOpts,
+          flavorOpts,
+        ),
+      };
+    });
+
+    setBatchImporting(true);
+    const results = await runChunkedConfirm(items);
+    setBatchImporting(false);
+    applyBulkResults(items, results);
+
+    const succeeded = results.filter(
+      (result) => result.status === "success",
+    ).length;
+    showToast({
+      title:
+        succeeded === items.length
+          ? `Imported ${pluralize(succeeded, "item", "items")}.`
+          : `${succeeded} of ${items.length} imported.`,
+      variant: succeeded === items.length ? "success" : "error",
+    });
+  }
+
+  function toggleFailedCollapsed(index: number) {
+    setCollapsedFailedIndices((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
   }
 
   async function handleParseWebsite() {
@@ -431,15 +945,6 @@ export function PasteImportFlow({
     }
   }
 
-  function handleDiscard() {
-    setParseResult(null);
-    setSourceLabel(undefined);
-    setOriginalText(null);
-    setShowOriginal(false);
-    setError(null);
-    setBatchReviewIndex(null);
-  }
-
   async function handleConfirmCreate(
     confirmKind: DishKindValue,
     values: DishContentInput,
@@ -447,8 +952,8 @@ export function PasteImportFlow({
     return confirmImport(confirmKind, values, sourceLabel);
   }
 
-  // Single-item Save confirmation (task §3): `DishEditor` awaits this
-  // before persisting a create-mode Save; resolving `null` is a cancel.
+  // Single-item Save confirmation: `DishEditor` awaits this before
+  // persisting a create-mode Save; resolving `null` is a cancel.
   function requestSaveTarget(): Promise<DishKindValue | null> {
     return new Promise((resolve) => {
       setSaveTargetResolver(() => resolve);
@@ -477,7 +982,7 @@ export function PasteImportFlow({
                 ? "One line "
                 : `${parseResult.needsReviewCount} lines `}
               couldn&apos;t be confidently structured — check the &quot;Needs
-              review&quot; section below before saving.
+              review&quot; warning below before saving.
             </span>
           </p>
         )}
@@ -510,11 +1015,13 @@ export function PasteImportFlow({
         </div>
         <Button
           type="button"
-          variant="outline"
+          variant={isBatchReview ? "outline" : "destructive"}
           className="self-start"
-          onClick={handleDiscard}
+          onClick={
+            isBatchReview ? handleExitBatchReview : handleDiscardSingleItem
+          }
         >
-          {isBatchReview ? "Back to recipe list" : "Discard and start over"}
+          {isBatchReview ? "Back to import list" : "Discard import"}
         </Button>
         <DishEditor
           kind={reviewKind}
@@ -526,7 +1033,9 @@ export function PasteImportFlow({
           confirmCreateTargetAction={
             isBatchReview ? undefined : requestSaveTarget
           }
-          onCreatedAction={isBatchReview ? handleDiscard : undefined}
+          onCreatedAction={isBatchReview ? handleExitBatchReview : undefined}
+          onCancelAction={isBatchReview ? handleExitBatchReview : undefined}
+          submitLabel={isBatchReview ? "Finish review" : undefined}
           heading={`Review imported ${reviewKindLabel.toLowerCase()}`}
         />
 
@@ -571,11 +1080,77 @@ export function PasteImportFlow({
   }
 
   if (batchDrafts) {
-    const okCount = batchDrafts.filter((d) => d.status === "ok").length;
-    const needsReviewCount = batchDrafts.filter(
-      (d) => d.status === "ok" && d.result.needsReviewCount > 0,
-    ).length;
-    const errorCount = batchDrafts.length - okCount;
+    const drafts = batchDrafts;
+    const okCount = drafts.filter((d) => d.status === "ok").length;
+    const errorCount = drafts.length - okCount;
+
+    // Shared between the results view (task §14's retry can trigger this
+    // same block) and the pending-list view (task §10's initial-import
+    // block) — defined once here rather than duplicated in both returns.
+    function renderPreflightBlockDialog() {
+      return (
+        <Dialog open={preflightBlockOpen} onOpenChange={setPreflightBlockOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>
+                {pluralize(
+                  preflightBlockedIndices.length,
+                  "recipe needs",
+                  "recipes need",
+                )}{" "}
+                attention
+              </DialogTitle>
+              <DialogDescription>
+                These items have a problem that would block saving. Review and
+                fix them, or uncheck them and import the rest.
+              </DialogDescription>
+            </DialogHeader>
+            <ul className="flex max-h-64 flex-col gap-2 overflow-y-auto">
+              {preflightBlockedIndices.map((index) => {
+                const draft = drafts[index];
+                if (draft.status !== "ok") return null;
+                const title = draft.result.values.title || "Untitled recipe";
+                const messages = preflightIssuesByIndex.get(index) ?? [];
+                return (
+                  <li
+                    key={draft.sourceRef}
+                    className="border-border flex flex-col gap-1 rounded-lg border p-2"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-foreground text-sm font-medium">
+                        {title}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleReviewDraft(index)}
+                      >
+                        Review
+                      </Button>
+                    </div>
+                    <ul className="text-muted-foreground list-disc pl-4 text-xs">
+                      {messages.map((message, i) => (
+                        <li key={i}>{message}</li>
+                      ))}
+                    </ul>
+                  </li>
+                );
+              })}
+            </ul>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setPreflightBlockOpen(false)}
+              >
+                Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      );
+    }
 
     const selectedOkIndices = [...batchSelection].filter(
       (index) => batchDrafts[index]?.status === "ok",
@@ -602,6 +1177,325 @@ export function PasteImportFlow({
           ? `Import ${pluralize(selectedPartCount, "part", "parts")}`
           : `Import ${pluralize(selectedRecipeCount, "recipe", "recipes")}`;
 
+    function renderDraftRow(index: number, draft: ArchiveImportDraft) {
+      const title =
+        draft.status === "ok"
+          ? draft.result.values.title || "Untitled recipe"
+          : draft.sourceRef;
+      const draftParserNeedsReview =
+        draft.status === "ok" && draft.result.needsReviewCount > 0;
+      const draftPreflightFailed = preflightIssuesByIndex.has(index);
+      const rowResult = batchResults?.get(index);
+      const rowKind = batchDraftKinds.get(index) ?? "RECIPE";
+
+      return (
+        <li
+          key={draft.sourceRef}
+          className="border-border bg-card flex flex-row flex-wrap items-center gap-3 rounded-lg border p-3"
+        >
+          {!batchResults && (
+            <Checkbox
+              disabled={draft.status !== "ok" || batchImporting}
+              checked={batchSelection.has(index)}
+              onCheckedChange={() => handleToggleDraftSelection(index)}
+              aria-label={`Import ${title}`}
+            />
+          )}
+          <span className="text-foreground min-w-0 flex-1 truncate text-sm font-medium">
+            {title}
+          </span>
+          {draft.status === "ok" && draft.sourceCategory && (
+            <Badge variant="outline">{draft.sourceCategory}</Badge>
+          )}
+          {rowResult ? (
+            rowResult.status === "success" ? (
+              <Badge variant="secondary">
+                <CircleCheck /> Imported
+              </Badge>
+            ) : (
+              <Badge variant="destructive">
+                <CircleX /> Failed
+              </Badge>
+            )
+          ) : draft.status === "error" ? (
+            <Badge variant="destructive">
+              <CircleX /> Couldn&apos;t be read
+            </Badge>
+          ) : draftParserNeedsReview || draftPreflightFailed ? (
+            <Badge
+              variant="outline"
+              className="border-brand-orange/40 bg-brand-orange/10 text-brand-orange-text"
+            >
+              Needs review
+            </Badge>
+          ) : (
+            <Badge variant="secondary">
+              <CircleCheck /> Ready
+            </Badge>
+          )}
+          {draft.status === "error" && !rowResult && (
+            <p className="text-muted-foreground w-full text-xs">
+              {draft.message}
+            </p>
+          )}
+          {rowResult?.status === "error" && (
+            <p className="text-muted-foreground w-full text-xs">
+              {rowResult.message}
+            </p>
+          )}
+          {draft.status === "ok" && !batchResults && (
+            <>
+              <div
+                role="radiogroup"
+                aria-label={`Save "${title}" as`}
+                className="border-border bg-background inline-flex shrink-0 gap-1 rounded-lg border p-0.5"
+              >
+                {(["RECIPE", "PART"] as const).map((value) => (
+                  <Button
+                    key={value}
+                    type="button"
+                    role="radio"
+                    aria-checked={rowKind === value}
+                    variant={rowKind === value ? "default" : "ghost"}
+                    size="sm"
+                    disabled={batchImporting}
+                    onClick={() => handleSetDraftKind(index, value)}
+                  >
+                    {value === "RECIPE" ? "Recipe" : "Part"}
+                  </Button>
+                ))}
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={batchImporting}
+                onClick={() => handleReviewDraft(index)}
+              >
+                <Pencil className="size-3.5" aria-hidden="true" />
+                Review
+              </Button>
+            </>
+          )}
+        </li>
+      );
+    }
+
+    if (batchResults) {
+      const failedEntries = [...batchResults.entries()].filter(
+        ([, result]) => result.status === "error",
+      );
+      const succeededEntries = [...batchResults.entries()].filter(
+        ([, result]) => result.status === "success",
+      );
+      let importedRecipes = 0;
+      let importedParts = 0;
+      succeededEntries.forEach(([index]) => {
+        if ((batchDraftKinds.get(index) ?? "RECIPE") === "PART")
+          importedParts++;
+        else importedRecipes++;
+      });
+      const targetPath = resultsTargetPath(importedRecipes, importedParts);
+
+      return (
+        <div className="mx-auto flex max-w-3xl flex-col gap-6 pb-24">
+          <Breadcrumbs
+            items={[
+              { label: collectionLabel, href: basePath },
+              { label: "Import" },
+            ]}
+          />
+
+          <section className="flex flex-col gap-3">
+            <h1 className="font-heading text-foreground text-2xl font-semibold">
+              Results
+            </h1>
+            <div className="border-border bg-card rounded-lg border p-4">
+              <p className="text-foreground text-sm">
+                {buildResultsSummary(
+                  succeededEntries.length,
+                  failedEntries.length,
+                )}
+              </p>
+            </div>
+          </section>
+
+          {failedEntries.length > 0 && (
+            <section className="flex flex-col gap-3">
+              <div>
+                <h2 className="font-heading text-lg font-medium">
+                  Failed to import
+                </h2>
+                <p className="text-muted-foreground text-sm">
+                  These still need attention. Review a draft to fix it, then
+                  retry — successful retries move here to Recipes/Parts added.
+                </p>
+              </div>
+              <ul className="flex flex-col gap-2">
+                {failedEntries.map(([index, result]) => {
+                  const draft = batchDrafts[index];
+                  if (draft.status !== "ok") return null;
+                  const title = draft.result.values.title || "Untitled recipe";
+                  const rowKind = batchDraftKinds.get(index) ?? "RECIPE";
+                  const collapsed = collapsedFailedIndices.has(index);
+                  return (
+                    <li
+                      key={draft.sourceRef}
+                      className="border-border bg-card flex flex-col gap-2 rounded-lg border p-3"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex min-w-0 flex-1 items-center gap-2">
+                          <span className="text-foreground truncate text-sm font-medium">
+                            {title}
+                          </span>
+                          <Badge variant="outline">
+                            {rowKind === "PART" ? "Part" : "Recipe"}
+                          </Badge>
+                          {draft.sourceCategory && (
+                            <Badge variant="outline">
+                              {draft.sourceCategory}
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            disabled={batchImporting}
+                            onClick={() => handleReviewDraft(index)}
+                          >
+                            <Pencil className="size-3.5" aria-hidden="true" />
+                            Review
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            aria-label={
+                              collapsed
+                                ? "Show error details"
+                                : "Hide error details"
+                            }
+                            onClick={() => toggleFailedCollapsed(index)}
+                          >
+                            {collapsed ? <ChevronDown /> : <ChevronUp />}
+                          </Button>
+                        </div>
+                      </div>
+                      {!collapsed && (
+                        <div className="border-destructive/30 bg-destructive/10 text-destructive-text flex flex-col gap-1 rounded-lg border p-3 text-sm">
+                          <p className="font-medium">
+                            Couldn&apos;t import this item
+                          </p>
+                          <p>
+                            {result.status === "error" ? result.message : ""}
+                          </p>
+                          <p className="text-xs opacity-80">
+                            Review to fix it, then use &quot;Retry failed
+                            imports&quot; below.
+                          </p>
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+              <Button
+                type="button"
+                variant="outline"
+                loading={batchImporting}
+                onClick={handleRetryFailed}
+                className="self-start"
+              >
+                Retry failed imports
+              </Button>
+            </section>
+          )}
+
+          {succeededEntries.length > 0 && (
+            <section className="flex flex-col gap-3">
+              <h2 className="font-heading text-lg font-medium">
+                {successSectionLabel(importedRecipes, importedParts)}
+              </h2>
+              <ul className="flex flex-col gap-2">
+                {succeededEntries.map(([index, result]) => {
+                  const draft = batchDrafts[index];
+                  if (draft.status !== "ok" || result.status !== "success") {
+                    return null;
+                  }
+                  const title = draft.result.values.title || "Untitled recipe";
+                  const rowKind = batchDraftKinds.get(index) ?? "RECIPE";
+                  const warnings = result.metadataWarnings ?? [];
+                  return (
+                    <li
+                      key={draft.sourceRef}
+                      className="border-border bg-card flex flex-col gap-2 rounded-lg border p-3"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-foreground min-w-0 flex-1 truncate text-sm font-medium">
+                          {title}
+                        </span>
+                        <Badge variant="outline">
+                          {rowKind === "PART" ? "Part" : "Recipe"}
+                        </Badge>
+                        <Button asChild variant="ghost" size="sm">
+                          <Link
+                            href={`${rowKind === "PART" ? "/parts" : "/recipes"}/${result.dishId}`}
+                          >
+                            View
+                          </Link>
+                        </Button>
+                      </div>
+                      {warnings.length > 0 && (
+                        <p className="border-brand-orange/40 bg-brand-orange/10 text-brand-orange-text flex items-start gap-2 rounded-lg border px-3 py-2 text-xs">
+                          <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
+                          <span>
+                            Imported, but some metadata could not be applied.{" "}
+                            {warnings.join(" ")}
+                          </span>
+                        </p>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          )}
+
+          <div className="flex flex-wrap gap-2">
+            <Button asChild>
+              <Link href={targetPath}>
+                Go to {targetPath === "/parts" ? "Parts" : "Recipes"}
+              </Link>
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={performDiscardBatch}
+            >
+              Import another file
+            </Button>
+          </div>
+
+          {/* Retry (task §14) can trigger the same preflight block as the
+              initial import — this branch returns before the list-view's
+              own render of the same shared dialog below. */}
+          {renderPreflightBlockDialog()}
+        </div>
+      );
+    }
+
+    const needsReviewRows: [number, ArchiveImportDraft][] = [];
+    const readyRows: [number, ArchiveImportDraft][] = [];
+    batchDrafts.forEach((draft, index) => {
+      const flagged =
+        draft.status === "error" ||
+        (draft.status === "ok" && draft.result.needsReviewCount > 0) ||
+        preflightIssuesByIndex.has(index);
+      (flagged ? needsReviewRows : readyRows).push([index, draft]);
+    });
+
     return (
       <div className="mx-auto flex max-w-3xl flex-col gap-4 pb-24">
         <Breadcrumbs
@@ -616,40 +1510,133 @@ export function PasteImportFlow({
         </h1>
         <p className="text-muted-foreground text-sm">
           {okCount} ready to import
-          {needsReviewCount > 0 ? ` (${needsReviewCount} need review)` : ""}
+          {needsReviewRows.length > 0
+            ? ` (${needsReviewRows.length} need review)`
+            : ""}
           {errorCount > 0
             ? `, ${errorCount} couldn't be read and will be skipped`
             : ""}
           .
         </p>
 
-        {batchResults ? (
-          <div className="border-border bg-card flex flex-col gap-3 rounded-lg border p-4">
-            <p className="text-foreground text-sm">
-              {[...batchResults.values()].filter((r) => r.status === "error")
-                .length === 0
-                ? "Everything imported successfully."
-                : `${[...batchResults.values()].filter((r) => r.status === "success").length} imported, ${[...batchResults.values()].filter((r) => r.status === "error").length} failed.`}
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <Button asChild>
-                <Link href="/recipes">Go to Recipes</Link>
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleStartOverBatch}
-              >
-                Import another file
-              </Button>
+        {categoryStats.length > 0 && (
+          <section className="border-border bg-card flex flex-col gap-3 rounded-lg border p-4">
+            <div>
+              <h2 className="font-heading text-lg font-medium">
+                Source categories
+              </h2>
+              <p className="text-muted-foreground text-sm">
+                Recipe Gallery categories like these stay source metadata, not
+                cuisine, unless you map them below. Detected matches against
+                your existing Tags/Flavor profiles are pre-selected.
+              </p>
             </div>
-          </div>
-        ) : (
+            <ul className="flex flex-col gap-2">
+              {categoryStats.map(({ category, count }) => {
+                const mapping = categoryMappings.get(category) ?? {
+                  target: "ignore" as const,
+                };
+                const isTagOrFlavor =
+                  mapping.target === "tag" ||
+                  mapping.target === "flavorProfile";
+                const options =
+                  mapping.target === "tag" ? tagOptions : flavorProfileOptions;
+                return (
+                  <li
+                    key={category}
+                    className="border-border flex flex-wrap items-center gap-2 rounded-lg border p-2"
+                  >
+                    <span className="text-foreground min-w-0 flex-1 text-sm font-medium">
+                      {category}
+                    </span>
+                    <Badge variant="outline">
+                      {pluralize(count, "recipe", "recipes")}
+                    </Badge>
+                    <Select
+                      value={mapping.target}
+                      onValueChange={(value) =>
+                        handleSetCategoryTarget(
+                          category,
+                          value as CategoryMapping["target"],
+                        )
+                      }
+                    >
+                      <SelectTrigger
+                        className="w-36"
+                        aria-label={`Map "${category}" to`}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ignore">Ignore</SelectItem>
+                        <SelectItem value="cuisine">Cuisine</SelectItem>
+                        <SelectItem value="tag">Tag</SelectItem>
+                        <SelectItem value="flavorProfile">
+                          Flavor profile
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {isTagOrFlavor && (
+                      <Select
+                        value={mapping.selection}
+                        onValueChange={(value) =>
+                          handleSetCategorySelection(category, value)
+                        }
+                      >
+                        <SelectTrigger
+                          className="w-56"
+                          aria-label={`Map "${category}" to which ${mapping.target === "tag" ? "tag" : "flavor profile"}`}
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="create">
+                            Create new{" "}
+                            {mapping.target === "tag"
+                              ? "tag"
+                              : "flavor profile"}
+                            : &quot;{category}&quot;
+                          </SelectItem>
+                          {options.map((option) => (
+                            <SelectItem
+                              key={option.id}
+                              value={`existing:${option.id}`}
+                            >
+                              {option.displayName}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="self-start"
+              onClick={handleApplyCategoryMappings}
+            >
+              Apply mappings
+            </Button>
+            {mappingsApplied && (
+              <p className="text-brand-green-text text-sm">
+                Cuisine mappings applied to the matching recipes below. New
+                Tags/Flavor profiles are created when you import.
+              </p>
+            )}
+          </section>
+        )}
+
+        {batchResults === null && (
           <div className="flex flex-wrap items-center gap-2">
             <Button
               type="button"
               variant="outline"
               size="sm"
+              disabled={batchImporting}
               onClick={handleSelectAllReady}
             >
               Select all ready
@@ -658,158 +1645,116 @@ export function PasteImportFlow({
               type="button"
               variant="outline"
               size="sm"
+              disabled={batchImporting}
               onClick={handleSelectNone}
             >
               Select none
             </Button>
             <Button
               type="button"
-              variant="outline"
+              variant="destructive"
               size="sm"
-              onClick={handleStartOverBatch}
+              disabled={batchImporting}
+              onClick={requestDiscardBatch}
             >
-              Start over
+              Discard import
             </Button>
           </div>
         )}
 
-        <ul className="flex flex-col gap-2">
-          {batchDrafts.map((draft, index) => {
-            const title =
-              draft.status === "ok"
-                ? draft.result.values.title || "Untitled recipe"
-                : draft.sourceRef;
-            const draftNeedsReview =
-              draft.status === "ok" && draft.result.needsReviewCount > 0;
-            const rowResult = batchResults?.get(index);
-            const rowKind = batchDraftKinds.get(index) ?? "RECIPE";
+        <p className="text-muted-foreground text-sm">
+          Choose what each item becomes in DishFrame. Recipes are standalone
+          dishes; Parts are reusable components that can be included in other
+          recipes.
+        </p>
 
-            return (
-              <li
-                key={draft.sourceRef}
-                className="border-border bg-card flex items-start gap-3 rounded-lg border p-3"
-              >
-                {!batchResults && (
-                  <Checkbox
-                    className="mt-1"
-                    disabled={draft.status !== "ok"}
-                    checked={batchSelection.has(index)}
-                    onCheckedChange={() => handleToggleDraftSelection(index)}
-                    aria-label={`Import ${title}`}
-                  />
-                )}
-                <div className="flex min-w-0 flex-1 flex-col gap-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-foreground truncate text-sm font-medium">
-                      {title}
-                    </span>
-                    {draft.status === "ok" && draft.sourceCategory && (
-                      <Badge variant="outline">{draft.sourceCategory}</Badge>
-                    )}
-                    {rowResult ? (
-                      rowResult.status === "success" ? (
-                        <Badge variant="secondary">
-                          <CircleCheck /> Imported
-                        </Badge>
-                      ) : (
-                        <Badge variant="destructive">
-                          <CircleX /> Failed
-                        </Badge>
-                      )
-                    ) : (
-                      <>
-                        {draft.status === "error" && (
-                          <Badge variant="destructive">
-                            <CircleX /> Couldn&apos;t be read
-                          </Badge>
-                        )}
-                        {draftNeedsReview && (
-                          <Badge variant="outline">Needs review</Badge>
-                        )}
-                        {draft.status === "ok" && !draftNeedsReview && (
-                          <Badge variant="secondary">
-                            <CircleCheck /> Parsed
-                          </Badge>
-                        )}
-                      </>
-                    )}
-                  </div>
-                  {draft.status === "error" && (
-                    <p className="text-muted-foreground text-xs">
-                      {draft.message}
-                    </p>
-                  )}
-                  {rowResult?.status === "error" && (
-                    <p className="text-muted-foreground text-xs">
-                      {rowResult.message}
-                    </p>
-                  )}
-                </div>
-                {draft.status === "ok" && !batchResults && (
-                  <>
-                    <div
-                      role="radiogroup"
-                      aria-label={`Save "${title}" as`}
-                      className="border-border bg-background inline-flex shrink-0 gap-1 rounded-lg border p-0.5"
-                    >
-                      {(["RECIPE", "PART"] as const).map((value) => (
-                        <Button
-                          key={value}
-                          type="button"
-                          role="radio"
-                          aria-checked={rowKind === value}
-                          variant={rowKind === value ? "default" : "ghost"}
-                          size="sm"
-                          onClick={() => handleSetDraftKind(index, value)}
-                        >
-                          {value === "RECIPE" ? "Recipe" : "Part"}
-                        </Button>
-                      ))}
-                    </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleReviewDraft(index)}
-                    >
-                      Review
-                    </Button>
-                  </>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-
-        {!batchResults && (
-          <>
-            {selectionCountsLabel && (
+        {needsReviewRows.length > 0 && (
+          <section className="flex flex-col gap-3">
+            <div>
+              <h2 className="font-heading text-lg font-medium">Needs review</h2>
               <p className="text-muted-foreground text-sm">
-                {selectionCountsLabel}
+                The importer found content in these it couldn&apos;t confidently
+                place, or a problem that would block saving. That doesn&apos;t
+                mean the whole item is wrong — open Review to check, correct, or
+                move the flagged content.
               </p>
-            )}
-
-            {error && (
-              <p
-                role="alert"
-                className="text-destructive-text flex items-center gap-2 text-sm"
-              >
-                <AlertCircle className="size-4 shrink-0" />
-                {error}
-              </p>
-            )}
-
-            <Button
-              type="button"
-              onClick={handleBulkImport}
-              disabled={batchSelection.size === 0}
-              loading={batchImporting}
-              className="self-start"
-            >
-              {importButtonLabel}
-            </Button>
-          </>
+            </div>
+            <ul className="flex flex-col gap-2">
+              {needsReviewRows.map(([index, draft]) =>
+                renderDraftRow(index, draft),
+              )}
+            </ul>
+          </section>
         )}
+
+        {readyRows.length > 0 && (
+          <section className="flex flex-col gap-3">
+            <h2 className="font-heading text-lg font-medium">
+              Ready to import
+            </h2>
+            <ul className="flex flex-col gap-2">
+              {readyRows.map(([index, draft]) => renderDraftRow(index, draft))}
+            </ul>
+          </section>
+        )}
+
+        {selectionCountsLabel && (
+          <p className="text-muted-foreground text-sm">
+            {selectionCountsLabel}
+          </p>
+        )}
+
+        {error && (
+          <p
+            role="alert"
+            className="text-destructive-text flex items-center gap-2 text-sm"
+          >
+            <AlertCircle className="size-4 shrink-0" />
+            {error}
+          </p>
+        )}
+
+        {batchImporting ? (
+          <div className="flex flex-col gap-2">
+            <div
+              role="progressbar"
+              aria-valuenow={Math.round(importProgress)}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              className="bg-muted h-2 w-full overflow-hidden rounded-full"
+            >
+              <div
+                className="bg-primary h-full rounded-full transition-[width] duration-150 ease-linear"
+                style={{ width: `${importProgress}%` }}
+              />
+            </div>
+            <p className="text-muted-foreground text-sm">Importing recipes…</p>
+            <p className="text-muted-foreground text-sm">
+              This may take a moment. Keep this page open.
+            </p>
+          </div>
+        ) : (
+          <Button
+            type="button"
+            onClick={handleImportClick}
+            disabled={batchSelection.size === 0}
+            className="self-start"
+          >
+            {importButtonLabel}
+          </Button>
+        )}
+
+        <ConfirmDialog
+          open={discardConfirmOpen}
+          onOpenChangeAction={setDiscardConfirmOpen}
+          title="Discard this import?"
+          description="You've reviewed or changed some of these recipes. Discarding throws away the whole pending import workspace — nothing has been saved — and returns you to the start of Import."
+          confirmLabel="Discard import"
+          destructive
+          onConfirmAction={performDiscardBatch}
+        />
+
+        {renderPreflightBlockDialog()}
       </div>
     );
   }
@@ -888,20 +1833,20 @@ export function PasteImportFlow({
           <FieldLabel htmlFor="file-import-input">
             Upload a {kindLabel.toLowerCase()} file
           </FieldLabel>
-          <Input
+          <FileDropzone
             id="file-import-input"
-            type="file"
             accept={SUPPORTED_IMPORT_FILE_EXTENSIONS.join(",")}
-            onChange={handleFileSelected}
-            className="bg-card dark:bg-card"
+            onFileSelectedAction={handleFileSelectedFromDropzone}
+            disabled={isParsing}
+            label={`Drop a ${kindLabel.toLowerCase()} file here, or click to choose`}
+            helpText="Supports .md, .txt, and .rga (Recipe Gallery export) files."
           />
           <FieldDescription>
-            Markdown (.md), text (.txt), and Recipe Gallery exports (.rga) are
-            all supported. A .md or .txt file is read the same way as pasted
-            text; a .rga export is extracted into a list of recipes you can
-            review, classify as a recipe or a Part, and import individually or
-            all at once. Uploaded files are never stored — nothing is saved
-            until you review and confirm.
+            A .md or .txt file is read the same way as pasted text; a .rga
+            export is extracted into a list of recipes you can review, classify
+            as a recipe or a Part, and import individually or all at once.
+            Uploaded files are never stored — nothing is saved until you review
+            and confirm.
           </FieldDescription>
         </Field>
       )}

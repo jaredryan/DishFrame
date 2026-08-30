@@ -12,6 +12,7 @@ import {
 } from "react-hook-form";
 import {
   AlertCircle,
+  AlertTriangle,
   ArrowUpDown,
   ChevronDown,
   ChevronUp,
@@ -85,6 +86,7 @@ import {
   blankDishFormValues,
   type DishFormValues,
 } from "@/components/domain/dish/dish-form-values";
+import { NEEDS_REVIEW_SECTION_NAME } from "@/lib/importExport/paste-parser";
 import {
   createDish,
   editDish,
@@ -179,6 +181,8 @@ export function DishEditor({
   onCreate,
   confirmCreateTargetAction,
   onCreatedAction,
+  submitLabel,
+  onCancelAction,
   heading,
   importHref,
 }: {
@@ -213,6 +217,19 @@ export function DishEditor({
   // rather than navigate to a newly created Dish's detail page (nothing is
   // actually persisted there; see `onCreate`'s override in that case).
   onCreatedAction?: (dishId: string, kind: DishKindValue) => void;
+  // Importer live-QA polish pass (task §7): overrides the primary submit
+  // button's label — the batch importer's per-row Review step uses "Finish
+  // review" (it never persists here; see `onCreate`'s override) instead of
+  // "Save", which would otherwise misleadingly suggest this creates the
+  // Dish immediately. Every other caller leaves this unset and keeps "Save".
+  submitLabel?: string;
+  // Importer live-QA polish pass (task §6): when set, the sticky-footer
+  // Cancel action calls this instead of rendering a `<Link>` to
+  // `cancelHref` — fixes the bug where Cancel, inside a batch Review step,
+  // navigated to `/recipes`/`/parts` and discarded the whole in-memory
+  // pending-import workspace one level up. Never applies current form
+  // edits; only ever set by the batch importer's Review step.
+  onCancelAction?: () => void;
   // Slice 11: overrides the computed "New Recipe/Part" heading — the
   // importer uses this for "Review imported recipe/part" so the reviewer
   // understands they're confirming a parsed proposal, not starting blank.
@@ -376,6 +393,24 @@ export function DishEditor({
       }
     });
   }
+
+  // Importer live-QA polish pass (task §8): a Section literally named
+  // "Needs review" is the importer's own marker (`paste-parser.ts`'s
+  // `buildParseResult`) for lines it couldn't confidently structure — never
+  // something a user creates by hand under this exact name, so detecting it
+  // generically here (no extra prop threaded through from the importer)
+  // is safe and keeps this self-contained.
+  const needsReviewEntry = topLevelEntries.find(
+    (entry) =>
+      entry.kind === "section" &&
+      watchedSections?.[entry.index]?.name === NEEDS_REVIEW_SECTION_NAME,
+  );
+  const needsReviewLines: string[] =
+    needsReviewEntry && needsReviewEntry.kind === "section"
+      ? ((watchedSections?.[needsReviewEntry.index]?.instructions ?? []).map(
+          (instruction: { text: string }) => instruction.text,
+        ) as string[])
+      : [];
 
   function nextTopLevelPosition(): number {
     return topLevelEntries.length === 0
@@ -813,6 +848,34 @@ export function DishEditor({
             </FieldError>
           </Field>
 
+          {needsReviewEntry && needsReviewEntry.kind === "section" && (
+            <div className="border-brand-orange/40 bg-brand-orange/10 flex flex-col gap-2 rounded-lg border p-4">
+              <div className="text-brand-orange-text flex items-center gap-2 text-sm font-medium">
+                <AlertTriangle className="size-4 shrink-0" aria-hidden="true" />
+                Some imported lines need review
+              </div>
+              <p className="text-foreground text-sm">
+                The importer could not confidently structure these lines. Check,
+                correct, or move them before finishing your review.
+              </p>
+              {needsReviewLines.length > 0 && (
+                <ul className="text-muted-foreground list-disc space-y-0.5 pl-5 text-sm">
+                  {needsReviewLines.map((line, index) => (
+                    <li key={index} className="break-words">
+                      {line}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <a
+                href={`#${needsReviewEntry.fieldId}`}
+                className="text-brand-orange-text self-start text-sm font-medium underline underline-offset-2"
+              >
+                Jump to these lines
+              </a>
+            </div>
+          )}
+
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <h2 className="font-heading text-lg font-medium">Details</h2>
@@ -1051,27 +1114,40 @@ export function DishEditor({
               >
                 {topLevelEntries.map((entry) =>
                   entry.kind === "section" ? (
-                    <SectionFields
+                    <div
                       key={entry.fieldId}
-                      id={entry.fieldId}
-                      sectionIndex={entry.index}
-                      sectionNumber={
-                        sectionDisplayNumberByFieldId.get(entry.fieldId) ??
-                        entry.index + 1
+                      id={
+                        entry.fieldId === needsReviewEntry?.fieldId
+                          ? entry.fieldId
+                          : undefined
                       }
-                      onRemove={() => sections.remove(entry.index)}
-                      onDuplicate={() => handleDuplicateSection(entry.index)}
-                      onConvertToPart={(link) => {
-                        topLevelPartLinks.append({
-                          ...link,
-                          position: entry.position,
-                          multiplier: 1,
-                        });
-                        sections.remove(entry.index);
-                      }}
-                      containerDishId={dish?.id ?? null}
-                      containerKind={kind}
-                    />
+                      className={
+                        entry.fieldId === needsReviewEntry?.fieldId
+                          ? "border-brand-orange/50 bg-brand-orange/5 rounded-xl border-2 p-1"
+                          : undefined
+                      }
+                    >
+                      <SectionFields
+                        id={entry.fieldId}
+                        sectionIndex={entry.index}
+                        sectionNumber={
+                          sectionDisplayNumberByFieldId.get(entry.fieldId) ??
+                          entry.index + 1
+                        }
+                        onRemove={() => sections.remove(entry.index)}
+                        onDuplicate={() => handleDuplicateSection(entry.index)}
+                        onConvertToPart={(link) => {
+                          topLevelPartLinks.append({
+                            ...link,
+                            position: entry.position,
+                            multiplier: 1,
+                          });
+                          sections.remove(entry.index);
+                        }}
+                        containerDishId={dish?.id ?? null}
+                        containerKind={kind}
+                      />
+                    </div>
                   ) : (
                     <PartLinkFields
                       key={entry.fieldId}
@@ -1164,11 +1240,17 @@ export function DishEditor({
           )}
 
           <div className="bg-background/95 sticky bottom-0 flex items-center justify-end gap-2 border-t py-4 backdrop-blur-sm">
-            <Button variant="outline" asChild>
-              <Link href={cancelHref}>Cancel</Link>
-            </Button>
+            {onCancelAction ? (
+              <Button type="button" variant="outline" onClick={onCancelAction}>
+                Cancel
+              </Button>
+            ) : (
+              <Button variant="outline" asChild>
+                <Link href={cancelHref}>Cancel</Link>
+              </Button>
+            )}
             <Button type="submit" loading={isSubmitting}>
-              Save
+              {submitLabel ?? "Save"}
             </Button>
           </div>
         </form>
