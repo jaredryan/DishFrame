@@ -50,6 +50,12 @@
     "db:backfill:part-usage": "NODE_OPTIONS=--conditions=react-server tsx scripts/backfill-cooking-session-part-usage.ts",
     "cleanup:imports": "NODE_OPTIONS=--conditions=react-server tsx scripts/cleanup-imports.ts",
     "cleanup:imports:production": "node scripts/cleanup-imports-production.mjs",
+    "cleanup:imports:parts": "NODE_OPTIONS=--conditions=react-server tsx scripts/cleanup-imports-parts.ts",
+    "cleanup:imports:parts:production": "node scripts/cleanup-imports-parts-production.mjs",
+    "cleanup:recipes:local": "NODE_OPTIONS=--conditions=react-server tsx scripts/cleanup-recipes.ts",
+    "cleanup:recipes:production": "node scripts/cleanup-recipes-production.mjs",
+    "cleanup:parts:local": "NODE_OPTIONS=--conditions=react-server tsx scripts/cleanup-parts.ts",
+    "cleanup:parts:production": "node scripts/cleanup-parts-production.mjs",
     "db:deploy:upgrade": "prisma migrate deploy && pnpm db:backfill:part-usage",
     "db:deploy:production": "node scripts/db-deploy-production.mjs",
     "release:production": "node scripts/release-production.mjs"
