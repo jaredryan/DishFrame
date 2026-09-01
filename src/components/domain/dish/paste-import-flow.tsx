@@ -49,6 +49,7 @@ import {
   SUPPORTED_IMPORT_FILE_EXTENSIONS,
   extractTextFromImportFile,
   extractRecipesFromArchiveFile,
+  extractDishFromJsonFile,
   getImportFileKind,
 } from "@/lib/importExport/file-sources";
 import type { PasteParseResult } from "@/lib/importExport/paste-parser";
@@ -98,6 +99,36 @@ type CategoryMapping =
   | { target: "tag"; selection: string } // "create" | `existing:${id}`
   | { target: "flavorProfile"; selection: string };
 
+// Task §12: one row of the results page's "Classifications" report — what
+// happened to one source classification this commit (the initial Import or
+// a later Retry), merged across commits by `mergeClassificationOutcomes`.
+type ClassificationOutcome = {
+  category: string;
+  target: "cuisine" | "tag" | "flavorProfile";
+  action: "created" | "reused" | "applied";
+  displayName: string;
+  appliedCount: number;
+};
+
+function mergeClassificationOutcomes(
+  prev: ClassificationOutcome[],
+  next: ClassificationOutcome[],
+): ClassificationOutcome[] {
+  const byKey = new Map(
+    prev.map((outcome) => [`${outcome.target}:${outcome.category}`, outcome]),
+  );
+  for (const outcome of next) {
+    const key = `${outcome.target}:${outcome.category}`;
+    const existing = byKey.get(key);
+    byKey.set(key, {
+      ...outcome,
+      appliedCount: (existing?.appliedCount ?? 0) + outcome.appliedCount,
+      action: existing?.action === "created" ? "created" : outcome.action,
+    });
+  }
+  return [...byKey.values()];
+}
+
 function normalizeForMatch(value: string): string {
   return value.trim().toLowerCase();
 }
@@ -118,28 +149,27 @@ function buildFullSuccessSummary(recipes: number, parts: number): string {
   return `Imported ${segments[0]} and ${segments[1]}.`;
 }
 
-// Task §12: results-section summary — deliberately Recipe/Part-agnostic,
-// matching the task's own "62 imported, 3 failed" phrasing; counts are
-// always computed fresh from the live `batchResults` map at render time.
-function buildResultsSummary(imported: number, failed: number): string {
-  if (failed === 0) {
-    return imported === 1
-      ? "1 recipe imported."
-      : `${imported} recipes imported.`;
-  }
-  return `${imported} imported, ${failed} failed.`;
-}
-
-// Task §12: "Recipes added" assumes every success was a Recipe — wrong for
-// a mixed batch, so the section label reflects what actually succeeded.
-function successSectionLabel(recipes: number, parts: number): string {
-  if (recipes > 0 && parts === 0) return "Recipes added";
-  if (parts > 0 && recipes === 0) return "Parts added";
-  return "Items added";
-}
-
-function resultsTargetPath(recipes: number, parts: number): string {
-  return recipes === 0 && parts > 0 ? "/parts" : "/recipes";
+// Import QA polish pass §9/§11: the results page's top-of-page headline
+// summary — lowercase, Recipe/Part-aware (never assumes every success was a
+// Recipe), counts computed fresh from the live `batchResults` map at
+// render time.
+function buildResultsHeadline(
+  recipes: number,
+  parts: number,
+  failed: number,
+): string {
+  const segments: string[] = [];
+  if (recipes > 0) segments.push(pluralize(recipes, "recipe", "recipes"));
+  if (parts > 0) segments.push(pluralize(parts, "part", "parts"));
+  const subject =
+    segments.length === 0
+      ? "Nothing"
+      : segments.length === 1
+        ? segments[0]
+        : `${segments[0]} and ${segments[1]}`;
+  const verb = recipes + parts === 1 || subject === "Nothing" ? "was" : "were";
+  if (failed === 0) return `${subject} ${verb} imported.`;
+  return `${subject} ${verb} imported. ${pluralize(failed, "item", "items")} failed to import.`;
 }
 
 /**
@@ -233,6 +263,20 @@ export function PasteImportFlow({
   const [collapsedFailedIndices, setCollapsedFailedIndices] = React.useState<
     Set<number>
   >(new Set());
+  // Task §4: indices whose batch Review was opened and finished ("Finish
+  // review") at least once — drives the orange "Needs review" → green
+  // "Reviewed" badge swap and that row's move to the bottom of its group.
+  const [reviewedIndices, setReviewedIndices] = React.useState<Set<number>>(
+    new Set(),
+  );
+  // Task §12: accumulated across the initial Import and any later Retry —
+  // see `mergeClassificationOutcomes`.
+  const [classificationOutcomes, setClassificationOutcomes] = React.useState<
+    ClassificationOutcome[]
+  >([]);
+  const [classificationWarnings, setClassificationWarnings] = React.useState<
+    string[]
+  >([]);
 
   // Task §4: tracked so "Discard import" only confirms when there's real
   // pending work to lose (a reviewed draft, a reclassification, or a
@@ -255,7 +299,6 @@ export function PasteImportFlow({
   const [flavorProfileOptions, setFlavorProfileOptions] = React.useState(
     initialFlavorProfileOptions,
   );
-  const [mappingsApplied, setMappingsApplied] = React.useState(false);
 
   // Bulk-import preflight (task §10): every "ok" draft validated against
   // the exact persistence schema, recomputed whenever drafts change (a
@@ -302,8 +345,13 @@ export function PasteImportFlow({
   }
 
   async function handleFileSelectedFromDropzone(file: File) {
-    if (getImportFileKind(file.name) === "archive") {
+    const fileKind = getImportFileKind(file.name);
+    if (fileKind === "archive") {
       await handleArchiveFileSelected(file);
+      return;
+    }
+    if (fileKind === "dishframeJson") {
+      await handleDishframeJsonFileSelected(file);
       return;
     }
 
@@ -328,6 +376,47 @@ export function PasteImportFlow({
     }
   }
 
+  // Task §3: a batch row's default classification is the source's own
+  // known kind when it has one (so far only a DishFrame JSON export, which
+  // always records its real `kind` — see `ArchiveImportDraft.sourceDishKind`
+  // on `recipe-gallery-import.ts`), else the route-level default: Part when
+  // this flow was entered from Import Parts, Recipe otherwise.
+  function defaultDraftKind(draft: ArchiveImportDraft): DishKindValue {
+    if (draft.status === "ok" && draft.sourceDishKind) {
+      return draft.sourceDishKind;
+    }
+    return kind === "PART" ? "PART" : "RECIPE";
+  }
+
+  // Shared by every batch source adapter (.rga, DishFrame .json) — resets
+  // the whole batch-review workspace onto a freshly extracted draft list.
+  function applyBatchDrafts(drafts: ArchiveImportDraft[]) {
+    setBatchDrafts(drafts);
+    setBatchSelection(
+      new Set(
+        drafts
+          .map((draft, index) => (draft.status === "ok" ? index : -1))
+          .filter((index) => index !== -1),
+      ),
+    );
+    setBatchDraftKinds(
+      new Map(
+        drafts
+          .map((draft, index): [number, DishKindValue] | null =>
+            draft.status === "ok" ? [index, defaultDraftKind(draft)] : null,
+          )
+          .filter((entry): entry is [number, DishKindValue] => entry !== null),
+      ),
+    );
+    setBatchResults(null);
+    setCategoryMappings(new Map());
+    setHasReviewedAnyDraft(false);
+    setManualCuisineOverrides(new Set());
+    setReviewedIndices(new Set());
+    setClassificationOutcomes([]);
+    setClassificationWarnings([]);
+  }
+
   async function handleArchiveFileSelected(file: File) {
     setError(null);
     setIsParsing(true);
@@ -342,30 +431,24 @@ export function PasteImportFlow({
       setError(result.message);
       return;
     }
+    applyBatchDrafts(result.drafts);
+  }
 
-    setBatchDrafts(result.drafts);
-    setBatchSelection(
-      new Set(
-        result.drafts
-          .map((draft, index) => (draft.status === "ok" ? index : -1))
-          .filter((index) => index !== -1),
-      ),
-    );
-    // Every successfully parsed row defaults to Recipe.
-    setBatchDraftKinds(
-      new Map(
-        result.drafts
-          .map((draft, index): [number, DishKindValue] | null =>
-            draft.status === "ok" ? [index, "RECIPE"] : null,
-          )
-          .filter((entry): entry is [number, DishKindValue] => entry !== null),
-      ),
-    );
-    setBatchResults(null);
-    setCategoryMappings(new Map());
-    setHasReviewedAnyDraft(false);
-    setMappingsApplied(false);
-    setManualCuisineOverrides(new Set());
+  // Task §1: DishFrame's own Recipe/Part JSON export, recognized and
+  // normalized entirely client-side (dishframe-json-import.ts) — routes
+  // through the exact same batch review list as `.rga` (always exactly one
+  // row here) rather than a parallel single-item save path.
+  async function handleDishframeJsonFileSelected(file: File) {
+    setError(null);
+    setIsParsing(true);
+    const result = await extractDishFromJsonFile(file);
+    setIsParsing(false);
+
+    if (result.status !== "success") {
+      setError(result.message);
+      return;
+    }
+    applyBatchDrafts(result.drafts);
   }
 
   function handleToggleDraftSelection(index: number) {
@@ -375,21 +458,6 @@ export function PasteImportFlow({
       else next.add(index);
       return next;
     });
-  }
-
-  function handleSelectAllReady() {
-    if (!batchDrafts) return;
-    setBatchSelection(
-      new Set(
-        batchDrafts
-          .map((draft, index) => (draft.status === "ok" ? index : -1))
-          .filter((index) => index !== -1),
-      ),
-    );
-  }
-
-  function handleSelectNone() {
-    setBatchSelection(new Set());
   }
 
   function handleSetDraftKind(index: number, nextKind: DishKindValue) {
@@ -446,6 +514,14 @@ export function PasteImportFlow({
       return next;
     });
     setHasReviewedAnyDraft(true);
+    // Task §4: "Finish review" marks this row Reviewed regardless of
+    // whether anything actually changed — opening Review and confirming is
+    // itself the signal the user inspected a flagged item.
+    setReviewedIndices((prev) => {
+      const next = new Set(prev);
+      next.add(index);
+      return next;
+    });
     return { status: "success", dishId: "pending" };
   }
 
@@ -488,8 +564,10 @@ export function PasteImportFlow({
     setCollapsedFailedIndices(new Set());
     setCategoryMappings(new Map());
     setHasReviewedAnyDraft(false);
-    setMappingsApplied(false);
     setManualCuisineOverrides(new Set());
+    setReviewedIndices(new Set());
+    setClassificationOutcomes([]);
+    setClassificationWarnings([]);
     setError(null);
   }
 
@@ -519,29 +597,36 @@ export function PasteImportFlow({
       .map(([category, count]) => ({ category, count }));
   }, [batchDrafts]);
 
+  // Task §5: changing a classification's mapping already changes frontend
+  // draft state — there is no separate "Apply mappings" step to click.
+  // Cuisine mappings (the only mapping kind that writes directly into a
+  // draft, rather than resolving to a Tag/Flavor-profile id only at commit
+  // time — see `resolveMetadataMappingsForCommit`) are applied to
+  // `batchDrafts` right here, event-driven off the user's mapping choice,
+  // so opening Review on an affected draft before Import shows the mapped
+  // Cuisine live rather than a stale pre-mapping value.
   function handleSetCategoryTarget(
     category: string,
     target: CategoryMapping["target"],
   ) {
-    setCategoryMappings((prev) => {
-      const next = new Map(prev);
-      if (target === "ignore" || target === "cuisine") {
-        next.set(category, { target });
-      } else {
-        const options = target === "tag" ? tagOptions : flavorProfileOptions;
-        const match = options.find(
-          (option) =>
-            normalizeForMatch(option.displayName) ===
-            normalizeForMatch(category),
-        );
-        next.set(category, {
-          target,
-          selection: match ? `existing:${match.id}` : "create",
-        });
-      }
-      return next;
-    });
-    setMappingsApplied(false);
+    const next = new Map(categoryMappings);
+    if (target === "ignore" || target === "cuisine") {
+      next.set(category, { target });
+    } else {
+      const options = target === "tag" ? tagOptions : flavorProfileOptions;
+      const match = options.find(
+        (option) =>
+          normalizeForMatch(option.displayName) === normalizeForMatch(category),
+      );
+      next.set(category, {
+        target,
+        selection: match ? `existing:${match.id}` : "create",
+      });
+    }
+    setCategoryMappings(next);
+    setBatchDrafts((prev) =>
+      prev ? applyCuisineMappingsToDrafts(prev, next) : prev,
+    );
   }
 
   function handleSetCategorySelection(category: string, selection: string) {
@@ -557,7 +642,6 @@ export function PasteImportFlow({
       next.set(category, { target: current.target, selection });
       return next;
     });
-    setMappingsApplied(false);
   }
 
   // Applies any pending "cuisine" category mapping directly into the
@@ -567,13 +651,17 @@ export function PasteImportFlow({
   // authoritative instead of being overwritten on a later Apply/Import/
   // Retry. Pure/local — no Server Action calls — so it's safe to run from
   // "Apply mappings" as well as automatically before Import/Retry.
+  // Takes `mappings` explicitly (rather than closing over `categoryMappings`)
+  // so callers that just computed a new mapping value can apply it in the
+  // same tick, before that value has committed to state.
   function applyCuisineMappingsToDrafts(
     drafts: ArchiveImportDraft[],
+    mappings: Map<string, CategoryMapping>,
   ): ArchiveImportDraft[] {
     return drafts.map((draft, index) => {
       if (draft.status !== "ok" || !draft.sourceCategory) return draft;
       if (manualCuisineOverrides.has(index)) return draft;
-      const mapping = categoryMappings.get(draft.sourceCategory);
+      const mapping = mappings.get(draft.sourceCategory);
       if (mapping?.target !== "cuisine") return draft;
       const existingMatch = cuisineOptions.find(
         (option) =>
@@ -592,11 +680,6 @@ export function PasteImportFlow({
     });
   }
 
-  function handleApplyCategoryMappings() {
-    if (batchDrafts) setBatchDrafts(applyCuisineMappingsToDrafts(batchDrafts));
-    setMappingsApplied(true);
-  }
-
   // Resolves every pending "create a new Tag/Flavor profile" mapping into a
   // real id, via the same `createTag`/`createFlavorProfile` actions
   // Settings' managers use (normalized-name deduped, so re-resolving on a
@@ -611,10 +694,78 @@ export function PasteImportFlow({
     mappings: Map<string, CategoryMapping>;
     tagOptions: ImportTagOption[];
     flavorProfileOptions: ImportFlavorProfileOption[];
+    presetTagIdByName: Map<string, string>;
+    presetFlavorProfileIdByName: Map<string, string>;
   }> {
     const workingMappings = new Map(categoryMappings);
     let workingTagOptions = tagOptions;
     let workingFlavorProfileOptions = flavorProfileOptions;
+
+    // Task §1: preset Tags/Flavor profiles a source adapter already knows
+    // are exactly that (so far only `dishframe-json-import.ts`) — resolved
+    // the same dedup-safe way as a "Create new" Classifications mapping,
+    // but with no ambiguity to ask the user about, so this never touches
+    // `categoryMappings`. Deduped by name across every draft so re-importing
+    // several items sharing a Tag creates it at most once per commit.
+    const presetTagNames = new Set<string>();
+    const presetFlavorProfileNames = new Set<string>();
+    (batchDrafts ?? []).forEach((draft) => {
+      if (draft.status !== "ok") return;
+      draft.presetTags?.forEach((name) => presetTagNames.add(name));
+      draft.presetFlavorProfiles?.forEach((name) =>
+        presetFlavorProfileNames.add(name),
+      );
+    });
+
+    const presetTagIdByName = new Map<string, string>();
+    for (const name of presetTagNames) {
+      const match = workingTagOptions.find(
+        (option) =>
+          normalizeForMatch(option.displayName) === normalizeForMatch(name),
+      );
+      if (match) {
+        presetTagIdByName.set(name, match.id);
+        continue;
+      }
+      const formData = new FormData();
+      formData.set("name", name);
+      const result = await createTag(initialCreateTagActionState, formData);
+      if (result.status === "success" && result.tag) {
+        workingTagOptions = [
+          ...workingTagOptions,
+          { id: result.tag.id, displayName: result.tag.displayName },
+        ];
+        presetTagIdByName.set(name, result.tag.id);
+      }
+    }
+
+    const presetFlavorProfileIdByName = new Map<string, string>();
+    for (const name of presetFlavorProfileNames) {
+      const match = workingFlavorProfileOptions.find(
+        (option) =>
+          normalizeForMatch(option.displayName) === normalizeForMatch(name),
+      );
+      if (match) {
+        presetFlavorProfileIdByName.set(name, match.id);
+        continue;
+      }
+      const formData = new FormData();
+      formData.set("name", name);
+      const result = await createFlavorProfile(
+        initialCreateFlavorProfileActionState,
+        formData,
+      );
+      if (result.status === "success" && result.flavorProfile) {
+        workingFlavorProfileOptions = [
+          ...workingFlavorProfileOptions,
+          {
+            id: result.flavorProfile.id,
+            displayName: result.flavorProfile.displayName,
+          },
+        ];
+        presetFlavorProfileIdByName.set(name, result.flavorProfile.id);
+      }
+    }
 
     for (const { category } of categoryStats) {
       const mapping = workingMappings.get(category);
@@ -666,6 +817,8 @@ export function PasteImportFlow({
       mappings: workingMappings,
       tagOptions: workingTagOptions,
       flavorProfileOptions: workingFlavorProfileOptions,
+      presetTagIdByName,
+      presetFlavorProfileIdByName,
     };
   }
 
@@ -674,33 +827,48 @@ export function PasteImportFlow({
     mappings: Map<string, CategoryMapping>,
     tagOpts: ImportTagOption[],
     flavorOpts: ImportFlavorProfileOption[],
+    presetTagIdByName: Map<string, string>,
+    presetFlavorProfileIdByName: Map<string, string>,
   ): {
     tags: BulkImportMetadataRef[];
     flavorProfiles: BulkImportMetadataRef[];
   } {
-    if (!draft.sourceCategory) return { tags: [], flavorProfiles: [] };
-    const mapping = mappings.get(draft.sourceCategory);
-    if (
-      mapping?.target === "tag" &&
-      mapping.selection.startsWith("existing:")
-    ) {
-      const id = mapping.selection.slice("existing:".length);
-      const displayName =
-        tagOpts.find((option) => option.id === id)?.displayName ??
-        draft.sourceCategory;
-      return { tags: [{ id, displayName }], flavorProfiles: [] };
+    const tags: BulkImportMetadataRef[] = [];
+    const flavorProfiles: BulkImportMetadataRef[] = [];
+
+    draft.presetTags?.forEach((name) => {
+      const id = presetTagIdByName.get(name);
+      if (id) tags.push({ id, displayName: name });
+    });
+    draft.presetFlavorProfiles?.forEach((name) => {
+      const id = presetFlavorProfileIdByName.get(name);
+      if (id) flavorProfiles.push({ id, displayName: name });
+    });
+
+    if (draft.sourceCategory) {
+      const mapping = mappings.get(draft.sourceCategory);
+      if (
+        mapping?.target === "tag" &&
+        mapping.selection.startsWith("existing:")
+      ) {
+        const id = mapping.selection.slice("existing:".length);
+        const displayName =
+          tagOpts.find((option) => option.id === id)?.displayName ??
+          draft.sourceCategory;
+        tags.push({ id, displayName });
+      } else if (
+        mapping?.target === "flavorProfile" &&
+        mapping.selection.startsWith("existing:")
+      ) {
+        const id = mapping.selection.slice("existing:".length);
+        const displayName =
+          flavorOpts.find((option) => option.id === id)?.displayName ??
+          draft.sourceCategory;
+        flavorProfiles.push({ id, displayName });
+      }
     }
-    if (
-      mapping?.target === "flavorProfile" &&
-      mapping.selection.startsWith("existing:")
-    ) {
-      const id = mapping.selection.slice("existing:".length);
-      const displayName =
-        flavorOpts.find((option) => option.id === id)?.displayName ??
-        draft.sourceCategory;
-      return { tags: [], flavorProfiles: [{ id, displayName }] };
-    }
-    return { tags: [], flavorProfiles: [] };
+
+    return { tags, flavorProfiles };
   }
 
   function buildBulkImportItemInput(
@@ -709,8 +877,17 @@ export function PasteImportFlow({
     mappings: Map<string, CategoryMapping>,
     tagOpts: ImportTagOption[],
     flavorOpts: ImportFlavorProfileOption[],
+    presetTagIdByName: Map<string, string>,
+    presetFlavorProfileIdByName: Map<string, string>,
   ): BulkImportItemInput {
-    const metadata = metadataForDraft(draft, mappings, tagOpts, flavorOpts);
+    const metadata = metadataForDraft(
+      draft,
+      mappings,
+      tagOpts,
+      flavorOpts,
+      presetTagIdByName,
+      presetFlavorProfileIdByName,
+    );
     return {
       sourceRef: draft.sourceRef,
       kind: batchDraftKinds.get(index) ?? "RECIPE",
@@ -746,9 +923,13 @@ export function PasteImportFlow({
       const segmentStart = (chunkIndex / totalChunks) * 100;
       const segmentEnd = ((chunkIndex + 1) / totalChunks) * 100;
       const cap = segmentStart + (segmentEnd - segmentStart) * 0.9;
+      // Task §8: live-QA found the synthetic interpolation reaching (and
+      // stalling near) each chunk boundary well before the real batch
+      // finished — slowed to roughly two-thirds of the prior per-tick step
+      // (0.15 → 0.1) rather than pretending the estimate is authoritative.
       const interval = setInterval(() => {
         setImportProgress((prev) =>
-          prev >= cap ? prev : prev + (cap - prev) * 0.15,
+          prev >= cap ? prev : prev + (cap - prev) * 0.1,
         );
       }, 150);
 
@@ -787,16 +968,88 @@ export function PasteImportFlow({
     });
   }
 
-  async function handleImportClick() {
-    if (!batchDrafts || batchSelection.size === 0) return;
-    const drafts = applyCuisineMappingsToDrafts(batchDrafts);
+  // Task §12: what happened to each mapped source classification this
+  // commit — only mapped (non-"ignore") categories with at least one
+  // successfully-imported item are reported; "created" vs "reused" is
+  // determined by comparing the resolved id against the option lists as
+  // they stood *before* this commit's resolve step.
+  function computeClassificationOutcomes(
+    drafts: ArchiveImportDraft[],
+    items: Array<{ index: number; input: BulkImportItemInput }>,
+    results: BulkImportItemResult[],
+    mappings: Map<string, CategoryMapping>,
+    tagOptsBefore: ImportTagOption[],
+    tagOptsAfter: ImportTagOption[],
+    flavorOptsBefore: ImportFlavorProfileOption[],
+    flavorOptsAfter: ImportFlavorProfileOption[],
+  ): ClassificationOutcome[] {
+    const succeededRefs = new Set(
+      results
+        .filter((result) => result.status === "success")
+        .map((result) => result.sourceRef),
+    );
+    const outcomes: ClassificationOutcome[] = [];
+
+    for (const [category, mapping] of mappings.entries()) {
+      if (mapping.target === "ignore") continue;
+      const appliedCount = items.filter((item) => {
+        if (!succeededRefs.has(item.input.sourceRef)) return false;
+        const draft = drafts[item.index];
+        return draft.status === "ok" && draft.sourceCategory === category;
+      }).length;
+      if (appliedCount === 0) continue;
+
+      if (mapping.target === "cuisine") {
+        outcomes.push({
+          category,
+          target: "cuisine",
+          action: "applied",
+          displayName: category,
+          appliedCount,
+        });
+        continue;
+      }
+
+      if (!mapping.selection.startsWith("existing:")) continue;
+      const id = mapping.selection.slice("existing:".length);
+      const [optsBefore, optsAfter] =
+        mapping.target === "tag"
+          ? [tagOptsBefore, tagOptsAfter]
+          : [flavorOptsBefore, flavorOptsAfter];
+      const displayName =
+        optsAfter.find((option) => option.id === id)?.displayName ?? category;
+      const wasCreated = !optsBefore.some((option) => option.id === id);
+      outcomes.push({
+        category,
+        target: mapping.target,
+        action: wasCreated ? "created" : "reused",
+        displayName,
+        appliedCount,
+      });
+    }
+
+    return outcomes;
+  }
+
+  async function commitBulkImport(indices: number[]): Promise<{
+    items: Array<{ index: number; input: BulkImportItemInput }>;
+    results: BulkImportItemResult[];
+  } | null> {
+    if (!batchDrafts) {
+      setBatchImporting(false);
+      return null;
+    }
+    const drafts = applyCuisineMappingsToDrafts(batchDrafts, categoryMappings);
     setBatchDrafts(drafts);
+    const tagOptsBefore = tagOptions;
+    const flavorOptsBefore = flavorProfileOptions;
     const {
       mappings,
       tagOptions: tagOpts,
       flavorProfileOptions: flavorOpts,
+      presetTagIdByName,
+      presetFlavorProfileIdByName,
     } = await resolveMetadataMappingsForCommit();
-    const indices = [...batchSelection].sort((a, b) => a - b);
 
     const blocked = indices.filter((index) => {
       const draft = drafts[index];
@@ -806,9 +1059,10 @@ export function PasteImportFlow({
       );
     });
     if (blocked.length > 0) {
+      setBatchImporting(false);
       setPreflightBlockedIndices(blocked);
       setPreflightBlockOpen(true);
-      return;
+      return null;
     }
 
     const items: Array<{ index: number; input: BulkImportItemInput }> = [];
@@ -823,15 +1077,58 @@ export function PasteImportFlow({
           mappings,
           tagOpts,
           flavorOpts,
+          presetTagIdByName,
+          presetFlavorProfileIdByName,
         ),
       });
     }
-    if (items.length === 0) return;
+    if (items.length === 0) {
+      setBatchImporting(false);
+      return null;
+    }
 
-    setBatchImporting(true);
     const results = await runChunkedConfirm(items);
-    setBatchImporting(false);
     applyBulkResults(items, results);
+
+    const outcomes = computeClassificationOutcomes(
+      drafts,
+      items,
+      results,
+      mappings,
+      tagOptsBefore,
+      tagOpts,
+      flavorOptsBefore,
+      flavorOpts,
+    );
+    setClassificationOutcomes((prev) =>
+      mergeClassificationOutcomes(prev, outcomes),
+    );
+    const warnings = results.flatMap((result) =>
+      result.status === "success" ? (result.metadataWarnings ?? []) : [],
+    );
+    if (warnings.length > 0) {
+      setClassificationWarnings((prev) => [
+        ...prev,
+        ...warnings.filter((warning) => !prev.includes(warning)),
+      ]);
+    }
+
+    setBatchImporting(false);
+    return { items, results };
+  }
+
+  async function handleImportClick() {
+    if (!batchDrafts || batchSelection.size === 0) return;
+    // Task §8: the batch-progress modal renders on the very first tick of
+    // this click — every async step below (resolving "Create new"
+    // Tags/Flavor profiles, then the chunked confirm calls) happens while
+    // it's already showing, instead of leaving the user on the page with
+    // no feedback until the first server round trip lands.
+    setBatchImporting(true);
+    const indices = [...batchSelection].sort((a, b) => a - b);
+    const outcome = await commitBulkImport(indices);
+    if (!outcome) return;
+    const { items, results } = outcome;
 
     let importedRecipes = 0;
     let importedParts = 0;
@@ -870,45 +1167,10 @@ export function PasteImportFlow({
       .filter((index) => batchDrafts[index]?.status === "ok");
     if (failedIndices.length === 0) return;
 
-    const drafts = applyCuisineMappingsToDrafts(batchDrafts);
-    setBatchDrafts(drafts);
-    const {
-      mappings,
-      tagOptions: tagOpts,
-      flavorProfileOptions: flavorOpts,
-    } = await resolveMetadataMappingsForCommit();
-
-    const blocked = failedIndices.filter((index) => {
-      const draft = drafts[index];
-      return (
-        draft.status === "ok" &&
-        !validateDishContentForPersistence(draft.result.values).ok
-      );
-    });
-    if (blocked.length > 0) {
-      setPreflightBlockedIndices(blocked);
-      setPreflightBlockOpen(true);
-      return;
-    }
-
-    const items = failedIndices.map((index) => {
-      const draft = drafts[index] as OkArchiveDraft;
-      return {
-        index,
-        input: buildBulkImportItemInput(
-          draft,
-          index,
-          mappings,
-          tagOpts,
-          flavorOpts,
-        ),
-      };
-    });
-
     setBatchImporting(true);
-    const results = await runChunkedConfirm(items);
-    setBatchImporting(false);
-    applyBulkResults(items, results);
+    const outcome = await commitBulkImport(failedIndices);
+    if (!outcome) return;
+    const { items, results } = outcome;
 
     const succeeded = results.filter(
       (result) => result.status === "success",
@@ -954,7 +1216,22 @@ export function PasteImportFlow({
 
   // Single-item Save confirmation: `DishEditor` awaits this before
   // persisting a create-mode Save; resolving `null` is a cancel.
+  // Task §14: traced the single-item Import submit path end to end — see
+  // the completion report for what was and wasn't confirmed. This one
+  // concrete control-flow gap was found and fixed by inspection: a second
+  // `requestSaveTarget()` call (e.g. a second Save attempt while this
+  // dialog is still open) replaced `saveTargetResolver` with a new
+  // resolver, leaving the *first* call's Promise — and the `performSave`
+  // awaiting it — permanently unresolved. Resolving any still-pending
+  // resolver with `null` (a cancel) before installing the new one closes
+  // that gap without ever retrying a save.
   function requestSaveTarget(): Promise<DishKindValue | null> {
+    setSaveTargetResolver(
+      (prevResolve: ((choice: DishKindValue | null) => void) | null) => {
+        prevResolve?.(null);
+        return null;
+      },
+    );
     return new Promise((resolve) => {
       setSaveTargetResolver(() => resolve);
     });
@@ -1159,17 +1436,9 @@ export function PasteImportFlow({
       (index) => (batchDraftKinds.get(index) ?? "RECIPE") === "RECIPE",
     ).length;
     const selectedPartCount = selectedOkIndices.length - selectedRecipeCount;
-    const selectionCountsLabel = [
-      selectedRecipeCount > 0
-        ? pluralize(selectedRecipeCount, "Recipe", "Recipes")
-        : null,
-      selectedPartCount > 0
-        ? pluralize(selectedPartCount, "Part", "Parts")
-        : null,
-    ]
-      .filter((segment): segment is string => segment !== null)
-      .join(" · ");
 
+    // Task §7: the paragraph that used to repeat this count above the
+    // button is gone — the button's own label already says it.
     const importButtonLabel =
       selectedRecipeCount > 0 && selectedPartCount > 0
         ? `Import ${batchSelection.size} items`
@@ -1185,6 +1454,12 @@ export function PasteImportFlow({
       const draftParserNeedsReview =
         draft.status === "ok" && draft.result.needsReviewCount > 0;
       const draftPreflightFailed = preflightIssuesByIndex.has(index);
+      // Follow-up: a DishFrame JSON export's linked Parts are dropped
+      // during normalization (never resolved/reconnected in this pass) —
+      // surfaced here, before Import, so this structural loss is never a
+      // surprise discovered only after saving.
+      const draftHasDroppedPartLinks =
+        draft.status === "ok" && (draft.droppedLinkedPartsCount ?? 0) > 0;
       const rowResult = batchResults?.get(index);
       const rowKind = batchDraftKinds.get(index) ?? "RECIPE";
 
@@ -1221,7 +1496,19 @@ export function PasteImportFlow({
             <Badge variant="destructive">
               <CircleX /> Couldn&apos;t be read
             </Badge>
-          ) : draftParserNeedsReview || draftPreflightFailed ? (
+          ) : reviewedIndices.has(index) ? (
+            // Task §4: deliberately distinct from the plain "Ready" badge
+            // below — this communicates "you looked at this," not just
+            // "the parser found nothing wrong."
+            <Badge
+              variant="outline"
+              className="border-brand-green/40 bg-brand-green/10 text-brand-green-text"
+            >
+              <CircleCheck /> Reviewed
+            </Badge>
+          ) : draftParserNeedsReview ||
+            draftPreflightFailed ||
+            draftHasDroppedPartLinks ? (
             <Badge
               variant="outline"
               className="border-brand-orange/40 bg-brand-orange/10 text-brand-orange-text"
@@ -1236,6 +1523,12 @@ export function PasteImportFlow({
           {draft.status === "error" && !rowResult && (
             <p className="text-muted-foreground w-full text-xs">
               {draft.message}
+            </p>
+          )}
+          {draftHasDroppedPartLinks && !rowResult && (
+            <p className="text-brand-orange-text w-full text-xs">
+              This item&apos;s linked Parts won&apos;t be restored — reconnect
+              them manually after import.
             </p>
           )}
           {rowResult?.status === "error" && (
@@ -1295,7 +1588,35 @@ export function PasteImportFlow({
           importedParts++;
         else importedRecipes++;
       });
-      const targetPath = resultsTargetPath(importedRecipes, importedParts);
+      // Task §11: considers every result row (failed and succeeded), not
+      // just successes, so a batch that only failed to import a Part still
+      // reads "Parts" rather than defaulting to "Recipes".
+      const recipesPresent = [...batchResults.keys()].some(
+        (index) => (batchDraftKinds.get(index) ?? "RECIPE") === "RECIPE",
+      );
+      const partsPresent = [...batchResults.keys()].some(
+        (index) => (batchDraftKinds.get(index) ?? "RECIPE") === "PART",
+      );
+      const resultsHeading =
+        recipesPresent && partsPresent
+          ? "Recipes & Parts"
+          : partsPresent
+            ? "Parts"
+            : "Recipes";
+
+      // Task §9: route-based, matching whichever of /recipes/import or
+      // /parts/import this flow was entered from — not the batch's actual
+      // content mix, so it stays a stable pair of destinations.
+      const navActions = (
+        <div className="flex flex-wrap gap-2">
+          <Button asChild>
+            <Link href={basePath}>Go to {collectionLabel.toLowerCase()}</Link>
+          </Button>
+          <Button type="button" variant="outline" onClick={performDiscardBatch}>
+            Import another {kindLabel.toLowerCase()}
+          </Button>
+        </div>
+      );
 
       return (
         <div className="mx-auto flex max-w-3xl flex-col gap-6 pb-24">
@@ -1307,28 +1628,28 @@ export function PasteImportFlow({
           />
 
           <section className="flex flex-col gap-3">
-            <h1 className="font-heading text-foreground text-2xl font-semibold">
-              Results
-            </h1>
-            <div className="border-border bg-card rounded-lg border p-4">
-              <p className="text-foreground text-sm">
-                {buildResultsSummary(
-                  succeededEntries.length,
-                  failedEntries.length,
-                )}
-              </p>
-            </div>
+            <p className="text-foreground text-lg font-medium">
+              {buildResultsHeadline(
+                importedRecipes,
+                importedParts,
+                failedEntries.length,
+              )}
+            </p>
+            {navActions}
           </section>
 
           {failedEntries.length > 0 && (
             <section className="flex flex-col gap-3">
               <div>
                 <h2 className="font-heading text-lg font-medium">
-                  Failed to import
+                  {resultsHeading}
                 </h2>
+                <h3 className="text-foreground mt-2 text-sm font-medium">
+                  Failed to import
+                </h3>
                 <p className="text-muted-foreground text-sm">
                   These still need attention. Review a draft to fix it, then
-                  retry — successful retries move here to Recipes/Parts added.
+                  retry — successful retries move here to Successfully imported.
                 </p>
               </div>
               <ul className="flex flex-col gap-2">
@@ -1415,9 +1736,14 @@ export function PasteImportFlow({
 
           {succeededEntries.length > 0 && (
             <section className="flex flex-col gap-3">
-              <h2 className="font-heading text-lg font-medium">
-                {successSectionLabel(importedRecipes, importedParts)}
-              </h2>
+              {failedEntries.length === 0 && (
+                <h2 className="font-heading text-lg font-medium">
+                  {resultsHeading}
+                </h2>
+              )}
+              <h3 className="text-foreground text-sm font-medium">
+                Successfully imported
+              </h3>
               <ul className="flex flex-col gap-2">
                 {succeededEntries.map(([index, result]) => {
                   const draft = batchDrafts[index];
@@ -1439,14 +1765,30 @@ export function PasteImportFlow({
                         <Badge variant="outline">
                           {rowKind === "PART" ? "Part" : "Recipe"}
                         </Badge>
+                        {/* Task §10: opens the ordinary Recipe/Part Details
+                            page in a new tab so the results page (and its
+                            context — what succeeded/failed) stays intact in
+                            this tab, with no Import-specific details variant
+                            or custom back-navigation. */}
                         <Button asChild variant="ghost" size="sm">
                           <Link
                             href={`${rowKind === "PART" ? "/parts" : "/recipes"}/${result.dishId}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
                           >
                             View
                           </Link>
                         </Button>
                       </div>
+                      {(draft.droppedLinkedPartsCount ?? 0) > 0 && (
+                        <p className="border-brand-orange/40 bg-brand-orange/10 text-brand-orange-text flex items-start gap-2 rounded-lg border px-3 py-2 text-xs">
+                          <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
+                          <span>
+                            This item&apos;s linked Parts weren&apos;t restored
+                            — reconnect them manually.
+                          </span>
+                        </p>
+                      )}
                       {warnings.length > 0 && (
                         <p className="border-brand-orange/40 bg-brand-orange/10 text-brand-orange-text flex items-start gap-2 rounded-lg border px-3 py-2 text-xs">
                           <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
@@ -1463,20 +1805,48 @@ export function PasteImportFlow({
             </section>
           )}
 
-          <div className="flex flex-wrap gap-2">
-            <Button asChild>
-              <Link href={targetPath}>
-                Go to {targetPath === "/parts" ? "Parts" : "Recipes"}
-              </Link>
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={performDiscardBatch}
-            >
-              Import another file
-            </Button>
-          </div>
+          {(classificationOutcomes.length > 0 ||
+            classificationWarnings.length > 0) && (
+            <section className="flex flex-col gap-3">
+              <h2 className="font-heading text-lg font-medium">
+                Classifications
+              </h2>
+              {classificationOutcomes.length > 0 && (
+                <ul className="flex flex-col gap-2">
+                  {classificationOutcomes.map((outcome) => (
+                    <li
+                      key={`${outcome.target}:${outcome.category}`}
+                      className="border-border bg-card rounded-lg border p-3 text-sm"
+                    >
+                      {outcome.target === "cuisine" ? (
+                        <>
+                          Cuisine &quot;{outcome.displayName}&quot; applied to{" "}
+                          {pluralize(outcome.appliedCount, "item", "items")}.
+                        </>
+                      ) : (
+                        <>
+                          {outcome.target === "tag" ? "Tag" : "Flavor profile"}{" "}
+                          &quot;{outcome.displayName}&quot;{" "}
+                          {outcome.action === "created" ? "created" : "reused"},
+                          applied to{" "}
+                          {pluralize(outcome.appliedCount, "item", "items")}.
+                        </>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {classificationWarnings.length > 0 && (
+                <ul className="text-muted-foreground flex flex-col gap-1 text-sm">
+                  {classificationWarnings.map((warning) => (
+                    <li key={warning}>{warning}</li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          )}
+
+          {navActions}
 
           {/* Retry (task §14) can trigger the same preflight block as the
               initial import — this branch returns before the list-view's
@@ -1486,15 +1856,104 @@ export function PasteImportFlow({
       );
     }
 
-    const needsReviewRows: [number, ArchiveImportDraft][] = [];
+    // Task §2/§4: "flagged" ok drafts (parser needs-review or a preflight
+    // problem) are the "Needs review" group; error-status ("couldn't be
+    // read") drafts are never selectable/importable at all and are shown
+    // in the same group but kept out of every "N ready / M need review"
+    // count — those two numbers describe only the importable ok drafts, so
+    // they always sum to `okCount`.
+    const flaggedOkRows: [number, ArchiveImportDraft][] = [];
     const readyRows: [number, ArchiveImportDraft][] = [];
+    const errorRows: [number, ArchiveImportDraft][] = [];
     batchDrafts.forEach((draft, index) => {
+      if (draft.status === "error") {
+        errorRows.push([index, draft]);
+        return;
+      }
       const flagged =
-        draft.status === "error" ||
-        (draft.status === "ok" && draft.result.needsReviewCount > 0) ||
-        preflightIssuesByIndex.has(index);
-      (flagged ? needsReviewRows : readyRows).push([index, draft]);
+        draft.result.needsReviewCount > 0 ||
+        preflightIssuesByIndex.has(index) ||
+        (draft.droppedLinkedPartsCount ?? 0) > 0;
+      (flagged ? flaggedOkRows : readyRows).push([index, draft]);
     });
+    // Task §4: reviewed items sink to the bottom of the group, computed
+    // fresh at render time (a stable sort preserves relative order within
+    // each of the two buckets) so the final position is what's shown the
+    // very first time this list re-renders after "Finish review" — never a
+    // separate reorder pass the user could see happen.
+    flaggedOkRows.sort(
+      (a, b) =>
+        (reviewedIndices.has(a[0]) ? 1 : 0) -
+        (reviewedIndices.has(b[0]) ? 1 : 0),
+    );
+    const needsReviewRows = [...flaggedOkRows, ...errorRows];
+
+    function groupSelectableIndices(rows: [number, ArchiveImportDraft][]) {
+      return rows
+        .filter(([, draft]) => draft.status === "ok")
+        .map(([index]) => index);
+    }
+    function selectAllInGroup(rows: [number, ArchiveImportDraft][]) {
+      const indices = groupSelectableIndices(rows);
+      setBatchSelection((prev) => new Set([...prev, ...indices]));
+    }
+    function selectNoneInGroup(rows: [number, ArchiveImportDraft][]) {
+      const indices = new Set(groupSelectableIndices(rows));
+      setBatchSelection(
+        (prev) => new Set([...prev].filter((i) => !indices.has(i))),
+      );
+    }
+    function groupSelectedCount(rows: [number, ArchiveImportDraft][]) {
+      return groupSelectableIndices(rows).filter((index) =>
+        batchSelection.has(index),
+      ).length;
+    }
+
+    // Task §2: one shared selection-controls row (global + both scoped
+    // subsections) rather than three unrelated implementations — the count
+    // sits to the right of the buttons when there's room, and wraps
+    // underneath on narrower widths since it's a separate flex child on a
+    // wrapping flex row.
+    function renderSelectionControls(
+      rows: [number, ArchiveImportDraft][],
+      extra?: React.ReactNode,
+    ) {
+      const total = groupSelectableIndices(rows).length;
+      if (total === 0) return null;
+      return (
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={batchImporting}
+              onClick={() => selectAllInGroup(rows)}
+            >
+              Select all
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={batchImporting}
+              onClick={() => selectNoneInGroup(rows)}
+            >
+              Select none
+            </Button>
+            {extra}
+          </div>
+          <span className="text-muted-foreground text-sm">
+            {groupSelectedCount(rows)} / {total} selected
+          </span>
+        </div>
+      );
+    }
+
+    const allSelectableRows: [number, ArchiveImportDraft][] = [
+      ...readyRows,
+      ...flaggedOkRows,
+    ];
 
     return (
       <div className="mx-auto flex max-w-3xl flex-col gap-4 pb-24">
@@ -1505,30 +1964,93 @@ export function PasteImportFlow({
           ]}
         />
         <h1 className="font-heading text-foreground text-2xl font-semibold">
-          {batchDrafts.length} {batchDrafts.length === 1 ? "recipe" : "recipes"}{" "}
-          found
-        </h1>
-        <p className="text-muted-foreground text-sm">
           {okCount} ready to import
-          {needsReviewRows.length > 0
-            ? ` (${needsReviewRows.length} need review)`
+          {flaggedOkRows.length > 0
+            ? ` (${flaggedOkRows.length} need review)`
             : ""}
-          {errorCount > 0
-            ? `, ${errorCount} couldn't be read and will be skipped`
-            : ""}
-          .
-        </p>
+        </h1>
+        {errorCount > 0 && (
+          <p className="text-muted-foreground text-sm">
+            {errorCount} couldn&apos;t be read and will be skipped.
+          </p>
+        )}
+
+        <section className="flex flex-col gap-3">
+          <div>
+            <h2 className="font-heading text-lg font-medium">
+              {collectionLabel}
+            </h2>
+            <p className="text-muted-foreground text-sm">
+              Choose what each item becomes in DishFrame. Recipes are standalone
+              dishes; Parts are reusable components that can be included in
+              other recipes.
+            </p>
+          </div>
+          {batchResults === null &&
+            renderSelectionControls(
+              allSelectableRows,
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                disabled={batchImporting}
+                onClick={requestDiscardBatch}
+              >
+                Discard import
+              </Button>,
+            )}
+        </section>
+
+        {needsReviewRows.length > 0 && (
+          <section className="mt-2 flex flex-col gap-3">
+            <div className="flex flex-col gap-1">
+              <h3 className="font-heading text-base font-medium">
+                Needs review
+              </h3>
+              <p className="text-muted-foreground text-sm">
+                The importer found content in these it couldn&apos;t confidently
+                place, or a problem that would block saving. That doesn&apos;t
+                mean the whole item is wrong — open Review to check, correct, or
+                move the flagged content.
+              </p>
+            </div>
+            {batchResults === null && renderSelectionControls(flaggedOkRows)}
+            <ul className="flex flex-col gap-2">
+              {needsReviewRows.map(([index, draft]) =>
+                renderDraftRow(index, draft),
+              )}
+            </ul>
+          </section>
+        )}
+
+        {readyRows.length > 0 && (
+          <section className="mt-2 flex flex-col gap-3">
+            <div className="flex flex-col gap-1">
+              <h3 className="font-heading text-base font-medium">
+                Ready to import
+              </h3>
+              <p className="text-muted-foreground text-sm">
+                No obvious issues found when parsing these recipes.
+              </p>
+            </div>
+            {batchResults === null && renderSelectionControls(readyRows)}
+            <ul className="flex flex-col gap-2">
+              {readyRows.map(([index, draft]) => renderDraftRow(index, draft))}
+            </ul>
+          </section>
+        )}
 
         {categoryStats.length > 0 && (
-          <section className="border-border bg-card flex flex-col gap-3 rounded-lg border p-4">
+          <section className="mt-2 flex flex-col gap-3">
             <div>
               <h2 className="font-heading text-lg font-medium">
-                Source categories
+                Classifications
               </h2>
               <p className="text-muted-foreground text-sm">
-                Recipe Gallery categories like these stay source metadata, not
-                cuisine, unless you map them below. Detected matches against
-                your existing Tags/Flavor profiles are pre-selected.
+                These classifications were found on your{" "}
+                {collectionLabel.toLowerCase()}. If you want to keep them,
+                choose how you&apos;d like to preserve them: as a cuisine, tag,
+                or flavor profile. Or ignore them and remove them.
               </p>
             </div>
             <ul className="flex flex-col gap-2">
@@ -1541,167 +2063,118 @@ export function PasteImportFlow({
                   mapping.target === "flavorProfile";
                 const options =
                   mapping.target === "tag" ? tagOptions : flavorProfileOptions;
+                const isNew = isTagOrFlavor && mapping.selection === "create";
+                const targetLabel =
+                  mapping.target === "tag" ? "tag" : "flavor profile";
                 return (
                   <li
                     key={category}
-                    className="border-border flex flex-wrap items-center gap-2 rounded-lg border p-2"
+                    className="border-border rounded-lg border p-2"
                   >
-                    <span className="text-foreground min-w-0 flex-1 text-sm font-medium">
-                      {category}
-                    </span>
-                    <Badge variant="outline">
-                      {pluralize(count, "recipe", "recipes")}
-                    </Badge>
-                    <Select
-                      value={mapping.target}
-                      onValueChange={(value) =>
-                        handleSetCategoryTarget(
-                          category,
-                          value as CategoryMapping["target"],
-                        )
-                      }
-                    >
-                      <SelectTrigger
-                        className="w-36"
-                        aria-label={`Map "${category}" to`}
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="ignore">Ignore</SelectItem>
-                        <SelectItem value="cuisine">Cuisine</SelectItem>
-                        <SelectItem value="tag">Tag</SelectItem>
-                        <SelectItem value="flavorProfile">
-                          Flavor profile
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                    {isTagOrFlavor && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-foreground min-w-0 flex-1 text-sm font-medium">
+                        {category}
+                      </span>
+                      <Badge variant="outline">
+                        {pluralize(
+                          count,
+                          kindLabel.toLowerCase(),
+                          collectionLabel.toLowerCase(),
+                        )}
+                      </Badge>
                       <Select
-                        value={mapping.selection}
+                        value={mapping.target}
                         onValueChange={(value) =>
-                          handleSetCategorySelection(category, value)
+                          handleSetCategoryTarget(
+                            category,
+                            value as CategoryMapping["target"],
+                          )
                         }
                       >
                         <SelectTrigger
-                          className="w-56"
-                          aria-label={`Map "${category}" to which ${mapping.target === "tag" ? "tag" : "flavor profile"}`}
+                          className="w-36"
+                          aria-label={`Map "${category}" to`}
                         >
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="create">
-                            Create new{" "}
-                            {mapping.target === "tag"
-                              ? "tag"
-                              : "flavor profile"}
-                            : &quot;{category}&quot;
+                          <SelectItem value="ignore">Ignore</SelectItem>
+                          <SelectItem value="cuisine">Cuisine</SelectItem>
+                          <SelectItem value="tag">Tag</SelectItem>
+                          <SelectItem value="flavorProfile">
+                            Flavor profile
                           </SelectItem>
-                          {options.map((option) => (
-                            <SelectItem
-                              key={option.id}
-                              value={`existing:${option.id}`}
-                            >
-                              {option.displayName}
-                            </SelectItem>
-                          ))}
                         </SelectContent>
                       </Select>
+                    </div>
+                    {/* Task §6: expands the row downward — the top row's
+                        own controls never move — instead of inserting a
+                        second dropdown beside the first that would shift it. */}
+                    {isTagOrFlavor && (
+                      <div className="border-border/60 mt-2 flex flex-col gap-2 border-t pt-2">
+                        <p className="text-muted-foreground text-xs">
+                          Create a new {targetLabel}, or use one you already
+                          have.
+                        </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="flex items-center gap-2 text-sm">
+                            <Checkbox
+                              checked={isNew}
+                              disabled={options.length === 0}
+                              aria-label={`Create a new ${targetLabel} for "${category}"`}
+                              onCheckedChange={(checked) =>
+                                handleSetCategorySelection(
+                                  category,
+                                  checked
+                                    ? "create"
+                                    : options[0]
+                                      ? `existing:${options[0].id}`
+                                      : "create",
+                                )
+                              }
+                            />
+                            New
+                          </span>
+                          <Select
+                            value={
+                              !isNew
+                                ? mapping.selection
+                                : options[0]
+                                  ? `existing:${options[0].id}`
+                                  : undefined
+                            }
+                            disabled={isNew || options.length === 0}
+                            onValueChange={(value) =>
+                              handleSetCategorySelection(category, value)
+                            }
+                          >
+                            <SelectTrigger
+                              className="w-56"
+                              aria-label={`Use an existing ${targetLabel} for "${category}"`}
+                            >
+                              <SelectValue
+                                placeholder={`No existing ${targetLabel}s yet`}
+                              />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {options.map((option) => (
+                                <SelectItem
+                                  key={option.id}
+                                  value={`existing:${option.id}`}
+                                >
+                                  {option.displayName}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
                     )}
                   </li>
                 );
               })}
             </ul>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="self-start"
-              onClick={handleApplyCategoryMappings}
-            >
-              Apply mappings
-            </Button>
-            {mappingsApplied && (
-              <p className="text-brand-green-text text-sm">
-                Cuisine mappings applied to the matching recipes below. New
-                Tags/Flavor profiles are created when you import.
-              </p>
-            )}
           </section>
-        )}
-
-        {batchResults === null && (
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={batchImporting}
-              onClick={handleSelectAllReady}
-            >
-              Select all ready
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={batchImporting}
-              onClick={handleSelectNone}
-            >
-              Select none
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              size="sm"
-              disabled={batchImporting}
-              onClick={requestDiscardBatch}
-            >
-              Discard import
-            </Button>
-          </div>
-        )}
-
-        <p className="text-muted-foreground text-sm">
-          Choose what each item becomes in DishFrame. Recipes are standalone
-          dishes; Parts are reusable components that can be included in other
-          recipes.
-        </p>
-
-        {needsReviewRows.length > 0 && (
-          <section className="flex flex-col gap-3">
-            <div>
-              <h2 className="font-heading text-lg font-medium">Needs review</h2>
-              <p className="text-muted-foreground text-sm">
-                The importer found content in these it couldn&apos;t confidently
-                place, or a problem that would block saving. That doesn&apos;t
-                mean the whole item is wrong — open Review to check, correct, or
-                move the flagged content.
-              </p>
-            </div>
-            <ul className="flex flex-col gap-2">
-              {needsReviewRows.map(([index, draft]) =>
-                renderDraftRow(index, draft),
-              )}
-            </ul>
-          </section>
-        )}
-
-        {readyRows.length > 0 && (
-          <section className="flex flex-col gap-3">
-            <h2 className="font-heading text-lg font-medium">
-              Ready to import
-            </h2>
-            <ul className="flex flex-col gap-2">
-              {readyRows.map(([index, draft]) => renderDraftRow(index, draft))}
-            </ul>
-          </section>
-        )}
-
-        {selectionCountsLabel && (
-          <p className="text-muted-foreground text-sm">
-            {selectionCountsLabel}
-          </p>
         )}
 
         {error && (
@@ -1714,26 +2187,7 @@ export function PasteImportFlow({
           </p>
         )}
 
-        {batchImporting ? (
-          <div className="flex flex-col gap-2">
-            <div
-              role="progressbar"
-              aria-valuenow={Math.round(importProgress)}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              className="bg-muted h-2 w-full overflow-hidden rounded-full"
-            >
-              <div
-                className="bg-primary h-full rounded-full transition-[width] duration-150 ease-linear"
-                style={{ width: `${importProgress}%` }}
-              />
-            </div>
-            <p className="text-muted-foreground text-sm">Importing recipes…</p>
-            <p className="text-muted-foreground text-sm">
-              This may take a moment. Keep this page open.
-            </p>
-          </div>
-        ) : (
+        {!batchImporting && (
           <Button
             type="button"
             onClick={handleImportClick}
@@ -1753,6 +2207,39 @@ export function PasteImportFlow({
           destructive
           onConfirmAction={performDiscardBatch}
         />
+
+        {/* Task §8: renders on the same click that starts the import — see
+            `handleImportClick`, which flips `batchImporting` before any of
+            its async work (resolving "Create new" mappings, then the
+            chunked confirm calls) begins. Not dismissible: no close button,
+            outside click, or Escape — the same click-guard `Discard
+            import`'s absence already gives the row-selection controls. */}
+        <Dialog open={batchImporting}>
+          <DialogContent
+            showCloseButton={false}
+            onEscapeKeyDown={(event) => event.preventDefault()}
+            onInteractOutside={(event) => event.preventDefault()}
+          >
+            <DialogHeader>
+              <DialogTitle>Importing…</DialogTitle>
+              <DialogDescription>
+                This may take a moment. Keep this page open.
+              </DialogDescription>
+            </DialogHeader>
+            <div
+              role="progressbar"
+              aria-valuenow={Math.round(importProgress)}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              className="bg-muted h-2 w-full overflow-hidden rounded-full"
+            >
+              <div
+                className="bg-primary h-full rounded-full transition-[width] duration-150 ease-linear"
+                style={{ width: `${importProgress}%` }}
+              />
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {renderPreflightBlockDialog()}
       </div>
@@ -1839,14 +2326,14 @@ export function PasteImportFlow({
             onFileSelectedAction={handleFileSelectedFromDropzone}
             disabled={isParsing}
             label={`Drop a ${kindLabel.toLowerCase()} file here, or click to choose`}
-            helpText="Supports .md, .txt, and .rga (Recipe Gallery export) files."
+            helpText="Supports .md, .txt, .rga (Recipe Gallery export), and .json (DishFrame export) files."
           />
           <FieldDescription>
-            A .md or .txt file is read the same way as pasted text; a .rga
-            export is extracted into a list of recipes you can review, classify
-            as a recipe or a Part, and import individually or all at once.
-            Uploaded files are never stored — nothing is saved until you review
-            and confirm.
+            A .md or .txt file is read the same way as pasted text; a .rga or
+            DishFrame .json export is extracted into a list you can review,
+            classify as a recipe or a Part, and import individually or all at
+            once. Uploaded files are never stored — nothing is saved until you
+            review and confirm.
           </FieldDescription>
         </Field>
       )}

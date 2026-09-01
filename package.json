@@ -56,6 +56,7 @@
     "cleanup:recipes:production": "node scripts/cleanup-recipes-production.mjs",
     "cleanup:parts:local": "NODE_OPTIONS=--conditions=react-server tsx scripts/cleanup-parts.ts",
     "cleanup:parts:production": "node scripts/cleanup-parts-production.mjs",
+    "qa:generate-import-fixture": "tsx scripts/generate-import-qa-fixture.ts",
     "db:deploy:upgrade": "prisma migrate deploy && pnpm db:backfill:part-usage",
     "db:deploy:production": "node scripts/db-deploy-production.mjs",
     "release:production": "node scripts/release-production.mjs"

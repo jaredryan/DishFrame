@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   extractTextFromImportFile,
   extractRecipesFromArchiveFile,
+  extractDishFromJsonFile,
   getImportFileKind,
   validateArchiveImportFile,
   MAX_IMPORT_FILE_SIZE_BYTES,
@@ -92,6 +93,11 @@ describe("getImportFileKind", () => {
     expect(getImportFileKind("recipe.pdf")).toBe("unsupported");
     expect(getImportFileKind("recipe")).toBe("unsupported");
   });
+
+  it("classifies .json as dishframeJson", () => {
+    expect(getImportFileKind("export.json")).toBe("dishframeJson");
+    expect(getImportFileKind("EXPORT.JSON")).toBe("dishframeJson");
+  });
 });
 
 describe("validateArchiveImportFile", () => {
@@ -158,6 +164,72 @@ describe("extractRecipesFromArchiveFile", () => {
       value: MAX_ARCHIVE_IMPORT_FILE_SIZE_BYTES + 1,
     });
     const result = await extractRecipesFromArchiveFile(file);
+    expect(result.status).toBe("error");
+  });
+});
+
+// Task §1: `dishframe-json-import.ts` owns the actual shape recognition —
+// this only confirms the `File` → text → JSON.parse plumbing above it, the
+// same division of labor `extractRecipesFromArchiveFile`'s own tests above
+// keep with `recipe-gallery-import.test.ts`.
+describe("extractDishFromJsonFile", () => {
+  it("reads and normalizes a real DishFrame dish-export File", async () => {
+    const exportJson = {
+      format: "dishframe.dish-export",
+      formatVersion: 2,
+      kind: "RECIPE",
+      title: "File Source JSON Recipe",
+      stage: "IDEA",
+      cuisine: null,
+      tags: [],
+      flavorProfiles: [],
+      versions: [
+        {
+          title: "File Source JSON Recipe",
+          sections: [
+            {
+              ingredients: [{ name: "Salt" }],
+              instructions: [{ text: "Season to taste." }],
+            },
+          ],
+        },
+      ],
+    };
+    const file = makeFile(
+      "recipe-export.json",
+      JSON.stringify(exportJson),
+      "application/json",
+    );
+
+    const result = await extractDishFromJsonFile(file);
+    expect(result.status).toBe("success");
+    if (result.status !== "success") return;
+    expect(result.drafts).toHaveLength(1);
+    const draft = result.drafts[0];
+    expect(draft.status).toBe("ok");
+    if (draft.status !== "ok") return;
+    expect(draft.result.values.title).toBe("File Source JSON Recipe");
+  });
+
+  it("fails gracefully on a file that isn't valid JSON", async () => {
+    const file = makeFile("recipe-export.json", "{not valid json");
+    const result = await extractDishFromJsonFile(file);
+    expect(result.status).toBe("error");
+  });
+
+  it("fails gracefully on valid JSON that isn't a DishFrame export", async () => {
+    const file = makeFile(
+      "recipe-export.json",
+      JSON.stringify({ hello: "world" }),
+    );
+    const result = await extractDishFromJsonFile(file);
+    expect(result.status).toBe("error");
+  });
+
+  it("rejects an empty file", async () => {
+    const result = await extractDishFromJsonFile(
+      makeFile("recipe-export.json", ""),
+    );
     expect(result.status).toBe("error");
   });
 });

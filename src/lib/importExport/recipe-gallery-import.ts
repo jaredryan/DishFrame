@@ -4,6 +4,7 @@ import {
   buildSections,
   type PasteParseResult,
 } from "@/lib/importExport/paste-parser";
+import type { DishKindValue } from "@/lib/dishes/schema";
 
 /**
  * `.rga` source adapter (multi-recipe), runs entirely client-side. A Recipe
@@ -61,6 +62,34 @@ export type ArchiveImportDraft =
       // recognize/classify an item; `null` when the recipe was
       // "Uncategorized" or had no Category at all.
       sourceCategory: string | null;
+      // Import QA polish pass §1/§3: a source adapter that *knows* the
+      // item's real Recipe/Part kind (only `dishframe-json-import.ts`, so
+      // far — a DishFrame export always records its own `kind`) sets this
+      // so the batch review list can default that row's classification to
+      // the truth instead of the generic "assume Recipe unless the route
+      // says Parts" rule every other adapter falls back to. Optional and
+      // `undefined` for every adapter with no such source-of-truth (.rga).
+      sourceDishKind?: DishKindValue;
+      // Import QA polish pass §1: Tag/Flavor-profile names a source
+      // adapter already knows are exactly that (not an ambiguous free-text
+      // "category" needing the Classifications mapping UI) — so far only
+      // `dishframe-json-import.ts`, whose export already distinguishes
+      // Tags from Flavor profiles. Resolved directly at commit time
+      // (`resolveMetadataMappingsForCommit`'s sibling handling in
+      // `paste-import-flow.tsx`) via the same dedup-safe `createTag`/
+      // `createFlavorProfile` actions the Classifications mapping already
+      // uses — never a second attachment mechanism.
+      presetTags?: string[];
+      presetFlavorProfiles?: string[];
+      // Import QA polish pass §1 follow-up: a DishFrame JSON export's
+      // linked Parts (top-level and Section-nested) are dropped during
+      // normalization — see `dishframe-json-import.ts`'s doc comment for
+      // why — since restoring them would require live, account-scoped
+      // validation this pass doesn't attempt. Counted here (0/undefined
+      // for every other adapter) purely so the review UI can surface that
+      // structural loss to the user before they commit the import, and so
+      // the results page can repeat the warning on a successful import.
+      droppedLinkedPartsCount?: number;
     }
   | { status: "error"; sourceRef: string; message: string };
 

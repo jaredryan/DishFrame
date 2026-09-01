@@ -1,6 +1,11 @@
 import type { ReactElement } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render as rtlRender, screen, within } from "@testing-library/react";
+import {
+  render as rtlRender,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PasteImportFlow } from "@/components/domain/dish/paste-import-flow";
 import { OnboardingProvider } from "@/components/onboarding/onboarding-provider";
@@ -275,6 +280,12 @@ describe("PasteImportFlow", () => {
       expect.objectContaining({ title: "Weeknight Tacos" }),
       undefined,
     );
+    // Task §14: once persistence reports success, the expected
+    // post-success navigation completes exactly once — no duplicate save,
+    // no missing/duplicate navigation.
+    expect(mockedConfirmImport).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(push).toHaveBeenCalledTimes(1));
+    expect(push).toHaveBeenCalledWith("/recipes/d1");
   });
 
   it("Cancel on the Save dialog closes it without losing edits", async () => {
@@ -396,6 +407,120 @@ describe("PasteImportFlow", () => {
     );
   });
 
+  // Task §1: DishFrame's own Recipe/Part JSON export round-trips through
+  // Import — the real (unmocked) `extractDishFromJsonFile` normalizer
+  // routes it into the same batch review list `.rga` uses.
+  it("uploads DishFrame's own JSON export and shows it in the batch review list", async () => {
+    const exportJson = {
+      format: "dishframe.dish-export",
+      formatVersion: 2,
+      kind: "RECIPE",
+      title: "Weeknight Tacos",
+      stage: "IDEA",
+      cuisine: null,
+      tags: [],
+      flavorProfiles: [],
+      versions: [
+        {
+          title: "Weeknight Tacos",
+          sections: [
+            {
+              ingredients: [{ name: "Ground beef" }],
+              instructions: [{ text: "Brown it." }],
+            },
+          ],
+        },
+      ],
+    };
+
+    const user = userEvent.setup();
+    render(<PasteImportFlow cuisineOptions={[]} />);
+    await user.click(screen.getByRole("tab", { name: "Upload file" }));
+
+    const file = new File(
+      [JSON.stringify(exportJson)],
+      "weeknight-tacos.json",
+      { type: "application/json" },
+    );
+    await user.upload(screen.getByLabelText(/Upload a recipe file/), file);
+
+    expect(await screen.findByText("1 ready to import")).toBeInTheDocument();
+    expect(screen.getByText("Weeknight Tacos")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Import 1 recipe" }),
+    ).toBeInTheDocument();
+  });
+
+  // Follow-up: DishFrame JSON linked Parts are intentionally dropped (not
+  // reconnected) — this must be surfaced before the user commits the
+  // import, and again on a successful result.
+  it("surfaces dropped linked Parts before commit (Needs review) and again on a successful result", async () => {
+    const exportJson = {
+      format: "dishframe.dish-export",
+      formatVersion: 2,
+      kind: "RECIPE",
+      title: "Weeknight Tacos",
+      stage: "IDEA",
+      cuisine: null,
+      tags: [],
+      flavorProfiles: [],
+      versions: [
+        {
+          title: "Weeknight Tacos",
+          sections: [
+            {
+              ingredients: [{ name: "Ground beef" }],
+              instructions: [{ text: "Brown it." }],
+            },
+          ],
+          topLevelLinkedParts: [
+            { targetDishId: "part-1", targetDishVersionId: "v1" },
+          ],
+        },
+      ],
+    };
+    mockedConfirmImportBatch.mockResolvedValue([
+      {
+        sourceRef: "dishframe-json:Weeknight Tacos",
+        status: "success",
+        dishId: "d1",
+      },
+    ]);
+
+    const user = userEvent.setup();
+    render(<PasteImportFlow cuisineOptions={[]} />);
+    await user.click(screen.getByRole("tab", { name: "Upload file" }));
+    const file = new File(
+      [JSON.stringify(exportJson)],
+      "weeknight-tacos.json",
+      { type: "application/json" },
+    );
+    await user.upload(screen.getByLabelText(/Upload a recipe file/), file);
+
+    expect(
+      await screen.findByText("1 ready to import (1 need review)"),
+    ).toBeInTheDocument();
+    const needsReviewSection = screen
+      .getByRole("heading", { name: "Needs review" })
+      .closest("section")!;
+    expect(
+      within(needsReviewSection).getByText(
+        /linked Parts won't be restored — reconnect them manually after import/,
+      ),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Import 1 recipe" }));
+
+    expect(
+      await screen.findByText("1 recipe was imported."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /linked Parts weren't restored — reconnect them manually/,
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("imports from a website URL and shows the review editor", async () => {
     mockedProposeFromUrl.mockResolvedValue({
       status: "success",
@@ -488,7 +613,9 @@ describe("PasteImportFlow", () => {
     });
     await user.upload(screen.getByLabelText(/Upload a recipe file/), file);
 
-    expect(await screen.findByText("3 recipes found")).toBeInTheDocument();
+    expect(
+      await screen.findByText("2 ready to import (1 need review)"),
+    ).toBeInTheDocument();
 
     const needsReviewSection = screen
       .getByRole("heading", { name: "Needs review" })
@@ -514,8 +641,8 @@ describe("PasteImportFlow", () => {
     ).toHaveLength(2);
     expect(checkboxes.some((box) => box.hasAttribute("disabled"))).toBe(true);
 
-    // Every "ok" row defaults to Recipe.
-    expect(screen.getByText("2 Recipes")).toBeInTheDocument();
+    // Every "ok" row defaults to Recipe, both default-selected.
+    expect(screen.getByText("2 / 2 selected")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Import 2 recipes" }),
     ).toBeInTheDocument();
@@ -557,7 +684,7 @@ describe("PasteImportFlow", () => {
       type: "application/octet-stream",
     });
     await user.upload(screen.getByLabelText(/Upload a recipe file/), file);
-    await screen.findByText("2 recipes found");
+    await screen.findByText("2 ready to import");
 
     await user.click(
       within(
@@ -565,7 +692,6 @@ describe("PasteImportFlow", () => {
       ).getByRole("radio", { name: "Part" }),
     );
 
-    expect(screen.getByText("1 Recipe · 1 Part")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Import 2 items" }),
     ).toBeInTheDocument();
@@ -573,7 +699,7 @@ describe("PasteImportFlow", () => {
     await user.click(screen.getByRole("button", { name: "Import 2 items" }));
 
     expect(
-      await screen.findByRole("heading", { name: "Results" }),
+      await screen.findByText("1 recipe and 1 part were imported."),
     ).toBeInTheDocument();
     expect(mockedConfirmImportBatch).toHaveBeenCalledTimes(1);
     expect(mockedConfirmImportBatch).toHaveBeenCalledWith([
@@ -589,9 +715,7 @@ describe("PasteImportFlow", () => {
       }),
     ]);
     expect(
-      screen.getByRole("heading", {
-        name: successSectionLabelFor("mixed"),
-      }),
+      screen.getByRole("heading", { name: "Successfully imported" }),
     ).toBeInTheDocument();
     // The Results screen is the landing point — no auto-navigation away.
     expect(push).not.toHaveBeenCalled();
@@ -620,7 +744,7 @@ describe("PasteImportFlow", () => {
       type: "application/octet-stream",
     });
     await user.upload(screen.getByLabelText(/Upload a recipe file/), file);
-    await screen.findByText("1 recipe found");
+    await screen.findByText("1 ready to import");
 
     await user.click(screen.getByRole("button", { name: "Review" }));
     expect(
@@ -670,7 +794,7 @@ describe("PasteImportFlow", () => {
       type: "application/octet-stream",
     });
     await user.upload(screen.getByLabelText(/Upload a recipe file/), file);
-    await screen.findByText("1 recipe found");
+    await screen.findByText("1 ready to import");
 
     await user.click(screen.getByRole("button", { name: "Review" }));
     await screen.findByText("Review imported recipe");
@@ -708,7 +832,7 @@ describe("PasteImportFlow", () => {
       type: "application/octet-stream",
     });
     await user.upload(screen.getByLabelText(/Upload a recipe file/), file);
-    await screen.findByText("1 recipe found");
+    await screen.findByText("1 ready to import");
 
     // Reclassifying a row counts as pending work worth confirming about.
     await user.click(
@@ -765,27 +889,29 @@ describe("PasteImportFlow", () => {
       type: "application/octet-stream",
     });
     await user.upload(screen.getByLabelText(/Upload a recipe file/), file);
-    await screen.findByText("2 recipes found");
+    await screen.findByText("2 ready to import");
 
     await user.click(screen.getByRole("button", { name: "Import 2 recipes" }));
 
     expect(
-      await screen.findByText("1 imported, 1 failed."),
+      await screen.findByText(
+        "1 recipe was imported. 1 item failed to import.",
+      ),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: "Failed to import" }),
     ).toBeInTheDocument();
     expect(screen.getByText("Could not save.")).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: "Recipes added" }),
+      screen.getByRole("heading", { name: "Successfully imported" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("link", { name: "Go to Recipes" }),
-    ).toBeInTheDocument();
+      screen.getAllByRole("link", { name: "Go to recipes" }),
+    ).not.toHaveLength(0);
     expect(push).not.toHaveBeenCalled();
   });
 
-  it("Retry failed imports moves a successful retry into Recipes added and leaves remaining failures in place", async () => {
+  it("Retry failed imports moves a successful retry into Successfully imported and leaves remaining failures in place", async () => {
     mockedExtractArchive.mockResolvedValue({
       status: "success",
       drafts: [
@@ -821,9 +947,9 @@ describe("PasteImportFlow", () => {
       type: "application/octet-stream",
     });
     await user.upload(screen.getByLabelText(/Upload a recipe file/), file);
-    await screen.findByText("2 recipes found");
+    await screen.findByText("2 ready to import");
     await user.click(screen.getByRole("button", { name: "Import 2 recipes" }));
-    await screen.findByText("0 imported, 2 failed.");
+    await screen.findByText("Nothing was imported. 2 items failed to import.");
 
     mockedConfirmImportBatch.mockResolvedValueOnce([
       { sourceRef: "AAA.rgr", status: "success", dishId: "d1" },
@@ -834,10 +960,12 @@ describe("PasteImportFlow", () => {
     );
 
     expect(
-      await screen.findByText("1 imported, 1 failed."),
+      await screen.findByText(
+        "1 recipe was imported. 1 item failed to import.",
+      ),
     ).toBeInTheDocument();
     const addedSection = screen
-      .getByRole("heading", { name: "Recipes added" })
+      .getByRole("heading", { name: "Successfully imported" })
       .closest("section")!;
     expect(
       within(addedSection).getByText("Baked Potatoes"),
@@ -882,7 +1010,7 @@ describe("PasteImportFlow", () => {
       type: "application/octet-stream",
     });
     await user.upload(screen.getByLabelText(/Upload a recipe file/), file);
-    await screen.findByText("1 recipe found");
+    await screen.findByText("1 ready to import");
 
     await user.click(
       screen.getByRole("combobox", { name: 'Map "Desserts" to' }),
@@ -939,7 +1067,7 @@ describe("PasteImportFlow", () => {
       type: "application/octet-stream",
     });
     await user.upload(screen.getByLabelText(/Upload a recipe file/), file);
-    await screen.findByText("1 recipe found");
+    await screen.findByText("1 ready to import");
 
     await user.click(
       screen.getByRole("combobox", { name: 'Map "Desserts" to' }),
@@ -948,7 +1076,9 @@ describe("PasteImportFlow", () => {
     await user.click(screen.getByRole("button", { name: "Import 1 recipe" }));
 
     // The Dish itself imported successfully — no Failed section, no Retry.
-    expect(await screen.findByText("1 recipe imported.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("1 recipe was imported."),
+    ).toBeInTheDocument();
     expect(
       screen.queryByRole("heading", { name: "Failed to import" }),
     ).not.toBeInTheDocument();
@@ -959,8 +1089,8 @@ describe("PasteImportFlow", () => {
       screen.getByText(/Imported, but some metadata could not be applied\./),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/Tag "Desserts" could not be applied\./),
-    ).toBeInTheDocument();
+      screen.getAllByText(/Tag "Desserts" could not be applied\./),
+    ).toHaveLength(2);
     expect(screen.getByRole("link", { name: "View" })).toBeInTheDocument();
   });
 
@@ -990,15 +1120,15 @@ describe("PasteImportFlow", () => {
       type: "application/octet-stream",
     });
     await user.upload(screen.getByLabelText(/Upload a recipe file/), file);
-    await screen.findByText("1 recipe found");
+    await screen.findByText("1 ready to import");
 
     await user.click(
       screen.getByRole("combobox", { name: 'Map "Tex-Mex" to' }),
     );
     await user.click(await screen.findByRole("option", { name: "Cuisine" }));
-    await user.click(screen.getByRole("button", { name: "Apply mappings" }));
 
-    // Mapping applied as the default Cuisine — visible in Review.
+    // No "Apply mappings" step — the mapping applies to the draft on its
+    // own as soon as it's chosen, visible next time Review is opened.
     await user.click(screen.getByRole("button", { name: "Review" }));
     await screen.findByText("Review imported recipe");
     const cuisineInput = screen.getByLabelText("Cuisine");
@@ -1043,14 +1173,13 @@ describe("PasteImportFlow", () => {
       type: "application/octet-stream",
     });
     await user.upload(screen.getByLabelText(/Upload a recipe file/), file);
-    await screen.findByText("1 recipe found");
+    await screen.findByText("1 ready to import");
 
     await user.click(
       screen.getByRole("combobox", { name: 'Map "Holiday" to' }),
     );
     await user.click(await screen.findByRole("option", { name: "Tag" }));
-    // No existing "Holiday" tag — defaults to "Create new tag".
-    await user.click(screen.getByRole("button", { name: "Apply mappings" }));
+    // No existing "Holiday" tag — the "New" checkbox defaults to checked.
     expect(mockedCreateTag).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Discard import" }));
@@ -1060,7 +1189,7 @@ describe("PasteImportFlow", () => {
     );
 
     expect(mockedCreateTag).not.toHaveBeenCalled();
-    expect(screen.queryByText("1 recipe found")).not.toBeInTheDocument();
+    expect(screen.queryByText("1 ready to import")).not.toBeInTheDocument();
   });
 
   it('choosing "Create new Flavor profile" and then discarding the import never creates account data', async () => {
@@ -1086,14 +1215,14 @@ describe("PasteImportFlow", () => {
       type: "application/octet-stream",
     });
     await user.upload(screen.getByLabelText(/Upload a recipe file/), file);
-    await screen.findByText("1 recipe found");
+    await screen.findByText("1 ready to import");
 
     await user.click(screen.getByRole("combobox", { name: 'Map "Spicy" to' }));
     await user.click(
       await screen.findByRole("option", { name: "Flavor profile" }),
     );
-    // No existing "Spicy" Flavor profile — defaults to "Create new".
-    await user.click(screen.getByRole("button", { name: "Apply mappings" }));
+    // No existing "Spicy" Flavor profile — the "New" checkbox defaults to
+    // checked.
     expect(mockedCreateFlavorProfile).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Discard import" }));
@@ -1103,7 +1232,7 @@ describe("PasteImportFlow", () => {
     );
 
     expect(mockedCreateFlavorProfile).not.toHaveBeenCalled();
-    expect(screen.queryByText("1 recipe found")).not.toBeInTheDocument();
+    expect(screen.queryByText("1 ready to import")).not.toBeInTheDocument();
   });
 
   it("resolves/creates a pending new Tag only once Import actually begins", async () => {
@@ -1142,16 +1271,15 @@ describe("PasteImportFlow", () => {
       type: "application/octet-stream",
     });
     await user.upload(screen.getByLabelText(/Upload a recipe file/), file);
-    await screen.findByText("1 recipe found");
+    await screen.findByText("1 ready to import");
 
     await user.click(
       screen.getByRole("combobox", { name: 'Map "Holiday" to' }),
     );
     await user.click(await screen.findByRole("option", { name: "Tag" }));
-    await user.click(screen.getByRole("button", { name: "Apply mappings" }));
     expect(mockedCreateTag).not.toHaveBeenCalled();
 
-    // Skipping "Apply mappings" a second time — Import resolves it itself.
+    // Choosing the mapping itself never creates anything — only Import does.
     await user.click(screen.getByRole("button", { name: "Import 1 recipe" }));
 
     expect(mockedCreateTag).toHaveBeenCalledTimes(1);
@@ -1194,7 +1322,7 @@ describe("PasteImportFlow", () => {
       type: "application/octet-stream",
     });
     await user.upload(screen.getByLabelText(/Upload a recipe file/), file);
-    await screen.findByText("1 recipe found");
+    await screen.findByText("1 ready to import");
 
     await user.click(screen.getByRole("combobox", { name: 'Map "Spicy" to' }));
     await user.click(
@@ -1231,14 +1359,311 @@ describe("PasteImportFlow", () => {
         "That file doesn't look like a valid Recipe Gallery export (.rga).",
       ),
     ).toBeInTheDocument();
-    expect(screen.queryByText(/recipes found/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/ready to import/)).not.toBeInTheDocument();
+  });
+
+  // Task §3: entering the batch review flow from Import Parts defaults
+  // every row to Part, not Recipe — a source adapter with no kind of its
+  // own (.rga) always falls back to the route.
+  it("defaults every batch row to Part when entered from Import Parts", async () => {
+    mockedExtractArchive.mockResolvedValue({
+      status: "success",
+      drafts: [
+        {
+          status: "ok",
+          sourceRef: "AAA.rgr",
+          sourceCategory: null,
+          result: {
+            values: { ...blankVersionValues, title: "Marinara Sauce" },
+            needsReviewCount: 0,
+          },
+        },
+      ],
+    });
+
+    const user = userEvent.setup();
+    render(<PasteImportFlow kind="PART" cuisineOptions={[]} />);
+    await user.click(screen.getByRole("tab", { name: "Upload file" }));
+    const file = new File(["zip-bytes"], "export.rga", {
+      type: "application/octet-stream",
+    });
+    await user.upload(screen.getByLabelText(/Upload a part file/), file);
+    await screen.findByText("1 ready to import");
+
+    expect(
+      within(
+        screen.getByRole("radiogroup", { name: 'Save "Marinara Sauce" as' }),
+      ).getByRole("radio", { name: "Part" }),
+    ).toHaveAttribute("aria-checked", "true");
+    expect(
+      screen.getByRole("button", { name: "Import 1 part" }),
+    ).toBeInTheDocument();
+  });
+
+  // Task §4: "Finish review" on a Needs-review row flips its badge to
+  // "Reviewed" and moves it below any still-unreviewed row in the same
+  // group, immediately (no visible reorder after the fact).
+  it("marks a Needs-review row Reviewed after Finish review and sinks it to the bottom of the group", async () => {
+    mockedExtractArchive.mockResolvedValue({
+      status: "success",
+      drafts: [
+        {
+          status: "ok",
+          sourceRef: "AAA.rgr",
+          sourceCategory: null,
+          result: {
+            values: { ...filledVersionValues, title: "Flagged First" },
+            needsReviewCount: 1,
+          },
+        },
+        {
+          status: "ok",
+          sourceRef: "BBB.rgr",
+          sourceCategory: null,
+          result: {
+            values: { ...filledVersionValues, title: "Flagged Second" },
+            needsReviewCount: 1,
+          },
+        },
+      ],
+    });
+
+    const user = userEvent.setup();
+    render(<PasteImportFlow cuisineOptions={[]} />);
+    await user.click(screen.getByRole("tab", { name: "Upload file" }));
+    const file = new File(["zip-bytes"], "export.rga", {
+      type: "application/octet-stream",
+    });
+    await user.upload(screen.getByLabelText(/Upload a recipe file/), file);
+    await screen.findByText("2 ready to import (2 need review)");
+
+    const needsReviewSection = () =>
+      screen.getByRole("heading", { name: "Needs review" }).closest("section")!;
+    // Review the *first* row — it should end up below the still-unreviewed
+    // second row once back on the list.
+    await user.click(
+      within(needsReviewSection()).getAllByRole("button", {
+        name: /Review/,
+      })[0],
+    );
+    await screen.findByText("Review imported recipe");
+    await user.click(screen.getByRole("button", { name: "Finish review" }));
+
+    await screen.findByText("Flagged First");
+    const rows = within(needsReviewSection()).getAllByRole("listitem");
+    const rowTitles = rows.map((row) => row.textContent);
+    const firstIndex = rowTitles.findIndex((t) => t?.includes("Flagged First"));
+    const secondIndex = rowTitles.findIndex((t) =>
+      t?.includes("Flagged Second"),
+    );
+    expect(firstIndex).toBeGreaterThan(secondIndex);
+    expect(
+      within(needsReviewSection()).getByText("Reviewed"),
+    ).toBeInTheDocument();
+  });
+
+  // Task §8: the progress modal must render on the very first tick of the
+  // click — before the (async) "Create new" mapping resolution and the
+  // chunked confirm call ever resolve — not only once a server round trip
+  // lands.
+  it("shows the batch-progress modal immediately on Import, before any async work resolves", async () => {
+    mockedExtractArchive.mockResolvedValue({
+      status: "success",
+      drafts: [
+        {
+          status: "ok",
+          sourceRef: "AAA.rgr",
+          sourceCategory: null,
+          result: {
+            values: { ...blankVersionValues, title: "Baked Potatoes" },
+            needsReviewCount: 0,
+          },
+        },
+      ],
+    });
+    let resolveConfirm!: (
+      value: Awaited<ReturnType<typeof mockedConfirmImportBatch>>,
+    ) => void;
+    mockedConfirmImportBatch.mockReturnValue(
+      new Promise((resolve) => {
+        resolveConfirm = resolve;
+      }),
+    );
+
+    const user = userEvent.setup();
+    render(<PasteImportFlow cuisineOptions={[]} />);
+    await user.click(screen.getByRole("tab", { name: "Upload file" }));
+    const file = new File(["zip-bytes"], "export.rga", {
+      type: "application/octet-stream",
+    });
+    await user.upload(screen.getByLabelText(/Upload a recipe file/), file);
+    await screen.findByText("1 ready to import");
+
+    await user.click(screen.getByRole("button", { name: "Import 1 recipe" }));
+
+    expect(await screen.findByText("Importing…")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Import 1 recipe" }),
+    ).not.toBeInTheDocument();
+
+    resolveConfirm([{ sourceRef: "AAA.rgr", status: "success", dishId: "d1" }]);
+    expect(
+      await screen.findByText("1 recipe was imported."),
+    ).toBeInTheDocument();
+  });
+
+  // Task §5/§6: the "Apply mappings" button and its "one implementation
+  // shifts the second dropdown next to the first" pattern are both gone.
+  it("has no Apply mappings button and no Source categories heading", async () => {
+    mockedExtractArchive.mockResolvedValue({
+      status: "success",
+      drafts: [
+        {
+          status: "ok",
+          sourceRef: "AAA.rgr",
+          sourceCategory: "Desserts",
+          result: {
+            values: { ...blankVersionValues, title: "Cake" },
+            needsReviewCount: 0,
+          },
+        },
+      ],
+    });
+
+    const user = userEvent.setup();
+    render(<PasteImportFlow cuisineOptions={[]} />);
+    await user.click(screen.getByRole("tab", { name: "Upload file" }));
+    const file = new File(["zip-bytes"], "export.rga", {
+      type: "application/octet-stream",
+    });
+    await user.upload(screen.getByLabelText(/Upload a recipe file/), file);
+    await screen.findByText("1 ready to import");
+
+    expect(
+      screen.getByRole("heading", { name: "Classifications" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "Source categories" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Apply mappings" }),
+    ).not.toBeInTheDocument();
+  });
+
+  // Task §12: what happened to a mapped classification is reported on the
+  // results page, not just silently applied.
+  it("reports a created Tag's outcome under Classifications on the results page", async () => {
+    mockedExtractArchive.mockResolvedValue({
+      status: "success",
+      drafts: [
+        {
+          status: "ok",
+          sourceRef: "AAA.rgr",
+          sourceCategory: "Holiday",
+          result: {
+            values: { ...blankVersionValues, title: "Gingerbread" },
+            needsReviewCount: 0,
+          },
+        },
+      ],
+    });
+    mockedCreateTag.mockResolvedValueOnce({
+      status: "success",
+      message: "Added Holiday.",
+      tag: {
+        id: "tag-new-1",
+        displayName: "Holiday",
+        isFavorite: false,
+        dishCount: 0,
+      },
+    });
+    mockedConfirmImportBatch.mockResolvedValue([
+      { sourceRef: "AAA.rgr", status: "success", dishId: "d1" },
+    ]);
+
+    const user = userEvent.setup();
+    render(<PasteImportFlow cuisineOptions={[]} />);
+    await user.click(screen.getByRole("tab", { name: "Upload file" }));
+    const file = new File(["zip-bytes"], "export.rga", {
+      type: "application/octet-stream",
+    });
+    await user.upload(screen.getByLabelText(/Upload a recipe file/), file);
+    await screen.findByText("1 ready to import");
+
+    await user.click(
+      screen.getByRole("combobox", { name: 'Map "Holiday" to' }),
+    );
+    await user.click(await screen.findByRole("option", { name: "Tag" }));
+    await user.click(screen.getByRole("button", { name: "Import 1 recipe" }));
+
+    await screen.findByText("1 recipe was imported.");
+    expect(
+      screen.getByRole("heading", { name: "Classifications" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Tag "Holiday" created, applied to 1 item\./),
+    ).toBeInTheDocument();
+    // View opens the ordinary Recipe Details page in a new tab — the
+    // results page (and its own context) stays intact in this one.
+    expect(screen.getByRole("link", { name: "View" })).toHaveAttribute(
+      "target",
+      "_blank",
+    );
+  });
+
+  // Task §2: the global controls affect every selectable row; each
+  // subsection's own Select all/Select none only ever touch that group.
+  it("scopes Needs review's Select none to that group, leaving Ready to import's selection untouched", async () => {
+    mockedExtractArchive.mockResolvedValue({
+      status: "success",
+      drafts: [
+        {
+          status: "ok",
+          sourceRef: "AAA.rgr",
+          sourceCategory: null,
+          result: {
+            values: { ...blankVersionValues, title: "Ready Item" },
+            needsReviewCount: 0,
+          },
+        },
+        {
+          status: "ok",
+          sourceRef: "BBB.rgr",
+          sourceCategory: null,
+          result: {
+            values: { ...blankVersionValues, title: "Flagged Item" },
+            needsReviewCount: 1,
+          },
+        },
+      ],
+    });
+
+    const user = userEvent.setup();
+    render(<PasteImportFlow cuisineOptions={[]} />);
+    await user.click(screen.getByRole("tab", { name: "Upload file" }));
+    const file = new File(["zip-bytes"], "export.rga", {
+      type: "application/octet-stream",
+    });
+    await user.upload(screen.getByLabelText(/Upload a recipe file/), file);
+    await screen.findByText("2 / 2 selected");
+
+    const needsReviewSection = screen
+      .getByRole("heading", { name: "Needs review" })
+      .closest("section")!;
+    await user.click(
+      within(needsReviewSection).getByRole("button", { name: "Select none" }),
+    );
+
+    expect(
+      within(needsReviewSection).getByText("0 / 1 selected"),
+    ).toBeInTheDocument();
+    const readySection = screen
+      .getByRole("heading", { name: "Ready to import" })
+      .closest("section")!;
+    expect(
+      within(readySection).getByText("1 / 1 selected"),
+    ).toBeInTheDocument();
+    // Global count reflects the scoped change.
+    expect(screen.getByText("1 / 2 selected")).toBeInTheDocument();
   });
 });
-
-// A mixed Recipe+Part success still lands on one section — the label is
-// computed the same way `paste-import-flow.tsx`'s own `successSectionLabel`
-// does, kept as a tiny local mirror so this test doesn't need to import an
-// internal (non-exported) helper.
-function successSectionLabelFor(shape: "mixed"): string {
-  return shape === "mixed" ? "Items added" : "Recipes added";
-}

@@ -20,13 +20,19 @@ import {
   extractRecipesFromArchive,
   type ArchiveImportResult,
 } from "@/lib/importExport/recipe-gallery-import";
+import { normalizeDishExportJson } from "@/lib/importExport/dishframe-json-import";
 
-export type SupportedImportFileExtension = ".md" | ".txt" | ".rga";
+export type SupportedImportFileExtension = ".md" | ".txt" | ".rga" | ".json";
 export const SUPPORTED_IMPORT_FILE_EXTENSIONS: SupportedImportFileExtension[] =
-  [".md", ".txt", ".rga"];
+  [".md", ".txt", ".rga", ".json"];
 
 const TEXT_EXTENSIONS: SupportedImportFileExtension[] = [".md", ".txt"];
 const ARCHIVE_EXTENSIONS: SupportedImportFileExtension[] = [".rga"];
+// Import QA polish pass §1: a DishFrame Recipe/Part export — a distinct
+// file kind from `.rga`'s multi-recipe archive (this is always exactly one
+// Dish) and from plain `.md`/`.txt` (structured JSON, not free text to
+// re-parse).
+const DISHFRAME_JSON_EXTENSIONS: SupportedImportFileExtension[] = [".json"];
 
 // A generous ceiling for a recipe text document, not a realistic recipe
 // length — mirrors the paste importer's own 20,000-character text cap.
@@ -39,7 +45,8 @@ export const MAX_IMPORT_FILE_SIZE_BYTES = 512 * 1024;
 // rejection before spending a request on an obviously-oversized file).
 export const MAX_ARCHIVE_IMPORT_FILE_SIZE_BYTES = 150 * 1024 * 1024;
 
-export type ImportFileKind = "text" | "archive" | "unsupported";
+export type ImportFileKind =
+  "text" | "archive" | "dishframeJson" | "unsupported";
 
 function getExtension(fileName: string): string {
   const dot = fileName.lastIndexOf(".");
@@ -53,6 +60,13 @@ export function getImportFileKind(fileName: string): ImportFileKind {
   }
   if (ARCHIVE_EXTENSIONS.includes(extension as SupportedImportFileExtension)) {
     return "archive";
+  }
+  if (
+    DISHFRAME_JSON_EXTENSIONS.includes(
+      extension as SupportedImportFileExtension,
+    )
+  ) {
+    return "dishframeJson";
   }
   return "unsupported";
 }
@@ -69,7 +83,8 @@ export async function extractTextFromImportFile(
   if (getImportFileKind(file.name) !== "text") {
     return {
       status: "error",
-      message: "Unsupported file type. Upload a .md, .txt, or .rga file.",
+      message:
+        "Unsupported file type. Upload a .md, .txt, .rga, or .json file.",
     };
   }
 
@@ -106,7 +121,8 @@ export function validateArchiveImportFile(file: File): FileValidationResult {
   if (getImportFileKind(file.name) !== "archive") {
     return {
       status: "error",
-      message: "Unsupported file type. Upload a .md, .txt, or .rga file.",
+      message:
+        "Unsupported file type. Upload a .md, .txt, .rga, or .json file.",
     };
   }
   if (file.size === 0) {
@@ -134,4 +150,53 @@ export async function extractRecipesFromArchiveFile(
   }
   const bytes = new Uint8Array(await file.arrayBuffer());
   return extractRecipesFromArchive(bytes);
+}
+
+// Import QA polish pass §1: a DishFrame Recipe/Part export is small
+// structured JSON (never image/archive bytes) — a generous ceiling well
+// past any real export's size, not a realistic one.
+export const MAX_DISHFRAME_JSON_IMPORT_FILE_SIZE_BYTES = 4 * 1024 * 1024;
+
+export type DishframeJsonExtractionResult = ArchiveImportResult;
+
+// Reads and normalizes a DishFrame `.json` Recipe/Part export entirely
+// client-side, producing the same `ArchiveImportDraft[]` shape `.rga`
+// extraction does — `dishframe-json-import.ts` does the actual shape
+// recognition/normalization; this is only the file-reading/size-guard
+// wrapper, mirroring `extractRecipesFromArchiveFile` above.
+export async function extractDishFromJsonFile(
+  file: File,
+): Promise<DishframeJsonExtractionResult> {
+  if (getImportFileKind(file.name) !== "dishframeJson") {
+    return {
+      status: "error",
+      message:
+        "Unsupported file type. Upload a .md, .txt, .rga, or .json file.",
+    };
+  }
+  if (file.size === 0) {
+    return { status: "error", message: "That file is empty." };
+  }
+  if (file.size > MAX_DISHFRAME_JSON_IMPORT_FILE_SIZE_BYTES) {
+    return { status: "error", message: "That file is too large to import." };
+  }
+
+  let text: string;
+  try {
+    text = await file.text();
+  } catch {
+    return { status: "error", message: "Could not read that file." };
+  }
+
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    return {
+      status: "error",
+      message: "That file isn't valid JSON — it may be corrupted.",
+    };
+  }
+
+  return normalizeDishExportJson(json);
 }

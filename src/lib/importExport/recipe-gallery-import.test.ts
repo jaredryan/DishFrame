@@ -237,4 +237,43 @@ describe("extractRecipesFromArchive", () => {
     if (result.status !== "error") return;
     expect(result.message).toMatch(/too many entries/i);
   });
+
+  // Task §13's deterministic failed-import QA fixture
+  // (scripts/generate-import-qa-fixture.ts) relies on a bare-heading-only
+  // body ("Notes:") parsing to zero ingredients/instructions — schema-valid
+  // (so it reaches "ok"/reviewable, not a parse-time "error" draft) but
+  // empty enough that `dishes/service.ts`'s `hasMinimumContent` rejects it
+  // at the real persistence step. This protects that exact assumption from
+  // silently breaking if the paste-parser's heading/separator handling ever
+  // changes.
+  it("parses a bare-heading-only body to an 'ok' draft with zero ingredients/instructions", async () => {
+    const archive = buildZipArchive([
+      {
+        name: "AAAA.rgr",
+        data: makeValidRgr({
+          title: "QA Fixture — Fails To Import",
+          text: "Notes:",
+        }),
+      },
+    ]);
+
+    const result = extractRecipesFromArchive(archive);
+    expect(result.status).toBe("success");
+    if (result.status !== "success") return;
+    const draft = result.drafts[0];
+    expect(draft.status).toBe("ok");
+    if (draft.status !== "ok") return;
+    expect(draft.result.needsReviewCount).toBe(0);
+    const totalIngredients = draft.result.values.sections.reduce(
+      (sum, section) => sum + section.ingredients.length,
+      0,
+    );
+    const totalInstructions = draft.result.values.sections.reduce(
+      (sum, section) => sum + section.instructions.length,
+      0,
+    );
+    expect(totalIngredients).toBe(0);
+    expect(totalInstructions).toBe(0);
+    expect(draft.result.values.partLinks).toHaveLength(0);
+  });
 });
