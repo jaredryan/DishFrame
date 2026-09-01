@@ -2,11 +2,15 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { CirclePlay, CircleStop, Clock, Eye, Trash2 } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { TooltipIconButton } from "@/components/domain/dish/reorder-buttons";
+import {
+  CLICKABLE_ROW_CLASS,
+  ClickableRowOverlay,
+} from "@/components/ui/clickable-row";
+import { cn } from "@/lib/utils";
 import { endCookingSession, deleteCookingSession } from "@/lib/cooking/actions";
 import {
   DisclosureDetail,
@@ -74,8 +78,17 @@ export function ActiveSessionCardShell({
   }
 
   return (
-    <li className="border-border bg-card flex flex-col gap-3 rounded-lg border px-4 py-3">
-      <div className="flex items-center justify-between gap-3">
+    <li
+      className={cn(
+        "border-border bg-card relative flex flex-col gap-3 rounded-lg border px-4 py-3",
+        CLICKABLE_ROW_CLASS,
+      )}
+    >
+      <ClickableRowOverlay
+        href={`/cook/${session.id}`}
+        label={`Resume ${actionSubject}`}
+      />
+      <div className="relative z-10 flex items-center justify-between gap-3">
         <div className="min-w-0 flex-1">
           <p className="text-foreground truncate text-sm font-medium">
             {title}
@@ -168,11 +181,15 @@ export function CompletedSessionCardShell({
   }
 
   return (
-    <li className="border-border bg-card relative flex flex-col gap-3 rounded-lg border px-4 py-3">
-      <Link
+    <li
+      className={cn(
+        "border-border bg-card relative flex flex-col gap-3 rounded-lg border px-4 py-3",
+        CLICKABLE_ROW_CLASS,
+      )}
+    >
+      <ClickableRowOverlay
         href={`/cook/${session.id}`}
-        aria-label={`Open ${actionSubject}`}
-        className="absolute inset-0 z-0 rounded-lg"
+        label={`Open ${actionSubject}`}
       />
       <div className="relative z-10 flex items-center justify-between gap-3">
         <div className="min-w-0 flex-1">

@@ -129,3 +129,25 @@ describe("SectionFields collapsed ingredient order", () => {
     expect(html.indexOf("Newly added")).toBeLessThan(html.indexOf("Sugar"));
   });
 });
+
+// Nav/details QA batch item 15: the expand/collapse chevron moved from the
+// right-side action cluster to the left, before the Section label/title.
+describe("SectionFields header chevron placement", () => {
+  it("renders the expand/collapse toggle before the Section title", () => {
+    render(<Host />);
+    const toggle = screen.getByRole("button", { name: "Edit Section 1" });
+    const title = screen.getByRole("heading", { name: "Section 1" });
+    expect(
+      toggle.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("opens the Section editor when the toggle is clicked", async () => {
+    const user = userEvent.setup();
+    render(<Host />);
+    await user.click(screen.getByRole("button", { name: "Edit Section 1" }));
+    expect(
+      screen.getByRole("button", { name: "Test finish reordered" }),
+    ).toBeInTheDocument();
+  });
+});

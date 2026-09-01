@@ -87,7 +87,9 @@ async function main() {
   console.log(`Part count: ${parts.length}\n`);
 
   if (parts.length === 0) {
-    console.log("[cleanup-parts] No Parts found for this account. Nothing to do.");
+    console.log(
+      "[cleanup-parts] No Parts found for this account. Nothing to do.",
+    );
     return;
   }
 

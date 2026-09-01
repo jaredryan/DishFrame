@@ -1,21 +1,16 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { VersionLineRow } from "@/components/domain/dish/version-picker-field";
+import { VersionPicker } from "@/components/domain/dish/version-picker";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
 import type { DishKindValue } from "@/lib/dishes/schema";
 import type { DishVersionSummary } from "@/lib/dishes/queries";
 
 /**
- * PRODUCT_SPEC.md §13.8: large Version histories stay understandable via
- * (a) a selector listing every saved Version directly, and (b) prev/next
- * controls that step sequentially through *every* saved Version — crossing
- * naturally from e.g. `V3.0` backward into the latest `V2.x` and forward
- * again. `versions` must already be ordered ascending by (majorVersion,
- * minorVersion) — `listDishVersionSummaries` guarantees this. Shares its
- * row (prev/next + Select) with the rich picker used elsewhere via
- * `VersionLineRow`, routing through real links instead of a value/callback
- * so prev/next stay real anchors.
+ * PRODUCT_SPEC.md §13.8: large Version histories stay understandable via one
+ * searchable picker listing every saved Version directly (the universal
+ * `VersionPicker` — nav/details QA batch item 6), routing straight to that
+ * Version's Version History page on selection.
  */
 export function VersionSelector({
   kind,
@@ -34,12 +29,11 @@ export function VersionSelector({
   const basePath = `${dishBasePath(kind)}/${dishId}/versions`;
 
   return (
-    <VersionLineRow
+    <VersionPicker
       versions={versions}
       currentVersionId={currentVersionId}
-      activeVersionId={activeVersionId}
-      onNavigateAction={(versionId) => router.push(`${basePath}/${versionId}`)}
-      hrefForVersionAction={(versionId) => `${basePath}/${versionId}`}
+      value={activeVersionId}
+      onChangeAction={(versionId) => router.push(`${basePath}/${versionId}`)}
     />
   );
 }

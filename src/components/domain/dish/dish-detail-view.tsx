@@ -1,15 +1,16 @@
-import { ChefHat, Clock, Flame, Gauge, History, Soup } from "lucide-react";
+import { ChefHat } from "lucide-react";
 import Link from "next/link";
 import { Prisma } from "@/generated/prisma/client";
-import { PlatePlaceholderIcon } from "@/components/domain/dish/plate-placeholder-icon";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { StageBadge } from "@/components/domain/dish/stage-badge";
 import { DishDetailActions } from "@/components/domain/dish/dish-detail-actions";
-import { RatingBadge } from "@/components/domain/dish/rating-badge";
-import { SemanticChip } from "@/components/domain/dish/semantic-chip";
 import { RatingDetailDialog } from "@/components/domain/dish/rating-detail-dialog";
+import {
+  DetailSectionHeading,
+  DishCoverImage,
+  DishMetaChips,
+  DishDescriptionNote,
+} from "@/components/domain/dish/dish-read-only-presentation";
 import {
   ScaledVersionView,
   type ScaledSectionRow,
@@ -45,7 +46,7 @@ import { listFlavorProfileValues } from "@/lib/flavor-profiles/queries";
 import { prisma } from "@/lib/db/prisma";
 
 type DishDetail = Prisma.DishGetPayload<{ include: typeof dishDetailInclude }>;
-type VersionSectionRow = Prisma.SectionGetPayload<{
+export type VersionSectionRow = Prisma.SectionGetPayload<{
   include: typeof sectionContentInclude.include;
 }>;
 
@@ -55,8 +56,10 @@ type VersionSectionRow = Prisma.SectionGetPayload<{
  * Server→Client boundary (it arrives as a non-functional plain object,
  * not a real `Decimal` instance). This Server Component does the
  * Decimal→number conversion once, here, before handing sections down.
+ * Exported for reuse by `VersionHistoryView`, which prepares the same shape
+ * for an arbitrary historical Version instead of only the current one.
  */
-function toDisplaySections(
+export function toDisplaySections(
   sections: VersionSectionRow[],
   sectionPartLinkTreeLists: PartLinkTree[][],
 ): ScaledSectionRow[] {
@@ -252,81 +255,36 @@ export async function DishDetailView({
   // Mobile-responsiveness correction pass: the lifecycle/identity chips
   // (Stage, Version, Rating, Cuisine, tags/Flavor profiles) and the
   // secondary cooking-related chips (Last cooked, Makes, Prep, Cook,
-  // Difficulty) now render as one chip list instead of two visually split
+  // Difficulty) render as one chip list instead of two visually split
   // rows — the cooking-related ones stay last, in their existing order, and
   // get a restrained orange highlight so they read as a distinguishable
   // sub-group within the single list rather than blending into the neutral
   // outline chips ahead of them. View ratings/Tags & Flavors moved out of
   // this list into the primary action row with Cook (`cookRowEl`) — they're
-  // actions, not descriptive metadata.
+  // actions, not descriptive metadata. Shared with Version History
+  // (nav/details QA batch item 7) via `DishMetaChips`.
   const chipsEl = (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <StageBadge stage={dish.stage} />
-      <SemanticChip semantic="purple" className="tabular-nums">
-        {versionLabel}
-      </SemanticChip>
-      {principalRating.kind !== "none" && (
-        <RatingBadge rating={principalRating} />
-      )}
-      {dish.cuisine && (
-        <SemanticChip semantic="green">{dish.cuisine}</SemanticChip>
-      )}
-      {flavorProfileNames.map((name) => (
-        <SemanticChip key={`flavor-${name}`} semantic="green">
-          {name}
-        </SemanticChip>
-      ))}
-      {nonFavoriteTagNames.map((name) => (
-        <SemanticChip key={`tag-${name}`} semantic="neutral">
-          {name}
-        </SemanticChip>
-      ))}
-      {lastCookedAt && (
-        <SemanticChip semantic="orange">
-          <History className="size-3" aria-hidden="true" />
-          Last cooked {lastCookedAt.toLocaleDateString()}
-        </SemanticChip>
-      )}
-      {effectiveYieldQuantity != null && (
-        <SemanticChip semantic="orange">
-          <Soup className="size-3" aria-hidden="true" />
-          Makes {effectiveYieldQuantity} {version.yieldUnit ?? ""}
-        </SemanticChip>
-      )}
-      {version.prepTimeMinutes != null && (
-        <Badge variant="outline" className="gap-1">
-          <Clock className="size-3" aria-hidden="true" />
-          Prep {version.prepTimeMinutes} min
-        </Badge>
-      )}
-      {version.cookTimeMinutes != null && (
-        <Badge variant="outline" className="gap-1">
-          <Flame className="size-3" aria-hidden="true" />
-          Cook {version.cookTimeMinutes} min
-        </Badge>
-      )}
-      {version.difficulty && (
-        <SemanticChip semantic="orange">
-          <Gauge className="size-3" aria-hidden="true" />
-          {version.difficulty}
-        </SemanticChip>
-      )}
-    </div>
+    <DishMetaChips
+      stage={dish.stage}
+      versionLabel={versionLabel}
+      cuisine={dish.cuisine}
+      flavorProfileNames={flavorProfileNames}
+      tagNames={nonFavoriteTagNames}
+      rating={principalRating}
+      lastCookedAt={lastCookedAt}
+      yieldQuantity={effectiveYieldQuantity}
+      yieldUnit={version.yieldUnit}
+      prepTimeMinutes={version.prepTimeMinutes}
+      cookTimeMinutes={version.cookTimeMinutes}
+      difficulty={version.difficulty}
+    />
   );
 
-  const descriptionEl = (version.description || version.versionNote) && (
-    <div className="flex flex-col gap-2">
-      {version.description && (
-        <p className="text-foreground text-sm whitespace-pre-wrap">
-          {version.description}
-        </p>
-      )}
-      {version.versionNote && (
-        <p className="text-muted-foreground text-sm italic">
-          {version.versionNote}
-        </p>
-      )}
-    </div>
+  const descriptionEl = (
+    <DishDescriptionNote
+      description={version.description}
+      versionNote={version.versionNote}
+    />
   );
 
   // Slice 13 correction pass, PRODUCT_SPEC.md §54: the current Version's
@@ -372,50 +330,9 @@ export async function DishDetailView({
     </div>
   );
 
-  const imagePlaceholder = (
-    <div className="text-muted-foreground/80 flex size-full items-center justify-center">
-      <PlatePlaceholderIcon className="size-24" aria-hidden="true" />
-    </div>
-  );
-
-  // Slice 6A browser-review correction pass: the wide right-column image
-  // is absolutely positioned inside a flex item with no in-flow height of
-  // its own, so `items-stretch` on the row below sizes it off the left
-  // column's own content height (never a fixed aspect ratio that could
-  // make the hero far taller than its text) — `lg:min-h-40` only floors it
-  // for a sparse Part with almost no left-column content.
-  const wideImageEl = (
-    <div className="border-border bg-muted relative hidden w-full overflow-hidden rounded-lg border lg:block lg:min-h-40 lg:w-[320px] lg:shrink-0">
-      {version.imageAssetId ? (
-        // eslint-disable-next-line @next/next/no-img-element -- private, authenticated route, not a static/optimizable asset
-        <img
-          src={`/api/images/${version.imageAssetId}`}
-          alt=""
-          className="absolute inset-0 size-full object-cover"
-        />
-      ) : (
-        <div className="absolute inset-0">{imagePlaceholder}</div>
-      )}
-    </div>
-  );
-
-  // Narrow layout: a compact, capped-height image so it adds context
-  // without delaying the authored content that follows — never a large
-  // full-width poster.
-  const narrowImageEl = (
-    <div className="border-border bg-muted h-[200px] w-full overflow-hidden rounded-lg border lg:hidden">
-      {version.imageAssetId ? (
-        // eslint-disable-next-line @next/next/no-img-element -- private, authenticated route, not a static/optimizable asset
-        <img
-          src={`/api/images/${version.imageAssetId}`}
-          alt=""
-          className="size-full object-cover"
-        />
-      ) : (
-        imagePlaceholder
-      )}
-    </div>
-  );
+  // Shared wide/narrow responsive cover-photo treatment (nav/details QA
+  // batch item 7) — reused as-is by Version History.
+  const coverImageEl = <DishCoverImage imageAssetId={version.imageAssetId} />;
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6">
@@ -444,10 +361,11 @@ export async function DishDetailView({
           {nutritionEl}
           {cookRowEl}
         </div>
-        {wideImageEl}
-        {narrowImageEl}
+        {coverImageEl}
       </div>
 
+      {/* Hierarchy: Details/metadata → Recipes using this part (Part only)
+          → Recipe (nav/details QA batch item 13). */}
       {kind === "PART" && (
         <PartUsagePanel
           usages={usages ?? []}
@@ -456,14 +374,20 @@ export async function DishDetailView({
         />
       )}
 
-      <ScaledVersionView
-        kind={kind}
-        dishId={dish.id}
-        sections={toDisplaySections(version.sections, sectionPartLinkTreeLists)}
-        topLevelPartLinks={displayTopLevelPartLinks}
-        defaultScale={defaultScale}
-        preferredUnitOverrides={dish.preferredUnitOverrides}
-      />
+      <div className="flex flex-col gap-3">
+        <DetailSectionHeading>Recipe</DetailSectionHeading>
+        <ScaledVersionView
+          kind={kind}
+          dishId={dish.id}
+          sections={toDisplaySections(
+            version.sections,
+            sectionPartLinkTreeLists,
+          )}
+          topLevelPartLinks={displayTopLevelPartLinks}
+          defaultScale={defaultScale}
+          preferredUnitOverrides={dish.preferredUnitOverrides}
+        />
+      </div>
     </div>
   );
 }

@@ -23,7 +23,7 @@ export function SidebarNav({ user }: { user: AccountUser }) {
       </div>
       <nav
         aria-label="Primary"
-        className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto"
+        className="-mx-1 -my-1 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-1 py-1"
       >
         {APP_NAV_ITEMS.map(({ href, label, icon: Icon }) => {
           const isActive = pathname === href || pathname.startsWith(`${href}/`);

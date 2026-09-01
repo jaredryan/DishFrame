@@ -1,13 +1,10 @@
 import * as React from "react";
-import { Copy } from "lucide-react";
+import { ChevronUp, Copy, Pencil, Trash2 } from "lucide-react";
 import { useFieldArray, useFormContext } from "react-hook-form";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { DragHandle } from "@/components/ui/drag-handle";
-import {
-  ItemToolbar,
-  TooltipIconButton,
-} from "@/components/domain/dish/reorder-buttons";
+import { TooltipIconButton } from "@/components/domain/dish/reorder-buttons";
 import { PartLinkFields } from "@/components/domain/dish/part-link-fields";
 import { ConvertSectionToPartDialog } from "@/components/domain/dish/convert-section-to-part-dialog";
 import { ReplaceSectionWithPartDialog } from "@/components/domain/dish/replace-section-with-part-dialog";
@@ -202,11 +199,12 @@ export function SectionFields({
       style={style}
       className="border-border bg-card flex flex-col gap-4 rounded-xl border p-4"
     >
-      {/* Design remediation pass: full-width header row — drag handle far
-          left, a live numbered title, actions far right. Clicking the Edit
-          action opens the Section editor in a modal (below) rather than
-          expanding this row inline; this collapsed representation is the
-          parent page's permanent view of the Section, updated only when
+      {/* Design remediation pass: full-width header row — drag handle,
+          expand/collapse chevron, then a live numbered title, actions far
+          right (nav/details QA batch item 15: chevron placement). Clicking
+          the Edit action opens the Section editor in a modal (below) rather
+          than expanding this row inline; this collapsed representation is
+          the parent page's permanent view of the Section, updated only when
           the modal session is Finished. */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
         <div className="flex items-center gap-2 sm:contents">
@@ -215,6 +213,15 @@ export function SectionFields({
             attributes={attributes}
             listeners={listeners}
             isDragging={isDragging}
+          />
+          <TooltipIconButton
+            label={
+              editing
+                ? `Collapse ${sectionName || sectionNumberLabel}`
+                : `Edit ${sectionName || sectionNumberLabel}`
+            }
+            icon={editing ? ChevronUp : Pencil}
+            onClick={openEditor}
           />
           <h3 className="font-heading text-foreground min-w-0 flex-1 truncate text-base font-medium">
             {sectionTitle}
@@ -241,13 +248,11 @@ export function SectionFields({
             sectionName={sectionName || ""}
             onReplaced={onConvertToPart}
           />
-          <ItemToolbar
-            label={label}
-            toggleLabel={sectionName || sectionNumberLabel}
-            variant="edit"
-            collapsed={!editing}
-            onToggleCollapsed={openEditor}
-            onRemove={onRemove}
+          <TooltipIconButton
+            label={`Remove ${label}`}
+            icon={Trash2}
+            onClick={onRemove}
+            className="text-destructive-text hover:bg-destructive/10 hover:text-destructive-text"
           />
         </div>
       </div>

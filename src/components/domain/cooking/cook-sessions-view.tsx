@@ -6,6 +6,11 @@ import { ChefHat, CirclePlay, CircleStop, Clock } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { TooltipIconButton } from "@/components/domain/dish/reorder-buttons";
+import {
+  CLICKABLE_ROW_CLASS,
+  ClickableRowOverlay,
+} from "@/components/ui/clickable-row";
+import { cn } from "@/lib/utils";
 import { formatRelativeAge } from "@/lib/format/relative-time";
 import { endCookingSession } from "@/lib/cooking/actions";
 import {
@@ -39,8 +44,8 @@ export type SessionRowData = {
  * Active Cooking Session row shared by the Home dashboard's "Continue
  * cooking" section — a compact badge-only presentation, distinct from the
  * `/cook` page's own richer `CookActiveSessionCard` below (Cooking session
- * cards + navigation/profile follow-up item 2). Play is the only way to
- * resume; no row-level click-through.
+ * cards + navigation/profile follow-up item 2). The whole row is also a
+ * click target for Resume, its primary/leftmost action.
  */
 export function ActiveCookSessionCard({
   session,
@@ -71,7 +76,16 @@ export function ActiveCookSessionCard({
   }
 
   return (
-    <li className="border-border bg-card flex items-center justify-between gap-3 rounded-lg border px-4 py-3">
+    <li
+      className={cn(
+        "border-border bg-card relative flex items-center justify-between gap-3 rounded-lg border px-4 py-3",
+        CLICKABLE_ROW_CLASS,
+      )}
+    >
+      <ClickableRowOverlay
+        href={`/cook/${session.id}`}
+        label={`Resume ${session.dishTitle}`}
+      />
       <div className="min-w-0">
         <p className="text-foreground truncate text-sm font-medium">
           {session.dishTitle}
@@ -93,7 +107,7 @@ export function ActiveCookSessionCard({
           </StaticPill>
         </div>
       </div>
-      <div className="flex shrink-0 items-center gap-1">
+      <div className="relative z-10 flex shrink-0 items-center gap-1">
         <TooltipIconButton
           label={`Resume ${session.dishTitle}`}
           tooltip="Resume"

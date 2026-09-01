@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
+import { DetailSectionHeading } from "@/components/domain/dish/dish-read-only-presentation";
 import { propagatePartUpdate } from "@/lib/dishes/actions";
 import type {
   PropagationOutcome,
@@ -99,21 +100,17 @@ export function PartUsagePanel({
 
   if (usages.length === 0) {
     return (
-      <div className="border-border bg-card flex flex-col gap-2 rounded-xl border p-4">
-        <h2 className="text-foreground text-sm font-semibold">
-          Recipes using this Part
-        </h2>
+      <div className="flex flex-col gap-2">
+        <DetailSectionHeading>Recipes using this part</DetailSectionHeading>
         <p className="text-muted-foreground text-sm">Nothing here yet.</p>
       </div>
     );
   }
 
   return (
-    <div className="border-border bg-card flex flex-col gap-3 rounded-xl border p-4">
+    <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-foreground text-sm font-semibold">
-          Recipes using this Part
-        </h2>
+        <DetailSectionHeading>Recipes using this part</DetailSectionHeading>
         {outOfDateUsages.length > 0 && (
           <div className="flex flex-wrap items-center gap-2">
             <Button
@@ -149,14 +146,14 @@ export function PartUsagePanel({
           {error}
         </p>
       )}
-      <ul className="grid gap-2 md:grid-cols-2 md:items-start">
+      <ul className="flex flex-wrap gap-2">
         {usages.map((usage) => {
           const outOfDate =
             !!currentVersionId &&
             usage.targetDishVersionId !== currentVersionId;
           const outcome = outcomesByContainerId.get(usage.containerDishId);
           return (
-            <li key={usage.id}>
+            <li key={usage.id} className="max-w-sm min-w-56 flex-1 basis-56">
               <Link
                 href={`${dishBasePath(usage.containerKind)}/${usage.containerDishId}`}
                 className="border-border hover:bg-muted/50 flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm transition-colors"

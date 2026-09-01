@@ -1,6 +1,6 @@
 import * as React from "react";
-import { describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DishDetailActions } from "@/components/domain/dish/dish-detail-actions";
 import { ToastProvider, Toaster } from "@/components/ui/toast";
@@ -41,6 +41,10 @@ vi.mock("@/lib/dishes/actions", () => ({
   })),
 }));
 
+function versionCombobox() {
+  return screen.getByRole("combobox", { name: "Select a Version" });
+}
+
 async function openExportDialog() {
   const user = userEvent.setup();
   renderActions({
@@ -53,7 +57,7 @@ async function openExportDialog() {
   await user.click(screen.getByRole("button", { name: "More actions" }));
   await user.click(await screen.findByRole("menuitem", { name: "Export" }));
   await waitFor(() =>
-    expect(screen.getByRole("combobox")).toHaveTextContent("V2.0 (current)"),
+    expect(versionCombobox()).toHaveTextContent("V2.0 (current)"),
   );
   return user;
 }
@@ -134,6 +138,29 @@ describe("DishDetailActions — operation failures use a toast, not an inline me
     ).toBeInTheDocument();
     expect(screen.getByText("Archive this recipe?")).toBeInTheDocument();
   });
+
+  it("on Archive success, closes the dialog and shows a success toast (nav/details QA batch item 11)", async () => {
+    const { archiveDish } = await import("@/lib/dishes/actions");
+    vi.mocked(archiveDish).mockResolvedValueOnce({
+      status: "success",
+    } as never);
+    const user = userEvent.setup();
+    renderActions({
+      dishId: "dish1",
+      dishTitle: "Grandma's Chili",
+      kind: "RECIPE",
+      stage: "ACTIVE",
+      currentVersionId: "v2",
+    });
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Archive" }));
+    await user.click(screen.getByRole("button", { name: "Archive" }));
+
+    expect(
+      await screen.findByText('Archived "Grandma\'s Chili".'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Archive this recipe?")).not.toBeInTheDocument();
+  });
 });
 
 describe("DishDetailActions overflow menu — Cooking history", () => {
@@ -172,69 +199,141 @@ describe("DishDetailActions overflow menu — Cooking history", () => {
   });
 });
 
-// Each privacy-tier row renders its own "Download" link with an identical
-// accessible name (no shared aria-label with the tier heading) — the
-// dialog always renders them Standard, Detailed, Full private history, in
-// that fixed order.
-function downloadLinks() {
-  return screen.getAllByRole("link", { name: "Download" });
+// Each privacy-tier row renders its own "Download" button with an identical
+// accessible name — the dialog always renders them Standard, Detailed, Full
+// private history, in that fixed order.
+function downloadButtons() {
+  return screen.getAllByRole("button", { name: "Download" });
 }
-function standardDownloadLink() {
-  return downloadLinks()[0];
+function standardDownloadButton() {
+  return downloadButtons()[0];
 }
 
-describe("DishDetailActions export dialog — Version selection (Slice 11 correction pass)", () => {
+function mockFetchOnce(
+  response: Partial<Response> & { ok: boolean },
+): ReturnType<typeof vi.fn> {
+  const fetchMock = vi.fn(async () => response as Response);
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+describe("DishDetailActions export dialog — Version selection (Slice 11 correction pass, nav/details QA batch item 10)", () => {
   it("defaults to the current Version", async () => {
     await openExportDialog();
-    expect(screen.getByRole("combobox")).toHaveTextContent("V2.0 (current)");
-    const href = standardDownloadLink().getAttribute("href")!;
-    expect(href).toContain("versionMode=SINGLE");
-    expect(href).toContain("versionId=v2");
+    expect(versionCombobox()).toHaveTextContent("V2.0 (current)");
   });
 
-  it("switches to an explicit historical Version", async () => {
+  it("switches to an explicit historical Version, hides the picker once scope is Include all Versions", async () => {
     const user = await openExportDialog();
-    await user.click(screen.getByRole("combobox"));
+    await user.click(versionCombobox());
     await user.click(await screen.findByRole("option", { name: "V1.0" }));
+    expect(versionCombobox()).toHaveTextContent("V1.0");
 
-    const href = standardDownloadLink().getAttribute("href")!;
-    expect(href).toContain("versionMode=SINGLE");
-    expect(href).toContain("versionId=v1");
+    await user.click(screen.getByRole("combobox", { name: "Version scope" }));
+    await user.click(
+      await screen.findByRole("option", { name: "Include all Versions" }),
+    );
+    expect(
+      screen.queryByRole("combobox", { name: "Select a Version" }),
+    ).not.toBeInTheDocument();
+  });
+});
+
+describe("DishDetailActions export dialog — Download (nav/details QA batch item 10)", () => {
+  const originalCreateObjectURL = URL.createObjectURL;
+  const originalRevokeObjectURL = URL.revokeObjectURL;
+  beforeEach(() => {
+    URL.createObjectURL = vi.fn(() => "blob:http://localhost/mock");
+    URL.revokeObjectURL = vi.fn();
+  });
+  afterEach(() => {
+    URL.createObjectURL = originalCreateObjectURL;
+    URL.revokeObjectURL = originalRevokeObjectURL;
+    vi.unstubAllGlobals();
   });
 
-  it("switches to Include all Versions with no versionId, never both at once", async () => {
+  it("fetches the selected Version/tier, closes the dialog, and shows a success toast with the filename", async () => {
     const user = await openExportDialog();
-    await user.click(screen.getByRole("combobox"));
+    const fetchMock = mockFetchOnce({
+      ok: true,
+      headers: {
+        get: (key: string) =>
+          key === "Content-Disposition"
+            ? 'attachment; filename="test-recipe.json"'
+            : null,
+      } as Headers,
+      blob: async () => new Blob(["{}"]),
+    });
+
+    await user.click(standardDownloadButton());
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const requestedUrl = fetchMock.mock.calls[0][0] as string;
+    expect(requestedUrl).toContain("tier=STANDARD");
+    expect(requestedUrl).toContain("versionMode=SINGLE");
+    expect(requestedUrl).toContain("versionId=v2");
+
+    expect(await screen.findByText("Export downloaded")).toBeInTheDocument();
+    expect(screen.getByText("test-recipe.json")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "Export this recipe" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("prevents a duplicate submission while a download is in flight", async () => {
+    await openExportDialog();
+    let resolveFetch: (value: Response) => void;
+    const pending = new Promise<Response>((resolve) => {
+      resolveFetch = resolve;
+    });
+    const fetchMock = vi.fn(() => pending);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const button = standardDownloadButton();
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    resolveFetch!({
+      ok: true,
+      headers: { get: () => null } as unknown as Headers,
+      blob: async () => new Blob(["{}"]),
+    } as Response);
+    await screen.findByText("Export downloaded");
+  });
+
+  it("omits versionId when the scope is Include all Versions", async () => {
+    const user = await openExportDialog();
+    await user.click(screen.getByRole("combobox", { name: "Version scope" }));
     await user.click(
       await screen.findByRole("option", { name: "Include all Versions" }),
     );
 
-    const href = standardDownloadLink().getAttribute("href")!;
-    expect(href).toContain("versionMode=ALL");
-    expect(href).not.toContain("versionId=");
+    const fetchMock = mockFetchOnce({
+      ok: true,
+      headers: { get: () => null } as unknown as Headers,
+      blob: async () => new Blob(["{}"]),
+    });
+
+    await user.click(standardDownloadButton());
+
+    const requestedUrl = fetchMock.mock.calls[0][0] as string;
+    expect(requestedUrl).toContain("versionMode=ALL");
+    expect(requestedUrl).not.toContain("versionId=");
   });
 
-  it("resets back to the current Version after closing and reopening the dialog", async () => {
+  it("on failure, shows the error toast and keeps the dialog open and usable", async () => {
     const user = await openExportDialog();
-    await user.click(screen.getByRole("combobox"));
-    await user.click(
-      await screen.findByRole("option", { name: "Include all Versions" }),
-    );
-    await user.keyboard("{Escape}");
+    mockFetchOnce({
+      ok: false,
+      json: async () => ({ message: "Could not export." }),
+    } as never);
 
-    await user.click(screen.getByRole("button", { name: "More actions" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Export" }));
+    await user.click(standardDownloadButton());
 
-    expect(screen.getByRole("combobox")).toHaveTextContent("V2.0 (current)");
-  });
-
-  it("applies the selected Version to every privacy tier's download link", async () => {
-    const user = await openExportDialog();
-    await user.click(screen.getByRole("combobox"));
-    await user.click(await screen.findByRole("option", { name: "V1.0" }));
-
-    for (const link of downloadLinks()) {
-      expect(link.getAttribute("href")).toContain("versionId=v1");
-    }
+    expect(await screen.findByText("Could not export.")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Export this recipe" }),
+    ).toBeInTheDocument();
   });
 });

@@ -1086,7 +1086,8 @@ export function DishEditor({
 
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between">
-              <h2 className="font-heading text-lg font-medium">{kindLabel}</h2>
+              {/* "Recipe" names this composition area for both entity kinds — never "Part". */}
+              <h2 className="font-heading text-lg font-medium">Recipe</h2>
               {topLevelEntries.length > 1 && (
                 <Button
                   type="button"

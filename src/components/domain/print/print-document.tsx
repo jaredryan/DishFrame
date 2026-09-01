@@ -91,7 +91,11 @@ function SectionBlock({
   imageSrc: ImageSrc;
 }) {
   return (
-    <section className="flex flex-col gap-2">
+    // `space-y-2` block flow, not flex — flex containers commonly refuse to
+    // fragment their children across printed pages (Chrome/Safari print
+    // engines), which is what forced a whole Section onto the next page
+    // instead of letting it split when it didn't fit.
+    <section className="space-y-2">
       {section.name && (
         <h3 className="break-after-avoid text-[13pt] font-semibold text-neutral-900">
           {section.name}
@@ -192,9 +196,10 @@ export function PrintDocument({
   historicalNote?: string;
   imageSrc: ImageSrc;
 }) {
-  const metaLine = [
-    kindLabel,
-    content.versionLabel,
+  // The reusable-Part badge/Version badge sit as compact tags right before
+  // the title; badgeLabel/creatorName (public share only) stay a plain
+  // eyebrow line alongside them — kept out of the badge row itself.
+  const trailingMetaLine = [
     badgeLabel,
     creatorName ? `Shared by ${creatorName}` : null,
   ]
@@ -219,11 +224,23 @@ export function PrintDocument({
   ].filter(Boolean);
 
   return (
-    <article className="mx-auto flex max-w-3xl flex-col gap-6 bg-white px-6 py-10 text-neutral-900 print:max-w-none print:px-0 print:py-0">
-      <header className="flex flex-col gap-2 border-b border-neutral-300 pb-4">
-        <p className="text-[10pt] font-medium tracking-wide text-neutral-500 uppercase">
-          {metaLine}
-        </p>
+    <article className="mx-auto max-w-3xl space-y-6 bg-white px-6 py-10 text-neutral-900 print:max-w-none print:px-0 print:py-0">
+      <header className="space-y-2 border-b border-neutral-300 pb-4">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {kindLabel === "Part" && (
+            <span className="rounded border border-neutral-300 px-1.5 py-0.5 text-[9pt] font-medium tracking-wide text-neutral-600 uppercase">
+              Part
+            </span>
+          )}
+          <span className="rounded border border-neutral-300 px-1.5 py-0.5 text-[9pt] font-medium tracking-wide text-neutral-600 uppercase">
+            {content.versionLabel}
+          </span>
+          {trailingMetaLine && (
+            <span className="text-[10pt] font-medium tracking-wide text-neutral-500 uppercase">
+              {trailingMetaLine}
+            </span>
+          )}
+        </div>
         <h1 className="break-after-avoid text-[22pt] font-semibold text-neutral-900">
           {content.title}
         </h1>
@@ -257,7 +274,7 @@ export function PrintDocument({
         )}
       </header>
 
-      <div className="flex flex-col gap-5">
+      <div className="space-y-5">
         <OrderedTopLevelContent
           sections={content.sections}
           partLinks={content.topLevelPartLinks}

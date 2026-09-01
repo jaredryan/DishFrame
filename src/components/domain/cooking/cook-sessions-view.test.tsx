@@ -105,6 +105,16 @@ describe("CookActiveSessionCard", () => {
       screen.getByRole("button", { name: "End Weeknight Ragu" }),
     ).toBeInTheDocument();
   });
+
+  // Nav/details QA batch item 3: the row is also a click target for its
+  // primary action (Resume), additional to the explicit icon.
+  it("makes the whole row a link to Resume, alongside the explicit icon", () => {
+    render(<CookActiveSessionCard session={activeSession} />);
+
+    expect(
+      screen.getByRole("link", { name: "Resume Weeknight Ragu" }),
+    ).toHaveAttribute("href", "/cook/session-active");
+  });
 });
 
 describe("CookCompletedSessionCard", () => {
@@ -147,6 +157,14 @@ describe("CookCompletedSessionCard", () => {
     expect(
       screen.getByRole("button", { name: "Delete Sourdough Loaf" }),
     ).toBeInTheDocument();
+  });
+
+  it("makes the whole row a link to open the session, alongside the explicit icon", () => {
+    render(<CookCompletedSessionCard session={completedSession} />);
+
+    expect(
+      screen.getByRole("link", { name: "Open Sourdough Loaf" }),
+    ).toHaveAttribute("href", "/cook/session-completed");
   });
 });
 

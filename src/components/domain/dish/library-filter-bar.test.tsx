@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { LibraryFilterBar } from "@/components/domain/dish/library-filter-bar";
 import type { LibraryFilters } from "@/lib/dishes/library-filters";
@@ -64,6 +64,23 @@ describe("LibraryFilterBar (URL/query-state)", () => {
     await user.keyboard("{Enter}");
 
     expect(push).toHaveBeenCalledWith("/recipes?q=curry");
+  });
+
+  it("filters as the user types, without pressing Enter (nav/details QA batch item 4)", async () => {
+    vi.useFakeTimers();
+    renderBar();
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Search" }), {
+      target: { value: "curry" },
+    });
+    expect(push).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+    expect(push).toHaveBeenCalledWith("/recipes?q=curry");
+    vi.useRealTimers();
   });
 
   it("toggling a Stage checkbox navigates with that Stage in the query", async () => {

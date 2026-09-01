@@ -65,10 +65,10 @@ import {
 import { PartUsageResolutionDialog } from "@/components/domain/dish/part-usage-resolution-dialog";
 import { ShareDialog } from "@/components/domain/sharing/share-dialog";
 import { DirectShareSingleItemDialog } from "@/components/domain/sharing/direct-share-single-item-dialog";
-import { versionLabel } from "@/lib/dishes/version-note";
+import { VersionPicker } from "@/components/domain/dish/version-picker";
+import type { ExportTierValue } from "@/lib/importExport/export-dto";
 
-const ALL_VERSIONS_VALUE = "__ALL__";
-const LOAD_MORE_VERSIONS_VALUE = "__LOAD_MORE__";
+type ExportScope = "SINGLE" | "ALL";
 
 type ExportableVersion = {
   id: string;
@@ -119,10 +119,13 @@ export function DishDetailActions({
   const { showToast } = useToast();
   // Defaults to the current Version each time the dialog opens (PRODUCT_SPEC.md
   // §55.2, Slice 11 correction pass) — reset in `close()` below.
+  const [exportScope, setExportScope] = React.useState<ExportScope>("SINGLE");
   const [exportVersionValue, setExportVersionValue] =
     React.useState<string>(currentVersionId);
+  const [downloadingTier, setDownloadingTier] =
+    React.useState<ExportTierValue | null>(null);
   const exportVersionQuery =
-    exportVersionValue === ALL_VERSIONS_VALUE
+    exportScope === "ALL"
       ? "versionMode=ALL"
       : `versionMode=SINGLE&versionId=${encodeURIComponent(exportVersionValue)}`;
 
@@ -158,6 +161,7 @@ export function DishDetailActions({
 
   function openExportDialog() {
     setOpenDialog("export");
+    setExportScope("SINGLE");
     setVersionOptions([]);
     setHasMoreVersions(false);
     void loadVersionsPage();
@@ -169,7 +173,50 @@ export function DishDetailActions({
 
   function close() {
     setOpenDialog(null);
+    setExportScope("SINGLE");
     setExportVersionValue(currentVersionId);
+  }
+
+  // Fetches the file directly (rather than a plain `<a download>`) so a
+  // failed export shows the normal error toast instead of a silently broken
+  // download, and a successful one can close the modal + confirm the
+  // filename (nav/details QA batch item 10).
+  async function handleExportDownload(tier: ExportTierValue) {
+    if (downloadingTier) return;
+    setDownloadingTier(tier);
+    try {
+      const response = await fetch(
+        `/api/export/dish/${dishId}?kind=${kind}&tier=${tier}&${exportVersionQuery}`,
+      );
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        showToast({
+          variant: "error",
+          title: body?.message ?? "Could not export.",
+        });
+        return;
+      }
+      const disposition = response.headers.get("Content-Disposition") ?? "";
+      const filename =
+        disposition.match(/filename="([^"]+)"/)?.[1] ?? `${dishTitle}.json`;
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = filename;
+      link.click();
+      URL.revokeObjectURL(objectUrl);
+      close();
+      showToast({
+        variant: "success",
+        title: "Export downloaded",
+        description: filename,
+      });
+    } catch {
+      showToast({ variant: "error", title: "Could not export." });
+    } finally {
+      setDownloadingTier(null);
+    }
   }
 
   function handleArchive() {
@@ -178,6 +225,7 @@ export function DishDetailActions({
       if (result.status === "success") {
         close();
         router.refresh();
+        showToast({ variant: "success", title: `Archived "${dishTitle}".` });
       } else {
         showToast({
           variant: "error",
@@ -407,46 +455,52 @@ export function DishDetailActions({
           </DialogHeader>
           <div className="flex flex-col gap-1.5">
             <label
-              htmlFor="export-version-select"
+              htmlFor="export-scope-select"
               className="text-foreground text-sm font-medium"
             >
               Version
             </label>
             <Select
-              value={exportVersionValue}
-              onValueChange={(value) => {
-                if (value === LOAD_MORE_VERSIONS_VALUE) {
-                  void loadVersionsPage(versionOptions[0]?.id);
-                  return;
-                }
-                setExportVersionValue(value);
-              }}
-              disabled={versionsLoading && versionOptions.length === 0}
+              value={exportScope}
+              onValueChange={(value) => setExportScope(value as ExportScope)}
             >
               <SelectTrigger
-                id="export-version-select"
+                id="export-scope-select"
                 className="w-full"
-                aria-label="Version"
+                aria-label="Version scope"
               >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {hasMoreVersions && (
-                  <SelectItem value={LOAD_MORE_VERSIONS_VALUE}>
-                    {versionsLoading ? "Loading…" : "Show earlier versions…"}
-                  </SelectItem>
-                )}
-                {versionOptions.map((v) => (
-                  <SelectItem key={v.id} value={v.id}>
-                    {versionLabel(v.majorVersion, v.minorVersion)}
-                    {v.id === currentVersionId ? " (current)" : ""}
-                  </SelectItem>
-                ))}
-                <SelectItem value={ALL_VERSIONS_VALUE}>
-                  Include all Versions
-                </SelectItem>
+                <SelectItem value="SINGLE">One version</SelectItem>
+                <SelectItem value="ALL">Include all Versions</SelectItem>
               </SelectContent>
             </Select>
+            {exportScope === "SINGLE" && (
+              <VersionPicker
+                versions={versionOptions}
+                currentVersionId={currentVersionId}
+                value={exportVersionValue}
+                onChangeAction={setExportVersionValue}
+                disabled={versionsLoading && versionOptions.length === 0}
+                footer={
+                  hasMoreVersions && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="w-full justify-center"
+                      loading={versionsLoading}
+                      onClick={() =>
+                        void loadVersionsPage(versionOptions[0]?.id)
+                      }
+                    >
+                      Show earlier versions…
+                    </Button>
+                  )
+                }
+              />
+            )}
             {versionsError && (
               <p role="alert" className="text-destructive-text text-xs">
                 {versionsError}
@@ -462,13 +516,14 @@ export function DishDetailActions({
                   individual ratings, Cooking notes, or session history.
                 </p>
               </div>
-              <Button asChild variant="outline" size="sm">
-                <a
-                  href={`/api/export/dish/${dishId}?kind=${kind}&tier=STANDARD&${exportVersionQuery}`}
-                  download
-                >
-                  Download
-                </a>
+              <Button
+                variant="outline"
+                size="sm"
+                loading={downloadingTier === "STANDARD"}
+                disabled={downloadingTier !== null}
+                onClick={() => void handleExportDownload("STANDARD")}
+              >
+                Download
               </Button>
             </div>
             <div className="border-border flex items-center justify-between gap-3 rounded-lg border p-3">
@@ -481,13 +536,14 @@ export function DishDetailActions({
                   names stay anonymized.
                 </p>
               </div>
-              <Button asChild variant="outline" size="sm">
-                <a
-                  href={`/api/export/dish/${dishId}?kind=${kind}&tier=DETAILED&${exportVersionQuery}`}
-                  download
-                >
-                  Download
-                </a>
+              <Button
+                variant="outline"
+                size="sm"
+                loading={downloadingTier === "DETAILED"}
+                disabled={downloadingTier !== null}
+                onClick={() => void handleExportDownload("DETAILED")}
+              >
+                Download
               </Button>
             </div>
             <div className="border-destructive/30 bg-destructive/5 flex items-center justify-between gap-3 rounded-lg border p-3">
@@ -501,13 +557,16 @@ export function DishDetailActions({
                   information — only share it with someone you trust.
                 </p>
               </div>
-              <Button asChild variant="outline" size="sm">
-                <a
-                  href={`/api/export/dish/${dishId}?kind=${kind}&tier=FULL_PRIVATE_HISTORY&${exportVersionQuery}`}
-                  download
-                >
-                  Download
-                </a>
+              <Button
+                variant="outline"
+                size="sm"
+                loading={downloadingTier === "FULL_PRIVATE_HISTORY"}
+                disabled={downloadingTier !== null}
+                onClick={() =>
+                  void handleExportDownload("FULL_PRIVATE_HISTORY")
+                }
+              >
+                Download
               </Button>
             </div>
           </div>
@@ -553,6 +612,7 @@ export function DishDetailActions({
         onOpenChange={(open) => !open && close()}
         dishId={dishId}
         kind={kind}
+        currentVersionId={currentVersionId}
       />
 
       <DirectShareSingleItemDialog

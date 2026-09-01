@@ -7,22 +7,19 @@ import {
 } from "@/components/domain/dish/version-picker-field";
 
 /**
- * Frontend interaction-architecture audit (2026-08-28): the Select used to
- * group every saved Version by major line and always display that line's
- * latest minor, so navigating via prev/next within one major line never
- * visibly changed the displayed Version, and a history with only minor
- * bumps exposed just one selectable row. These tests pin the fix — every
- * saved Version is individually selectable and the display tracks
- * whichever one is actually active.
+ * Nav/details QA batch item 6: the old prev/next-arrows-plus-dropdown
+ * combination is replaced by one universal searchable Version picker — a
+ * single combobox listing every saved Version, typed digits narrow it.
  */
 const versions: VersionOption[] = [
   { id: "v1", majorVersion: 1, minorVersion: 0 },
   { id: "v2", majorVersion: 1, minorVersion: 1 },
   { id: "v3", majorVersion: 1, minorVersion: 2 },
+  { id: "v4", majorVersion: 2, minorVersion: 0 },
 ];
 
-describe("RichVersionPickerField Version navigation", () => {
-  it("shows the actually active Version's label, not the major line's latest", () => {
+describe("RichVersionPickerField", () => {
+  it("shows the actually active Version's label on the trigger", () => {
     render(
       <RichVersionPickerField
         versions={versions}
@@ -34,7 +31,44 @@ describe("RichVersionPickerField Version navigation", () => {
     expect(screen.getByRole("combobox")).toHaveTextContent("V1.1");
   });
 
-  it("steps to the previous/next Version by id when all Versions share one major line", async () => {
+  it("opens to every saved Version, newest first, marking the current one", async () => {
+    const user = userEvent.setup();
+    render(
+      <RichVersionPickerField
+        versions={versions}
+        currentVersionId="v3"
+        value="v2"
+        onChangeAction={() => {}}
+      />,
+    );
+    await user.click(screen.getByRole("combobox"));
+    const options = await screen.findAllByRole("option");
+    expect(options.map((o) => o.textContent)).toEqual([
+      "V2.0",
+      "V1.2 (current)",
+      "V1.1",
+      "V1.0",
+    ]);
+  });
+
+  it("narrows the list by typed major/minor digits", async () => {
+    const user = userEvent.setup();
+    render(
+      <RichVersionPickerField
+        versions={versions}
+        currentVersionId="v3"
+        value="v2"
+        onChangeAction={() => {}}
+      />,
+    );
+    await user.click(screen.getByRole("combobox"));
+    await user.type(screen.getByRole("textbox"), "1.2");
+    const options = await screen.findAllByRole("option");
+    expect(options).toHaveLength(1);
+    expect(options[0]).toHaveTextContent("V1.2");
+  });
+
+  it("selecting a Version calls onChangeAction with its id and closes the list", async () => {
     const user = userEvent.setup();
     const onChangeAction = vi.fn();
     render(
@@ -45,35 +79,9 @@ describe("RichVersionPickerField Version navigation", () => {
         onChangeAction={onChangeAction}
       />,
     );
-    await user.click(screen.getByRole("button", { name: /previous version/i }));
-    expect(onChangeAction).toHaveBeenCalledWith("v1");
-    await user.click(screen.getByRole("button", { name: /next version/i }));
-    expect(onChangeAction).toHaveBeenCalledWith("v3");
-  });
-
-  it("disables next at the latest saved Version and previous at the earliest", () => {
-    const { rerender } = render(
-      <RichVersionPickerField
-        versions={versions}
-        currentVersionId="v3"
-        value="v3"
-        onChangeAction={() => {}}
-      />,
-    );
-    expect(
-      screen.getByRole("button", { name: /no next version/i }),
-    ).toBeDisabled();
-
-    rerender(
-      <RichVersionPickerField
-        versions={versions}
-        currentVersionId="v3"
-        value="v1"
-        onChangeAction={() => {}}
-      />,
-    );
-    expect(
-      screen.getByRole("button", { name: /no previous version/i }),
-    ).toBeDisabled();
+    await user.click(screen.getByRole("combobox"));
+    await user.click(await screen.findByRole("option", { name: "V2.0" }));
+    expect(onChangeAction).toHaveBeenCalledWith("v4");
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
   });
 });

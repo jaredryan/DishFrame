@@ -131,8 +131,24 @@ export function LibraryFilterBar({
 
   function submitSearch(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    clearTimeout(searchDebounceRef.current);
     navigate({ ...filters, search: searchValue.trim() });
   }
+
+  // Type-to-filter (nav/details QA batch item 4): search is server-driven
+  // (a new URL re-runs `queryDishLibrary`), so typing debounces into a
+  // navigation instead of requiring Enter/submit.
+  const searchDebounceRef = React.useRef<
+    ReturnType<typeof setTimeout> | undefined
+  >(undefined);
+  React.useEffect(() => {
+    if (searchValue.trim() === filters.search) return;
+    searchDebounceRef.current = setTimeout(() => {
+      navigate({ ...filters, search: searchValue.trim() });
+    }, 300);
+    return () => clearTimeout(searchDebounceRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchValue]);
 
   function toggleStage(value: string) {
     const stage = value as StageValue;

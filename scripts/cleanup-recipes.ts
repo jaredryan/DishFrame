@@ -92,7 +92,9 @@ async function main() {
   console.log(`Recipe count: ${recipes.length}\n`);
 
   if (recipes.length === 0) {
-    console.log("[cleanup-recipes] No Recipes found for this account. Nothing to do.");
+    console.log(
+      "[cleanup-recipes] No Recipes found for this account. Nothing to do.",
+    );
     return;
   }
 

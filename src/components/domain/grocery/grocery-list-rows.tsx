@@ -2,11 +2,15 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { Eye, ShoppingCart, Trash2 } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { TooltipIconButton } from "@/components/domain/dish/reorder-buttons";
+import {
+  CLICKABLE_ROW_CLASS,
+  ClickableRowOverlay,
+} from "@/components/ui/clickable-row";
+import { cn } from "@/lib/utils";
 import { deleteGroceryList } from "@/lib/grocery/list-actions";
 
 export type GroceryListRowItem = {
@@ -45,11 +49,15 @@ export function GroceryListCard({ list }: { list: GroceryListRowItem }) {
   }
 
   return (
-    <li className="border-border bg-card relative flex items-center justify-between gap-3 rounded-lg border px-4 py-3">
-      <Link
+    <li
+      className={cn(
+        "border-border bg-card relative flex items-center justify-between gap-3 rounded-lg border px-4 py-3",
+        CLICKABLE_ROW_CLASS,
+      )}
+    >
+      <ClickableRowOverlay
         href={`/grocery-lists/${list.id}`}
-        aria-label={`Open ${list.title}`}
-        className="absolute inset-0 z-0 rounded-lg"
+        label={`Open ${list.title}`}
       />
       <div className="min-w-0">
         <p className="text-foreground truncate text-sm font-medium">

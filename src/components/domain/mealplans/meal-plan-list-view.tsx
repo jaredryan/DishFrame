@@ -13,6 +13,11 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { TooltipIconButton } from "@/components/domain/dish/reorder-buttons";
 import {
+  CLICKABLE_ROW_CLASS,
+  ClickableRowOverlay,
+} from "@/components/ui/clickable-row";
+import { cn } from "@/lib/utils";
+import {
   deleteMealPlan,
   completeMealPlan,
   reactivateMealPlan,
@@ -38,9 +43,9 @@ function formatRange(start: Date, end: Date): string {
 
 /**
  * Single Meal Plan row, shared by the Meal Plans index (`MealPlanListView`)
- * and the Home dashboard's "Meal plans" section — one card, no row-level
- * click-through; View/Complete-or-Reactivate/Delete are the only ways to
- * act on a row.
+ * and the Home dashboard's "Meal plans" section. The whole row is also a
+ * click target for View, its primary/leftmost action; Complete-or-
+ * Reactivate/Delete stay explicit icon-only controls.
  */
 export function MealPlanCard({
   plan,
@@ -88,7 +93,16 @@ export function MealPlanCard({
   const isCompleted = variant === "completed";
 
   return (
-    <li className="border-border bg-card flex items-center justify-between gap-3 rounded-lg border px-4 py-3">
+    <li
+      className={cn(
+        "border-border bg-card relative flex items-center justify-between gap-3 rounded-lg border px-4 py-3",
+        CLICKABLE_ROW_CLASS,
+      )}
+    >
+      <ClickableRowOverlay
+        href={`/meal-plans/${plan.id}`}
+        label={`View ${plan.title}`}
+      />
       <div className="min-w-0">
         <p className="text-foreground truncate text-sm font-medium">
           {plan.title}
@@ -100,7 +114,7 @@ export function MealPlanCard({
           </span>
         </div>
       </div>
-      <div className="flex shrink-0 items-center gap-1">
+      <div className="relative z-10 flex shrink-0 items-center gap-1">
         <TooltipIconButton
           label={`View ${plan.title}`}
           tooltip="View"

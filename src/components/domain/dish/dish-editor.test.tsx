@@ -214,6 +214,15 @@ describe("DishEditor heading", () => {
       screen.getByRole("heading", { name: "Edit part", level: 1 }),
     ).toBeInTheDocument();
   });
+
+  // Nav/details QA batch items 7/13/14: "Recipe" names the ingredients/
+  // instructions composition area for both entity kinds — never "Part".
+  it("labels the composition area 'Recipe' even when editing a Part", () => {
+    render(<DishEditor kind="PART" dish={existingDish} />);
+    expect(
+      screen.getByRole("heading", { name: "Recipe", level: 2 }),
+    ).toBeInTheDocument();
+  });
 });
 
 describe("DishEditor unsaved-changes guard", () => {

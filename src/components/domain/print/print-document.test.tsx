@@ -67,7 +67,7 @@ function partLink(
 const imageSrc = (assetId: string) => `/api/images/${assetId}`;
 
 describe("PrintDocument", () => {
-  it("renders the title and a meta line with kind and Version", () => {
+  it("renders the title and a Version badge", () => {
     render(
       <PrintDocument
         content={baseContent()}
@@ -78,7 +78,31 @@ describe("PrintDocument", () => {
     expect(
       screen.getByRole("heading", { level: 1, name: "Ginger Soy Bowl" }),
     ).toBeInTheDocument();
-    expect(screen.getByText(/Recipe · V1\.0/)).toBeInTheDocument();
+    expect(screen.getByText("V1.0")).toBeInTheDocument();
+  });
+
+  // Nav/details QA batch item 5: a Part prints with the same content
+  // treatment as a Recipe — no large outline/eyebrow — except for a compact
+  // "Part" badge immediately before the Version badge, near the title.
+  it("shows a compact Part badge before the Version badge only when printing a Part", () => {
+    const { rerender } = render(
+      <PrintDocument
+        content={baseContent()}
+        kindLabel="Recipe"
+        imageSrc={imageSrc}
+      />,
+    );
+    expect(screen.queryByText("Part")).not.toBeInTheDocument();
+
+    rerender(
+      <PrintDocument
+        content={baseContent()}
+        kindLabel="Part"
+        imageSrc={imageSrc}
+      />,
+    );
+    const badges = screen.getAllByText(/^(Part|V1\.0)$/);
+    expect(badges.map((b) => b.textContent)).toEqual(["Part", "V1.0"]);
   });
 
   it("renders Sections and their Ingredients/Instructions in authored order", () => {
@@ -297,7 +321,7 @@ describe("PrintDocument", () => {
     expect(screen.getByText(/frozen/)).toBeInTheDocument();
   });
 
-  it("includes badgeLabel and creatorName in the meta line only when supplied (public share only)", () => {
+  it("includes badgeLabel and creatorName next to the Version badge only when supplied (public share only)", () => {
     render(
       <PrintDocument
         content={baseContent()}
@@ -308,7 +332,7 @@ describe("PrintDocument", () => {
       />,
     );
     expect(
-      screen.getByText("Recipe · V1.0 · Fixed snapshot · Shared by Alex"),
+      screen.getByText("Fixed snapshot · Shared by Alex"),
     ).toBeInTheDocument();
   });
 });

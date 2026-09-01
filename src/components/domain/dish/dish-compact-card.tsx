@@ -12,6 +12,11 @@ import {
   dishBasePath,
   type DishCardItem,
 } from "@/components/domain/dish/dish-card";
+import {
+  CLICKABLE_ROW_CLASS,
+  ClickableRowOverlay,
+} from "@/components/ui/clickable-row";
+import { cn } from "@/lib/utils";
 import type { DishKindValue } from "@/lib/dishes/schema";
 
 const dateFormatter = new Intl.DateTimeFormat("en-US", {
@@ -22,9 +27,9 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
 /**
  * Compact view: a genuinely scannable alternative to the image-led grid —
  * no image, title first with natural wrapping, then a chip row (cuisine,
- * lifecycle stage, last-updated) directly beneath it. View/Edit icon
- * buttons replace the old row-level click-through, matching every other
- * shared row component (cook sessions, meal plans, grocery lists).
+ * lifecycle stage, last-updated) directly beneath it. The whole row is also
+ * a click target for View, its primary/leftmost action; Edit stays an
+ * explicit icon-only control.
  */
 export function DishCompactCard({
   dish,
@@ -43,7 +48,16 @@ export function DishCompactCard({
   const title = dish.currentTitle || "Untitled";
 
   return (
-    <div className="border-border bg-card flex items-center justify-between gap-3 rounded-lg border px-4 py-3">
+    <div
+      className={cn(
+        "border-border bg-card relative flex items-center justify-between gap-3 rounded-lg border px-4 py-3",
+        CLICKABLE_ROW_CLASS,
+      )}
+    >
+      <ClickableRowOverlay
+        href={`${basePath}/${dish.id}`}
+        label={`View ${title}`}
+      />
       <div className="min-w-0">
         <span className="text-foreground flex items-center gap-1.5 text-sm font-medium break-words">
           {dish.isFavorite && (
@@ -66,7 +80,7 @@ export function DishCompactCard({
           </Badge>
         </div>
       </div>
-      <div className="flex shrink-0 items-center gap-1">
+      <div className="relative z-10 flex shrink-0 items-center gap-1">
         <TooltipIconButton
           label={`View ${title}`}
           tooltip="View"
