@@ -116,6 +116,45 @@ beforeEach(() => {
   });
 });
 
+describe("MealPlanEditor Details defaults (§1)", () => {
+  it("defaults Start date to today and End date to today + 6 days", () => {
+    renderEditor([candidate()]);
+
+    const today = new Date();
+    const end = new Date(today);
+    end.setDate(end.getDate() + 6);
+    const format = (d: Date) =>
+      d.toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      });
+
+    expect(screen.getByLabelText("Start date")).toHaveValue(format(today));
+    expect(screen.getByLabelText("End date")).toHaveValue(format(end));
+  });
+});
+
+describe("MealPlanEditor Meals to cook cards (§3)", () => {
+  it("does not show a meaningless Planned badge for a newly-added unsaved meal", async () => {
+    const user = userEvent.setup();
+    renderEditor([candidate()]);
+    await addDefaultMeal(user);
+
+    expect(screen.queryByText("Planned")).not.toBeInTheDocument();
+  });
+
+  it("clicking the card row (not a nested action) opens Edit", async () => {
+    const user = userEvent.setup();
+    renderEditor([candidate()]);
+    await addDefaultMeal(user);
+
+    await user.click(screen.getByText("Weeknight Stir-Fry"));
+
+    expect(await screen.findByLabelText("Target yield")).toBeInTheDocument();
+  });
+});
+
 /**
  * Slice 25 redesign: the Add/Edit-meal modal is now a compact version of the
  * Recipes/Parts library browser (search/filters/sort acting directly on one
@@ -297,64 +336,65 @@ async function addDefaultMeal(
 }
 
 /**
- * Schedule redesign: the former inline `+ Planned meal`/allocation UI on
- * each Meal card is now this dedicated section + modal. With exactly one
- * Meal on the plan, the modal's "Meal" picker defaults to it, so these tests
- * don't need to drive that Select directly.
+ * Schedule redesign (Meal Plan QA redesign, §4): a day-card view grouped by
+ * calendar date, with one-plan-per-modal Add/Edit — replacing the former
+ * inline `+ Planned meal` UI and, before that, the multi-plan-in-one-modal
+ * "Plan meals" batch workflow. With exactly one Meal on the plan, the
+ * modal's "Dish" picker defaults to it, so these tests don't need to drive
+ * that Select directly.
  */
 describe("MealPlanEditor Schedule section", () => {
-  it("starts empty, with Add schedule disabled until a Meal exists", async () => {
+  it("starts empty, with Add plan disabled until a Meal exists", async () => {
     renderEditor([candidate()]);
 
     expect(
       screen.getByText("There is no schedule for this meal plan."),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add schedule" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add plan" })).toBeDisabled();
   });
 
-  it("Plan meals commits a scheduled allocation, surfacing meal label, Meal, date, and servings", async () => {
+  it("Add plan commits a scheduled meal, grouped under its date's day card", async () => {
     const user = userEvent.setup();
     renderEditor([candidate()]);
     await addDefaultMeal(user);
 
-    expect(
-      screen.getByRole("button", { name: "Add schedule" }),
-    ).not.toBeDisabled();
-    await user.click(screen.getByRole("button", { name: "Add schedule" }));
+    expect(screen.getByRole("button", { name: "Add plan" })).not.toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Add plan" }));
 
     await user.type(await screen.findByLabelText("Meal name"), "Sunday dinner");
     await user.type(screen.getByLabelText("Servings"), "2");
-    await user.click(screen.getByRole("button", { name: "Add plan" }));
-    await user.click(screen.getByRole("button", { name: "Plan meals" }));
+    const submitButtons = screen.getAllByRole("button", { name: "Add plan" });
+    await user.click(submitButtons[submitButtons.length - 1]);
 
-    expect(screen.getByText("Sunday dinner")).toBeInTheDocument();
-    expect(screen.getByText("2 servings")).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Edit schedule" }),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Sunday dinner")).toBeInTheDocument();
+    expect(screen.getByText(/2 servings/)).toBeInTheDocument();
   });
 
   it("prevents scheduling more servings than the Meal's target yield across entries (§77.2)", async () => {
     const user = userEvent.setup();
     renderEditor([candidate()]); // target yield 4 (candidate()'s yieldQuantity)
     await addDefaultMeal(user);
-    await user.click(screen.getByRole("button", { name: "Add schedule" }));
 
+    await user.click(screen.getByRole("button", { name: "Add plan" }));
     await user.type(await screen.findByLabelText("Meal name"), "First");
     await user.type(screen.getByLabelText("Servings"), "3");
-    await user.click(screen.getByRole("button", { name: "Add plan" }));
-    expect(
-      screen.getByText(/1 serving left for this meal/),
-    ).toBeInTheDocument();
+    const submitButtons = screen.getAllByRole("button", { name: "Add plan" });
+    await user.click(submitButtons[submitButtons.length - 1]);
+    expect(await screen.findByText("First")).toBeInTheDocument();
 
-    await user.type(screen.getByLabelText("Meal name"), "Second");
+    await user.click(screen.getByRole("button", { name: "Add plan" }));
+    await user.type(await screen.findByLabelText("Meal name"), "Second");
+    expect(
+      screen.getByText(/1 serving left for this Dish/),
+    ).toBeInTheDocument();
     await user.type(screen.getByLabelText("Servings"), "3");
-    await user.click(screen.getByRole("button", { name: "Add plan" }));
+    const secondSubmit = screen.getAllByRole("button", { name: "Add plan" });
+    await user.click(secondSubmit[secondSubmit.length - 1]);
 
     expect(
-      screen.getByText(/Only 1 serving left for this meal/),
+      await screen.findByText(/Only 1 serving left for this Dish/),
     ).toBeInTheDocument();
-    // The over-allocating second entry never joined the draft list.
+    // The over-allocating second entry never joined the schedule.
     expect(screen.queryByText("Second")).not.toBeInTheDocument();
   });
 
@@ -362,12 +402,12 @@ describe("MealPlanEditor Schedule section", () => {
     const user = userEvent.setup();
     renderEditor([candidate()]);
     await addDefaultMeal(user);
-    await user.click(screen.getByRole("button", { name: "Add schedule" }));
+    await user.click(screen.getByRole("button", { name: "Add plan" }));
     await user.type(await screen.findByLabelText("Meal name"), "Sunday dinner");
     await user.type(screen.getByLabelText("Servings"), "2");
-    await user.click(screen.getByRole("button", { name: "Add plan" }));
-    await user.click(screen.getByRole("button", { name: "Plan meals" }));
-    expect(screen.getByText("Sunday dinner")).toBeInTheDocument();
+    const submitButtons = screen.getAllByRole("button", { name: "Add plan" });
+    await user.click(submitButtons[submitButtons.length - 1]);
+    expect(await screen.findByText("Sunday dinner")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Remove meal" }));
 
@@ -381,11 +421,12 @@ describe("MealPlanEditor Schedule section", () => {
     const user = userEvent.setup();
     renderEditor([candidate()]);
     await addDefaultMeal(user);
-    await user.click(screen.getByRole("button", { name: "Add schedule" }));
+    await user.click(screen.getByRole("button", { name: "Add plan" }));
     await user.type(await screen.findByLabelText("Meal name"), "Sunday dinner");
     await user.type(screen.getByLabelText("Servings"), "2");
-    await user.click(screen.getByRole("button", { name: "Add plan" }));
-    await user.click(screen.getByRole("button", { name: "Plan meals" }));
+    const submitButtons = screen.getAllByRole("button", { name: "Add plan" });
+    await user.click(submitButtons[submitButtons.length - 1]);
+    await screen.findByText("Sunday dinner");
 
     await user.click(screen.getByRole("button", { name: "Create meal plan" }));
 
@@ -409,11 +450,12 @@ describe("MealPlanEditor Schedule section", () => {
     renderEditor([candidate()]);
     await addDefaultMeal(user); // target yield 4
 
-    await user.click(screen.getByRole("button", { name: "Add schedule" }));
+    await user.click(screen.getByRole("button", { name: "Add plan" }));
     await user.type(await screen.findByLabelText("Meal name"), "Sunday dinner");
     await user.type(screen.getByLabelText("Servings"), "3");
-    await user.click(screen.getByRole("button", { name: "Add plan" }));
-    await user.click(screen.getByRole("button", { name: "Plan meals" }));
+    const submitButtons = screen.getAllByRole("button", { name: "Add plan" });
+    await user.click(submitButtons[submitButtons.length - 1]);
+    await screen.findByText("Sunday dinner");
 
     // Lower the Meal's target yield below what's already scheduled (3).
     await user.click(screen.getByRole("button", { name: "Edit meal" }));

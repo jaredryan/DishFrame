@@ -1043,6 +1043,15 @@ model PlannedMeal {
   label    String
   date     DateTime
   servings Decimal  @db.Decimal(8, 2)
+  // Meal Plan QA redesign — consumption state, distinct from
+  // MealPlanEntry.status (cooked/preparation state). Persisted per
+  // scheduled meal on Meal Plan Details' Schedule section.
+  eaten    Boolean  @default(false)
+  // User-defined position within its own calendar date (drag-reordered in
+  // the Schedule day-card UI) — meaningful only when compared against other
+  // PlannedMeal rows sharing the same `date`, regardless of which entry
+  // they belong to. Toggling `eaten` must never change this.
+  sortOrder Int     @default(0)
 
   entry MealPlanEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
 

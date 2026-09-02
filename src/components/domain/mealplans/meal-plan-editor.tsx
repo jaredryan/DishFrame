@@ -30,13 +30,6 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Dialog,
   DialogClose,
   DialogContent,
@@ -45,7 +38,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { CLICKABLE_ROW_CLASS } from "@/components/ui/clickable-row";
 import { DatePickerField } from "@/components/ui/date-picker-field";
+import { DateRangePickerField } from "@/components/ui/date-range-picker-field";
 import { useStepScrollReset } from "@/components/ui/use-step-scroll-reset";
 import { TooltipIconButton } from "@/components/domain/dish/reorder-buttons";
 import { STAGE_LABEL } from "@/components/domain/dish/stage-badge";
@@ -61,6 +56,16 @@ import {
 import { RichVersionPickerField } from "@/components/domain/dish/version-picker-field";
 import { QuantityInput } from "@/components/domain/dish/number-field";
 import {
+  EditableScheduleDayCard,
+  groupScheduleByDate,
+} from "@/components/domain/mealplans/schedule-shared";
+import {
+  PlanModal,
+  type PlanFormValues,
+  type PlanMealOption,
+  type PlanScheduleItem,
+} from "@/components/domain/mealplans/plan-modal";
+import {
   listDishVersionOptions,
   type DishVersionOption,
 } from "@/lib/dishes/actions";
@@ -70,7 +75,6 @@ import {
   updateMealPlan,
   saveMealPlanEntryChanges,
 } from "@/lib/mealplans/actions";
-import { remainingServings } from "@/lib/mealplans/allocation";
 import { formatDateOnly, toIsoDateOnly } from "@/lib/date";
 import { cn } from "@/lib/utils";
 import { useUnsavedChangesGuard } from "@/components/domain/dish/use-unsaved-changes-guard";
@@ -179,27 +183,25 @@ type MealModalState =
       initialValues: MealValues;
     };
 
+// Schedule redesign — one-plan-per-modal state for the Add/Edit Plan
+// modal (plan-modal.tsx).
+type PlanModalState =
+  | { key: string; mode: "add"; initialDate?: string }
+  | { key: string; mode: "edit"; item: ScheduleItem };
+
 // Schedule redesign — one Schedule-section entry. `mealKey` addresses the
 // Meal it's scheduled against: a saved entry's `entry.id`, or (an
 // as-yet-unsaved Meal) a `DraftEntry.localId` — resolved to a real entryId
-// server-side at Save time (`saveMealPlanEntryChanges`'s `localKey`).
-type ScheduleItem = {
-  localId: string;
-  mealKey: string;
-  label: string;
-  date: string;
-  servings: number;
-};
+// server-side at Save time (`saveMealPlanEntryChanges`'s `localKey`). Same
+// shape as `PlanScheduleItem` (plan-modal.tsx) — reused directly rather
+// than duplicated.
+type ScheduleItem = PlanScheduleItem;
 
-// The Schedule modal's "Meal from this Meal Plan" picker options — every
+// The Plan modal's "Dish from this Meal Plan" picker options — every
 // current Meal, saved or still-drafted, in whichever form the page's own
-// edits currently show it (title/target yield included).
-type MealOption = {
-  key: string;
-  title: string;
-  versionLabel: string;
-  targetYieldQuantity: number | null;
-};
+// edits currently show it (title/target yield included). Same shape as
+// `PlanMealOption` (plan-modal.tsx).
+type MealOption = PlanMealOption;
 
 type StoredDraft = {
   title: string;
@@ -268,10 +270,27 @@ function findScheduleYieldConflict(
   return null;
 }
 
+// Every scheduled meal's position within its own calendar date (§4's
+// per-day drag order) is derived from `schedule`'s current array order —
+// not stored as a separate field on `ScheduleItem` — computed once here
+// over the *whole* draft so it's correct across Meals/entries sharing a
+// date, then attached per-item when each Meal's own slice is built below.
+function sortOrderByLocalId(schedule: ScheduleItem[]): Map<string, number> {
+  const nextIndexByDate = new Map<string, number>();
+  const result = new Map<string, number>();
+  for (const item of schedule) {
+    const index = nextIndexByDate.get(item.date) ?? 0;
+    result.set(item.localId, index);
+    nextIndexByDate.set(item.date, index + 1);
+  }
+  return result;
+}
+
 function buildScheduleAssignments(
   mealKeys: string[],
   schedule: ScheduleItem[],
 ) {
+  const sortOrders = sortOrderByLocalId(schedule);
   return mealKeys.map((mealKey) => ({
     mealKey,
     meals: schedule
@@ -280,6 +299,7 @@ function buildScheduleAssignments(
         label: item.label,
         date: item.date,
         servings: item.servings,
+        sortOrder: sortOrders.get(item.localId) ?? 0,
       })),
   }));
 }
@@ -313,9 +333,13 @@ export function MealPlanEditor(
   const [title, setTitle] = React.useState(initial.title);
   const [startDate, setStartDate] = React.useState(initial.start);
   const [endDate, setEndDate] = React.useState(initial.end);
+  // Create keeps the Details form expanded inline; Edit shows the compact
+  // summary and opens the same fields in an `Edit details` modal instead
+  // (§1 — a small interaction change, not a form redesign).
   const [detailsExpanded, setDetailsExpanded] = React.useState(
     props.mode === "create",
   );
+  const [detailsModalOpen, setDetailsModalOpen] = React.useState(false);
   const [detailsError, setDetailsError] = React.useState<string | null>(null);
   const detailsSnapshotRef = React.useRef({ title, startDate, endDate });
 
@@ -340,23 +364,34 @@ export function MealPlanEditor(
   // detect a schedule-only change (see `isDirty`/`hasEntryChanges` below).
   const [schedule, setSchedule] = React.useState<ScheduleItem[]>(() =>
     mealPlan
-      ? mealPlan.entries.flatMap((entry) =>
-          entry.plannedMeals.map((meal) => ({
-            localId: meal.id,
-            mealKey: entry.id,
-            label: meal.label,
-            date: dateOnly(meal.date),
-            servings: meal.servings,
-          })),
-        )
+      ? mealPlan.entries
+          .flatMap((entry) =>
+            entry.plannedMeals.map((meal) => ({
+              item: {
+                localId: meal.id,
+                mealKey: entry.id,
+                label: meal.label,
+                date: dateOnly(meal.date),
+                servings: meal.servings,
+              },
+              // Sort key only, used to reconstruct the correct cross-entry
+              // day order below — `ScheduleItem` itself carries no
+              // `sortOrder` field (see `sortOrderByLocalId` above).
+              sortOrder: meal.sortOrder,
+            })),
+          )
+          .sort(
+            (a, b) =>
+              a.item.date.localeCompare(b.item.date) ||
+              a.sortOrder - b.sortOrder,
+          )
+          .map(({ item }) => item)
       : [],
   );
   const [initialScheduleSnapshot] = React.useState(() =>
     JSON.stringify(schedule),
   );
-  const [scheduleModalKey, setScheduleModalKey] = React.useState<string | null>(
-    null,
-  );
+  const [planModal, setPlanModal] = React.useState<PlanModalState | null>(null);
 
   const [serverError, setServerError] = React.useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
@@ -461,7 +496,11 @@ export function MealPlanEditor(
   function openDetails() {
     detailsSnapshotRef.current = { title, startDate, endDate };
     setDetailsError(null);
-    setDetailsExpanded(true);
+    if (props.mode === "edit") {
+      setDetailsModalOpen(true);
+    } else {
+      setDetailsExpanded(true);
+    }
   }
 
   function cancelDetails() {
@@ -471,6 +510,7 @@ export function MealPlanEditor(
     setEndDate(snapshot.endDate);
     setDetailsError(null);
     setDetailsExpanded(false);
+    setDetailsModalOpen(false);
   }
 
   function finishDetails() {
@@ -484,10 +524,52 @@ export function MealPlanEditor(
     }
     setDetailsError(null);
     setDetailsExpanded(false);
+    setDetailsModalOpen(false);
   }
 
   function openAddMeal() {
     setMealModal({ key: crypto.randomUUID(), mode: "add" });
+  }
+
+  function openAddPlan(initialDate?: string) {
+    setPlanModal({ key: crypto.randomUUID(), mode: "add", initialDate });
+  }
+
+  function openEditPlan(item: ScheduleItem) {
+    setPlanModal({ key: crypto.randomUUID(), mode: "edit", item });
+  }
+
+  function handlePlanSubmit(values: PlanFormValues) {
+    if (!planModal) return;
+    if (planModal.mode === "add") {
+      setSchedule((prev) => [
+        ...prev,
+        { localId: crypto.randomUUID(), ...values },
+      ]);
+    } else {
+      const editedLocalId = planModal.item.localId;
+      setSchedule((prev) =>
+        prev.map((item) =>
+          item.localId === editedLocalId ? { ...item, ...values } : item,
+        ),
+      );
+    }
+    setPlanModal(null);
+  }
+
+  function deletePlanItem(localId: string) {
+    setSchedule((prev) => prev.filter((item) => item.localId !== localId));
+  }
+
+  function reorderScheduleDay(dateIso: string, orderedLocalIds: string[]) {
+    setSchedule((prev) => {
+      const byId = new Map(prev.map((item) => [item.localId, item]));
+      const reordered = orderedLocalIds.map((id) => byId.get(id)!);
+      let cursor = 0;
+      return prev.map((item) =>
+        item.date === dateIso ? reordered[cursor++] : item,
+      );
+    });
   }
 
   function openEditDraft(entry: DraftEntry) {
@@ -817,8 +899,14 @@ export function MealPlanEditor(
       `${option.title} ${option.versionLabel}`.trim(),
     ]),
   );
-  const sortedSchedule = [...schedule].sort((a, b) =>
-    a.date.localeCompare(b.date),
+  const scheduleDayGroups = groupScheduleByDate(
+    schedule.map((item) => ({
+      id: item.localId,
+      label: item.label,
+      mealTitle: mealTitleByKey.get(item.mealKey) ?? "—",
+      servings: item.servings,
+      dateIso: item.date,
+    })),
   );
 
   function queueRemoveMeal(entryId: string) {
@@ -832,7 +920,7 @@ export function MealPlanEditor(
   }
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6 pb-24">
+    <div className="mx-auto flex max-w-5xl flex-col gap-6 pb-24">
       <Breadcrumbs items={breadcrumbItems} />
       <h1 className="font-heading text-foreground text-2xl font-semibold">
         {heading}
@@ -840,37 +928,16 @@ export function MealPlanEditor(
 
       <div className="flex flex-col gap-4">
         <h2 className={SECTION_HEADING_CLASS}>Details</h2>
-        {detailsExpanded ? (
+        {props.mode === "create" && detailsExpanded ? (
           <div className="border-border bg-card flex flex-col gap-4 rounded-xl border p-4">
-            <Field>
-              <FieldLabel htmlFor="meal-plan-title">Title</FieldLabel>
-              <Input
-                id="meal-plan-title"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                maxLength={120}
-              />
-            </Field>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field>
-                <FieldLabel htmlFor="meal-plan-start">Start date</FieldLabel>
-                <DatePickerField
-                  id="meal-plan-start"
-                  value={startDate}
-                  onChange={setStartDate}
-                  ariaLabel="Start date"
-                />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="meal-plan-end">End date</FieldLabel>
-                <DatePickerField
-                  id="meal-plan-end"
-                  value={endDate}
-                  onChange={setEndDate}
-                  ariaLabel="End date"
-                />
-              </Field>
-            </div>
+            <DetailsFormFields
+              title={title}
+              startDate={startDate}
+              endDate={endDate}
+              onTitleChange={setTitle}
+              onStartDateChange={setStartDate}
+              onEndDateChange={setEndDate}
+            />
             <FieldError>{detailsError}</FieldError>
             <div className="flex gap-2">
               <Button type="button" size="sm" onClick={finishDetails}>
@@ -903,17 +970,52 @@ export function MealPlanEditor(
             />
           </div>
         )}
+
+        {props.mode === "edit" && (
+          <Dialog
+            open={detailsModalOpen}
+            onOpenChange={(next) => !next && cancelDetails()}
+          >
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Edit details</DialogTitle>
+              </DialogHeader>
+              <DetailsFormFields
+                title={title}
+                startDate={startDate}
+                endDate={endDate}
+                onTitleChange={setTitle}
+                onStartDateChange={setStartDate}
+                onEndDateChange={setEndDate}
+              />
+              <FieldError>{detailsError}</FieldError>
+              <DialogFooter>
+                <Button variant="outline" onClick={cancelDetails}>
+                  Cancel
+                </Button>
+                <Button type="button" onClick={finishDetails}>
+                  Save
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
 
       <div className="flex flex-col gap-4">
-        <h2 className={SECTION_HEADING_CLASS}>Meals</h2>
+        <div className="flex items-center justify-between gap-4">
+          <h2 className={SECTION_HEADING_CLASS}>Meals to cook</h2>
+          <Button type="button" size="sm" onClick={openAddMeal}>
+            <Plus /> Add meal
+          </Button>
+        </div>
 
         {hasNoMeals ? (
           <p className="text-muted-foreground text-sm">
-            No meals yet — add one below.
+            No meals yet — add one above.
           </p>
         ) : (
-          <ul className="grid gap-3 md:grid-cols-2 md:items-start">
+          <ul className="grid gap-3 sm:grid-cols-2 md:items-start xl:grid-cols-3">
             {visibleEntries.map((entry) => (
               <EditEntryCard
                 key={entry.id}
@@ -935,12 +1037,6 @@ export function MealPlanEditor(
             ))}
           </ul>
         )}
-
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" size="sm" onClick={openAddMeal}>
-            <Plus /> Add meal
-          </Button>
-        </div>
 
         <MealPickerModal
           key={mealModal?.key ?? "closed"}
@@ -968,44 +1064,54 @@ export function MealPlanEditor(
           <Button
             type="button"
             size="sm"
-            variant="outline"
             disabled={mealOptions.length === 0}
-            onClick={() => setScheduleModalKey(crypto.randomUUID())}
+            onClick={() => openAddPlan()}
           >
-            {schedule.length === 0 ? "Add schedule" : "Edit schedule"}
+            <Plus /> Add plan
           </Button>
         </div>
 
-        {schedule.length === 0 ? (
+        {scheduleDayGroups.length === 0 ? (
           <p className="text-muted-foreground text-sm">
             There is no schedule for this meal plan.
           </p>
         ) : (
-          <ul className="grid gap-2 md:grid-cols-2 md:items-start">
-            {sortedSchedule.map((item) => (
-              <ScheduleRow
-                key={item.localId}
-                item={item}
-                mealTitle={mealTitleByKey.get(item.mealKey) ?? "—"}
+          <ul className="grid items-start gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {scheduleDayGroups.map((group) => (
+              <EditableScheduleDayCard
+                key={group.dateIso}
+                dateIso={group.dateIso}
+                items={group.items}
+                onAddMealAction={() => openAddPlan(group.dateIso)}
+                onEditItemAction={(id) => {
+                  const item = schedule.find((s) => s.localId === id);
+                  if (item) openEditPlan(item);
+                }}
+                onDeleteItemAction={deletePlanItem}
+                onReorderAction={(orderedIds) =>
+                  reorderScheduleDay(group.dateIso, orderedIds)
+                }
               />
             ))}
           </ul>
         )}
 
-        {scheduleModalKey && (
-          <ScheduleModal
-            key={scheduleModalKey}
+        {planModal && (
+          <PlanModal
+            key={planModal.key}
+            mode={planModal.mode}
+            initialValues={planModal.mode === "edit" ? planModal.item : null}
+            initialDate={
+              planModal.mode === "add" ? planModal.initialDate : undefined
+            }
             mealOptions={mealOptions}
             schedule={schedule}
             planStartDate={startDate}
             planEndDate={endDate}
-            onOpenChange={(next) => {
-              if (!next) setScheduleModalKey(null);
+            onOpenChangeAction={(next) => {
+              if (!next) setPlanModal(null);
             }}
-            onSubmit={(next) => {
-              setSchedule(next);
-              setScheduleModalKey(null);
-            }}
+            onSubmitAction={handlePlanSubmit}
           />
         )}
       </div>
@@ -1023,11 +1129,12 @@ export function MealPlanEditor(
           <span />
         )}
         <div className="flex items-center gap-2">
-          <Button variant="outline" asChild>
+          <Button variant="outline" className="min-w-fit" asChild>
             <Link href={cancelHref}>Cancel</Link>
           </Button>
           <Button
             type="button"
+            className="min-w-fit"
             onClick={handleFinalSave}
             loading={isSubmitting}
           >
@@ -1046,6 +1153,49 @@ export function MealPlanEditor(
         destructive
         onConfirmAction={discardDraftAndLeave}
       />
+    </div>
+  );
+}
+
+/** Shared Details form body (§1) — the same fields/order/validation in
+ * both Create's inline treatment and Edit's `Edit details` modal. */
+function DetailsFormFields({
+  title,
+  startDate,
+  endDate,
+  onTitleChange,
+  onStartDateChange,
+  onEndDateChange,
+}: {
+  title: string;
+  startDate: string;
+  endDate: string;
+  onTitleChange: (value: string) => void;
+  onStartDateChange: (value: string) => void;
+  onEndDateChange: (value: string) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-4">
+      <Field>
+        <FieldLabel htmlFor="meal-plan-title">Title</FieldLabel>
+        <Input
+          id="meal-plan-title"
+          value={title}
+          onChange={(e) => onTitleChange(e.target.value)}
+          maxLength={120}
+        />
+      </Field>
+      <Field>
+        <FieldLabel htmlFor="meal-plan-start">Start date – End date</FieldLabel>
+        <DateRangePickerField
+          startId="meal-plan-start"
+          endId="meal-plan-end"
+          startValue={startDate}
+          endValue={endDate}
+          onStartChangeAction={onStartDateChange}
+          onEndChangeAction={onEndDateChange}
+        />
+      </Field>
     </div>
   );
 }
@@ -1069,7 +1219,11 @@ function MealCardActions({
   onRemove: () => void;
 }) {
   return (
-    <div className="flex shrink-0 items-center gap-1">
+    <div
+      className="flex shrink-0 items-center gap-1"
+      onClick={(event) => event.stopPropagation()}
+    >
+      <TooltipIconButton label="Edit meal" icon={Pencil} onClick={onEdit} />
       {showSync && (
         <TooltipIconButton
           label="Sync to latest version"
@@ -1079,7 +1233,6 @@ function MealCardActions({
           onClick={onSync}
         />
       )}
-      <TooltipIconButton label="Edit meal" icon={Pencil} onClick={onEdit} />
       <TooltipIconButton
         label="Remove meal"
         icon={Trash2}
@@ -1102,7 +1255,23 @@ function DraftEntryCard({
   onEdit: () => void;
 }) {
   return (
-    <li className="border-border bg-card flex items-center justify-between gap-3 rounded-lg border p-4">
+    <li
+      role="button"
+      tabIndex={0}
+      aria-label={`Edit ${entry.title}`}
+      onClick={onEdit}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onEdit();
+        }
+      }}
+      className={cn(
+        "border-border bg-card flex items-center justify-between gap-3 rounded-lg border p-4",
+        CLICKABLE_ROW_CLASS,
+        "cursor-pointer",
+      )}
+    >
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         <p className="text-foreground text-sm font-medium">
           {entry.title}{" "}
@@ -1111,7 +1280,6 @@ function DraftEntryCard({
           </span>
         </p>
         <div className="flex flex-wrap items-center gap-1.5">
-          <SemanticChip semantic="blue">Planned</SemanticChip>
           <Badge variant="outline" className="gap-1">
             <CalendarDays className="size-3" aria-hidden="true" />
             {formatDateOnly(entry.cookDate)}
@@ -1160,7 +1328,23 @@ function EditEntryCard({
   onEdit: () => void;
 }) {
   return (
-    <li className="border-border bg-card flex items-center justify-between gap-3 rounded-lg border p-4">
+    <li
+      role="button"
+      tabIndex={0}
+      aria-label={`Edit ${entry.title}`}
+      onClick={onEdit}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onEdit();
+        }
+      }}
+      className={cn(
+        "border-border bg-card flex items-center justify-between gap-3 rounded-lg border p-4",
+        CLICKABLE_ROW_CLASS,
+        "cursor-pointer",
+      )}
+    >
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         <p className="text-foreground text-sm font-medium">
           {entry.title}{" "}
@@ -1196,296 +1380,6 @@ function EditEntryCard({
         onRemove={onQueueRemove}
       />
     </li>
-  );
-}
-
-/** One Schedule-section entry — meal label, the Meal Plan meal it refers to,
- * date, and servings, the four values PRODUCT_SPEC.md §77.1 calls out. */
-function ScheduleRow({
-  item,
-  mealTitle,
-}: {
-  item: ScheduleItem;
-  mealTitle: string;
-}) {
-  return (
-    <li className="border-border bg-card flex items-center justify-between gap-3 rounded-lg border p-3">
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <p className="text-foreground text-sm font-medium">{item.label}</p>
-        <p className="text-muted-foreground truncate text-xs">{mealTitle}</p>
-      </div>
-      <div className="flex shrink-0 items-center gap-1.5">
-        <Badge variant="outline" className="gap-1">
-          <CalendarDays className="size-3" aria-hidden="true" />
-          {formatDateOnly(item.date)}
-        </Badge>
-        <SemanticChip semantic="orange">
-          {item.servings} serving{item.servings === 1 ? "" : "s"}
-        </SemanticChip>
-      </div>
-    </li>
-  );
-}
-
-/**
- * The Schedule section's "Add schedule"/"Edit schedule" modal (replaces the
- * former per-Meal `+ Planned meal` inline UI). Builds one draft schedule
- * transaction locally — `Add plan` only appends to that in-modal draft, and
- * only `Plan meals` hands the complete list back to the page's own `schedule`
- * draft (itself only reaching the server at the page's final Save). Cancel/
- * close discards the in-modal draft entirely, preserving whatever schedule
- * the page already had.
- */
-function ScheduleModal({
-  mealOptions,
-  schedule,
-  planStartDate,
-  planEndDate,
-  onOpenChange,
-  onSubmit,
-}: {
-  mealOptions: MealOption[];
-  schedule: ScheduleItem[];
-  planStartDate: string;
-  planEndDate: string;
-  onOpenChange: (open: boolean) => void;
-  onSubmit: (next: ScheduleItem[]) => void;
-}) {
-  const [draft, setDraft] = React.useState<ScheduleItem[]>(schedule);
-  const [label, setLabel] = React.useState("");
-  const [mealKey, setMealKey] = React.useState<string | null>(
-    mealOptions[0]?.key ?? null,
-  );
-  const [date, setDate] = React.useState(planStartDate);
-  const [servings, setServings] = React.useState<number | null>(null);
-  const [formError, setFormError] = React.useState<string | null>(null);
-  const [editingLocalId, setEditingLocalId] = React.useState<string | null>(
-    null,
-  );
-
-  const mealTitleByKey = new Map(
-    mealOptions.map((option) => [
-      option.key,
-      `${option.title} ${option.versionLabel}`.trim(),
-    ]),
-  );
-  const selectedMeal = mealOptions.find((option) => option.key === mealKey);
-  const alreadyScheduledForMeal = draft
-    .filter(
-      (item) => item.mealKey === mealKey && item.localId !== editingLocalId,
-    )
-    .reduce((sum, item) => sum + item.servings, 0);
-  const remaining = selectedMeal
-    ? remainingServings(
-        selectedMeal.targetYieldQuantity,
-        alreadyScheduledForMeal,
-      )
-    : null;
-
-  function resetForm() {
-    setLabel("");
-    setServings(null);
-    setEditingLocalId(null);
-    setFormError(null);
-  }
-
-  function startEdit(item: ScheduleItem) {
-    setLabel(item.label);
-    setMealKey(item.mealKey);
-    setDate(item.date);
-    setServings(item.servings);
-    setEditingLocalId(item.localId);
-    setFormError(null);
-  }
-
-  function removeDraftItem(localId: string) {
-    setDraft((prev) => prev.filter((item) => item.localId !== localId));
-    if (editingLocalId === localId) resetForm();
-  }
-
-  function handleAddPlan() {
-    if (!label.trim()) {
-      setFormError("Enter a meal name.");
-      return;
-    }
-    if (!mealKey || !selectedMeal) {
-      setFormError("Choose a meal from this Meal Plan.");
-      return;
-    }
-    if (!date || date < planStartDate || date > planEndDate) {
-      setFormError("Choose a date within this Meal Plan's range.");
-      return;
-    }
-    if (servings == null || servings <= 0) {
-      setFormError("Enter the servings for this schedule entry.");
-      return;
-    }
-    if (remaining != null && servings > remaining) {
-      setFormError(
-        `Only ${remaining} serving${remaining === 1 ? "" : "s"} left for this meal.`,
-      );
-      return;
-    }
-
-    const item: ScheduleItem = {
-      localId: editingLocalId ?? crypto.randomUUID(),
-      mealKey,
-      label: label.trim(),
-      date,
-      servings,
-    };
-    setDraft((prev) =>
-      editingLocalId
-        ? prev.map((i) => (i.localId === editingLocalId ? item : i))
-        : [...prev, item],
-    );
-    resetForm();
-  }
-
-  const sortedDraft = [...draft].sort((a, b) => a.date.localeCompare(b.date));
-
-  return (
-    <Dialog open onOpenChange={(next) => !next && onOpenChange(false)}>
-      <DialogContent
-        showCloseButton={false}
-        className="flex max-h-[85vh] w-full max-w-2xl flex-col gap-0 overflow-hidden px-0"
-      >
-        <DialogHeader className="bg-muted/50 -mt-4 flex shrink-0 flex-row items-center justify-between gap-2 rounded-t-xl border-b p-4">
-          <DialogTitle>Schedule</DialogTitle>
-          <DialogClose asChild>
-            <Button variant="ghost" size="icon-sm" className="-my-1.5">
-              <X />
-              <span className="sr-only">Close</span>
-            </Button>
-          </DialogClose>
-        </DialogHeader>
-
-        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pt-4 pb-4">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field>
-              <FieldLabel htmlFor="schedule-label">Meal name</FieldLabel>
-              <Input
-                id="schedule-label"
-                placeholder="e.g. Monday lunch"
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
-              />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="schedule-meal">Meal</FieldLabel>
-              <Select
-                value={mealKey ?? undefined}
-                onValueChange={setMealKey}
-                disabled={mealOptions.length === 0}
-              >
-                <SelectTrigger id="schedule-meal">
-                  <SelectValue placeholder="Choose a meal" />
-                </SelectTrigger>
-                <SelectContent>
-                  {mealOptions.map((option) => (
-                    <SelectItem key={option.key} value={option.key}>
-                      {option.title} {option.versionLabel}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field>
-              <FieldLabel htmlFor="schedule-date">Date</FieldLabel>
-              <DatePickerField
-                id="schedule-date"
-                value={date}
-                onChange={setDate}
-                min={planStartDate}
-                max={planEndDate}
-                ariaLabel="Schedule date"
-              />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="schedule-servings">Servings</FieldLabel>
-              <QuantityInput
-                id="schedule-servings"
-                className="w-20"
-                value={servings}
-                onValueChange={setServings}
-              />
-              {remaining != null && (
-                <p className="text-muted-foreground text-xs">
-                  {remaining} serving{remaining === 1 ? "" : "s"} left for this
-                  meal.
-                </p>
-              )}
-            </Field>
-          </div>
-
-          <FieldError>{formError}</FieldError>
-
-          <div>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={handleAddPlan}
-            >
-              {editingLocalId ? "Update plan" : "Add plan"}
-            </Button>
-          </div>
-
-          <div className="border-border flex flex-col gap-2 border-t pt-4">
-            {draft.length === 0 ? (
-              <p className="text-muted-foreground text-sm">
-                No schedule entries yet.
-              </p>
-            ) : (
-              <ul className="flex flex-col gap-2">
-                {sortedDraft.map((item) => (
-                  <li
-                    key={item.localId}
-                    className="border-border bg-muted/30 flex items-center justify-between gap-3 rounded-lg border p-2.5"
-                  >
-                    <div className="flex min-w-0 flex-col gap-0.5">
-                      <p className="text-foreground text-sm font-medium">
-                        {item.label}
-                      </p>
-                      <p className="text-muted-foreground truncate text-xs">
-                        {mealTitleByKey.get(item.mealKey) ?? "—"} ·{" "}
-                        {formatDateOnly(item.date)} · {item.servings} serving
-                        {item.servings === 1 ? "" : "s"}
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-1">
-                      <TooltipIconButton
-                        label="Edit schedule entry"
-                        icon={Pencil}
-                        onClick={() => startEdit(item)}
-                      />
-                      <TooltipIconButton
-                        label="Remove schedule entry"
-                        icon={Trash2}
-                        onClick={() => removeDraftItem(item.localId)}
-                        className="text-destructive-text hover:bg-destructive/10 hover:text-destructive-text"
-                      />
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
-
-        <DialogFooter className="mx-0 shrink-0">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button type="button" onClick={() => onSubmit(draft)}>
-            Plan meals
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }
 

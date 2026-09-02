@@ -25,11 +25,22 @@ function mealPlanDetailInclude() {
   return {
     entries: {
       orderBy: [{ cookDate: "asc" as const }, { id: "asc" as const }],
-      include: { plannedMeals: { orderBy: { date: "asc" as const } } },
+      include: {
+        plannedMeals: {
+          orderBy: [{ date: "asc" as const }, { sortOrder: "asc" as const }],
+        },
+      },
     },
     linkedGroceryLists: {
       orderBy: { createdAt: "desc" as const },
-      select: { id: true, title: true, mode: true, completedAt: true },
+      select: {
+        id: true,
+        title: true,
+        mode: true,
+        completedAt: true,
+        plannedDate: true,
+        mealPlanEntryExclusions: { select: { mealPlanEntryId: true } },
+      },
     },
   };
 }
@@ -61,6 +72,7 @@ export function toMealPlanDetailDto(
     startDate: mealPlan.startDate.toISOString(),
     endDate: mealPlan.endDate.toISOString(),
     notes: mealPlan.notes,
+    completedAt: mealPlan.completedAt?.toISOString() ?? null,
     entries: mealPlan.entries.map((entry) => ({
       id: entry.id,
       dishId: entry.dishId,
@@ -79,6 +91,8 @@ export function toMealPlanDetailDto(
         label: meal.label,
         date: meal.date.toISOString(),
         servings: decimalToNumber(meal.servings) ?? 0,
+        eaten: meal.eaten,
+        sortOrder: meal.sortOrder,
       })),
     })),
     linkedGroceryLists: mealPlan.linkedGroceryLists.map((list) => ({
@@ -86,6 +100,10 @@ export function toMealPlanDetailDto(
       title: list.title,
       mode: list.mode,
       completedAt: list.completedAt?.toISOString() ?? null,
+      plannedDate: list.plannedDate.toISOString(),
+      excludedEntryIds: list.mealPlanEntryExclusions.map(
+        (exclusion) => exclusion.mealPlanEntryId,
+      ),
     })),
   };
 }

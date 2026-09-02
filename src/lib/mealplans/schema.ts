@@ -124,6 +124,10 @@ const scheduleMealDraftSchema = z.object({
     .number()
     .gt(0, "Servings must be greater than zero.")
     .lte(1000, "That amount is too large."),
+  // Meal Plan QA redesign — this Meal's position within its own calendar
+  // date's day-card, drag-reordered by the user and meaningful only when
+  // compared against other scheduled meals sharing the same `date`.
+  sortOrder: z.number().int().min(0).default(0),
 });
 
 // Schedule redesign (replaces the old per-Meal `+ Planned meal` inline UI):
@@ -151,6 +155,9 @@ export const generateGroceryListFromMealPlanSchema = mealPlanIdSchema.extend({
     .trim()
     .min(1, "Enter a title for this grocery list.")
     .max(120),
+  // §9 — the ordinary Grocery List date field, missing from this flow until
+  // the Meal Plan QA redesign; defaults client-side to today.
+  plannedDate: z.coerce.date(),
   entryIds: z.array(z.string().min(1)).optional(),
 });
 
@@ -161,6 +168,33 @@ export const resyncMealPlanGroceryListsSchema = mealPlanIdSchema.extend({
 export const setMealPlanGroceryListEntryIncludedSchema = entryIdSchema.extend({
   listId: z.string().min(1),
   included: z.boolean(),
+});
+
+// §9 "Edit grocery list" — reuses the Generate form's fields in edit mode:
+// renames/re-dates the linked list and replaces its whole included-entry
+// selection in one save, regenerating the list to match.
+export const updateMealPlanLinkedGroceryListSchema = mealPlanIdSchema.extend({
+  listId: z.string().min(1),
+  title: z
+    .string()
+    .trim()
+    .min(1, "Enter a title for this grocery list.")
+    .max(120),
+  plannedDate: z.coerce.date(),
+  entryIds: z.array(z.string().min(1)),
+});
+
+// §6 — the Schedule section's per-meal "eaten" checkbox (Meal Plan Details
+// only), distinct from MealPlanEntry.status's cooked/preparation state.
+export const setPlannedMealEatenSchema = mealPlanIdSchema.extend({
+  plannedMealId: z.string().min(1),
+  eaten: z.boolean(),
+});
+
+// §6 "Mark all eaten" — checks every scheduled meal falling on one calendar
+// date at once.
+export const markScheduleDayEatenSchema = mealPlanIdSchema.extend({
+  date: z.coerce.date(),
 });
 
 export type ActionState = {
@@ -174,6 +208,13 @@ export type PlannedMealDto = {
   label: string;
   date: string;
   servings: number;
+  // §6 — persisted consumption state, distinct from MealPlanEntry.status.
+  eaten: boolean;
+  // Position within its own calendar date's day-card (see the
+  // `scheduleMealDraftSchema` doc comment above) — exposed so a client
+  // reconstructing the Schedule draft from several entries' own
+  // `plannedMeals` arrays can reassemble the correct cross-entry day order.
+  sortOrder: number;
 };
 
 export type MealPlanEntryDto = {
@@ -197,6 +238,11 @@ export type LinkedGroceryListDto = {
   title: string;
   mode: "STANDALONE" | "MEAL_PLAN_LINKED";
   completedAt: string | null;
+  plannedDate: string;
+  /** Meal Plan entries currently excluded from this list's generated
+   * contents — the complement of "included" (§9's Edit-grocery-list modal
+   * prepopulates its meal checkboxes from this). */
+  excludedEntryIds: string[];
 };
 
 export type MealPlanDetailDto = {
@@ -205,6 +251,9 @@ export type MealPlanDetailDto = {
   startDate: string;
   endDate: string;
   notes: string | null;
+  /** null = Active, set = Completed (§13's read-only/disabled-controls
+   * presentation). */
+  completedAt: string | null;
   entries: MealPlanEntryDto[];
   linkedGroceryLists: LinkedGroceryListDto[];
 };

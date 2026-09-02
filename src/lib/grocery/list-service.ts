@@ -1581,7 +1581,11 @@ export async function setGroceryListMealPlanEntryExclusion(
 export async function generateGroceryListFromMealPlan(
   ownerId: string,
   mealPlanId: string,
-  input: { title: string; entries: MealPlanContributionEntry[] },
+  input: {
+    title: string;
+    plannedDate: Date;
+    entries: MealPlanContributionEntry[];
+  },
 ): Promise<string> {
   const title = input.title.trim();
   if (!title) throw new ValidationError("Enter a title for this grocery list.");
@@ -1611,9 +1615,7 @@ export async function generateGroceryListFromMealPlan(
         title,
         mode: "MEAL_PLAN_LINKED",
         linkedMealPlanId: mealPlanId,
-        // Meal-Plan-generated lists have no manual create-form date input,
-        // so this defaults to the generation date.
-        plannedDate: new Date(),
+        plannedDate: input.plannedDate,
       },
     });
 

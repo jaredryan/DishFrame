@@ -205,12 +205,17 @@ export async function duplicateMealPlan(
         },
       });
       for (const meal of entry.plannedMeals) {
+        // §13/§78: "Reuse for new dates" starts a fresh plan — the copy
+        // preserves the source's user-defined day order but never its
+        // eaten state (defaults to unchecked), since nothing has actually
+        // been eaten against these new dates yet.
         await tx.plannedMeal.create({
           data: {
             entryId: copiedEntry.id,
             label: meal.label,
             date: new Date(meal.date.getTime() + dayOffsetMs),
             servings: meal.servings,
+            sortOrder: meal.sortOrder,
           },
         });
       }
@@ -534,7 +539,15 @@ export async function adoptNewerVersionInEntry(
   });
 }
 
-export type ScheduleMealDraft = { label: string; date: Date; servings: number };
+export type ScheduleMealDraft = {
+  label: string;
+  date: Date;
+  servings: number;
+  /** Position within its own calendar date's day-card (§4) — optional at
+   * this layer so existing direct-service callers that don't care about
+   * cross-entry day order keep working; defaults to 0. */
+  sortOrder?: number;
+};
 export type ScheduleAssignment = {
   mealKey: string;
   meals: ScheduleMealDraft[];
@@ -682,7 +695,7 @@ export async function saveMealPlanEntryChanges(
 async function setScheduleForEntry(
   mealPlan: OwnedMealPlan,
   entryId: string,
-  meals: { label: string; date: Date; servings: number }[],
+  meals: ScheduleMealDraft[],
 ): Promise<void> {
   const entry = findOwnedEntry(mealPlan, entryId);
   const start = mealPlan.startDate.getTime();
@@ -713,6 +726,7 @@ async function setScheduleForEntry(
           label: meal.label,
           date: meal.date,
           servings: meal.servings,
+          sortOrder: meal.sortOrder ?? 0,
         })),
       });
     }
@@ -789,7 +803,7 @@ export async function startSessionFromEntry(
 export async function generateGroceryListFromMealPlan(
   ownerId: string,
   mealPlanId: string,
-  input: { title: string; entryIds?: string[] },
+  input: { title: string; plannedDate?: Date; entryIds?: string[] },
 ): Promise<string> {
   const mealPlan = await getOwnedMealPlanOrThrow(ownerId, mealPlanId);
   const selected = input.entryIds
@@ -806,6 +820,7 @@ export async function generateGroceryListFromMealPlan(
     mealPlanId,
     {
       title: input.title,
+      plannedDate: input.plannedDate ?? new Date(),
       entries: selected.map(toContributionEntry),
     },
   );
@@ -893,5 +908,104 @@ export async function setMealPlanGroceryListEntryIncluded(
       mealPlanId,
       mealPlan.entries.map(toContributionEntry),
     );
+  });
+}
+
+/**
+ * §9 "Edit grocery list" — renames/re-dates a Meal-Plan-linked list and
+ * replaces its whole included-entry selection in one save. Every entry is
+ * explicitly set included or excluded (rather than diffed against the
+ * list's current selection) so the result always matches exactly what the
+ * form submitted; each toggle reuses the same `GroceryListMealPlanEntryExclusion`
+ * bookkeeping §81.7's manual per-entry toggle already established, batched
+ * into one transaction with a single resync at the end (F10 convention)
+ * rather than one resync per toggled entry.
+ */
+export async function updateMealPlanLinkedGroceryList(
+  ownerId: string,
+  mealPlanId: string,
+  listId: string,
+  input: { title: string; plannedDate: Date; entryIds: string[] },
+): Promise<void> {
+  const mealPlan = await getOwnedMealPlanOrThrow(ownerId, mealPlanId);
+  const list = await prisma.groceryList.findFirst({
+    where: { id: listId, ownerId, linkedMealPlanId: mealPlanId },
+    select: { id: true },
+  });
+  if (!list) throw new NotFoundError("Grocery list not found.");
+
+  const title = input.title.trim();
+  if (!title) throw new ValidationError("Enter a title for this grocery list.");
+  const selected = new Set(input.entryIds);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.groceryList.update({
+      where: { id: listId },
+      data: { title, plannedDate: input.plannedDate },
+    });
+    for (const entry of mealPlan.entries) {
+      await setGroceryListMealPlanEntryExclusion(
+        tx,
+        ownerId,
+        listId,
+        mealPlanId,
+        entry.id,
+        !selected.has(entry.id),
+      );
+    }
+    await resyncLinkedLists(
+      tx,
+      ownerId,
+      mealPlanId,
+      mealPlan.entries.map(toContributionEntry),
+    );
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Schedule eaten state (§6)
+// ---------------------------------------------------------------------------
+
+async function getOwnedPlannedMealOrThrow(
+  ownerId: string,
+  mealPlanId: string,
+  plannedMealId: string,
+) {
+  const mealPlan = await getOwnedMealPlanOrThrow(ownerId, mealPlanId);
+  for (const entry of mealPlan.entries) {
+    const meal = entry.plannedMeals.find((m) => m.id === plannedMealId);
+    if (meal) return meal;
+  }
+  throw new NotFoundError("Scheduled meal not found.");
+}
+
+/** Meal Plan Details' per-row eaten checkbox — consumption state, distinct
+ * from `MealPlanEntry.status`'s cooked/preparation state. Never touches
+ * this scheduled meal's position (`sortOrder`). */
+export async function setPlannedMealEaten(
+  ownerId: string,
+  mealPlanId: string,
+  plannedMealId: string,
+  eaten: boolean,
+): Promise<void> {
+  await getOwnedPlannedMealOrThrow(ownerId, mealPlanId, plannedMealId);
+  await prisma.plannedMeal.update({
+    where: { id: plannedMealId },
+    data: { eaten },
+  });
+}
+
+/** "Mark all eaten" — checks every scheduled meal on one calendar date at
+ * once. There is no bulk "unmark" counterpart: reopening a fully-eaten day
+ * happens by expanding it and unchecking individual meals (§6). */
+export async function markScheduleDayEaten(
+  ownerId: string,
+  mealPlanId: string,
+  date: Date,
+): Promise<void> {
+  await getOwnedMealPlanOrThrow(ownerId, mealPlanId);
+  await prisma.plannedMeal.updateMany({
+    where: { date, entry: { mealPlanId } },
+    data: { eaten: true },
   });
 }

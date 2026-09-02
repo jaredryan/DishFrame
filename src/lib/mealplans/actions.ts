@@ -18,6 +18,9 @@ import {
   generateGroceryListFromMealPlanSchema,
   resyncMealPlanGroceryListsSchema,
   setMealPlanGroceryListEntryIncludedSchema,
+  updateMealPlanLinkedGroceryListSchema,
+  setPlannedMealEatenSchema,
+  markScheduleDayEatenSchema,
   type ActionState,
 } from "@/lib/mealplans/schema";
 import type { GroceryListResyncSummary } from "@/lib/grocery/list-service";
@@ -266,7 +269,12 @@ type BulkEntryDraft = {
 
 type ScheduleAssignmentInput = {
   mealKey: string;
-  meals: { label: string; date: Date | string; servings: number }[];
+  meals: {
+    label: string;
+    date: Date | string;
+    servings: number;
+    sortOrder: number;
+  }[];
 };
 
 /**
@@ -339,6 +347,7 @@ export type GenerateGroceryListActionState =
 export async function generateGroceryListFromMealPlan(values: {
   mealPlanId: string;
   title: string;
+  plannedDate: Date | string;
   entryIds?: string[];
 }): Promise<GenerateGroceryListActionState> {
   try {
@@ -405,6 +414,68 @@ export async function setMealPlanGroceryListEntryIncluded(values: {
       included,
     );
     revalidatePath(`${LISTS_PATH}/${listId}`);
+    return { status: "success" };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export async function updateMealPlanLinkedGroceryList(values: {
+  mealPlanId: string;
+  listId: string;
+  title: string;
+  plannedDate: Date | string;
+  entryIds: string[];
+}): Promise<ActionState> {
+  try {
+    const userId = await requireUserId();
+    const { mealPlanId, listId, ...input } =
+      updateMealPlanLinkedGroceryListSchema.parse(values);
+    await mealPlanService.updateMealPlanLinkedGroceryList(
+      userId,
+      mealPlanId,
+      listId,
+      input,
+    );
+    revalidateMealPlan(mealPlanId);
+    revalidateGroceryList(listId);
+    return { status: "success" };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export async function setPlannedMealEaten(values: {
+  mealPlanId: string;
+  plannedMealId: string;
+  eaten: boolean;
+}): Promise<ActionState> {
+  try {
+    const userId = await requireUserId();
+    const { mealPlanId, plannedMealId, eaten } =
+      setPlannedMealEatenSchema.parse(values);
+    await mealPlanService.setPlannedMealEaten(
+      userId,
+      mealPlanId,
+      plannedMealId,
+      eaten,
+    );
+    revalidateMealPlan(mealPlanId);
+    return { status: "success" };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export async function markScheduleDayEaten(values: {
+  mealPlanId: string;
+  date: Date | string;
+}): Promise<ActionState> {
+  try {
+    const userId = await requireUserId();
+    const { mealPlanId, date } = markScheduleDayEatenSchema.parse(values);
+    await mealPlanService.markScheduleDayEaten(userId, mealPlanId, date);
+    revalidateMealPlan(mealPlanId);
     return { status: "success" };
   } catch (error) {
     return { status: "error", message: toActionErrorMessage(error) };

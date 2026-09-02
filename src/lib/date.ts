@@ -32,6 +32,45 @@ export function toIsoDateOnly(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+// Digit groups only — accepts "2026-09-01", "2026/09/01", "9/1/2026", and
+// "09/01/2026" (ISO year-first when the first group is 4 digits, otherwise
+// US month/day/year), rejecting anything else outright rather than guessing.
+const TYPED_DATE_PATTERN = /^(\d{1,4})[\/\-](\d{1,2})[\/\-](\d{1,4})$/;
+
+/**
+ * Parses free-typed date text from a directly-typeable date field (Meal Plan
+ * QA redesign §1) into an ISO `yyyy-mm-dd` string, or `null` if `text` isn't
+ * a recognizable/valid calendar date. Deliberately narrow — two unambiguous
+ * shapes only — rather than a general date-parsing library, since a
+ * misread third format silently saving the wrong day is worse than making
+ * the user retype it.
+ */
+export function parseTypedDateInput(text: string): string | null {
+  const match = text.trim().match(TYPED_DATE_PATTERN);
+  if (!match) return null;
+  const [, a, b, c] = match;
+  const yearFirst = a.length === 4;
+  const year = Number(yearFirst ? a : c);
+  const month = Number(yearFirst ? b : a);
+  const day = Number(yearFirst ? c : b);
+  if (!Number.isInteger(year) || year < 1000 || year > 9999) return null;
+  if (!Number.isInteger(month) || month < 1 || month > 12) return null;
+  if (!Number.isInteger(day) || day < 1 || day > 31) return null;
+
+  const date = new Date(year, month - 1, day);
+  // `Date` normalizes an out-of-range day (e.g. Feb 30) by rolling into the
+  // next month instead of throwing — reject that instead of silently
+  // saving a different date than what was typed.
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+  return toIsoDateOnly(date);
+}
+
 export function formatDateOnly(
   value: string | Date,
   options: Intl.DateTimeFormatOptions = {

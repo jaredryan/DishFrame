@@ -20,7 +20,9 @@ describe("DatePickerField min/max", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "Schedule date" }));
+    await user.click(
+      screen.getByRole("button", { name: "Schedule date — open calendar" }),
+    );
 
     expect(screen.getByRole("button", { name: "5" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "25" })).toBeDisabled();
@@ -45,7 +47,9 @@ describe("DatePickerField min/max", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "Schedule date" }));
+    await user.click(
+      screen.getByRole("button", { name: "Schedule date — open calendar" }),
+    );
     await user.click(screen.getByRole("button", { name: "18" }));
     expect(value).toBe("2026-08-18");
 
@@ -58,7 +62,9 @@ describe("DatePickerField min/max", () => {
         ariaLabel="Schedule date"
       />,
     );
-    await user.click(screen.getByRole("button", { name: "Schedule date" }));
+    await user.click(
+      screen.getByRole("button", { name: "Schedule date — open calendar" }),
+    );
     await user.click(screen.getByRole("button", { name: "25" }));
     // Disabled — the click has no effect, value stays at the last valid pick.
     expect(value).toBe("2026-08-18");

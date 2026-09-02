@@ -3,17 +3,24 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Copy, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import {
+  CalendarDays,
+  ChefHat,
+  Copy,
+  MoreHorizontal,
+  Pencil,
+  RotateCcw,
+  ShoppingCart,
+  Soup,
+  Trash2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { DatePickerField } from "@/components/ui/date-picker-field";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
+import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  SemanticChip,
-  type ChipSemantic,
-} from "@/components/domain/dish/semantic-chip";
 import {
   Tooltip,
   TooltipContent,
@@ -37,66 +44,81 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { DisabledActionHint } from "@/components/app/disabled-action-hint";
+import { TooltipIconButton } from "@/components/domain/dish/reorder-buttons";
+import { SemanticChip } from "@/components/domain/dish/semantic-chip";
+import {
+  CLICKABLE_ROW_CLASS,
+  ClickableRowOverlay,
+} from "@/components/ui/clickable-row";
+import {
+  ViewScheduleDayCard,
+  groupScheduleByDate,
+  type ScheduleViewItem,
+} from "@/components/domain/mealplans/schedule-shared";
 import {
   duplicateMealPlan,
   deleteMealPlan,
+  completeMealPlan,
+  reactivateMealPlan,
   setMealPlanEntryStatus,
   startSessionFromEntry,
   generateGroceryListFromMealPlan,
+  updateMealPlanLinkedGroceryList,
+  setPlannedMealEaten,
+  markScheduleDayEaten,
 } from "@/lib/mealplans/actions";
+import { deleteGroceryList } from "@/lib/grocery/list-actions";
 import type {
   MealPlanDetailDto,
   MealPlanEntryDto,
 } from "@/lib/mealplans/schema";
-import { formatDateOnly } from "@/lib/date";
+import { formatDateOnly, toIsoDateOnly } from "@/lib/date";
+import { cn } from "@/lib/utils";
 
 /**
- * Read-only Meal Plan view (Slice 22 redesign) — the default destination for
- * an existing Meal Plan. Shows the plan's Details and Meals, plus the
- * day-to-day workflow actions that *use* a saved plan (Start cooking,
- * Resume session, Mark cooked/skipped) and the Grocery list section that
- * generates from it. Composition changes (title/dates, adding/removing
- * Meals, Planned meals, adopting a newer Version) live on the Edit page
- * instead — reached from the pencil action below.
+ * Meal Plan Details (Meal Plan QA redesign) — the read-only "put the plan
+ * into practice" view. Three sections: `Meals to cook` (an execution list —
+ * cooked checkbox + Cook action, nothing else), `Schedule` (when/how many
+ * servings are intended to be eaten, with per-meal eaten checkboxes), and
+ * `Grocery lists` (generated from this plan, kept automatically in sync).
+ * Composition changes (title/dates, adding/removing Meals, the Schedule's
+ * own structure) live on the Edit page instead, reached from the pencil
+ * action below. A completed plan reuses this exact presentation read-only,
+ * with active execution controls disabled rather than removed (§13).
  */
-
-type ActionResult = { status: string; message?: string };
-type EntryPendingAction =
-  `status-${string}-${"COOKED" | "SKIPPED"}` | `start-${string}`;
-type RunEntryAction = (
-  actionKey: EntryPendingAction,
-  action: () => Promise<ActionResult>,
-) => void;
 
 function isoDate(iso: string): string {
   return iso.slice(0, 10);
 }
 
-const STATUS_LABEL: Record<string, string> = {
-  PLANNED: "Planned",
-  IN_PROGRESS: "In progress",
-  COOKED: "Cooked",
-  SKIPPED: "Skipped",
-};
+const CLOSED_PLAN_HINT = "This meal plan is closed. Reopen it to make changes.";
 
-const STATUS_SEMANTIC: Record<string, ChipSemantic> = {
-  PLANNED: "blue",
-  IN_PROGRESS: "orange",
-  COOKED: "green",
-  SKIPPED: "neutral",
-};
+type ActionResult = { status: string; message?: string };
+type EntryPendingAction = `cook-${string}` | `start-${string}`;
+type ScheduleAction = `eaten-${string}` | `mark-day-${string}`;
+type PendingKey =
+  EntryPendingAction | ScheduleAction | "delete-plan" | "lifecycle";
+type RunAction = (
+  actionKey: PendingKey,
+  action: () => Promise<ActionResult>,
+) => void;
 
 export function MealPlanView({ mealPlan }: { mealPlan: MealPlanDetailDto }) {
   const router = useRouter();
-  const { pendingAction, isPending, run } = usePendingAction<
-    EntryPendingAction | "delete-plan"
-  >();
+  const { pendingAction, isPending, run } = usePendingAction<PendingKey>();
   const [deleteOpen, setDeleteOpen] = React.useState(false);
   const [generateOpen, setGenerateOpen] = React.useState(false);
+  const [editingListId, setEditingListId] = React.useState<string | null>(null);
+  const [deletingListId, setDeletingListId] = React.useState<string | null>(
+    null,
+  );
   const [reuseOpen, setReuseOpen] = React.useState(false);
   const { showToast } = useToast();
 
-  const runEntryAction: RunEntryAction = (actionKey, action) => {
+  const isCompleted = mealPlan.completedAt != null;
+
+  const runAction: RunAction = (actionKey, action) => {
     run(actionKey, async () => {
       const result = await action();
       if (result.status !== "success") {
@@ -124,8 +146,60 @@ export function MealPlanView({ mealPlan }: { mealPlan: MealPlanDetailDto }) {
     });
   }
 
-  const sortedEntries = [...mealPlan.entries].sort((a, b) =>
-    a.cookDate.localeCompare(b.cookDate),
+  function handleCook(entry: MealPlanEntryDto) {
+    if (entry.status === "IN_PROGRESS" && entry.linkedSessionId) {
+      router.push(`/cook/${entry.linkedSessionId}`);
+      return;
+    }
+    handleStartSession(entry.id);
+  }
+
+  function toggleCooked(entry: MealPlanEntryDto, checked: boolean) {
+    runAction(`cook-${entry.id}`, () =>
+      setMealPlanEntryStatus({
+        mealPlanId: mealPlan.id,
+        entryId: entry.id,
+        status: checked ? "COOKED" : "PLANNED",
+      }),
+    );
+  }
+
+  function toggleEaten(plannedMealId: string, eaten: boolean) {
+    runAction(`eaten-${plannedMealId}`, () =>
+      setPlannedMealEaten({ mealPlanId: mealPlan.id, plannedMealId, eaten }),
+    );
+  }
+
+  function markDayEaten(dateIso: string) {
+    runAction(`mark-day-${dateIso}`, () =>
+      markScheduleDayEaten({ mealPlanId: mealPlan.id, date: dateIso }),
+    );
+  }
+
+  // §7 — unfinished (not yet cooked) meals first, cooked meals moved to the
+  // end and visually de-emphasized; no user-defined ordering to preserve
+  // here, so each group simply sorts by cook date.
+  const unfinishedEntries = mealPlan.entries
+    .filter((e) => e.status !== "COOKED")
+    .sort((a, b) => a.cookDate.localeCompare(b.cookDate));
+  const cookedEntries = mealPlan.entries
+    .filter((e) => e.status === "COOKED")
+    .sort((a, b) => a.cookDate.localeCompare(b.cookDate));
+  const orderedEntries = [...unfinishedEntries, ...cookedEntries];
+
+  const scheduleDayGroups = groupScheduleByDate(
+    mealPlan.entries.flatMap((entry) =>
+      entry.plannedMeals.map(
+        (meal): ScheduleViewItem & { dateIso: string } => ({
+          id: meal.id,
+          label: meal.label,
+          mealTitle: `${entry.title} ${entry.versionLabel}`.trim(),
+          servings: meal.servings,
+          eaten: meal.eaten,
+          dateIso: isoDate(meal.date),
+        }),
+      ),
+    ),
   );
 
   return (
@@ -150,23 +224,42 @@ export function MealPlanView({ mealPlan }: { mealPlan: MealPlanDetailDto }) {
               {mealPlan.notes}
             </p>
           )}
+          {isCompleted && (
+            <p className="text-muted-foreground mt-2 text-sm">
+              This meal plan has been closed. Reopen it to make changes, or
+              reuse this plan for future dates.
+            </p>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button asChild variant="outline" size="icon">
-                  <Link
-                    href={`/meal-plans/${mealPlan.id}/edit`}
-                    aria-label="Edit Meal Plan"
-                  >
-                    <Pencil aria-hidden="true" />
-                  </Link>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Edit Meal Plan</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          {isCompleted ? (
+            <DisabledActionHint explanation={CLOSED_PLAN_HINT}>
+              <Button
+                variant="outline"
+                size="icon"
+                disabled
+                aria-label="Edit Meal Plan (unavailable)"
+              >
+                <Pencil aria-hidden="true" />
+              </Button>
+            </DisabledActionHint>
+          ) : (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button asChild variant="outline" size="icon">
+                    <Link
+                      href={`/meal-plans/${mealPlan.id}/edit`}
+                      aria-label="Edit Meal Plan"
+                    >
+                      <Pencil aria-hidden="true" />
+                    </Link>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Edit Meal Plan</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="icon" aria-label="More actions">
@@ -180,6 +273,27 @@ export function MealPlanView({ mealPlan }: { mealPlan: MealPlanDetailDto }) {
               >
                 <Copy /> Reuse for new dates
               </DropdownMenuItem>
+              {isCompleted ? (
+                <DropdownMenuItem
+                  onClick={() =>
+                    runAction("lifecycle", () =>
+                      reactivateMealPlan({ mealPlanId: mealPlan.id }),
+                    )
+                  }
+                >
+                  <RotateCcw /> Reopen
+                </DropdownMenuItem>
+              ) : (
+                <DropdownMenuItem
+                  onClick={() =>
+                    runAction("lifecycle", () =>
+                      completeMealPlan({ mealPlanId: mealPlan.id }),
+                    )
+                  }
+                >
+                  Mark complete
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem
                 variant="destructive"
                 onClick={() => setDeleteOpen(true)}
@@ -192,29 +306,31 @@ export function MealPlanView({ mealPlan }: { mealPlan: MealPlanDetailDto }) {
       </div>
 
       <div className="flex flex-col gap-3">
-        <h2 className="font-heading text-lg font-medium">Meals</h2>
-        {sortedEntries.length === 0 ? (
+        <h2 className="font-heading text-lg font-medium">Meals to cook</h2>
+        {orderedEntries.length === 0 ? (
           <div className="flex flex-col items-start gap-3">
             <p className="text-muted-foreground text-sm">
               No meals in this plan yet. Edit the meal plan to add meals.
             </p>
-            <Button asChild size="sm">
-              <Link href={`/meal-plans/${mealPlan.id}/edit`}>
-                <Pencil /> Edit meal plan
-              </Link>
-            </Button>
+            {!isCompleted && (
+              <Button asChild size="sm">
+                <Link href={`/meal-plans/${mealPlan.id}/edit`}>
+                  <Pencil /> Edit meal plan
+                </Link>
+              </Button>
+            )}
           </div>
         ) : (
           <ul className="grid gap-3 md:grid-cols-2 md:items-start">
-            {sortedEntries.map((entry) => (
-              <ViewEntryCard
+            {orderedEntries.map((entry) => (
+              <MealsToCookCard
                 key={entry.id}
-                mealPlanId={mealPlan.id}
                 entry={entry}
+                disabled={isCompleted}
                 isPending={isPending}
                 pendingAction={pendingAction}
-                runEntryAction={runEntryAction}
-                onStartSession={() => handleStartSession(entry.id)}
+                onToggleCooked={(checked) => toggleCooked(entry, checked)}
+                onCook={() => handleCook(entry)}
               />
             ))}
           </ul>
@@ -222,7 +338,46 @@ export function MealPlanView({ mealPlan }: { mealPlan: MealPlanDetailDto }) {
       </div>
 
       <div className="flex flex-col gap-3">
-        <h2 className="font-heading text-lg font-medium">Grocery lists</h2>
+        <h2 className="font-heading text-lg font-medium">Schedule</h2>
+        {scheduleDayGroups.length === 0 ? (
+          <p className="text-muted-foreground text-sm">
+            Nothing scheduled for this meal plan yet.
+          </p>
+        ) : (
+          <ul className="grid items-start gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {scheduleDayGroups.map((group) => (
+              <ViewScheduleDayCard
+                key={group.dateIso}
+                dateIso={group.dateIso}
+                items={group.items}
+                disabled={isCompleted}
+                onToggleEatenAction={toggleEaten}
+                onMarkAllEatenAction={() => markDayEaten(group.dateIso)}
+              />
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-between gap-4">
+          <h2 className="font-heading text-lg font-medium">Grocery lists</h2>
+          {isCompleted ? (
+            <DisabledActionHint explanation={CLOSED_PLAN_HINT}>
+              <Button size="sm" disabled>
+                <ShoppingCart /> Generate grocery list
+              </Button>
+            </DisabledActionHint>
+          ) : (
+            <Button
+              size="sm"
+              onClick={() => setGenerateOpen(true)}
+              disabled={mealPlan.entries.length === 0}
+            >
+              <ShoppingCart /> Generate grocery list
+            </Button>
+          )}
+        </div>
         {mealPlan.linkedGroceryLists.length === 0 ? (
           <p className="text-muted-foreground text-sm">
             No grocery lists generated yet.
@@ -230,33 +385,16 @@ export function MealPlanView({ mealPlan }: { mealPlan: MealPlanDetailDto }) {
         ) : (
           <ul className="grid gap-2 md:grid-cols-2 md:items-start">
             {mealPlan.linkedGroceryLists.map((list) => (
-              <li key={list.id}>
-                <Link
-                  href={`/grocery-lists/${list.id}`}
-                  className="border-border bg-card hover:bg-muted/50 flex items-center justify-between gap-4 rounded-lg border p-3 transition-colors"
-                >
-                  <span className="text-sm">{list.title}</span>
-                  <span className="text-muted-foreground text-xs">
-                    {list.completedAt
-                      ? "Completed"
-                      : list.mode === "MEAL_PLAN_LINKED"
-                        ? "Synced"
-                        : "Standalone"}
-                  </span>
-                </Link>
-              </li>
+              <GroceryListCard
+                key={list.id}
+                list={list}
+                disabled={isCompleted}
+                onEdit={() => setEditingListId(list.id)}
+                onDelete={() => setDeletingListId(list.id)}
+              />
             ))}
           </ul>
         )}
-        <Button
-          size="sm"
-          variant="outline"
-          className="w-fit"
-          onClick={() => setGenerateOpen(true)}
-          disabled={mealPlan.entries.length === 0}
-        >
-          Generate grocery list
-        </Button>
       </div>
 
       <ConfirmDialog
@@ -286,13 +424,61 @@ export function MealPlanView({ mealPlan }: { mealPlan: MealPlanDetailDto }) {
       />
 
       {generateOpen && (
-        <GenerateGroceryListDialog
+        <GenerateOrEditGroceryListDialog
+          mode="generate"
           mealPlanId={mealPlan.id}
           entries={mealPlan.entries}
           onClose={() => setGenerateOpen(false)}
-          onGenerated={(listId) => router.push(`/grocery-lists/${listId}`)}
+          onSaved={(listId) => router.push(`/grocery-lists/${listId}`)}
         />
       )}
+
+      {editingListId &&
+        (() => {
+          const list = mealPlan.linkedGroceryLists.find(
+            (l) => l.id === editingListId,
+          );
+          if (!list) return null;
+          return (
+            <GenerateOrEditGroceryListDialog
+              mode="edit"
+              mealPlanId={mealPlan.id}
+              entries={mealPlan.entries}
+              list={list}
+              onClose={() => setEditingListId(null)}
+              onSaved={() => {
+                setEditingListId(null);
+                router.refresh();
+              }}
+            />
+          );
+        })()}
+
+      <ConfirmDialog
+        open={deletingListId != null}
+        onOpenChangeAction={(open) => !open && setDeletingListId(null)}
+        title="Delete this grocery list?"
+        description="This can't be undone."
+        confirmLabel="Delete"
+        destructive
+        loading={pendingAction === "lifecycle"}
+        onConfirmAction={() => {
+          if (!deletingListId) return;
+          const listId = deletingListId;
+          setDeletingListId(null);
+          run("lifecycle", async () => {
+            const result = await deleteGroceryList({ listId });
+            if (result.status !== "success") {
+              showToast({
+                variant: "error",
+                title: result.message ?? "Could not delete this list.",
+              });
+            } else {
+              router.refresh();
+            }
+          });
+        }}
+      />
 
       {reuseOpen && (
         <ReuseMealPlanDialog
@@ -311,7 +497,8 @@ export function MealPlanView({ mealPlan }: { mealPlan: MealPlanDetailDto }) {
  * "Reuse for new dates" (the former "Copy to next date range" overflow
  * action) — same `duplicateMealPlan` call (existing meals/content
  * preserved), now asking for the new plan's Name/Start/End instead of
- * silently shifting by the source plan's own span.
+ * silently shifting by the source plan's own span. Enabled regardless of
+ * completed state (§13) — it's the primary reason to revisit a closed plan.
  */
 function ReuseMealPlanDialog({
   mealPlan,
@@ -415,137 +602,247 @@ function ReuseMealPlanDialog({
   );
 }
 
-function ViewEntryCard({
-  mealPlanId,
+function yieldChipLabel(quantity: number | null, unit: string | null): string {
+  return quantity != null
+    ? `Makes ${quantity} ${unit ?? ""}`.trim()
+    : "No specified yield";
+}
+
+/**
+ * §7 — the execution-list card: a large-hit-region cooked checkbox on the
+ * left, entry info in the middle, and the single remaining explicit action
+ * (Cook) on the right. Clicking anywhere else on the card triggers Cook;
+ * the checkbox region and the Cook icon both stop that click from
+ * double-firing.
+ */
+function MealsToCookCard({
   entry,
+  disabled,
   isPending,
   pendingAction,
-  runEntryAction,
-  onStartSession,
+  onToggleCooked,
+  onCook,
 }: {
-  mealPlanId: string;
   entry: MealPlanEntryDto;
+  disabled: boolean;
   isPending: boolean;
-  pendingAction: EntryPendingAction | "delete-plan" | null;
-  runEntryAction: RunEntryAction;
-  onStartSession: () => void;
+  pendingAction: string | null;
+  onToggleCooked: (checked: boolean) => void;
+  onCook: () => void;
 }) {
-  const canStartSession =
-    entry.dishId != null && entry.status !== "IN_PROGRESS";
+  const cooked = entry.status === "COOKED";
+  const canCook = entry.dishId != null && !disabled;
+  const checkboxLabel = cooked
+    ? "This meal was cooked"
+    : "This meal has not yet been cooked";
+  const cookTooltip =
+    entry.status === "IN_PROGRESS" ? "Resume cooking session" : "Cook";
+
+  function handleRowClick() {
+    if (!canCook) return;
+    onCook();
+  }
 
   return (
-    <li className="border-border bg-card flex flex-col gap-3 rounded-lg border p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-foreground text-sm font-medium">
-            {entry.title}{" "}
-            <span className="text-muted-foreground font-normal">
-              {entry.versionLabel}
-            </span>
-          </p>
-          <p className="text-muted-foreground text-xs">
+    <li
+      role={canCook ? "button" : undefined}
+      tabIndex={canCook ? 0 : undefined}
+      aria-label={canCook ? `Cook ${entry.title}` : undefined}
+      onClick={handleRowClick}
+      onKeyDown={(event) => {
+        if (!canCook) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onCook();
+        }
+      }}
+      className={cn(
+        "border-border bg-card flex items-stretch gap-0 rounded-lg border",
+        cooked && "opacity-60",
+        canCook && cn(CLICKABLE_ROW_CLASS, "cursor-pointer"),
+      )}
+    >
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <label
+              className="flex shrink-0 cursor-pointer items-center justify-center self-stretch pr-2 pl-4 pointer-coarse:pl-6"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <Checkbox
+                checked={cooked}
+                disabled={disabled}
+                aria-label={checkboxLabel}
+                onCheckedChange={(checked) => onToggleCooked(checked === true)}
+              />
+            </label>
+          </TooltipTrigger>
+          <TooltipContent>{checkboxLabel}</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+
+      <div className="flex min-w-0 flex-1 flex-col justify-center gap-2 py-4 pr-2 pl-2">
+        <p className="text-foreground text-sm font-medium">
+          {entry.title}{" "}
+          <span className="text-muted-foreground font-normal">
+            {entry.versionLabel}
+          </span>
+        </p>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Badge variant="outline" className="gap-1">
+            <CalendarDays className="size-3" aria-hidden="true" />
             {formatDateOnly(entry.cookDate)}
-            {entry.targetYieldQuantity != null &&
-              ` · Makes ${entry.targetYieldQuantity} ${entry.targetYieldUnit ?? ""}`.trim()}
-          </p>
-          {entry.note && (
-            <p className="text-muted-foreground text-xs">{entry.note}</p>
-          )}
-          {entry.dishId == null && (
-            <p className="text-destructive-text text-xs">
-              Source deleted — kept for history.
-            </p>
-          )}
+          </Badge>
+          <SemanticChip semantic="orange">
+            <Soup className="size-3" aria-hidden="true" />
+            {yieldChipLabel(entry.targetYieldQuantity, entry.targetYieldUnit)}
+          </SemanticChip>
         </div>
-        <SemanticChip semantic={STATUS_SEMANTIC[entry.status] ?? "neutral"}>
-          {STATUS_LABEL[entry.status] ?? entry.status}
-        </SemanticChip>
+        {entry.dishId == null && (
+          <p className="text-destructive-text text-xs">
+            Source deleted — kept for history.
+          </p>
+        )}
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        {canStartSession && (
-          <Button
-            size="sm"
+      <div
+        className="flex shrink-0 items-center pr-3"
+        onClick={(event) => event.stopPropagation()}
+      >
+        {!canCook ? (
+          <DisabledActionHint
+            explanation={
+              disabled
+                ? CLOSED_PLAN_HINT
+                : "Source deleted — this meal can no longer be cooked from the plan."
+            }
+          >
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              disabled
+              aria-label="Cook (unavailable)"
+            >
+              <ChefHat className="size-4" aria-hidden="true" />
+            </Button>
+          </DisabledActionHint>
+        ) : (
+          <TooltipIconButton
+            label={cookTooltip}
+            tooltip={cookTooltip}
+            icon={ChefHat}
             disabled={isPending}
             loading={pendingAction === `start-${entry.id}`}
-            onClick={onStartSession}
-          >
-            Start cooking
-          </Button>
-        )}
-        {entry.status === "IN_PROGRESS" && entry.linkedSessionId && (
-          <Button size="sm" variant="outline" asChild>
-            <Link href={`/cook/${entry.linkedSessionId}`}>Resume session</Link>
-          </Button>
-        )}
-        {entry.status !== "COOKED" && (
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={isPending}
-            loading={pendingAction === `status-${entry.id}-COOKED`}
-            onClick={() =>
-              runEntryAction(`status-${entry.id}-COOKED`, () =>
-                setMealPlanEntryStatus({
-                  mealPlanId,
-                  entryId: entry.id,
-                  status: "COOKED",
-                }),
-              )
-            }
-          >
-            Mark cooked
-          </Button>
-        )}
-        {entry.status !== "SKIPPED" && entry.status !== "COOKED" && (
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={isPending}
-            loading={pendingAction === `status-${entry.id}-SKIPPED`}
-            onClick={() =>
-              runEntryAction(`status-${entry.id}-SKIPPED`, () =>
-                setMealPlanEntryStatus({
-                  mealPlanId,
-                  entryId: entry.id,
-                  status: "SKIPPED",
-                }),
-              )
-            }
-          >
-            Mark skipped
-          </Button>
+            onClick={onCook}
+          />
         )}
       </div>
-
-      {entry.plannedMeals.length > 0 && (
-        <ul className="flex flex-col gap-1 pl-2">
-          {entry.plannedMeals.map((meal) => (
-            <li key={meal.id} className="text-muted-foreground text-xs">
-              {meal.label} — {meal.servings} serving
-              {meal.servings === 1 ? "" : "s"} ({formatDateOnly(meal.date)})
-            </li>
-          ))}
-        </ul>
-      )}
     </li>
   );
 }
 
-function GenerateGroceryListDialog({
+/** §9 — Grocery List card: title + date badge, `View → Edit → Delete`
+ * actions, row click → View. */
+function GroceryListCard({
+  list,
+  disabled,
+  onEdit,
+  onDelete,
+}: {
+  list: MealPlanDetailDto["linkedGroceryLists"][number];
+  disabled: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <li
+      className={cn(
+        "border-border bg-card relative flex items-center justify-between gap-3 rounded-lg border p-3",
+        CLICKABLE_ROW_CLASS,
+      )}
+    >
+      <ClickableRowOverlay
+        href={`/grocery-lists/${list.id}`}
+        label={`View ${list.title}`}
+      />
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="truncate text-sm font-medium">{list.title}</span>
+        <Badge variant="outline" className="shrink-0">
+          {formatDateOnly(list.plannedDate, {
+            month: "short",
+            day: "numeric",
+          })}
+        </Badge>
+        {list.completedAt && (
+          <Badge variant="secondary" className="shrink-0">
+            Completed
+          </Badge>
+        )}
+      </div>
+      <div className="relative z-10 flex shrink-0 items-center gap-1">
+        {disabled ? (
+          <DisabledActionHint explanation={CLOSED_PLAN_HINT}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              disabled
+              aria-label="Edit (unavailable)"
+            >
+              <Pencil className="size-4" aria-hidden="true" />
+            </Button>
+          </DisabledActionHint>
+        ) : (
+          <TooltipIconButton label="Edit" icon={Pencil} onClick={onEdit} />
+        )}
+        <TooltipIconButton
+          label="Delete"
+          icon={Trash2}
+          onClick={onDelete}
+          className="text-destructive-text hover:bg-destructive/10 hover:text-destructive-text"
+        />
+      </div>
+    </li>
+  );
+}
+
+/**
+ * §9 — the shared Generate/Edit grocery list form: Name, Date, Meals to
+ * include, in that order, matching the ordinary Grocery List generation
+ * flow's field order. "Edit" prepopulates from `list`/the plan's current
+ * inclusion set and regenerates the list's contents on save; "Generate"
+ * creates a new Meal-Plan-linked list.
+ */
+function GenerateOrEditGroceryListDialog({
+  mode,
   mealPlanId,
   entries,
+  list,
   onClose,
-  onGenerated,
+  onSaved,
 }: {
+  mode: "generate" | "edit";
   mealPlanId: string;
   entries: MealPlanEntryDto[];
+  list?: MealPlanDetailDto["linkedGroceryLists"][number];
   onClose: () => void;
-  onGenerated: (listId: string) => void;
+  onSaved: (listId: string) => void;
 }) {
-  const [title, setTitle] = React.useState("Grocery list");
-  const [selectedIds, setSelectedIds] = React.useState<string[]>(
-    entries.map((e) => e.id),
+  const [title, setTitle] = React.useState(
+    mode === "edit" && list ? list.title : "Grocery list",
+  );
+  const [plannedDate, setPlannedDate] = React.useState(() =>
+    mode === "edit" && list
+      ? isoDate(list.plannedDate)
+      : toIsoDateOnly(new Date()),
+  );
+  const [selectedIds, setSelectedIds] = React.useState<string[]>(() =>
+    mode === "edit" && list
+      ? entries
+          .filter((e) => !list.excludedEntryIds.includes(e.id))
+          .map((e) => e.id)
+      : entries.map((e) => e.id),
   );
   const [error, setError] = React.useState<string | null>(null);
   const [isPending, startTransition] = React.useTransition();
@@ -556,39 +853,87 @@ function GenerateGroceryListDialog({
     );
   }
 
+  function handleSave() {
+    startTransition(async () => {
+      if (mode === "edit" && list) {
+        const result = await updateMealPlanLinkedGroceryList({
+          mealPlanId,
+          listId: list.id,
+          title,
+          plannedDate,
+          entryIds: selectedIds,
+        });
+        if (result.status === "success") {
+          onSaved(list.id);
+        } else {
+          setError(result.message ?? "Could not save this grocery list.");
+        }
+        return;
+      }
+      const result = await generateGroceryListFromMealPlan({
+        mealPlanId,
+        title,
+        plannedDate,
+        entryIds: selectedIds,
+      });
+      if (result.status === "success") {
+        onSaved(result.listId);
+      } else {
+        setError(result.message);
+      }
+    });
+  }
+
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Generate grocery list</DialogTitle>
-          <DialogDescription>
-            Choose which entries to include. The list stays synced with this
-            plan while active.
-          </DialogDescription>
+          <DialogTitle>
+            {mode === "edit" ? "Edit grocery list" : "Generate grocery list"}
+          </DialogTitle>
+          {mode === "generate" && (
+            <DialogDescription>
+              Choose which meals to include. The list stays synced with this
+              plan while active.
+            </DialogDescription>
+          )}
         </DialogHeader>
         <div className="flex flex-col gap-3">
           <Field>
-            <FieldLabel htmlFor="generate-title">Title</FieldLabel>
+            <FieldLabel htmlFor="grocery-list-title">Name</FieldLabel>
             <Input
-              id="generate-title"
+              id="grocery-list-title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
+              maxLength={120}
             />
           </Field>
-          <ul className="flex max-h-64 flex-col gap-1 overflow-y-auto">
-            {entries.map((entry) => (
-              <li key={entry.id}>
-                <label className="flex items-center gap-2 text-sm">
-                  <Checkbox
-                    checked={selectedIds.includes(entry.id)}
-                    onCheckedChange={() => toggle(entry.id)}
-                    aria-label={entry.title}
-                  />
-                  {entry.title} ({formatDateOnly(entry.cookDate)})
-                </label>
-              </li>
-            ))}
-          </ul>
+          <Field>
+            <FieldLabel htmlFor="grocery-list-date">Date</FieldLabel>
+            <DatePickerField
+              id="grocery-list-date"
+              value={plannedDate}
+              onChange={setPlannedDate}
+              ariaLabel="Grocery list date"
+            />
+          </Field>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-sm font-medium">Meals to include</span>
+            <ul className="flex max-h-64 flex-col gap-1 overflow-y-auto">
+              {entries.map((entry) => (
+                <li key={entry.id}>
+                  <label className="flex items-center gap-2 py-1 text-sm">
+                    <Checkbox
+                      checked={selectedIds.includes(entry.id)}
+                      onCheckedChange={() => toggle(entry.id)}
+                      aria-label={entry.title}
+                    />
+                    {entry.title} ({formatDateOnly(entry.cookDate)})
+                  </label>
+                </li>
+              ))}
+            </ul>
+          </div>
           {error && (
             <p role="alert" className="text-destructive-text text-sm">
               {error}
@@ -600,24 +945,11 @@ function GenerateGroceryListDialog({
             Cancel
           </Button>
           <Button
-            disabled={selectedIds.length === 0}
+            disabled={selectedIds.length === 0 || !title.trim()}
             loading={isPending}
-            onClick={() =>
-              startTransition(async () => {
-                const result = await generateGroceryListFromMealPlan({
-                  mealPlanId,
-                  title,
-                  entryIds: selectedIds,
-                });
-                if (result.status === "success") {
-                  onGenerated(result.listId);
-                } else {
-                  setError(result.message);
-                }
-              })
-            }
+            onClick={handleSave}
           >
-            Generate
+            {mode === "edit" ? "Save" : "Generate"}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -5295,7 +5295,9 @@ Wednesday lunch — 1 serving
 
 The internal concept may be represented as serving allocations.
 
-Scheduling is managed through a dedicated Schedule section in Meal Plan Create/Edit, separate from the Meals section describing what's being prepared — not edited inline on an individual Meal card. A schedule entry associates a meal label, the Meal Plan meal (cooking entry) it refers to, a date, and servings.
+Scheduling is managed through a dedicated Schedule section in Meal Plan Create/Edit, separate from the `Meals to cook` section describing what's being prepared — not edited inline on an individual Meal card. A schedule entry associates a meal label, the Meal Plan meal (cooking entry) it refers to, a date, and servings.
+
+Meal Plan Create/Edit's Schedule section, and Meal Plan Details' own read-only Schedule section, both present scheduled meals grouped by calendar date (a day card per date) rather than as an undifferentiated record list. Within a day, the user controls the order in which its scheduled meals appear — breakfast/lunch/dinner/snack, or any custom sequence; DishFrame does not impose a semantic ordering. Create/Edit persists that order, and later completion state (§77.3) never reorders it.
 
 ## 77.2 Allocation limits
 
@@ -5305,13 +5307,11 @@ Total scheduled servings for a Meal may not exceed that Meal's target yield, cou
 
 Leaving expected yield unallocated remains allowed: the user may intentionally want flexible leftovers or extra food, or may simply not have scheduled every serving yet.
 
-## 77.3 No consumption tracking
+## 77.3 Consumption state
 
-Planned meals describe intent.
+Each scheduled meal (§77.1) may persist an eaten/not-eaten state on Meal Plan Details, tracked separately from the underlying Meal's cooked/preparation status (§78). Unchecked (not yet eaten) is the default. Checking a scheduled meal marks it eaten without moving it — its position within its day is user-defined (§77.1) and completion never reorders it. When every scheduled meal for a day is checked, that day's card may collapse to a compact summary; it can be expanded again to inspect or uncheck individual meals.
 
-They do not become consumed/not-consumed records.
-
-DishFrame does not require the user to confirm that each serving was eaten.
+Cooking a Meal and eating one of its scheduled portions are independent facts: a Meal may be cooked before any of its scheduled meals are marked eaten, and marking a scheduled meal eaten implies nothing about whether the underlying Meal was actually cooked through DishFrame.
 
 ## 77.4 Multiple occurrences
 
@@ -5328,12 +5328,12 @@ DishFrame does not deduplicate these entries.
 
 # 78. Meal Plan Status and Cooking Sessions
 
-Recommended cooking-entry statuses:
+Underlying cooking-entry statuses:
 
 - **Planned**
 - **In progress**
 - **Cooked**
-- **Skipped**
+- **Skipped** — retained for historical/compatibility reasons only; see below.
 
 Starting a Cooking Session from a plan entry:
 
@@ -5344,11 +5344,13 @@ A Completed session marks the cooking entry Cooked.
 
 An Ended-early session does not automatically mark it Cooked.
 
-The user may manually mark an entry Cooked or Skipped when cooking occurs outside DishFrame.
+`Meals to cook` on Meal Plan Details is a preparation/execution list: each Meal is represented by a single cooked checkbox (checked = cooked, unchecked = not yet cooked) rather than a status badge or separate "Mark as cooked"/"Mark as skipped" actions, with a single remaining explicit action (Cook, or Resume for an in-progress Cooking Session) alongside it. The current UI does not expose Skipped as a normal execution state — if the user no longer intends to cook a Meal, editing or removing it from the plan (on the Edit page) is the appropriate planning action instead. Historical Skipped data, and any other system that already relies on the status, remains valid and unaffected; the UI simply no longer offers it as a choice.
 
-Individual planned meals do not require statuses.
+Individual planned meals do not require this status — they may separately persist their own eaten state (§77.3), which is unrelated to a Meal's cooked status here.
 
-Past Meal Plans remain accessible.
+Past Meal Plans remain accessible. A completed (closed) plan reuses the same Meal Plan Details presentation as an active plan, in read-only form: active execution controls — Schedule eaten checkboxes and Mark all eaten, Meals-to-cook cooked checkboxes, Cook/Resume actions, Generate grocery list, and any equivalent active-execution mutation — are disabled rather than hidden, so the closed plan stays legible as a reference for what it contained. `Reopen` returns the plan to Active so it can be mutated again. `Reuse` — always enabled, including while closed — creates a new plan from it for future dates; revisiting a successful completed plan specifically to reuse it is one of the more common reasons to open one.
+
+Meal Plan Details' own lifecycle actions (in its overflow menu) use the same wording convention as Grocery Lists: `Mark complete` and `Reopen`. The primary card/page action remains View details; lifecycle is secondary.
 
 Users may:
 
