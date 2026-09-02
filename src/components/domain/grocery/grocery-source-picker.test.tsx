@@ -43,7 +43,7 @@ const RECIPE_CANDIDATE: GrocerySourceCandidate = {
   dishId: "dish-1",
   kind: "RECIPE",
   stage: "ACTIVE",
-  cuisine: null,
+  cuisineNames: [],
   title: "Weeknight Stir-Fry",
   versionLabel: "V1.0",
   imageAssetId: null,

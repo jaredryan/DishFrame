@@ -56,9 +56,6 @@ export function describeDishContentIssue(
   if (path[0] === "title") {
     return `Title ${limitPhrase ?? "is invalid"}.`;
   }
-  if (path[0] === "cuisine") {
-    return `Cuisine ${limitPhrase ?? "is invalid"}.`;
-  }
   if (path[0] === "description") {
     return `Description ${limitPhrase ?? "is invalid"}.`;
   }

@@ -22,7 +22,7 @@ function partContent(title: string): DishContentInput {
   return {
     title,
     stage: "IDEA",
-    cuisine: null,
+    cuisineIds: [],
     description: null,
     yieldQuantity: null,
     yieldUnit: null,

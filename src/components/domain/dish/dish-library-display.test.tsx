@@ -18,7 +18,7 @@ const dishes: DishCardItem[] = [
     id: "1",
     currentTitle: "Ginger Bowl",
     stage: "ACTIVE",
-    cuisine: "Japanese",
+    cuisineNames: ["Japanese"],
     updatedAt: new Date("2026-01-01"),
     imageAssetId: null,
   },
@@ -26,7 +26,7 @@ const dishes: DishCardItem[] = [
     id: "2",
     currentTitle: "Old Stew",
     stage: "ARCHIVED",
-    cuisine: null,
+    cuisineNames: [],
     updatedAt: new Date("2025-06-01"),
     imageAssetId: null,
   },
@@ -36,7 +36,7 @@ const defaultFilters: LibraryFilters = {
   search: "",
   stages: [],
   tagIds: [],
-  cuisines: [],
+  cuisineIds: [],
   flavorProfileValueIds: [],
   rating: null,
   sort: "RECENTLY_UPDATED",
@@ -53,7 +53,7 @@ function renderDisplay(overrides: Partial<LibraryFilters> = {}) {
       basePath="/recipes"
       filters={{ ...defaultFilters, ...overrides }}
       tagOptions={[]}
-      cuisineOptions={["Japanese"]}
+      cuisineOptions={[{ id: "cuisine-japanese", displayName: "Japanese" }]}
       flavorProfileOptions={[]}
     />,
   );

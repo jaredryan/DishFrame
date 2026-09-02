@@ -7,13 +7,13 @@ import {
   getDishVersionMajorMinor,
   getHighestMajorVersion,
   getHighestMinorVersion,
-  listDistinctCuisines,
 } from "@/lib/dishes/queries";
 import { getSessionEvidenceForEditor } from "@/lib/reviews/queries";
 import { NotFoundError } from "@/lib/errors";
 import { DishEditor } from "@/components/domain/dish/dish-editor";
 import { dishToFormValues } from "@/components/domain/dish/dish-form-values";
 import { decimalToNumber } from "@/lib/dishes/format";
+import { listCuisines, listSelectedCuisineIds } from "@/lib/cuisines/queries";
 
 export async function generateMetadata({
   params,
@@ -70,10 +70,14 @@ export default async function EditRecipePage({
   }
 
   const isCurrent = version.id === dish.currentVersionId;
-  const cuisineOptions = await listDistinctCuisines(session.user.id, "RECIPE");
-  const currentVersion = isCurrent
-    ? null
-    : await getDishVersionMajorMinor(dish.id, dish.currentVersionId);
+  const [currentVersion, cuisineOptions, selectedCuisineIds] =
+    await Promise.all([
+      isCurrent
+        ? null
+        : getDishVersionMajorMinor(dish.id, dish.currentVersionId),
+      listCuisines(session.user.id),
+      listSelectedCuisineIds(dish.id),
+    ]);
   // PRODUCT_SPEC.md §39.5: only trust a `sessionId` deep-link when it
   // actually belongs to this Dish — otherwise silently drop it rather than
   // surface another item's evidence.
@@ -85,7 +89,10 @@ export default async function EditRecipePage({
   return (
     <DishEditor
       kind="RECIPE"
-      cuisineOptions={cuisineOptions}
+      cuisineOptions={cuisineOptions.map((cuisine) => ({
+        id: cuisine.id,
+        displayName: cuisine.displayName,
+      }))}
       dish={{
         id: dish.id,
         baseVersionId: version.id,
@@ -104,8 +111,8 @@ export default async function EditRecipePage({
         defaultScale: decimalToNumber(dish.defaultScale),
         values: dishToFormValues({
           stage: dish.stage,
-          cuisine: dish.cuisine,
           currentTitle: dish.currentTitle,
+          cuisineIds: selectedCuisineIds,
           version,
         }),
         evidence,

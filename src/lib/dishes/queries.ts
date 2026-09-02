@@ -52,7 +52,6 @@ export const dishCardSelect = {
   id: true,
   kind: true,
   stage: true,
-  cuisine: true,
   archivedAt: true,
   currentTitle: true,
   currentVersionId: true,
@@ -90,6 +89,9 @@ export const dishCardSelect = {
   },
   flavorProfiles: {
     select: { flavorProfileValue: { select: { displayName: true } } },
+  },
+  cuisines: {
+    select: { cuisine: { select: { displayName: true, position: true } } },
   },
 } as const;
 
@@ -179,6 +181,14 @@ export const dishDetailInclude = {
       flavorProfileValue: { select: { displayName: true } },
     },
   },
+  // PRODUCT_SPEC.md §46 (owner decision, 2026-09-02): same shape as
+  // tags/Flavor profiles above — zero, one, or several per Dish.
+  cuisines: {
+    select: {
+      cuisineId: true,
+      cuisine: { select: { displayName: true, position: true } },
+    },
+  },
 } as const;
 
 const librarySortValueSet = new Set<string>(["RECENTLY_COOKED"]);
@@ -220,7 +230,15 @@ export async function queryDishLibrary(
       ? {
           OR: searchTokens.flatMap((token): Prisma.DishWhereInput[] => [
             { currentTitle: { contains: token, mode: "insensitive" } },
-            { cuisine: { contains: token, mode: "insensitive" } },
+            {
+              cuisines: {
+                some: {
+                  cuisine: {
+                    displayName: { contains: token, mode: "insensitive" },
+                  },
+                },
+              },
+            },
             {
               currentStructuralSearchText: {
                 contains: token,
@@ -259,7 +277,10 @@ export async function queryDishLibrary(
       const tier = computeSearchTier(
         {
           currentTitle: row.currentTitle,
-          cuisine: row.cuisine,
+          cuisineNames: row.cuisines
+            .map((c) => c.cuisine)
+            .sort((a, b) => a.position - b.position)
+            .map((c) => c.displayName),
           currentStructuralSearchText: row.currentStructuralSearchText,
           tagNames: row.tags.map((t) => t.tag.displayName),
           flavorProfileNames: row.flavorProfiles.map(
@@ -351,7 +372,10 @@ export async function queryDishLibrary(
     id: row.id,
     currentTitle: row.currentTitle,
     stage: row.stage,
-    cuisine: row.cuisine,
+    cuisineNames: row.cuisines
+      .map((c) => c.cuisine)
+      .sort((a, b) => a.position - b.position)
+      .map((c) => c.displayName),
     updatedAt: row.updatedAt,
     imageAssetId: row.currentVersion?.imageAssetId ?? null,
     isFavorite: row.tags.some((t) => t.tag.isFavorite),
@@ -675,7 +699,6 @@ export async function listAttachableParts(
     select: {
       id: true,
       stage: true,
-      cuisine: true,
       currentTitle: true,
       currentVersionId: true,
       sourceKind: true,
@@ -695,6 +718,9 @@ export async function listAttachableParts(
       // star elsewhere, never listed as an ordinary tag.
       tags: {
         select: { tag: { select: { displayName: true, isFavorite: true } } },
+      },
+      cuisines: {
+        select: { cuisine: { select: { displayName: true, position: true } } },
       },
     },
     orderBy: { currentTitle: "asc" },
@@ -716,7 +742,10 @@ export async function listAttachableParts(
   return parts.map((part) => ({
     id: part.id,
     stage: part.stage,
-    cuisine: part.cuisine,
+    cuisineNames: part.cuisines
+      .map((c) => c.cuisine)
+      .sort((a, b) => a.position - b.position)
+      .map((c) => c.displayName),
     currentTitle: part.currentTitle,
     currentVersionId: part.currentVersionId,
     versionLabel: part.currentVersion
@@ -757,7 +786,6 @@ export async function listCookablePickerItems(ownerId: string) {
       id: true,
       kind: true,
       stage: true,
-      cuisine: true,
       currentTitle: true,
       currentVersionId: true,
       sourceKind: true,
@@ -774,6 +802,9 @@ export async function listCookablePickerItems(ownerId: string) {
       },
       tags: {
         select: { tag: { select: { displayName: true, isFavorite: true } } },
+      },
+      cuisines: {
+        select: { cuisine: { select: { displayName: true, position: true } } },
       },
     },
     orderBy: { currentTitle: "asc" },
@@ -796,7 +827,10 @@ export async function listCookablePickerItems(ownerId: string) {
     id: dish.id,
     kind: dish.kind,
     stage: dish.stage,
-    cuisine: dish.cuisine,
+    cuisineNames: dish.cuisines
+      .map((c) => c.cuisine)
+      .sort((a, b) => a.position - b.position)
+      .map((c) => c.displayName),
     currentTitle: dish.currentTitle,
     versionLabel: dish.currentVersion
       ? versionLabel(
@@ -917,27 +951,6 @@ export async function listCurrentPartUsages(
 }
 
 /**
- * Every distinct cuisine this owner has already used on this Dish kind,
- * newest first — backs the editor's Cuisine combobox (Gate 2 remediation:
- * PRODUCT_SPEC.md §46.3's "free-text values with suggestions based on the
- * user's existing values", not a rigid taxonomy).
- */
-export async function listDistinctCuisines(
-  ownerId: string,
-  kind: DishKindValue,
-): Promise<string[]> {
-  const rows = await prisma.dish.findMany({
-    where: { ownerId, kind, cuisine: { not: null } },
-    select: { cuisine: true },
-    distinct: ["cuisine"],
-    orderBy: { updatedAt: "desc" },
-  });
-  return rows
-    .map((row) => row.cuisine)
-    .filter((cuisine): cuisine is string => !!cuisine);
-}
-
-/**
  * Slice 22 logged-in polish pass — the Home dashboard's "Recently updated"
  * section: the most recently changed Recipes and Parts combined into one
  * list, newest first. Archived items are excluded, matching the library's
@@ -959,7 +972,6 @@ export async function listRecentlyUpdatedDishes(
       kind: true,
       currentTitle: true,
       stage: true,
-      cuisine: true,
       updatedAt: true,
       currentVersionId: true,
       sourceKind: true,
@@ -968,6 +980,9 @@ export async function listRecentlyUpdatedDishes(
       sourceTitle: true,
       sourceDishVersionLabel: true,
       tags: { select: { tag: { select: { isFavorite: true } } } },
+      cuisines: {
+        select: { cuisine: { select: { displayName: true, position: true } } },
+      },
     },
     orderBy: { updatedAt: "desc" },
     take: limit,
@@ -990,7 +1005,10 @@ export async function listRecentlyUpdatedDishes(
     kind: dish.kind,
     currentTitle: dish.currentTitle,
     stage: dish.stage,
-    cuisine: dish.cuisine,
+    cuisineNames: dish.cuisines
+      .map((c) => c.cuisine)
+      .sort((a, b) => a.position - b.position)
+      .map((c) => c.displayName),
     updatedAt: dish.updatedAt,
     imageAssetId: null,
     isFavorite: dish.tags.some((t) => t.tag.isFavorite),

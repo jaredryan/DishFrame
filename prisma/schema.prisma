@@ -30,6 +30,7 @@ model User {
   dishes                     Dish[]
   tags                       Tag[]
   flavorProfileValues        FlavorProfileValue[]
+  cuisines                   Cuisine[]
   groceryCategories          GroceryCategory[]
   ingredientCategoryMemories IngredientCategoryMemory[]
   tasters                    Taster[]
@@ -126,7 +127,6 @@ model Dish {
   currentVersionId String? @unique
 
   stage      Stage     @default(IDEA)
-  cuisine    String?
   archivedAt DateTime?
 
   // Slice 6A: the saved "default scale" preference — a positive multiplier
@@ -164,6 +164,7 @@ model Dish {
   currentVersion         DishVersion?            @relation("CurrentVersion", fields: [currentVersionId], references: [id])
   tags                   DishTag[]
   flavorProfiles         DishFlavorProfile[]
+  cuisines               DishCuisine[]
   preferredUnitOverrides PreferredUnitOverride[]
 
   sourceDish   Dish?  @relation("DishDuplicationSource", fields: [sourceDishId], references: [id], onDelete: SetNull)
@@ -400,6 +401,13 @@ model Tag {
   normalizedName String
   displayName    String
   isFavorite     Boolean  @default(false)
+  // Settings QA pass: user-controlled ordering, same shape as
+  // FlavorProfileValue.position/GroceryCategory.position — lets a user drag
+  // ordinary (non-Favorite) tags into a preferred order. The protected
+  // Favorite tag keeps its existing pinned-first placement (listTags/
+  // listTagsWithUsageCount order by isFavorite desc first) regardless of its
+  // own position value.
+  position       Int      @default(0)
   createdAt      DateTime @default(now())
 
   owner  User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
@@ -441,6 +449,34 @@ model DishFlavorProfile {
 
   @@id([dishId, flavorProfileValueId])
   @@index([flavorProfileValueId])
+}
+
+// PRODUCT_SPEC.md §46: user-managed, normalized Cuisine classification —
+// same shape as FlavorProfileValue/DishFlavorProfile above. Replaces the
+// former free-text `Dish.cuisine` column; a Recipe/Part may carry zero, one,
+// or several Cuisines via DishCuisine rather than one primary value.
+model Cuisine {
+  id             String @id @default(cuid())
+  ownerId        String
+  normalizedName String
+  displayName    String
+  position       Int    @default(0)
+
+  owner  User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  dishes DishCuisine[]
+
+  @@unique([ownerId, normalizedName])
+}
+
+model DishCuisine {
+  dishId    String
+  cuisineId String
+
+  dish    Dish    @relation(fields: [dishId], references: [id], onDelete: Cascade)
+  cuisine Cuisine @relation(fields: [cuisineId], references: [id], onDelete: Cascade)
+
+  @@id([dishId, cuisineId])
+  @@index([cuisineId])
 }
 
 enum MeasurementSystem {

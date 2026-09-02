@@ -165,7 +165,7 @@ const existingDish: {
   values: {
     title: "Ginger Bowl",
     stage: "IDEA",
-    cuisine: null,
+    cuisineIds: [],
     description: null,
     yieldQuantity: null,
     yieldUnit: null,
@@ -690,6 +690,92 @@ describe("DishEditor substitute handling", () => {
     expect(submitted.sections[0].ingredients[0].substitute).toBeNull();
   });
 
+  // Restoration pass (PRODUCT_SPEC.md §46, owner decision 2026-09-02):
+  // Cuisine is assignable directly in the create form again, not only via
+  // the post-save popover — zero, one, or several of the owner's existing
+  // Cuisines, submitted as `cuisineIds` through the normal create save path.
+  it("lets the user select Cuisines directly in the create form, submitted as cuisineIds", async () => {
+    const user = userEvent.setup();
+    render(
+      <DishEditor
+        kind="RECIPE"
+        cuisineOptions={[
+          { id: "cuisine-vietnamese", displayName: "Vietnamese" },
+          { id: "cuisine-thai", displayName: "Thai" },
+        ]}
+      />,
+    );
+
+    await user.type(screen.getByLabelText("Recipe title"), "Ginger Bowl");
+    await user.click(screen.getByLabelText("Vietnamese"));
+    await user.click(screen.getByRole("button", { name: "Add section" }));
+    await user.click(screen.getByRole("button", { name: "Add ingredient" }));
+    await user.type(screen.getByLabelText("Ingredient name"), "Salt");
+    await user.click(screen.getByRole("button", { name: "Finish section" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(mockedCreateDish).toHaveBeenCalledTimes(1);
+    const [, submitted] = mockedCreateDish.mock.calls[0];
+    expect(submitted.cuisineIds).toEqual(["cuisine-vietnamese"]);
+  });
+
+  it("saves with no Cuisine selected — a valid, ordinary state (e.g. a generic Part)", async () => {
+    const user = userEvent.setup();
+    render(
+      <DishEditor
+        kind="PART"
+        cuisineOptions={[
+          { id: "cuisine-vietnamese", displayName: "Vietnamese" },
+        ]}
+      />,
+    );
+
+    await user.type(screen.getByLabelText("Part title"), "White Rice");
+    await user.click(screen.getByRole("button", { name: "Add section" }));
+    await user.click(screen.getByRole("button", { name: "Add ingredient" }));
+    await user.type(screen.getByLabelText("Ingredient name"), "Rice");
+    await user.click(screen.getByRole("button", { name: "Finish section" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(mockedCreateDish).toHaveBeenCalledTimes(1);
+    const [, submitted] = mockedCreateDish.mock.calls[0];
+    expect(submitted.cuisineIds).toEqual([]);
+  });
+
+  it("edit form shows a Dish's current Cuisines pre-selected, and submits a changed selection as cuisineIds", async () => {
+    const user = userEvent.setup();
+    render(
+      <DishEditor
+        kind="RECIPE"
+        dish={{
+          ...existingDish,
+          values: {
+            ...existingDish.values,
+            cuisineIds: ["cuisine-vietnamese"],
+          },
+        }}
+        cuisineOptions={[
+          { id: "cuisine-vietnamese", displayName: "Vietnamese" },
+          { id: "cuisine-thai", displayName: "Thai" },
+        ]}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Expand Details" }));
+
+    expect(screen.getByLabelText("Vietnamese")).toBeChecked();
+    expect(screen.getByLabelText("Thai")).not.toBeChecked();
+
+    await user.click(screen.getByLabelText("Thai"));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(mockedEditDish).toHaveBeenCalledTimes(1);
+    const submitted = mockedEditDish.mock.calls[0][3];
+    expect(submitted.cuisineIds?.sort()).toEqual(
+      ["cuisine-thai", "cuisine-vietnamese"].sort(),
+    );
+  });
+
   it("persists a fully completed substitute", async () => {
     const user = userEvent.setup();
     render(<DishEditor kind="RECIPE" />);
@@ -1155,7 +1241,7 @@ describe("DishEditor Replace Section with Part", () => {
   const COCONUT_MILK = {
     id: "target-part",
     stage: "ACTIVE" as const,
-    cuisine: null,
+    cuisineNames: [],
     currentTitle: "Coconut Milk",
     currentVersionId: "target-part-v1",
     versionLabel: "V1.0",

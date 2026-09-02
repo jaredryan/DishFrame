@@ -53,7 +53,7 @@ export function candidateToSelectionItem(
     title: candidate.title,
     versionLabel: candidate.versionLabel,
     stage: candidate.stage,
-    cuisine: candidate.cuisine,
+    cuisineNames: candidate.cuisineNames,
     imageAssetId: candidate.imageAssetId,
     tagNames: candidate.tagNames,
     rating: candidate.rating,

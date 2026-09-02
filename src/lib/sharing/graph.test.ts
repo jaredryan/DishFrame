@@ -16,7 +16,7 @@ describe("deserializeShareGraph", () => {
   const node: ShareGraphNode = {
     dishId: "dish-1",
     dishKind: "RECIPE",
-    dishCuisine: null,
+    dishCuisines: ["Japanese"],
     dishTitle: "Ramen",
     versionId: "v1",
     majorVersion: 1,
@@ -78,5 +78,41 @@ describe("deserializeShareGraph", () => {
     expect(() =>
       deserializeShareGraph({ ...serialized, rootVersionId: "missing-node" }),
     ).toThrow(ValidationError);
+  });
+
+  // Cuisine redesign (PRODUCT_SPEC.md §46, owner decision 2026-09-02): a
+  // format-1 snapshot (every `DirectShare.frozenGraph`/`ShareLink` blob
+  // written before this pass) still has each node's old singular
+  // `dishCuisine: string | null` rather than `dishCuisines: string[]` —
+  // `deserializeShareGraph` must still accept it and migrate the field on
+  // read, so an already-sent FIXED_SNAPSHOT share keeps working.
+  it("migrates a format-1 snapshot's singular dishCuisine into dishCuisines on read", () => {
+    const { dishCuisines: _omit, ...nodeWithoutCuisines } = node;
+    void _omit;
+    const format1Node = { ...nodeWithoutCuisines, dishCuisine: "Japanese" };
+    const format1Serialized = {
+      formatVersion: 1,
+      nodes: [["v1", format1Node]],
+      order: ["v1"],
+      rootVersionId: "v1",
+    };
+
+    const graph = deserializeShareGraph(format1Serialized);
+    expect(graph.nodes.get("v1")).toEqual(node);
+  });
+
+  it("migrates a format-1 node with a null dishCuisine into an empty dishCuisines array", () => {
+    const { dishCuisines: _omit, ...nodeWithoutCuisines } = node;
+    void _omit;
+    const format1Node = { ...nodeWithoutCuisines, dishCuisine: null };
+    const format1Serialized = {
+      formatVersion: 1,
+      nodes: [["v1", format1Node]],
+      order: ["v1"],
+      rootVersionId: "v1",
+    };
+
+    const graph = deserializeShareGraph(format1Serialized);
+    expect(graph.nodes.get("v1")?.dishCuisines).toEqual([]);
   });
 });

@@ -8,6 +8,7 @@ import {
   createTagSchema,
   renameTagSchema,
   tagIdSchema,
+  reorderTagsSchema,
   type ActionState,
   type CreateTagActionState,
   type RenameTagActionState,
@@ -33,6 +34,7 @@ export async function createTag(
         id: tag.id,
         displayName: tag.displayName,
         isFavorite: tag.isFavorite,
+        position: tag.position,
         dishCount: 0,
       },
     };
@@ -83,6 +85,20 @@ export async function deleteTag(
 
     revalidatePath(SETTINGS_PATH);
     return { status: "success", message: "Deleted." };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export async function reorderTags(orderedIds: string[]): Promise<ActionState> {
+  try {
+    const userId = await requireUserId();
+    const { orderedIds: ids } = reorderTagsSchema.parse({ orderedIds });
+
+    await tagService.reorderTags(userId, ids);
+
+    revalidatePath(SETTINGS_PATH);
+    return { status: "success" };
   } catch (error) {
     return { status: "error", message: toActionErrorMessage(error) };
   }

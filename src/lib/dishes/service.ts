@@ -22,6 +22,12 @@ import {
   bestEffortDeleteBlob,
 } from "@/lib/images/service";
 import { decimalToNumber } from "@/lib/dishes/format";
+import { normalizeName } from "@/lib/account/defaults";
+import {
+  assertOwnedCuisineIds,
+  replaceDishCuisinesInTx,
+} from "@/lib/dishes/dish-metadata";
+import { listSelectedCuisineIds } from "@/lib/cuisines/queries";
 import { getDuplicationRatingSnapshot } from "@/lib/reviews/queries";
 import {
   versionContentToInput,
@@ -82,10 +88,12 @@ import type { ShareGraph, ShareGraphPartLinkRef } from "@/lib/sharing/graph";
  * here, never trusting a client claim. Version ownership and Version
  * creation are separate concerns: a field can belong to one specific
  * `DishVersion` row without every edit to it creating a new row.
- *   - Stable Dish metadata (Stage, cuisine, title) or a true no-op: no
+ *   - Stable Dish metadata (Stage, title, Cuisine) or a true no-op: no
  *     Version created, `Dish` updated in place (or not at all, for a
  *     genuine no-op). Title is stable Dish identity, not Version-owned
- *     content.
+ *     content. Cuisine (PRODUCT_SPEC.md §46, owner decision 2026-09-02) is
+ *     a join-table write (`replaceDishCuisinesInTx`), not a `Dish` column,
+ *     but is diffed/applied the same "changed or not" way as Stage/title.
  *   - Version-scoped metadata — description, image, yield, prep time, cook
  *     time, difficulty, and (Slice 13 correction pass) calories/protein/
  *     carbs/fat, nutrition basis, More nutrients, and nutrition source
@@ -1138,6 +1146,9 @@ export async function createDishWithVersion(
     ownerId,
     collectPartLinkEdges(sections, input.partLinks),
   );
+  // Restoration pass: same authoritative "never trust a client-submitted
+  // id merely because it's present" check as image/PartLink targets above.
+  await assertOwnedCuisineIds(prisma, ownerId, input.cuisineIds);
 
   return prisma.$transaction(async (tx) => {
     const dish = await tx.dish.create({
@@ -1145,7 +1156,6 @@ export async function createDishWithVersion(
         ownerId,
         kind,
         stage: input.stage,
-        cuisine: input.cuisine || null,
         archivedAt: input.stage === "ARCHIVED" ? new Date() : null,
         currentTitle: input.title,
         ...(source
@@ -1153,6 +1163,10 @@ export async function createDishWithVersion(
           : {}),
       },
     });
+    // Cuisine is stable Dish metadata, not Version content — persisted here
+    // as a plain join-table write, same transaction, no separate save step
+    // (PRODUCT_SPEC.md §46, owner decision 2026-09-02).
+    await replaceDishCuisinesInTx(tx, dish.id, input.cuisineIds);
 
     const version = await tx.dishVersion.create({
       data: {
@@ -1248,6 +1262,17 @@ export async function editDish(
   kind?: DishKindValue,
 ): Promise<string> {
   const dish = await getOwnedDishOrThrow(ownerId, dishId, kind);
+  // Restoration pass (PRODUCT_SPEC.md §46, owner decision 2026-09-02):
+  // Cuisine is authored directly in this same form/save now, so its
+  // current DB state has to be read alongside the base Version — same
+  // "never trust a client id merely because it's present" check the
+  // image/PartLink targets already get below.
+  await assertOwnedCuisineIds(prisma, ownerId, input.cuisineIds);
+  const currentCuisineIds = await listSelectedCuisineIds(dish.id);
+  const currentCuisineIdSet = new Set(currentCuisineIds);
+  const cuisineIdsChanged =
+    currentCuisineIds.length !== input.cuisineIds.length ||
+    input.cuisineIds.some((id) => !currentCuisineIdSet.has(id));
   // Slice 4 correction pass §1: any immutable Version belonging to the Dish
   // may be selected as an editing base — including an older minor when
   // newer minors already exist in the same major line. An immutable
@@ -1288,14 +1313,15 @@ export async function editDish(
   const nutrition = normalizeNutritionOrThrow(input);
 
   // Version-trigger correction pass, PRODUCT_SPEC.md §7.1: title is stable
-  // Dish identity, not Version-owned — grouped with Stage/cuisine, compared
+  // Dish identity, not Version-owned — grouped with Stage, compared
   // against the Dish's own denormalized title rather than the base
   // Version's `title` column (which is written at Version-creation time but
   // never itself the source of truth once title can change independently).
+  // Cuisine (PRODUCT_SPEC.md §46, owner decision 2026-09-02) is written
+  // directly by `setDishCuisines`, the same out-of-band join-table path as
+  // tags/Flavor profiles — never part of this comparison.
   const stableChanged =
-    input.stage !== dish.stage ||
-    (input.cuisine || null) !== (dish.cuisine ?? null) ||
-    input.title !== (dish.currentTitle ?? "");
+    input.stage !== dish.stage || input.title !== (dish.currentTitle ?? "");
 
   // Slice 13 metadata-classification correction pass, PRODUCT_SPEC.md §7.2/
   // §54: description, image, yield, prep/cook time, difficulty, and the
@@ -1361,26 +1387,30 @@ export async function editDish(
     // No material preparation-content change — never allocates a Version
     // number, whether `base` is the Dish's current Version or a
     // deliberately selected historical one; either way only that exact row
-    // is ever touched. Stable Dish metadata (Stage/cuisine/title) and
-    // Version-scoped metadata (description/image/yield/prep/cook/
-    // difficulty/nutrition) are applied directly, independently of each
-    // other; a save with neither is a true no-op.
-    if (stableChanged) {
+    // is ever touched. Stable Dish metadata (Stage/title) and Version-scoped
+    // metadata (description/image/yield/prep/cook/difficulty/nutrition) are
+    // applied directly, independently of each other; a save with neither is
+    // a true no-op.
+    if (stableChanged || cuisineIdsChanged) {
       const titleChanged = input.title !== (dish.currentTitle ?? "");
       await prisma.$transaction(async (tx) => {
-        await tx.dish.update({
-          where: { id: dish.id },
-          data: {
-            stage: input.stage,
-            cuisine: input.cuisine || null,
-            archivedAt: nextArchivedAt(
-              dish.stage,
-              dish.archivedAt,
-              input.stage,
-            ),
-            currentTitle: input.title,
-          },
-        });
+        if (stableChanged) {
+          await tx.dish.update({
+            where: { id: dish.id },
+            data: {
+              stage: input.stage,
+              archivedAt: nextArchivedAt(
+                dish.stage,
+                dish.archivedAt,
+                input.stage,
+              ),
+              currentTitle: input.title,
+            },
+          });
+        }
+        if (cuisineIdsChanged) {
+          await replaceDishCuisinesInTx(tx, dish.id, input.cuisineIds);
+        }
         // Slice 10 correction: a Part's title is denormalized into every
         // current parent's search text (see `structuralSearchTextFor`) — a
         // rename must refresh them, even though renaming itself never
@@ -1566,12 +1596,11 @@ export async function editDish(
       where: { id: dish.id },
       data: {
         stage: input.stage,
-        cuisine: input.cuisine || null,
         archivedAt: nextArchivedAt(dish.stage, dish.archivedAt, input.stage),
         // Version-trigger correction pass: title is stable Dish identity
         // (§7.1), applied unconditionally — independent of whether this
         // particular save's Version becomes current, exactly like Stage
-        // and cuisine already are above.
+        // already is above.
         currentTitle: input.title,
         ...(becomesCurrent
           ? {
@@ -1585,6 +1614,9 @@ export async function editDish(
           : {}),
       },
     });
+    if (cuisineIdsChanged) {
+      await replaceDishCuisinesInTx(tx, dish.id, input.cuisineIds);
+    }
 
     // Slice 10 correction: same as the no-version-bump branch above — a
     // Part-title rename must refresh every other current parent that
@@ -2269,7 +2301,6 @@ export async function duplicateDish(
         ownerId,
         kind: dish.kind,
         stage: dish.stage,
-        cuisine: dish.cuisine,
         currentTitle: title,
         sourceKind: "DUPLICATE",
         sourceDishId: dish.id,
@@ -2280,6 +2311,26 @@ export async function duplicateDish(
         sourceSessionCount: ratingSnapshot.sessionCount,
       },
     });
+
+    // Cuisine used to be copied onto the duplicate as a plain Dish column,
+    // the same "same Stage as the source by default" bucket as Stage
+    // (PRODUCT_SPEC.md §18.3) — carrying the source's current Cuisine
+    // associations forward preserves that behavior now that Cuisine is a
+    // join table (§46, owner decision 2026-09-02) instead of a field copy.
+    // Tags/Flavor profiles, by contrast, were already join tables and were
+    // never copied at duplication — unchanged here.
+    const sourceCuisineLinks = await tx.dishCuisine.findMany({
+      where: { dishId: dish.id },
+      select: { cuisineId: true },
+    });
+    if (sourceCuisineLinks.length > 0) {
+      await tx.dishCuisine.createMany({
+        data: sourceCuisineLinks.map((link) => ({
+          dishId: newDish.id,
+          cuisineId: link.cuisineId,
+        })),
+      });
+    }
 
     const version = await tx.dishVersion.create({
       data: {
@@ -2439,7 +2490,6 @@ export async function createIndependentCopyFromGraph(
         ownerId: recipientId,
         kind: lastNode.dishKind,
         stage: "IDEA",
-        cuisine: lastNode.dishCuisine,
         currentTitle: lastNode.dishTitle,
         sourceKind: "ACCEPTED_SHARE",
         sourceDishId: survivingSourceDishIds.has(sourceDishId)
@@ -2456,6 +2506,43 @@ export async function createIndependentCopyFromGraph(
       },
     });
     recipientDishIdBySourceDishId.set(sourceDishId, newDish.id);
+
+    // Cuisine (PRODUCT_SPEC.md §46, owner decision 2026-09-02): the frozen
+    // graph carries display-name strings, not the source owner's Cuisine
+    // ids (the recipient doesn't own those rows) — get-or-create each name
+    // under the recipient's own account, same identity rule as
+    // `cuisines/service.ts`'s `createCuisine`, then link it.
+    for (const displayName of lastNode.dishCuisines) {
+      const normalizedName = normalizeName(displayName);
+      const recipientCuisine = await tx.cuisine.upsert({
+        where: {
+          ownerId_normalizedName: { ownerId: recipientId, normalizedName },
+        },
+        update: {},
+        create: {
+          ownerId: recipientId,
+          normalizedName,
+          displayName,
+          position:
+            ((
+              await tx.cuisine.aggregate({
+                where: { ownerId: recipientId },
+                _max: { position: true },
+              })
+            )._max.position ?? -1) + 1,
+        },
+      });
+      await tx.dishCuisine.upsert({
+        where: {
+          dishId_cuisineId: {
+            dishId: newDish.id,
+            cuisineId: recipientCuisine.id,
+          },
+        },
+        update: {},
+        create: { dishId: newDish.id, cuisineId: recipientCuisine.id },
+      });
+    }
 
     let currentVersionId: string | null = null;
     let currentSectionNames: string[] = [];

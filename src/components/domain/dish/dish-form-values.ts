@@ -47,20 +47,23 @@ type VersionDetail = Prisma.DishVersionGetPayload<{
  * Maps a loaded Version's content into the editor's form shape, preserving
  * each row's `lineageId` so `editDish` carries lineage identity forward for
  * unchanged content (ARCHITECTURE_PROPOSAL.md §D.-1) instead of treating
- * every row as brand new on every edit. Stage/cuisine/title all come from
- * the Dish, not the loaded Version (§13.9 / Version-trigger correction pass
- * §7.1 — they belong to the stable Dish, so they're always the Dish's
- * *current* stable values regardless of which historical Version's content
- * is loaded here). `version.title` is only a fallback for the rare case a
- * pre-correction Dish somehow has no `currentTitle` yet.
+ * every row as brand new on every edit. Stage/title come from the Dish, not
+ * the loaded Version (§13.9 / Version-trigger correction pass §7.1 — they
+ * belong to the stable Dish, so they're always the Dish's *current* stable
+ * values regardless of which historical Version's content is loaded here).
+ * `version.title` is only a fallback for the rare case a pre-correction Dish
+ * somehow has no `currentTitle` yet. Cuisine (PRODUCT_SPEC.md §46, owner
+ * decision 2026-09-02) is restored to this form directly — `cuisineIds` is
+ * the caller's already-resolved current selection (`dish-metadata.ts`'s
+ * `getDishMetadataSelections`), same stable-Dish-metadata bucket as Stage.
  */
 export function dishToFormValues(input: {
   stage: StageValue;
-  cuisine: string | null;
   currentTitle: string | null;
+  cuisineIds: string[];
   version: VersionDetail;
 }): DishFormValues {
-  const { stage, cuisine, currentTitle, version } = input;
+  const { stage, currentTitle, cuisineIds, version } = input;
   // Slice 6: one shared mapping (also used by `editDish`'s content-diffing,
   // duplication, and promotion, and the Version-comparison route) — the
   // editor's loaded Sections and top-level linked Parts must never drift
@@ -73,7 +76,7 @@ export function dishToFormValues(input: {
   return {
     title: currentTitle || version.title,
     stage,
-    cuisine,
+    cuisineIds,
     description: version.description,
     yieldQuantity: decimalToNumber(version.yieldQuantity),
     yieldUnit: version.yieldUnit,
@@ -109,7 +112,7 @@ export function blankDishFormValues(): DishFormValues {
   return {
     title: "",
     stage: "IDEA",
-    cuisine: null,
+    cuisineIds: [],
     description: null,
     yieldQuantity: null,
     yieldUnit: null,

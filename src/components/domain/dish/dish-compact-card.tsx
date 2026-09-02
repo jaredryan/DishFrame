@@ -72,9 +72,11 @@ export function DishCompactCard({
           {showKind && <DishKindBadge kind={kind} />}
           <StageBadge stage={dish.stage} />
           {dish.rating && <RatingBadge rating={dish.rating} />}
-          {dish.cuisine && (
-            <SemanticChip semantic="green">{dish.cuisine}</SemanticChip>
-          )}
+          {dish.cuisineNames.map((cuisineName) => (
+            <SemanticChip key={cuisineName} semantic="green">
+              {cuisineName}
+            </SemanticChip>
+          ))}
           <Badge variant="outline">
             Updated {dateFormatter.format(dish.updatedAt)}
           </Badge>

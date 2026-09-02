@@ -23,7 +23,7 @@ export async function createThrowawayGarnishPart(
   const content: DishContentInput = {
     title: "[QA] Pickled Ginger Garnish",
     stage: "PROVEN",
-    cuisine: null,
+    cuisineIds: [],
     description: null,
     yieldQuantity: null,
     yieldUnit: null,

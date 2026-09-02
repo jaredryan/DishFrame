@@ -24,20 +24,29 @@ test.describe("Recipe library: search, filters, and active-filter chips", () => 
     const matchTitle = `Vietnamese Pho ${Date.now()}`;
     const otherTitle = `Thai Curry ${Date.now()}`;
 
-    // --- Create the "High Protein" tag up front, from Settings ---
+    // --- Create the "High Protein" tag and the two Cuisines up front, from
+    // Settings — PRODUCT_SPEC.md §46 (owner decision 2026-09-02): Cuisine
+    // is a normalized, user-owned classification now, so the create form's
+    // Cuisine selector only offers Cuisines that already exist. ---
     await page.goto("/settings");
-    // Scoped to the tag-creation form specifically: Slice 10 added the Tag
-    // and Flavor Profile managers inline in /settings alongside the
-    // pre-existing Taster/Grocery Category managers, so a bare "Add" button
-    // role query now matches more than one form's submit button.
+    // Scoped to each classification's own creation form specifically: /settings
+    // has several managers (Tag, Cuisine, Flavor Profile, Taster, Grocery
+    // Category) inline on one page, so a bare "Add" button role query now
+    // matches more than one form's submit button.
     const tagForm = page.locator("form", { hasText: "Add a tag" });
     await tagForm.getByLabel("Add a tag").fill("High Protein");
     await tagForm.getByRole("button", { name: "Add" }).click();
 
+    const cuisineForm = page.locator("form", { hasText: "Add a cuisine" });
+    await cuisineForm.getByLabel("Add a cuisine").fill("Vietnamese");
+    await cuisineForm.getByRole("button", { name: "Add" }).click();
+    await cuisineForm.getByLabel("Add a cuisine").fill("Thai");
+    await cuisineForm.getByRole("button", { name: "Add" }).click();
+
     // --- Recipe 1: Active, Vietnamese — will match every filter below ---
     await page.goto("/recipes/new");
     await page.getByLabel("Recipe title").fill(matchTitle);
-    await page.getByLabel("Cuisine").fill("Vietnamese");
+    await page.getByText("Vietnamese").click();
     // Stage is a Radix Select (combobox), not a native <select>.
     await page.getByRole("combobox", { name: /stage/i }).click();
     await page.getByRole("option", { name: "Active" }).click();
@@ -57,15 +66,15 @@ test.describe("Recipe library: search, filters, and active-filter chips", () => 
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect(page).toHaveURL(/\/recipes\/[^/]+$/);
 
-    // Tag it "High Protein" via the detail page's Tags & Flavors popover.
-    await page.getByRole("button", { name: "Tags & Flavors" }).click();
+    // Tag it "High Protein" via the detail page's Tags, Flavors & Cuisine popover.
+    await page.getByRole("button", { name: "Tags, Flavors & Cuisine" }).click();
     await page.getByText("High Protein").click();
     await page.getByRole("button", { name: "Save" }).click();
 
     // --- Recipe 2: a different cuisine — must not match the filter below ---
     await page.goto("/recipes/new");
     await page.getByLabel("Recipe title").fill(otherTitle);
-    await page.getByLabel("Cuisine").fill("Thai");
+    await page.getByText("Thai").click();
 
     await page
       .getByRole("button", { name: "Add section", exact: true })

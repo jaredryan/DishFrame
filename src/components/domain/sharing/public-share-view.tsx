@@ -191,9 +191,11 @@ export function PublicShareView({
         )}
         {content.description && <p>{content.description}</p>}
         <div className="flex flex-wrap items-center gap-1.5">
-          {content.cuisine && (
-            <SemanticChip semantic="green">{content.cuisine}</SemanticChip>
-          )}
+          {content.cuisines.map((cuisineName) => (
+            <SemanticChip key={cuisineName} semantic="green">
+              {cuisineName}
+            </SemanticChip>
+          ))}
           {content.flavorProfiles.map((flavor) => (
             <SemanticChip key={flavor} semantic="green">
               {flavor}

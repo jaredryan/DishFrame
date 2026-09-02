@@ -145,7 +145,7 @@ test.describe("Settings: Preferences, Grocery Categories, and Tasters", () => {
     // (via its heading) rather than just filtering for the handle, which
     // would match both lists.
     const groceryCategoriesSection = page.locator("section", {
-      has: page.getByRole("heading", { name: "Grocery Categories" }),
+      has: page.getByRole("heading", { name: "Grocery categories" }),
     });
     const groceryRows = groceryCategoriesSection.locator("li").filter({
       has: page.getByRole("button", { name: /^Drag to reorder/ }),

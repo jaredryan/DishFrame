@@ -54,7 +54,7 @@ const mockedApplyFdcResult = vi.mocked(applyFdcResult);
 const savedNutritionValues: DishFormValues = {
   title: "Ginger Bowl",
   stage: "IDEA",
-  cuisine: null,
+  cuisineIds: [],
   description: null,
   yieldQuantity: null,
   yieldUnit: null,

@@ -106,7 +106,7 @@ export function ThemeToggle({
               "focus-visible:ring-ring/50 inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-md font-medium transition-colors focus-visible:ring-2 focus-visible:outline-none",
               size === "large"
                 ? "min-h-11 flex-1 px-3 text-sm"
-                : "h-7 px-2.5 text-xs",
+                : "h-7 px-2.5 text-xs pointer-coarse:h-11 pointer-coarse:px-3 pointer-coarse:text-sm",
               isActive
                 ? "bg-card text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground",

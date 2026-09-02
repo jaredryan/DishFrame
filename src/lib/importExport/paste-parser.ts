@@ -277,6 +277,13 @@ export type PasteParseResult = {
   // at the dedicated trailing Section those lines land in below, rather
   // than silently dropping them (§56.1 step 4).
   needsReviewCount: number;
+  // PRODUCT_SPEC.md §46 (owner decision, 2026-09-02): Cuisine is no longer
+  // part of `DishFormValues`/`dishContentSchema` (a normalized Dish↔Cuisine
+  // relation, set out-of-band like tags/Flavor profiles) — a source
+  // adapter's guessed Cuisine name rides alongside `values` here instead,
+  // resolved to a real Cuisine and attached after the Dish itself is
+  // created (`paste-import-flow.tsx`'s single/batch confirm paths).
+  cuisineGuess: string | null;
 };
 
 /**
@@ -429,7 +436,6 @@ export type ImportFieldOverrides = Partial<
     DishFormValues,
     | "title"
     | "description"
-    | "cuisine"
     | "yieldQuantity"
     | "yieldUnit"
     | "prepTimeMinutes"
@@ -442,7 +448,11 @@ export type ImportFieldOverrides = Partial<
     | "nutritionBasisQuantity"
     | "nutritionBasisUnit"
   >
->;
+> & {
+  // Not part of `DishFormValues` (PRODUCT_SPEC.md §46, owner decision
+  // 2026-09-02) — carried separately into `PasteParseResult.cuisineGuess`.
+  cuisine?: string | null;
+};
 
 /**
  * The convergence point every import source adapter funnels through:
@@ -504,9 +514,11 @@ export function buildParseResult(
     values: {
       title: clamp(fields.title ?? "", TITLE_MAX_LENGTH),
       stage: "IDEA",
-      cuisine: fields.cuisine
-        ? clamp(fields.cuisine, CUISINE_MAX_LENGTH)
-        : null,
+      // A source adapter's guessed Cuisine *name* rides separately as
+      // `cuisineGuess` below (resolved to a real Cuisine only at
+      // import-commit time) — this form value starts with no Cuisine
+      // selected, same as any other brand-new create-form draft.
+      cuisineIds: [],
       description: fields.description ?? null,
       yieldQuantity: fields.yieldQuantity ?? null,
       yieldUnit: fields.yieldUnit ?? null,
@@ -540,6 +552,9 @@ export function buildParseResult(
       partLinks: [],
     },
     needsReviewCount: needsReview.length,
+    cuisineGuess: fields.cuisine
+      ? clamp(fields.cuisine, CUISINE_MAX_LENGTH)
+      : null,
   };
 }
 

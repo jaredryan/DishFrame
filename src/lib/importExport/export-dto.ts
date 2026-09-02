@@ -54,7 +54,12 @@ const ACCOUNT_EXPORT_FORMAT = "dishframe.account-export";
 // refinement: the field was briefly called `publications` before any
 // importer/consumer existed — corrected in place rather than bumping to v3,
 // since nothing has ever consumed the v2 shape yet.)
-const CURRENT_EXPORT_FORMAT_VERSION = 2;
+// v3 (2026-09-02, Cuisine redesign): each Dish's singular `cuisine: string |
+// null` became `cuisines: string[]` (PRODUCT_SPEC.md §46, owner decision —
+// zero, one, or several normalized Cuisines instead of one free-text value).
+// `dishframe-json-import.ts` still reads an older payload's singular
+// `cuisine` as a one-element fallback, so a pre-v3 export still round-trips.
+const CURRENT_EXPORT_FORMAT_VERSION = 3;
 
 export const versionModeValues = ["SINGLE", "ALL"] as const;
 export type VersionModeValue = (typeof versionModeValues)[number];
@@ -522,7 +527,6 @@ export async function buildDishExportDto(
       id: true,
       kind: true,
       stage: true,
-      cuisine: true,
       currentTitle: true,
       currentVersionId: true,
       createdAt: true,
@@ -530,6 +534,9 @@ export async function buildDishExportDto(
       tags: { select: { tag: { select: { displayName: true } } } },
       flavorProfiles: {
         select: { flavorProfileValue: { select: { displayName: true } } },
+      },
+      cuisines: {
+        select: { cuisine: { select: { displayName: true, position: true } } },
       },
       versions: {
         include: versionContentInclude,
@@ -580,7 +587,10 @@ export async function buildDishExportDto(
     kind: dish.kind,
     title: dish.currentTitle,
     stage: dish.stage,
-    cuisine: dish.cuisine,
+    cuisines: dish.cuisines
+      .map((c) => c.cuisine)
+      .sort((a, b) => a.position - b.position)
+      .map((c) => c.displayName),
     tags: dish.tags.map((t) => t.tag.displayName),
     flavorProfiles: dish.flavorProfiles.map(
       (f) => f.flavorProfileValue.displayName,
@@ -621,7 +631,6 @@ export async function buildAccountBackupDto(ownerId: string) {
       id: true,
       kind: true,
       stage: true,
-      cuisine: true,
       currentTitle: true,
       defaultScale: true,
       sourceKind: true,
@@ -632,6 +641,9 @@ export async function buildAccountBackupDto(ownerId: string) {
       tags: { select: { tag: { select: { displayName: true } } } },
       flavorProfiles: {
         select: { flavorProfileValue: { select: { displayName: true } } },
+      },
+      cuisines: {
+        select: { cuisine: { select: { displayName: true, position: true } } },
       },
       preferredUnitOverrides: {
         select: { ingredientLineageId: true, unit: true },
@@ -790,7 +802,10 @@ export async function buildAccountBackupDto(ownerId: string) {
       kind: dish.kind,
       title: dish.currentTitle,
       stage: dish.stage,
-      cuisine: dish.cuisine,
+      cuisines: dish.cuisines
+        .map((c) => c.cuisine)
+        .sort((a, b) => a.position - b.position)
+        .map((c) => c.displayName),
       defaultScale: decimalToNumber(dish.defaultScale),
       sourceKind: dish.sourceKind,
       sourceTitle: dish.sourceTitle,

@@ -6,10 +6,13 @@ import { GroceryCategoryManager } from "@/components/app/grocery-category-manage
 import { TasterManager } from "@/components/app/taster-manager";
 import { FlavorProfileManager } from "@/components/app/flavor-profile-manager";
 import { TagManager } from "@/components/app/tag-manager";
+import { CuisineManager } from "@/components/app/cuisine-manager";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
+import { JumpToSection } from "@/components/app/jump-to-section";
 import { listTasters } from "@/lib/tasters/queries";
 import { listFlavorProfileValues } from "@/lib/flavor-profiles/queries";
 import { listTagsWithUsageCount } from "@/lib/tags/queries";
+import { listCuisines } from "@/lib/cuisines/queries";
 import { prisma } from "@/lib/db/prisma";
 import { AppPageLayout } from "@/components/app/app-page-layout";
 
@@ -20,10 +23,11 @@ export const metadata: Metadata = {
 const JUMP_LINKS = [
   { label: "Appearance", href: "#appearance" },
   { label: "Preferences", href: "#preferences" },
-  { label: "Tasters", href: "#tasters" },
+  { label: "Cuisines", href: "#cuisines" },
+  { label: "Flavor profiles", href: "#flavor-profiles" },
   { label: "Tags", href: "#tags" },
-  { label: "Flavor Profiles", href: "#flavor-profiles" },
-  { label: "Grocery Categories", href: "#grocery-categories" },
+  { label: "Tasters", href: "#tasters" },
+  { label: "Grocery categories", href: "#grocery-categories" },
 ];
 
 export default async function SettingsPage() {
@@ -37,27 +41,34 @@ export default async function SettingsPage() {
   // Ordinarily seeded by initializeNewUser at sign-up (src/lib/account/init.ts)
   // and repaired by the (app) shell layout on any request where it's still
   // missing; upsert-on-read here is a defensive fallback only.
-  const [preference, groceryCategories, tasters, flavorProfiles, tags] =
-    await Promise.all([
-      prisma.userPreference.upsert({
-        where: { userId: user.id },
-        update: {},
-        create: { userId: user.id },
-      }),
-      prisma.groceryCategory.findMany({
-        where: { ownerId: user.id },
-        orderBy: { position: "asc" },
-        select: {
-          id: true,
-          displayName: true,
-          position: true,
-          isFallback: true,
-        },
-      }),
-      listTasters(user.id),
-      listFlavorProfileValues(user.id),
-      listTagsWithUsageCount(user.id),
-    ]);
+  const [
+    preference,
+    groceryCategories,
+    tasters,
+    flavorProfiles,
+    tags,
+    cuisines,
+  ] = await Promise.all([
+    prisma.userPreference.upsert({
+      where: { userId: user.id },
+      update: {},
+      create: { userId: user.id },
+    }),
+    prisma.groceryCategory.findMany({
+      where: { ownerId: user.id },
+      orderBy: { position: "asc" },
+      select: {
+        id: true,
+        displayName: true,
+        position: true,
+        isFallback: true,
+      },
+    }),
+    listTasters(user.id),
+    listFlavorProfileValues(user.id),
+    listTagsWithUsageCount(user.id),
+    listCuisines(user.id),
+  ]);
 
   return (
     <AppPageLayout
@@ -66,23 +77,7 @@ export default async function SettingsPage() {
       descriptionClassName="text-muted-foreground mt-2"
       width="narrow"
     >
-      <div>
-        <h2 className="font-heading text-foreground text-lg font-semibold">
-          Jump to
-        </h2>
-        <ul className="mt-4 flex flex-wrap gap-2">
-          {JUMP_LINKS.map(({ label, href }) => (
-            <li key={href}>
-              <a
-                href={href}
-                className="border-border bg-card hover:bg-muted text-foreground block rounded-lg border px-3 py-1.5 text-sm"
-              >
-                {label}
-              </a>
-            </li>
-          ))}
-        </ul>
-      </div>
+      <JumpToSection links={JUMP_LINKS} />
 
       <section id="appearance" className="flex scroll-mt-6 flex-col gap-4">
         <h2 className="text-foreground text-lg font-semibold">Appearance</h2>
@@ -90,10 +85,10 @@ export default async function SettingsPage() {
           <div>
             <p className="text-foreground text-sm font-medium">Theme</p>
             <p className="text-muted-foreground text-sm">
-              Choose Light, Dark, or match your device.
+              Choose light, dark, or match your device.
             </p>
           </div>
-          <ThemeToggle size="large" />
+          <ThemeToggle />
         </div>
       </section>
 
@@ -112,29 +107,19 @@ export default async function SettingsPage() {
         </div>
       </section>
 
-      <section id="tasters" className="flex scroll-mt-6 flex-col gap-4">
-        <h2 className="text-foreground text-lg font-semibold">Tasters</h2>
+      <section id="cuisines" className="flex scroll-mt-6 flex-col gap-4">
+        <h2 className="text-foreground text-lg font-semibold">Cuisines</h2>
         <p className="text-muted-foreground -mt-2 text-sm">
-          Who tried it? Add the people whose ratings you want to remember.
+          A Recipe or Part can carry zero, one, or several Cuisines.
         </p>
         <div className="border-border bg-card rounded-xl border p-5">
-          <TasterManager initialTasters={tasters} />
-        </div>
-      </section>
-
-      <section id="tags" className="flex scroll-mt-6 flex-col gap-4">
-        <h2 className="text-foreground text-lg font-semibold">Tags</h2>
-        <p className="text-muted-foreground -mt-2 text-sm">
-          Your own organizing labels — used for filtering Recipes and Parts.
-        </p>
-        <div className="border-border bg-card rounded-xl border p-5">
-          <TagManager initialTags={tags} />
+          <CuisineManager initialCuisines={cuisines} />
         </div>
       </section>
 
       <section id="flavor-profiles" className="flex scroll-mt-6 flex-col gap-4">
         <h2 className="text-foreground text-lg font-semibold">
-          Flavor Profiles
+          Flavor profiles
         </h2>
         <p className="text-muted-foreground -mt-2 text-sm">
           A dedicated classification for how something tastes — separate from
@@ -145,13 +130,36 @@ export default async function SettingsPage() {
         </div>
       </section>
 
+      <section id="tags" className="flex scroll-mt-6 flex-col gap-4">
+        <h2 className="text-foreground text-lg font-semibold">Tags</h2>
+        <p className="text-muted-foreground -mt-2 text-sm">
+          Your own organizing labels — used for filtering recipes and parts.
+        </p>
+        <div className="border-border bg-card rounded-xl border p-5">
+          <TagManager initialTags={tags} />
+        </div>
+      </section>
+
+      <section id="tasters" className="flex scroll-mt-6 flex-col gap-4">
+        <h2 className="text-foreground text-lg font-semibold">Tasters</h2>
+        <p className="text-muted-foreground -mt-2 text-sm">
+          Who tried it? Add the people whose ratings you want to remember.
+        </p>
+        <div className="border-border bg-card rounded-xl border p-5">
+          <TasterManager initialTasters={tasters} />
+        </div>
+      </section>
+
       <section
         id="grocery-categories"
         className="flex scroll-mt-6 flex-col gap-4"
       >
         <h2 className="text-foreground text-lg font-semibold">
-          Grocery Categories
+          Grocery categories
         </h2>
+        <p className="text-muted-foreground -mt-2 text-sm">
+          These help you sort your grocery list items into different sections.
+        </p>
         <div className="border-border bg-card rounded-xl border p-5">
           <GroceryCategoryManager initialCategories={groceryCategories} />
         </div>

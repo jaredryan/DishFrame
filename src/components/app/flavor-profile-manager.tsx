@@ -281,7 +281,7 @@ export function FlavorProfileManager({
   return (
     <div className="flex flex-col gap-4">
       <p className="text-muted-foreground text-xs">
-        Drag to reorder — this controls how Flavor profiles are listed when
+        Drag to reorder — this controls how flavor profiles are listed when
         filtering or editing a Recipe or Part.
       </p>
 
@@ -319,7 +319,7 @@ export function FlavorProfileManager({
         className="flex items-end gap-2"
       >
         <div className="flex flex-1 flex-col gap-2">
-          <Label htmlFor="new-flavor-profile-name">Add a Flavor profile</Label>
+          <Label htmlFor="new-flavor-profile-name">Add a flavor profile</Label>
           <Input
             id="new-flavor-profile-name"
             name="name"

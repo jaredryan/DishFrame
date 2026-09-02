@@ -54,6 +54,27 @@ export async function ensureSeedTag(ownerId: string): Promise<string> {
   return tag.id;
 }
 
+/**
+ * `Dish.cuisine` free text was replaced by an owner-scoped `Cuisine`
+ * catalog + `DishCuisine` join (schema.prisma §Cuisine/DishCuisine,
+ * product-spec decision 2026-09-02) — `DishContentInput.cuisineIds` now
+ * takes real Cuisine row ids, not display strings, so fixtures resolve a
+ * name to an id via this same upsert-by-normalizedName pattern as
+ * `ensureSeedTag` above.
+ */
+export async function ensureCuisine(
+  ownerId: string,
+  displayName: string,
+): Promise<string> {
+  const normalizedName = displayName.toLowerCase();
+  const cuisine = await prisma.cuisine.upsert({
+    where: { ownerId_normalizedName: { ownerId, normalizedName } },
+    update: {},
+    create: { ownerId, normalizedName, displayName },
+  });
+  return cuisine.id;
+}
+
 export async function attachSeedTag(
   dishId: string,
   tagId: string,

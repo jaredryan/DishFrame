@@ -19,6 +19,7 @@ import {
 import { extractRecipesFromArchiveFile } from "@/lib/importExport/file-sources";
 import { createTag } from "@/lib/tags/actions";
 import { createFlavorProfile } from "@/lib/flavor-profiles/actions";
+import { createCuisine } from "@/lib/cuisines/actions";
 
 const push = vi.fn();
 
@@ -85,14 +86,17 @@ vi.mock("@/lib/importExport/actions", () => ({
   confirmImportBatch: vi.fn(async () => []),
 }));
 
-// Source-metadata mapping (task §5) creates Tags/Flavor profiles through
-// these exact Settings actions — mocked here so a "Create new" mapping
-// resolves deterministically without hitting a real database.
+// Source-metadata mapping (task §5) creates Tags/Flavor profiles/Cuisines
+// through these exact Settings actions — mocked here so a "Create new"
+// mapping resolves deterministically without hitting a real database.
 vi.mock("@/lib/tags/actions", () => ({
   createTag: vi.fn(async () => ({ status: "idle" })),
 }));
 vi.mock("@/lib/flavor-profiles/actions", () => ({
   createFlavorProfile: vi.fn(async () => ({ status: "idle" })),
+}));
+vi.mock("@/lib/cuisines/actions", () => ({
+  createCuisine: vi.fn(async () => ({ status: "idle" })),
 }));
 
 const mockedPropose = vi.mocked(proposeImportFromPaste);
@@ -102,11 +106,12 @@ const mockedConfirmImport = vi.mocked(confirmImport);
 const mockedConfirmImportBatch = vi.mocked(confirmImportBatch);
 const mockedCreateTag = vi.mocked(createTag);
 const mockedCreateFlavorProfile = vi.mocked(createFlavorProfile);
+const mockedCreateCuisine = vi.mocked(createCuisine);
 
 const blankVersionValues = {
   title: "",
   stage: "IDEA" as const,
-  cuisine: null,
+  cuisineIds: [],
   description: null,
   yieldQuantity: null,
   yieldUnit: null,
@@ -163,6 +168,7 @@ describe("PasteImportFlow", () => {
     mockedConfirmImportBatch.mockClear();
     mockedCreateTag.mockClear();
     mockedCreateFlavorProfile.mockClear();
+    mockedCreateCuisine.mockClear();
   });
 
   it("parses pasted text and shows the review editor pre-filled with the proposal", async () => {
@@ -171,6 +177,7 @@ describe("PasteImportFlow", () => {
       result: {
         values: { ...blankVersionValues, title: "Weeknight Tacos" },
         needsReviewCount: 0,
+        cuisineGuess: null,
       },
     });
 
@@ -198,6 +205,7 @@ describe("PasteImportFlow", () => {
       result: {
         values: blankVersionValues,
         needsReviewCount: 2,
+        cuisineGuess: null,
       },
     });
 
@@ -214,7 +222,11 @@ describe("PasteImportFlow", () => {
   it("returns to the paste step on Discard import", async () => {
     mockedPropose.mockResolvedValue({
       status: "success",
-      result: { values: blankVersionValues, needsReviewCount: 0 },
+      result: {
+        values: blankVersionValues,
+        needsReviewCount: 0,
+        cuisineGuess: null,
+      },
     });
 
     const user = userEvent.setup();
@@ -254,6 +266,7 @@ describe("PasteImportFlow", () => {
       result: {
         values: { ...filledVersionValues, title: "Weeknight Tacos" },
         needsReviewCount: 0,
+        cuisineGuess: null,
       },
     });
     mockedConfirmImport.mockResolvedValue({ status: "success", dishId: "d1" });
@@ -279,6 +292,7 @@ describe("PasteImportFlow", () => {
       "RECIPE",
       expect.objectContaining({ title: "Weeknight Tacos" }),
       undefined,
+      null,
     );
     // Task §14: once persistence reports success, the expected
     // post-success navigation completes exactly once — no duplicate save,
@@ -294,6 +308,7 @@ describe("PasteImportFlow", () => {
       result: {
         values: { ...filledVersionValues, title: "Weeknight Tacos" },
         needsReviewCount: 0,
+        cuisineGuess: null,
       },
     });
 
@@ -322,6 +337,7 @@ describe("PasteImportFlow", () => {
       result: {
         values: { ...filledVersionValues, title: "Marinara Sauce" },
         needsReviewCount: 0,
+        cuisineGuess: null,
       },
     });
     mockedConfirmImport.mockResolvedValue({ status: "success", dishId: "p1" });
@@ -343,6 +359,7 @@ describe("PasteImportFlow", () => {
       "PART",
       expect.objectContaining({ title: "Marinara Sauce" }),
       undefined,
+      null,
     );
   });
 
@@ -352,6 +369,7 @@ describe("PasteImportFlow", () => {
       result: {
         values: { ...blankVersionValues, title: "Weeknight Tacos" },
         needsReviewCount: 0,
+        cuisineGuess: null,
       },
     });
 
@@ -387,6 +405,7 @@ describe("PasteImportFlow", () => {
       result: {
         values: { ...blankVersionValues, title: "Weeknight Tacos" },
         needsReviewCount: 0,
+        cuisineGuess: null,
       },
     });
 
@@ -527,6 +546,7 @@ describe("PasteImportFlow", () => {
       result: {
         values: { ...blankVersionValues, title: "Site Recipe" },
         needsReviewCount: 0,
+        cuisineGuess: null,
       },
     });
 
@@ -585,6 +605,7 @@ describe("PasteImportFlow", () => {
           result: {
             values: { ...blankVersionValues, title: "Baked Potatoes" },
             needsReviewCount: 0,
+            cuisineGuess: null,
           },
         },
         {
@@ -594,6 +615,7 @@ describe("PasteImportFlow", () => {
           result: {
             values: { ...blankVersionValues, title: "Soup" },
             needsReviewCount: 1,
+            cuisineGuess: null,
           },
         },
         {
@@ -659,6 +681,7 @@ describe("PasteImportFlow", () => {
           result: {
             values: { ...blankVersionValues, title: "Baked Potatoes" },
             needsReviewCount: 0,
+            cuisineGuess: null,
           },
         },
         {
@@ -668,6 +691,7 @@ describe("PasteImportFlow", () => {
           result: {
             values: { ...blankVersionValues, title: "Marinara Sauce" },
             needsReviewCount: 0,
+            cuisineGuess: null,
           },
         },
       ],
@@ -732,6 +756,7 @@ describe("PasteImportFlow", () => {
           result: {
             values: { ...filledVersionValues, title: "Baked Potatoes" },
             needsReviewCount: 0,
+            cuisineGuess: null,
           },
         },
       ],
@@ -782,6 +807,7 @@ describe("PasteImportFlow", () => {
           result: {
             values: { ...filledVersionValues, title: "Baked Potatoes" },
             needsReviewCount: 0,
+            cuisineGuess: null,
           },
         },
       ],
@@ -820,6 +846,7 @@ describe("PasteImportFlow", () => {
           result: {
             values: { ...filledVersionValues, title: "Baked Potatoes" },
             needsReviewCount: 0,
+            cuisineGuess: null,
           },
         },
       ],
@@ -864,6 +891,7 @@ describe("PasteImportFlow", () => {
           result: {
             values: { ...blankVersionValues, title: "Baked Potatoes" },
             needsReviewCount: 0,
+            cuisineGuess: null,
           },
         },
         {
@@ -873,6 +901,7 @@ describe("PasteImportFlow", () => {
           result: {
             values: { ...blankVersionValues, title: "Soup" },
             needsReviewCount: 0,
+            cuisineGuess: null,
           },
         },
       ],
@@ -922,6 +951,7 @@ describe("PasteImportFlow", () => {
           result: {
             values: { ...blankVersionValues, title: "Baked Potatoes" },
             needsReviewCount: 0,
+            cuisineGuess: null,
           },
         },
         {
@@ -931,6 +961,7 @@ describe("PasteImportFlow", () => {
           result: {
             values: { ...blankVersionValues, title: "Soup" },
             needsReviewCount: 0,
+            cuisineGuess: null,
           },
         },
       ],
@@ -990,6 +1021,7 @@ describe("PasteImportFlow", () => {
           result: {
             values: { ...blankVersionValues, title: "Cake" },
             needsReviewCount: 0,
+            cuisineGuess: null,
           },
         },
       ],
@@ -1042,6 +1074,7 @@ describe("PasteImportFlow", () => {
           result: {
             values: { ...blankVersionValues, title: "Cake" },
             needsReviewCount: 0,
+            cuisineGuess: null,
           },
         },
       ],
@@ -1094,7 +1127,15 @@ describe("PasteImportFlow", () => {
     expect(screen.getByRole("link", { name: "View" })).toBeInTheDocument();
   });
 
-  it("applies a category→Cuisine mapping as a default, but a manual Cuisine edit made during Review wins on Import", async () => {
+  // PRODUCT_SPEC.md §46 (owner decision, 2026-09-02): Cuisine has no
+  // create/existing sub-picker in the Classifications mapping UI the way
+  // Tag/Flavor profile do (a single guessed name per item, not an
+  // ambiguous multi-way choice) — mapping a category to "Cuisine" just
+  // sets `draft.result.cuisineGuess` to the raw category text; the actual
+  // Cuisine get-or-create happens only at commit time
+  // (`resolveMetadataMappingsForCommit`), same dedup-by-normalized-name
+  // rule Settings' Cuisine manager uses.
+  it("applies a category→Cuisine mapping, resolving/creating the Cuisine only once Import begins", async () => {
     mockedExtractArchive.mockResolvedValue({
       status: "success",
       drafts: [
@@ -1105,9 +1146,14 @@ describe("PasteImportFlow", () => {
           result: {
             values: { ...filledVersionValues, title: "Enchiladas" },
             needsReviewCount: 0,
+            cuisineGuess: null,
           },
         },
       ],
+    });
+    mockedCreateCuisine.mockResolvedValueOnce({
+      status: "success",
+      cuisine: { id: "cuisine-new-1", displayName: "Tex-Mex", position: 0 },
     });
     mockedConfirmImportBatch.mockResolvedValue([
       { sourceRef: "AAA.rgr", status: "success", dishId: "d1" },
@@ -1127,25 +1173,69 @@ describe("PasteImportFlow", () => {
     );
     await user.click(await screen.findByRole("option", { name: "Cuisine" }));
 
-    // No "Apply mappings" step — the mapping applies to the draft on its
-    // own as soon as it's chosen, visible next time Review is opened.
-    await user.click(screen.getByRole("button", { name: "Review" }));
-    await screen.findByText("Review imported recipe");
-    const cuisineInput = screen.getByLabelText("Cuisine");
-    expect(cuisineInput).toHaveValue("Tex-Mex");
-
-    // A manual edit during Review is an explicit, authoritative choice.
-    await user.clear(cuisineInput);
-    await user.type(cuisineInput, "Mexican Fusion");
-    await user.click(screen.getByRole("button", { name: "Finish review" }));
+    // Not yet resolved/created — only happens once Import actually begins,
+    // same "no account data written until commit" rule as Tag/Flavor
+    // profile "Create new" mappings.
+    expect(mockedCreateCuisine).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Import 1 recipe" }));
 
-    // The mapping must not reapply and overwrite the manual edit.
+    expect(mockedCreateCuisine).toHaveBeenCalledTimes(1);
     expect(mockedConfirmImportBatch).toHaveBeenCalledWith([
       expect.objectContaining({
         sourceRef: "AAA.rgr",
-        values: expect.objectContaining({ cuisine: "Mexican Fusion" }),
+        cuisines: [{ id: "cuisine-new-1", displayName: "Tex-Mex" }],
+      }),
+    ]);
+  });
+
+  it("maps a source category to an existing Cuisine without creating a new one", async () => {
+    mockedExtractArchive.mockResolvedValue({
+      status: "success",
+      drafts: [
+        {
+          status: "ok",
+          sourceRef: "AAA.rgr",
+          sourceCategory: "Vietnamese",
+          result: {
+            values: { ...filledVersionValues, title: "Pho" },
+            needsReviewCount: 0,
+            cuisineGuess: null,
+          },
+        },
+      ],
+    });
+    mockedConfirmImportBatch.mockResolvedValue([
+      { sourceRef: "AAA.rgr", status: "success", dishId: "d1" },
+    ]);
+
+    const user = userEvent.setup();
+    render(
+      <PasteImportFlow
+        cuisineOptions={[{ id: "cuisine-1", displayName: "Vietnamese" }]}
+      />,
+    );
+    await user.click(screen.getByRole("tab", { name: "Upload file" }));
+    const file = new File(["zip-bytes"], "export.rga", {
+      type: "application/octet-stream",
+    });
+    await user.upload(screen.getByLabelText(/Upload a recipe file/), file);
+    await screen.findByText("1 ready to import");
+
+    await user.click(
+      screen.getByRole("combobox", { name: 'Map "Vietnamese" to' }),
+    );
+    await user.click(await screen.findByRole("option", { name: "Cuisine" }));
+
+    await user.click(screen.getByRole("button", { name: "Import 1 recipe" }));
+
+    // A normalized-name match against the existing "Vietnamese" Cuisine is
+    // resolved directly — no "Create new" call needed.
+    expect(mockedCreateCuisine).not.toHaveBeenCalled();
+    expect(mockedConfirmImportBatch).toHaveBeenCalledWith([
+      expect.objectContaining({
+        sourceRef: "AAA.rgr",
+        cuisines: [{ id: "cuisine-1", displayName: "Vietnamese" }],
       }),
     ]);
   });
@@ -1161,6 +1251,7 @@ describe("PasteImportFlow", () => {
           result: {
             values: { ...blankVersionValues, title: "Gingerbread" },
             needsReviewCount: 0,
+            cuisineGuess: null,
           },
         },
       ],
@@ -1203,6 +1294,7 @@ describe("PasteImportFlow", () => {
           result: {
             values: { ...blankVersionValues, title: "Buffalo Wings" },
             needsReviewCount: 0,
+            cuisineGuess: null,
           },
         },
       ],
@@ -1246,6 +1338,7 @@ describe("PasteImportFlow", () => {
           result: {
             values: { ...blankVersionValues, title: "Gingerbread" },
             needsReviewCount: 0,
+            cuisineGuess: null,
           },
         },
       ],
@@ -1258,6 +1351,7 @@ describe("PasteImportFlow", () => {
         displayName: "Holiday",
         isFavorite: false,
         dishCount: 0,
+        position: 0,
       },
     });
     mockedConfirmImportBatch.mockResolvedValue([
@@ -1302,6 +1396,7 @@ describe("PasteImportFlow", () => {
           result: {
             values: { ...blankVersionValues, title: "Buffalo Wings" },
             needsReviewCount: 0,
+            cuisineGuess: null,
           },
         },
       ],
@@ -1376,6 +1471,7 @@ describe("PasteImportFlow", () => {
           result: {
             values: { ...blankVersionValues, title: "Marinara Sauce" },
             needsReviewCount: 0,
+            cuisineGuess: null,
           },
         },
       ],
@@ -1414,6 +1510,7 @@ describe("PasteImportFlow", () => {
           result: {
             values: { ...filledVersionValues, title: "Flagged First" },
             needsReviewCount: 1,
+            cuisineGuess: null,
           },
         },
         {
@@ -1423,6 +1520,7 @@ describe("PasteImportFlow", () => {
           result: {
             values: { ...filledVersionValues, title: "Flagged Second" },
             needsReviewCount: 1,
+            cuisineGuess: null,
           },
         },
       ],
@@ -1477,6 +1575,7 @@ describe("PasteImportFlow", () => {
           result: {
             values: { ...blankVersionValues, title: "Baked Potatoes" },
             needsReviewCount: 0,
+            cuisineGuess: null,
           },
         },
       ],
@@ -1525,6 +1624,7 @@ describe("PasteImportFlow", () => {
           result: {
             values: { ...blankVersionValues, title: "Cake" },
             needsReviewCount: 0,
+            cuisineGuess: null,
           },
         },
       ],
@@ -1563,6 +1663,7 @@ describe("PasteImportFlow", () => {
           result: {
             values: { ...blankVersionValues, title: "Gingerbread" },
             needsReviewCount: 0,
+            cuisineGuess: null,
           },
         },
       ],
@@ -1575,6 +1676,7 @@ describe("PasteImportFlow", () => {
         displayName: "Holiday",
         isFavorite: false,
         dishCount: 0,
+        position: 0,
       },
     });
     mockedConfirmImportBatch.mockResolvedValue([
@@ -1624,6 +1726,7 @@ describe("PasteImportFlow", () => {
           result: {
             values: { ...blankVersionValues, title: "Ready Item" },
             needsReviewCount: 0,
+            cuisineGuess: null,
           },
         },
         {
@@ -1633,6 +1736,7 @@ describe("PasteImportFlow", () => {
           result: {
             values: { ...blankVersionValues, title: "Flagged Item" },
             needsReviewCount: 1,
+            cuisineGuess: null,
           },
         },
       ],

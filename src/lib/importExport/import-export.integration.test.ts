@@ -16,7 +16,7 @@ function content(overrides: Partial<DishContentInput> = {}): DishContentInput {
   return {
     title: "Ginger Soy Bowl",
     stage: "IDEA",
-    cuisine: null,
+    cuisineIds: [],
     description: null,
     yieldQuantity: null,
     yieldUnit: null,
@@ -389,7 +389,7 @@ describe("importExport service", () => {
     const backup = await buildAccountBackupDto(owner.id);
 
     expect(backup.format).toBe("dishframe.account-export");
-    expect(backup.formatVersion).toBe(2);
+    expect(backup.formatVersion).toBe(3);
     expect(backup.exportedAt).toBeInstanceOf(Date);
     expect(backup.scope).toEqual({ exportType: "ACCOUNT" });
     expect(backup.dishes).toHaveLength(1);
@@ -603,7 +603,7 @@ describe("importExport service", () => {
     );
 
     expect(exported.format).toBe("dishframe.dish-export");
-    expect(exported.formatVersion).toBe(2);
+    expect(exported.formatVersion).toBe(3);
     expect(exported.exportedAt).toBeInstanceOf(Date);
     expect(exported.scope).toEqual({
       exportType: "RECIPE",

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/prisma";
+import { listSelectedCuisineIds } from "@/lib/cuisines/queries";
 import { decimalToNumber } from "@/lib/dishes/format";
 import { versionContentToInput } from "@/lib/dishes/mappers";
 import type { DishContentInput } from "@/lib/dishes/schema";
@@ -30,13 +31,14 @@ async function loadCurrentContent(
     version.sections,
     version.partLinks,
   );
+  const cuisineIds = await listSelectedCuisineIds(dish.id);
   return {
     versionId,
     kind: dish.kind,
     base: {
       title: dish.currentTitle ?? version.title,
       stage: dish.stage,
-      cuisine: dish.cuisine,
+      cuisineIds,
       description: version.description,
       yieldQuantity: decimalToNumber(version.yieldQuantity),
       yieldUnit: version.yieldUnit,

@@ -79,7 +79,11 @@ export type ShareGraphSection = Omit<SectionInput, "partLinks"> & {
 export type ShareGraphNode = {
   dishId: string;
   dishKind: DishKindValue;
-  dishCuisine: string | null;
+  // PRODUCT_SPEC.md §46 (owner decision, 2026-09-02): display-name strings,
+  // not the source owner's Cuisine ids — the recipient doesn't own those
+  // rows, so `createIndependentCopyFromGraph` get-or-creates a same-named
+  // Cuisine under the recipient's own account for each one.
+  dishCuisines: string[];
   dishTitle: string;
   versionId: string;
   majorVersion: number;
@@ -241,10 +245,14 @@ export async function buildShareGraph(
       );
     }
 
-    const [dish, version, partLinkRows] = await Promise.all([
+    const [dish, dishCuisineLinks, version, partLinkRows] = await Promise.all([
       prisma.dish.findUnique({
         where: { id: dishId },
-        select: { kind: true, cuisine: true, currentTitle: true },
+        select: { kind: true, currentTitle: true },
+      }),
+      prisma.dishCuisine.findMany({
+        where: { dishId },
+        select: { cuisine: { select: { displayName: true, position: true } } },
       }),
       prisma.dishVersion.findFirst({
         where: { id: versionId, dishId },
@@ -295,10 +303,15 @@ export async function buildShareGraph(
       await visit(ref.targetDishId, ref.targetDishVersionId, depth + 1);
     }
 
+    const dishCuisines = dishCuisineLinks
+      .map((link) => link.cuisine)
+      .sort((a, b) => a.position - b.position)
+      .map((cuisine) => cuisine.displayName);
+
     nodes.set(versionId, {
       dishId,
       dishKind: dish.kind,
-      dishCuisine: dish.cuisine,
+      dishCuisines,
       dishTitle: dish.currentTitle ?? version.title,
       versionId: version.id,
       majorVersion: version.majorVersion,
@@ -357,8 +370,16 @@ export function collectGraphImageAssetIds(graph: ShareGraph): string[] {
  *
  * Hardening pass: `formatVersion` discriminates the snapshot's own shape,
  * so a future change or a corrupted row can be rejected, not misread.
+ *
+ * Bumped to 2 (Cuisine redesign, owner decision 2026-09-02): each node's
+ * single `dishCuisine: string | null` became `dishCuisines: string[]`.
+ * `deserializeShareGraph` still accepts a format-1 blob (every
+ * `DirectShare.frozenGraph`/`ShareLink` snapshot written before this pass)
+ * and migrates each node's field on read, so already-sent FIXED_SNAPSHOT
+ * shares keep working rather than throwing "unsupported format."
  */
-const SHARE_GRAPH_FORMAT_VERSION = 1;
+const SHARE_GRAPH_FORMAT_VERSION = 2;
+const OLDEST_SUPPORTED_SHARE_GRAPH_FORMAT_VERSION = 1;
 
 export type SerializedShareGraph = {
   formatVersion: number;
@@ -394,7 +415,10 @@ export function deserializeShareGraph(raw: unknown): ShareGraph {
     new ValidationError("This shared item's saved content is invalid.");
 
   if (!isRecord(raw)) throw invalid();
-  if (raw.formatVersion !== SHARE_GRAPH_FORMAT_VERSION) {
+  if (
+    raw.formatVersion !== SHARE_GRAPH_FORMAT_VERSION &&
+    raw.formatVersion !== OLDEST_SUPPORTED_SHARE_GRAPH_FORMAT_VERSION
+  ) {
     throw new ValidationError(
       "This shared item was saved in an unsupported format.",
     );
@@ -410,6 +434,7 @@ export function deserializeShareGraph(raw: unknown): ShareGraph {
     throw invalid();
   }
 
+  const isFormat1 = raw.formatVersion === 1;
   const nodes = new Map<string, ShareGraphNode>();
   for (const entry of raw.nodes) {
     if (
@@ -420,7 +445,14 @@ export function deserializeShareGraph(raw: unknown): ShareGraph {
     ) {
       throw invalid();
     }
-    nodes.set(entry[0], entry[1] as ShareGraphNode);
+    const node = entry[1] as ShareGraphNode & { dishCuisine?: string | null };
+    // Format 1 -> 2 migration: one frozen `dishCuisine` string becomes the
+    // equivalent one-element (or empty) `dishCuisines` array.
+    if (isFormat1) {
+      node.dishCuisines = node.dishCuisine ? [node.dishCuisine] : [];
+      delete node.dishCuisine;
+    }
+    nodes.set(entry[0], node);
   }
   if (!nodes.has(raw.rootVersionId)) throw invalid();
 

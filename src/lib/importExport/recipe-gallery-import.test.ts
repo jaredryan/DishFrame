@@ -67,9 +67,9 @@ describe("extractRecipesFromArchive", () => {
 
     expect(draft.result.values.title).toBe("Test Recipe");
     // Recipe Gallery Categories are organizational tags, not cuisines —
-    // never mapped into `cuisine`; surfaced only as non-persisted
+    // never mapped into `cuisineGuess`; surfaced only as non-persisted
     // `sourceCategory` metadata.
-    expect(draft.result.values.cuisine).toBeNull();
+    expect(draft.result.cuisineGuess).toBeNull();
     expect(draft.sourceCategory).toBe("Soups");
     const section = draft.result.values.sections[0];
     expect(section.ingredients.map((i) => i.name)).toEqual(["flour", "egg"]);
@@ -97,7 +97,7 @@ describe("extractRecipesFromArchive", () => {
     const draft = result.drafts[0];
     expect(draft.status).toBe("ok");
     if (draft.status !== "ok") return;
-    expect(draft.result.values.cuisine).toBeNull();
+    expect(draft.result.cuisineGuess).toBeNull();
     expect(draft.sourceCategory).toBeNull();
   });
 

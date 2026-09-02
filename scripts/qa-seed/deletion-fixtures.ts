@@ -38,7 +38,7 @@ export async function buildToastPlateFixture(
   const content: DishContentInput = {
     title: "[QA] Confit Toast Plate",
     stage: "PROVEN",
-    cuisine: null,
+    cuisineIds: [],
     description: "Toast points topped with garlic confit.",
     yieldQuantity: 2,
     yieldUnit: "servings",

@@ -71,8 +71,11 @@ import {
   type TopLevelReorderEntry,
 } from "@/components/domain/dish/top-level-reorder-dialog";
 import { TooltipIconButton } from "@/components/domain/dish/reorder-buttons";
-import { CuisineField } from "@/components/domain/dish/cuisine-field";
 import { ImageField } from "@/components/domain/dish/image-field";
+import {
+  CuisineSelector,
+  type CuisineOption,
+} from "@/components/domain/dish/cuisine-selector";
 import { PartLinkFields } from "@/components/domain/dish/part-link-fields";
 import { PartAttachPicker } from "@/components/domain/dish/part-attach-picker";
 import { CreatePartLink } from "@/components/domain/dish/create-part-link";
@@ -282,7 +285,7 @@ export function DishEditor({
     // for a session that belongs to this Dish (§39.4).
     evidence?: EditorSessionEvidence | null;
   };
-  cuisineOptions?: string[];
+  cuisineOptions?: CuisineOption[];
 }) {
   const router = useRouter();
   const [serverError, setServerError] = React.useState<string | null>(null);
@@ -888,39 +891,54 @@ export function DishEditor({
             {!detailsCollapsed && (
               <div className="border-border bg-card flex flex-col gap-4 rounded-xl border p-4">
                 <ImageField dishId={dish?.id ?? null} />
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <CuisineField options={cuisineOptions} />
-                  <Field>
-                    <FieldLabel htmlFor="dish-stage">
-                      {kindLabel} stage
-                    </FieldLabel>
-                    <Controller
-                      control={control}
-                      name="stage"
-                      render={({ field }) => (
-                        <Select
-                          value={field.value}
-                          onValueChange={field.onChange}
+                <Field>
+                  <FieldLabel htmlFor="dish-stage">
+                    {kindLabel} stage
+                  </FieldLabel>
+                  <Controller
+                    control={control}
+                    name="stage"
+                    render={({ field }) => (
+                      <Select
+                        value={field.value}
+                        onValueChange={field.onChange}
+                      >
+                        <SelectTrigger
+                          id="dish-stage"
+                          className="w-full"
+                          aria-label={`${kindLabel} stage`}
                         >
-                          <SelectTrigger
-                            id="dish-stage"
-                            className="w-full"
-                            aria-label={`${kindLabel} stage`}
-                          >
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {stageValues.map((value) => (
-                              <SelectItem key={value} value={value}>
-                                {STAGE_LABEL[value]}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      )}
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {stageValues.map((value) => (
+                            <SelectItem key={value} value={value}>
+                              {STAGE_LABEL[value]}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                </Field>
+
+                <Controller
+                  control={control}
+                  name="cuisineIds"
+                  render={({ field }) => (
+                    <CuisineSelector
+                      options={cuisineOptions}
+                      selectedIds={field.value}
+                      onToggle={(id) =>
+                        field.onChange(
+                          field.value.includes(id)
+                            ? field.value.filter((v: string) => v !== id)
+                            : [...field.value, id],
+                        )
+                      }
                     />
-                  </Field>
-                </div>
+                  )}
+                />
 
                 <Field>
                   <FieldLabel htmlFor="dish-description">

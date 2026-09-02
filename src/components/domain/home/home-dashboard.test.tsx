@@ -119,7 +119,7 @@ function dishItem(
     kind: "RECIPE",
     currentTitle: "Weeknight Ragu",
     stage: "ACTIVE",
-    cuisine: null,
+    cuisineNames: [],
     updatedAt: new Date(),
     imageAssetId: null,
     ...overrides,

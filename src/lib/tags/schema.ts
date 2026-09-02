@@ -18,6 +18,10 @@ export const renameTagSchema = z.object({
 
 export const tagIdSchema = z.object({ id: z.string().min(1) });
 
+export const reorderTagsSchema = z.object({
+  orderedIds: z.array(z.string().min(1)).min(1),
+});
+
 export type ActionState = {
   status: "idle" | "success" | "error";
   message?: string;
@@ -30,6 +34,7 @@ export type TagDto = {
   displayName: string;
   isFavorite: boolean;
   dishCount: number;
+  position: number;
 };
 
 export type CreateTagActionState = ActionState & { tag?: TagDto };

@@ -6,7 +6,7 @@ import type {
 import type { DishContentInput } from "@/lib/dishes/schema";
 import type { PartFixtureIds } from "./parts";
 import { section } from "./parts";
-import { attachSeedTag } from "./owner";
+import { attachSeedTag, ensureCuisine } from "./owner";
 
 async function currentVersionIdOf(dishId: string): Promise<string> {
   const dish = await prisma.dish.findUniqueOrThrow({
@@ -40,11 +40,15 @@ export async function buildRecipeFixtures(
   tagId: string,
   parts: PartFixtureIds,
 ): Promise<RecipeFixtureIds> {
+  const mediterraneanId = await ensureCuisine(ownerId, "Mediterranean");
+  const asianFusionId = await ensureCuisine(ownerId, "Asian Fusion");
+  const southeastAsianId = await ensureCuisine(ownerId, "Southeast Asian");
+
   // --- Sections-only: Simple Garden Salad ---------------------------------
   const saladContent: DishContentInput = {
     title: "[QA] Simple Garden Salad",
     stage: "ACTIVE",
-    cuisine: "Mediterranean",
+    cuisineIds: [mediterraneanId],
     description: "A light side salad with a simple vinaigrette.",
     yieldQuantity: 2,
     yieldUnit: "servings",
@@ -119,7 +123,7 @@ export async function buildRecipeFixtures(
   const ricebowlContent: DishContentInput = {
     title: "[QA] Rice Bowl Base",
     stage: "ACTIVE",
-    cuisine: null,
+    cuisineIds: [],
     description: "A simple bowl built from rice and seasoning.",
     yieldQuantity: 2,
     yieldUnit: "servings",
@@ -150,7 +154,7 @@ export async function buildRecipeFixtures(
   const stirfryContent: DishContentInput = {
     title: "[QA] Weeknight Stir-Fry",
     stage: "ACTIVE",
-    cuisine: "Asian Fusion",
+    cuisineIds: [asianFusionId],
     description: "A weeknight stir-fry built around rice and peanut sauce.",
     yieldQuantity: 4,
     yieldUnit: "servings",
@@ -231,7 +235,7 @@ export async function buildRecipeFixtures(
   const noodlesaladContent: DishContentInput = {
     title: "[QA] Peanut Noodle Salad",
     stage: "PROVEN",
-    cuisine: "Southeast Asian",
+    cuisineIds: [southeastAsianId],
     description: "Cold noodles tossed with peanut dipping sauce.",
     yieldQuantity: 3,
     yieldUnit: "servings",
@@ -279,7 +283,7 @@ export async function buildRecipeFixtures(
   const ricesidedishContent: DishContentInput = {
     title: "[QA] Rice Side Dish",
     stage: "EXPERIMENTAL",
-    cuisine: null,
+    cuisineIds: [],
     description: "A quick side pairing rice with peanut sauce.",
     yieldQuantity: 2,
     yieldUnit: "servings",

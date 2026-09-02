@@ -15,7 +15,7 @@ function content(overrides: Partial<DishContentInput> = {}): DishContentInput {
   return {
     title: "Ginger Soy Bowl",
     stage: "ACTIVE",
-    cuisine: null,
+    cuisineIds: [],
     description: null,
     yieldQuantity: null,
     yieldUnit: null,
@@ -50,6 +50,20 @@ function content(overrides: Partial<DishContentInput> = {}): DishContentInput {
   };
 }
 
+/** Test-local helper — creates a real, owned Cuisine row (PRODUCT_SPEC.md
+ * §46, owner decision 2026-09-02: Cuisine is a normalized Dish↔Cuisine
+ * relation now, not a free-text `Dish.cuisine` column). */
+async function createCuisine(ownerId: string, displayName: string) {
+  return prisma.cuisine.create({
+    data: {
+      ownerId,
+      normalizedName: displayName.trim().toLowerCase(),
+      displayName,
+      position: 0,
+    },
+  });
+}
+
 function defaultFilters(
   overrides: Partial<LibraryFilters> = {},
 ): LibraryFilters {
@@ -57,7 +71,7 @@ function defaultFilters(
     search: "",
     stages: [],
     tagIds: [],
-    cuisines: [],
+    cuisineIds: [],
     flavorProfileValueIds: [],
     rating: null,
     sort: "RECENTLY_UPDATED",
@@ -308,11 +322,13 @@ describe("queryDishLibrary (Slice 10)", () => {
       userId,
       "Spicy",
     );
+    const vietnamese = await createCuisine(userId, "Vietnamese");
+    const thai = await createCuisine(userId, "Thai");
 
     const bothId = await dishService.createDish(
       userId,
       "RECIPE",
-      content({ title: "Both Tags", cuisine: "Vietnamese" }),
+      content({ title: "Both Tags", cuisineIds: [vietnamese.id] }),
     );
     await dishMetadata.setDishTags(userId, bothId, "RECIPE", [
       highProtein.id,
@@ -325,7 +341,7 @@ describe("queryDishLibrary (Slice 10)", () => {
     const onlyOneId = await dishService.createDish(
       userId,
       "RECIPE",
-      content({ title: "One Tag", cuisine: "Vietnamese" }),
+      content({ title: "One Tag", cuisineIds: [vietnamese.id] }),
     );
     await dishMetadata.setDishTags(userId, onlyOneId, "RECIPE", [
       highProtein.id,
@@ -334,7 +350,7 @@ describe("queryDishLibrary (Slice 10)", () => {
     const wrongCuisineId = await dishService.createDish(
       userId,
       "RECIPE",
-      content({ title: "Wrong Cuisine", cuisine: "Thai" }),
+      content({ title: "Wrong Cuisine", cuisineIds: [thai.id] }),
     );
     await dishMetadata.setDishTags(userId, wrongCuisineId, "RECIPE", [
       highProtein.id,
@@ -345,7 +361,7 @@ describe("queryDishLibrary (Slice 10)", () => {
       userId,
       "RECIPE",
       defaultFilters({
-        cuisines: ["Vietnamese"],
+        cuisineIds: [vietnamese.id],
         tagIds: [highProtein.id, quick.id],
       }),
       "GROUP_AVERAGE",
@@ -398,6 +414,7 @@ describe("queryDishLibrary (Slice 10)", () => {
   it("ranks an exact title match above a cuisine-only match end-to-end (Arch round-3 Correction 6)", async () => {
     const user = await createTestUser();
     userId = user.id;
+    const vietnamese = await createCuisine(userId, "Vietnamese");
     const exactTitleId = await dishService.createDish(
       userId,
       "RECIPE",
@@ -406,7 +423,7 @@ describe("queryDishLibrary (Slice 10)", () => {
     const cuisineOnlyId = await dishService.createDish(
       userId,
       "RECIPE",
-      content({ title: "Pho", cuisine: "Vietnamese" }),
+      content({ title: "Pho", cuisineIds: [vietnamese.id] }),
     );
 
     const result = await queryDishLibrary(
@@ -421,10 +438,12 @@ describe("queryDishLibrary (Slice 10)", () => {
   it("a cuisine edit is immediately reflected in search, with no explicit refresh step", async () => {
     const user = await createTestUser();
     userId = user.id;
+    const thai = await createCuisine(userId, "Thai");
+    const korean = await createCuisine(userId, "Korean");
     const dishId = await dishService.createDish(
       userId,
       "RECIPE",
-      content({ title: "Noodle Soup", cuisine: "Thai" }),
+      content({ title: "Noodle Soup", cuisineIds: [thai.id] }),
     );
 
     expect(
@@ -445,7 +464,7 @@ describe("queryDishLibrary (Slice 10)", () => {
       versionId,
       content({
         title: "Noodle Soup",
-        cuisine: "Korean",
+        cuisineIds: [korean.id],
         sections: await unchangedSections(dishId),
       }),
       undefined,

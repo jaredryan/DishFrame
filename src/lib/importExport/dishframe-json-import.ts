@@ -229,7 +229,6 @@ export function normalizeDishExportJson(
     {
       title: asString(version.title) ?? title,
       description: asNullableString(version.description) ?? undefined,
-      cuisine: asNullableString(json.cuisine) ?? undefined,
       yieldQuantity: asNullableNumber(version.yieldQuantity) ?? undefined,
       yieldUnit: asNullableString(version.yieldUnit) ?? undefined,
       prepTimeMinutes: asNullableNumber(version.prepTimeMinutes) ?? undefined,
@@ -267,6 +266,17 @@ export function normalizeDishExportJson(
   result.values.moreNutrients = moreNutrients;
   result.values.difficulty = asNullableString(version.difficulty);
 
+  // PRODUCT_SPEC.md §46 (owner decision, 2026-09-02): a current export
+  // carries `cuisines: string[]`; a pre-redesign export carries the old
+  // singular `cuisine: string | null` — read whichever is present so an
+  // older DishFrame export file still round-trips its Cuisine.
+  const presetCuisines = asStringArray(json.cuisines).length
+    ? asStringArray(json.cuisines)
+    : (() => {
+        const legacy = asNullableString(json.cuisine);
+        return legacy ? [legacy] : [];
+      })();
+
   const draft: ArchiveImportDraft = {
     status: "ok",
     sourceRef: `dishframe-json:${title || "untitled"}`,
@@ -275,6 +285,7 @@ export function normalizeDishExportJson(
     sourceDishKind: dishKind,
     presetTags: asStringArray(json.tags),
     presetFlavorProfiles: asStringArray(json.flavorProfiles),
+    presetCuisines,
     droppedLinkedPartsCount,
   };
 

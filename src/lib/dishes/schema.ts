@@ -253,7 +253,12 @@ export type NutritionSourceProviderValue =
 export const dishContentSchema = z.object({
   title: z.string().trim().min(1, "Enter a title.").max(200),
   stage: z.enum(stageValues),
-  cuisine: z.string().trim().max(60).nullable().optional(),
+  // PRODUCT_SPEC.md §46 (owner decision, 2026-09-02): stable Dish metadata,
+  // like Stage/title above — zero, one, or several of the owner's own
+  // Cuisines. `.default([])` (never `undefined`), the same convention
+  // `imageAssetId` uses, so a Part that intentionally has no Cuisine is an
+  // explicit empty selection, not an omitted field.
+  cuisineIds: z.array(z.string().min(1)).default([]),
   description: z.string().trim().max(4000).nullable().optional(),
   yieldQuantity: z.number().gt(0).nullable().optional(),
   yieldUnit: z.string().trim().max(40).nullable().optional(),
@@ -791,6 +796,14 @@ export const setDishTagsSchema = z.object({
 export const setDishFlavorProfilesSchema = z.object({
   dishId: z.string().min(1),
   flavorProfileValueIds: z.array(z.string().min(1)),
+});
+
+// PRODUCT_SPEC.md §46 (owner decision, 2026-09-02): Cuisine is now the same
+// "stable Dish metadata, submitted as a complete replacement set" shape as
+// tags/Flavor profiles above, rather than one free-text field.
+export const setDishCuisinesSchema = z.object({
+  dishId: z.string().min(1),
+  cuisineIds: z.array(z.string().min(1)),
 });
 
 export const toggleFavoriteSchema = z.object({

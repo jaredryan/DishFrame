@@ -1,6 +1,7 @@
 import type { createDish as CreateDish } from "@/lib/dishes/service";
 import type { DishContentInput } from "@/lib/dishes/schema";
 import { section } from "./parts";
+import { ensureCuisine } from "./owner";
 
 /**
  * A second, fully independent local QA account — never signed into during
@@ -32,10 +33,11 @@ export async function buildCounterpartyContentFixtures(
   { createDish }: CounterpartyServices,
   counterpartyId: string,
 ): Promise<CounterpartyFixtureIds> {
+  const italianId = await ensureCuisine(counterpartyId, "Italian");
   const content: DishContentInput = {
     title: "[QA] Counterparty Pasta Night",
     stage: "ACTIVE",
-    cuisine: "Italian",
+    cuisineIds: [italianId],
     description: "A quick weeknight pasta, from the QA counterparty account.",
     yieldQuantity: 2,
     yieldUnit: "servings",

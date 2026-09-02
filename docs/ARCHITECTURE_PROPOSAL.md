@@ -216,7 +216,6 @@ model Dish {
   currentVersionId  String?   @unique  // denormalized pointer, see F.5
 
   stage             Stage     @default(IDEA)
-  cuisine           String?
   archivedAt        DateTime?
 
   defaultBatchQuantity Decimal?
@@ -239,6 +238,7 @@ model Dish {
   versions   DishVersion[]
   tags       DishTag[]
   flavorProfiles DishFlavorProfile[]
+  cuisines   DishCuisine[]
 
   @@index([ownerId, kind, stage])
   @@index([ownerId, kind, archivedAt])
@@ -253,7 +253,7 @@ model Dish {
 
 **Note on search (§44) — corrected to cover every required field, and to refresh correctly (round-2 Correction 10, revised by round-3 Correction 6):** ordinary library search inspects "the current stable Recipe and current Recipe Version" across title, cuisine, Flavor profiles, tags, Section names, and linked Part names — never historical Versions, never ingredient text. Round 2 added one combined `currentSearchText` field covering all of cuisine/tags/Flavor-profiles/Section-names/Part-names, refreshed only at version-creation time — but cuisine, tags, and Flavor profiles can all change **without** a new Version (§46.1, §45.2, §79.2), which would have left that field silently stale after, e.g., an unrelated cuisine edit.
 
-The corrected design (round-3 Correction 6) **splits genuinely-Version-owned structural content from stable relational metadata, and stops denormalizing the latter at all**: `Dish.currentStructuralSearchText` (Section names + the titles of the *exact* Part Versions referenced by the current Version's `PartLink`s — resolved from each link's own target Version, never from the target Part's current title, so a Recipe still referencing an older Part Version is never misrepresented) is refreshed **only** by the version-creation transaction, since it is genuinely tied to Version content and cannot change any other way. **Corrected by the Version-trigger and Slice 5 image correction pass:** `Dish.currentTitle` is *not* Version-owned after all — title turned out to be stable Recipe/Part identity (§E below), not content that lives on a `DishVersion` row at all — so it is written directly by every mutation that changes the title (an ordinary metadata-only save, same as `stage`/`cuisine`), in addition to being carried forward unconditionally whenever a Version-creating save also changes it. It is no longer true that `currentTitle` "cannot change any other way" than at version-creation time. Cuisine, tags, and Flavor profiles are **not denormalized at all** — they already live directly on `Dish` (`cuisine`) or in small, well-indexed, owner-scoped join tables (`DishTag`/`Tag`, `DishFlavorProfile`/`FlavorProfileValue`), so querying them live at search time is cheap and instantly correct, with zero mutation paths to remember. Ranking (§44.5) becomes a small ranked union of independently-scoped queries — `currentTitle` first (tiers 1–3), then a live cuisine query (tier 4), then a live Flavor-profile join (tier 5), then a live tag join (tier 6), then `currentStructuralSearchText` (tier 7) — rather than one mega-query or a weighted full-text-search setup. Full detail in `prisma/schema.prisma`.
+The corrected design (round-3 Correction 6, revised by the September 2026 Cuisine normalization pass) **splits genuinely-Version-owned structural content from stable relational metadata, and stops denormalizing the latter at all**: `Dish.currentStructuralSearchText` (Section names + linked Part titles) is refreshed from the current Version's structure, while `Dish.currentTitle` is stable Recipe/Part identity and is written directly by title-changing mutations. Cuisine, tags, and Flavor profiles are **not denormalized into search text** — all three now live in small, owner-scoped relational classification tables (`DishCuisine`/`Cuisine`, `DishTag`/`Tag`, `DishFlavorProfile`/`FlavorProfileValue`) and are queried live, so classification edits are immediately reflected without creating a Version or refreshing structural search text. Ranking (§44.5) remains a small ranked union of independently-scoped queries — `currentTitle` first (tiers 1–3), then a live Cuisine join (tier 4), then a live Flavor-profile join (tier 5), then a live Tag join (tier 6), then `currentStructuralSearchText` (tier 7) — rather than one mega-query or a weighted full-text-search setup. Full literal detail remains authoritative in `prisma/schema.prisma`.
 
 **Settled by the owner (closes the Slice 5/6 open question on linked-Part title resolution):** the "resolved from each link's own target Version, never from the target Part's current title" clause above is now superseded — `PRODUCT_SPEC.md` §68.5 settles that a linked Part's *displayed* name always resolves from the target Part's live `Dish.currentTitle`, including in structural search (`currentStructuralSearchText`, tier 7), the same as every other place a Recipe/Part's identity is shown. `PartLink.targetDishVersionId` still pins the exact linked *content* (Ingredients/Instructions/etc.), unaffected by this. One consequence Slice 6 must account for: renaming a Part is now a new mutation path that has to refresh `currentStructuralSearchText` on every Recipe/Part whose current Version links to it, in addition to the existing version-creation refresh — it is no longer true that version-creation is "the one and only mutation path" for that field. Full detail in `prisma/schema.prisma`.
 
@@ -648,12 +648,13 @@ model Taster {
 
 ```
 model Tag {
-  id          String  @id @default(cuid())
-  ownerId     String
+  id             String  @id @default(cuid())
+  ownerId        String
   normalizedName String            // trimmed + lowercased, unique per owner
-  displayName String
-  isFavorite  Boolean @default(false) // protected system tag — rename/merge/delete blocked at service layer
-  createdAt   DateTime @default(now())
+  displayName    String
+  position       Int               // user-defined order for ordinary Tags
+  isFavorite     Boolean @default(false) // protected system tag — rename/merge/delete blocked at service layer
+  createdAt      DateTime @default(now())
 
   @@unique([ownerId, normalizedName])
 }
@@ -667,7 +668,7 @@ model DishTag {
 model FlavorProfileValue {
   id             String @id @default(cuid())
   ownerId        String
-  normalizedName String  // Correction 9 — trimmed + lowercased, mirrors Tag's dedup rule
+  normalizedName String  // trimmed + lowercased, mirrors Tag's dedup rule
   displayName    String
   position       Int
 
@@ -679,9 +680,27 @@ model DishFlavorProfile {
   flavorProfileValueId String
   @@id([dishId, flavorProfileValueId])
 }
+
+model Cuisine {
+  id             String @id @default(cuid())
+  ownerId        String
+  normalizedName String  // trimmed + lowercased, unique per owner
+  displayName    String  // user-defined; meaningful compound values such as Tex-Mex remain valid
+  position       Int     // user-defined order in Settings/selectors
+
+  @@unique([ownerId, normalizedName])
+}
+
+model DishCuisine {
+  dishId    String
+  cuisineId String
+  @@id([dishId, cuisineId])
+}
 ```
 
-Cuisine is a plain `String?` directly on `Dish` (D.1) — free text with suggestion-from-history at the UI layer, per §46.3; no dedicated table, since the spec explicitly rejects a rigid taxonomy.
+**September 2026 Cuisine normalization correction.** The original architecture stored one optional free-text `Dish.cuisine` value and generated suggestions from historical strings. That design has been superseded. Cuisine is now a normalized, **user-owned** classification with stable identity and persistent user-defined ordering, not a DishFrame-global taxonomy. A Recipe or Part may have **zero, one, or multiple** Cuisine associations through `DishCuisine`; zero is ordinary for generic Parts where Cuisine is not meaningful, while multiple values support fusion/cross-cultural classification without requiring a synthetic compound label. User-defined compound labels such as `Tex-Mex`, `Nikkei`, or `Korean-American` remain valid Cuisine values in their own right. There is no required primary-Cuisine concept.
+
+Cuisine assignments are stable Dish metadata: create/edit paths accept `cuisineIds`, validate ownership, and replace the `DishCuisine` association set inside the same transaction as the Dish save. Changing Cuisine assignments alone never creates a `DishVersion`. Settings manages Cuisine create/rename-or-merge/delete/reorder using the same classification-management pattern as Flavor profiles, while Recipe/Part authoring can assign Cuisines directly through the shared selector.
 
 ### D.11 Grocery
 
@@ -862,7 +881,7 @@ model ShareLink {
   fixedDishId        String?          // FIXED_SNAPSHOT mode only
   fixedDishVersionId String?          // FIXED_SNAPSHOT mode only
 
-  frozenSnapshot Json?                 // set only for FIXED_SNAPSHOT — title, content, cuisine, flavor profiles,
+  frozenSnapshot Json?                 // set only for FIXED_SNAPSHOT — title, content, cuisines, flavor profiles,
                                         // tags, displayed aggregate rating+count, per §83.3
   dishTitleSnapshot String             // captured at creation regardless of mode — keeps a revoked link's
                                         // entry in the owner's own sharing-management history readable
@@ -961,7 +980,7 @@ Exhaustive mapping, matching `PRODUCT_SPEC.md` §7.1/§7.2/§66.1 field-for-fiel
 | Current Version pointer | Stable identity (denormalized) | `Dish.currentVersionId` |
 | Title | Stable identity (Version-trigger correction pass — moved from "Immutable Version content" below; see the note under the table) | `Dish.currentTitle` |
 | Stage | Stable identity | `Dish.stage` |
-| Cuisine | Stable identity | `Dish.cuisine` |
+| Cuisines (zero or more) | Stable identity | `DishCuisine` join → `Cuisine` |
 | Flavor profiles | Stable identity | `DishFlavorProfile` join |
 | Tags (incl. protected Favorite) | Stable identity | `DishTag` join → `Tag` |
 | Default batch scale | Stable identity (user preference on item) | `Dish.defaultBatchQuantity/Unit` |
@@ -985,7 +1004,7 @@ Exhaustive mapping, matching `PRODUCT_SPEC.md` §7.1/§7.2/§66.1 field-for-fiel
 
 **Note on lineage identity (Correction 1):** `Section.lineageId`/`Ingredient.lineageId`/`Instruction.lineageId`/`PartLink.lineageId` are themselves ordinary immutable Version content (they live on rows scoped to one `dishVersionId`, same as everything else in that category) — they do not need their own row in the table above. What makes them worth calling out separately is that their *value* is deliberately carried forward, unchanged, across Versions where the underlying content survives, which is what makes cross-Version identity (comparison, reordering-vs-remove-and-add, per-ingredient preferences, occurrence-specific propagation) possible without treating "the same ingredient across two Versions" as an unanswerable question.
 
-**How the architecture enforces this distinction (revised by the Version-trigger and Slice 5 image correction pass):** the domain service layer (§K) exposes exactly one function capable of writing to `DishVersion` **cooking-content** columns (Sections/Ingredients/Instructions, yield, prep/cook time, difficulty, nutrition) — the version-creation transaction (§F) — and it never accepts a `dishVersionId` to update those columns; it only ever inserts a new row. A second, narrower function, `applyVersionMetadataUpdate` (`src/lib/dishes/service.ts`), is the one sanctioned exception: it accepts an existing `dishVersionId` and updates only `description`/`imageAssetId` (`versionNote`'s existing update path is separate and equally narrow). Every other mutation path (Stage change, tag change, archive, favorite, title) writes to `Dish` only and is a plain update with no version side effect. This is enforced procedurally — exactly two narrow, purpose-built update paths exist for `DishVersion`, both scoped to the specific mutable fields they're allowed to touch, never a general-purpose `updateDishVersion(...)` — and verified by tests (§O) rather than relying on a database trigger to block updates.
+**How the architecture enforces this distinction (revised by the Version-trigger/Slice 5 passes and the September 2026 Cuisine normalization):** the domain service layer (§K) exposes a narrow version-creation path for material `DishVersion` content and narrow in-place metadata exceptions such as `applyVersionMetadataUpdate`; it does not expose a general-purpose mutation path for historical preparation content. Stable Recipe/Part metadata is handled separately: scalar identity fields such as title/Stage/archive state update the `Dish` row, while classifications update their owner-scoped join tables (`DishTag`, `DishFlavorProfile`, `DishCuisine`) without a Version side effect. Cuisine-only edits therefore replace the Dish's validated Cuisine associations transactionally but allocate no `DishVersion`. This separation is enforced by purpose-built service functions and tests (§O), rather than relying on callers to remember which fields belong to which lifecycle.
 
 ---
 
@@ -1033,7 +1052,7 @@ That remains true, but Gate 2 settled *when the editor actually shows it*:
 save via `diffVersionContent` (`src/lib/dishes/schema.ts`) plus its own
 stable-metadata/mutable-metadata scalar comparisons, into one of four
 buckets (PRODUCT_SPEC.md §13.2a) — stable Recipe/Part metadata (title,
-Stage, cuisine), mutable Version metadata (description, image), non-
+Stage, Cuisine associations), mutable Version metadata (description, image), non-
 cooking Version-owned content (yield, prep/cook time, difficulty, Section
 naming), and cooking content (Ingredients/Instructions) — and only calls
 `createSmallUpdate`/`createNewVersion` — i.e., only consults a
@@ -1069,7 +1088,7 @@ One Postgres transaction per version creation: insert `DishVersion` row → bulk
 
 ### F.10 Protection against accidental in-place material-content mutation
 
-Procedural, not just conventional: the domain layer's `queries.ts`/`service.ts` modules for Dish content expose only `createDishVersion(...)` (never a general `updateDishVersion(...)`) for material preparation content (Sections and their authored ordering, Ingredients and their authored quantities, Instructions, linked Part-version references and multipliers), and `updateDishMetadata(...)` (Stage/tags/cuisine/archive/Favorite/title — `Dish` columns only). **Revised by the Version-trigger and Slice 5 image correction pass, and again by the Slice 13 metadata-classification correction pass:** two narrow, purpose-built exceptions exist, each scoped to exactly the mutable fields it's allowed to touch — `updateVersionNote(...)` (`versionNote` only, pre-existing) and `applyVersionMetadataUpdate(...)` (description/image, added by the Version-trigger/Slice 5 pass; extended by the Slice 13 pass to also cover yield/prep time/cook time/difficulty and the full nutrition shape — calories/protein/carbs/fat/nutritionBasis/nutritionBasisQuantity/nutritionBasisUnit/moreNutrients/nutritionSourceProvider/nutritionSourceId/nutritionSourceName) — never a general-purpose row update. Neither ever touches material-content columns, version numbering, `sourceVersionId`, or `Dish.currentVersionId`. A repo-wide lint rule (a `no-restricted-syntax` ESLint rule forbidding `prisma.dishVersion.update(` / `.updateMany(` / `.delete(` outside a small explicitly allow-listed set of files — the Part-deletion materialization function (§D.6/§J), `updateVersionNote`, and `applyVersionMetadataUpdate`) would turn "material content is immutable" from a convention developers must remember into something CI enforces; not yet implemented in this codebase, tracked as a gap rather than assumed present.
+Procedural, not just conventional: the domain layer's `queries.ts`/`service.ts` modules for Dish content expose only `createDishVersion(...)` (never a general `updateDishVersion(...)`) for material preparation content (Sections and their authored ordering, Ingredients and their authored quantities, Instructions, linked Part-version references and multipliers). Stable metadata is handled by dedicated paths: scalar identity fields update `Dish`, while Tags, Flavor profiles, and Cuisines update their join relations (`DishTag`, `DishFlavorProfile`, `DishCuisine`) without creating a Version. **Revised by the Version-trigger and Slice 5 image correction pass, again by the Slice 13 metadata-classification correction pass, and by the September 2026 Cuisine normalization:** narrow, purpose-built exceptions such as `updateVersionNote(...)` and `applyVersionMetadataUpdate(...)` may update only their sanctioned mutable Version metadata; Cuisine assignment is explicitly not one of those exceptions because it is stable Dish metadata. Neither classification mutations nor Version-metadata exceptions touch material-content columns, version numbering, `sourceVersionId`, or `Dish.currentVersionId` unless the ordinary save path independently has material content to persist.
 
 ---
 
@@ -1239,6 +1258,7 @@ src/lib/
   reviews/         — Session Review + Rating
   tasters/
   tags/            — Tag + Favorite + FlavorProfileValue
+  cuisines/        — normalized, user-owned Cuisine classification management
   nutrition/       — manual entry + FDC lookup client (Tier 2)
   grocery/         — list generation, combination logic, category management
   mealplans/       — Tier 2
@@ -1325,8 +1345,8 @@ Domain service functions throw a small set of typed errors (`NotFoundError`, `Au
 | Current-Version retrieval | `Dish.currentVersionId` FK (denormalized pointer, §D.1) — O(1) lookup, no sort |
 | Version history | `@@index([dishId, majorVersion desc, minorVersion desc])` on `DishVersion` |
 | Recipe/Part library listing + filters | `@@index([ownerId, kind, stage])` and `@@index([ownerId, kind, archivedAt])` on `Dish` |
-| Search (tolerant partial-word, current content only) | Three trigram/GIN indexes (`pg_trgm`) on `Dish.currentTitle`, `Dish.currentStructuralSearchText` (Section names + linked Part-Version titles), and `Dish.cuisine` itself (round-3 Correction 6 — cuisine is queried live, not denormalized, so it gets its own index directly); tags and Flavor profiles are matched via ordinary indexed joins against `DishTag`/`Tag` and `DishFlavorProfile`/`FlavorProfileValue`, not a denormalized field — proportionate to §44.5's "tolerant of partial-word matching," well short of semantic search/embeddings the spec explicitly says isn't required |
-| Tag / cuisine / Flavor-profile / rating filters | Standard indexes on `DishTag`/`DishFlavorProfile` join tables (both FK columns); rating filter computed via an aggregate query over `Rating` scoped by `dishId`, cached only if later proven necessary (§I) |
+| Search (tolerant partial-word, current content only) | Trigram/GIN support remains appropriate for `Dish.currentTitle` and `Dish.currentStructuralSearchText`; Cuisine is now matched live through `DishCuisine → Cuisine`, just as Tags and Flavor profiles are matched through their own joins. Any partial-word Cuisine index belongs on the Cuisine name fields, not on `Dish`, because no `Dish.cuisine` scalar exists anymore. This keeps stable classification edits instantly visible without denormalized search-text refreshes. |
+| Tag / Cuisine / Flavor-profile / rating filters | Standard indexes on `DishTag`, `DishCuisine`, and `DishFlavorProfile` join tables (both FK directions as needed), plus each owner-scoped classification table's normalized-name uniqueness/indexing; rating filter computed via an aggregate query over `Rating` scoped by `dishId`, cached only if later proven necessary (§I) |
 | Part usage lookup ("Recipes using this Part," propagation candidates) | `@@index([targetDishId])` and `@@index([targetDishVersionId])` on `PartLink` |
 | Active Cooking Sessions | Partial unique index `(dishId) WHERE state='IN_PROGRESS'` doubles as the concurrency guard (§I) and the fast "is there an active session" check; `@@index([ownerId, state, updatedAt])` for the stale-session and active/recent surfacing (§26.6) |
 | Session and rating summaries | `@@index([sessionId])`/`@@index([dishId, dishVersionId])` on `Rating`, computed at read time (§I) rather than cached |
@@ -1395,6 +1415,7 @@ Most of this proposal's architecture landed exactly as designed and has been kep
 - **Shared 404 chrome fix:** a nested-route-group 404 (bad Recipe/Part id, expired `ShareLink` token) previously rendered a duplicated header, since the root `not-found.tsx` mounted its own header inside the already-mounted layout's header. Fixed via a shared `NotFoundContent` component plus scoped `(app)/not-found.tsx` and `(share)/not-found.tsx` that render only content, letting the enclosing layout supply the only chrome.
 - **Dynamic page metadata:** most authenticated detail/workflow pages and the public `/s/[token]` page now use `generateMetadata` for a real per-item title (Recipe/Part/Meal Plan/Grocery List name), resolved through the same authorized/whitelisted content resolver the page body uses — so a public share's metadata can never leak private data, and a `FIXED_SNAPSHOT` share's title metadata stays frozen the same way its body content does.
 - **Slice 22 — Multi-Recipe direct sharing** extended the Slice 17 direct-share design with a `DirectShareCollection` grouping model (documented inline above in the Prisma schema section) reusing the existing frozen-copy/duplicate/deletion/image-authorization guarantees unchanged at the grouped level — see `PRODUCT_SPEC.md` §85.1 for the product-level behavior.
+- **September 2026 Cuisine normalization and Settings classification pass:** the former singular free-text `Dish.cuisine` field was replaced by user-owned `Cuisine` + `DishCuisine` relations with zero-or-more assignment, persistent user ordering, Settings CRUD/reorder, direct Recipe/Part create/edit assignment, relational search/filtering, and backward-compatible import/share format migration. Cuisine remains user-defined rather than a rigid global DishFrame taxonomy, and Cuisine-only edits remain stable metadata that never create a Version. The same pass added persistent ordering for ordinary Tags while keeping the protected Favorite Tag fixed outside the sortable list.
 - **Recurring migration-tooling risk, confirmed standing (not one-off):** `prisma migrate dev --create-only`'s shadow-database diff proposes spurious `DROP CONSTRAINT`/`DROP INDEX` statements against pre-existing hand-authored raw-SQL objects on nearly every migration generation (recurred across Slices 2, 8, 9, 12, 13, 16, 17). Any generated migration must be checked against a fresh diff and hand-corrected, per `CLAUDE.md`'s "Database migrations" section — not just visually skimmed.
 
 ---

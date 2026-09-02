@@ -14,6 +14,7 @@ import {
   LibraryFilterBar,
   type FlavorProfileFilterOption,
   type TagFilterOption,
+  type CuisineFilterOption,
 } from "@/components/domain/dish/library-filter-bar";
 import {
   DISPLAY_VIEW_PARAM,
@@ -52,7 +53,7 @@ export function DishLibraryDisplay({
   basePath: string;
   filters: LibraryFilters;
   tagOptions: TagFilterOption[];
-  cuisineOptions: string[];
+  cuisineOptions: CuisineFilterOption[];
   flavorProfileOptions: FlavorProfileFilterOption[];
 }) {
   const searchParams = useSearchParams();

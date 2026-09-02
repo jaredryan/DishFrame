@@ -11,14 +11,28 @@ import { getOwnedTagOrThrow } from "@/lib/tags/queries";
 
 /**
  * Idempotent by identity (PRODUCT_SPEC.md §45.4): a name that normalizes to
- * an existing tag returns that tag rather than erroring or duplicating.
+ * an existing tag returns that tag rather than erroring or duplicating. A
+ * newly created tag appends after every existing tag (Settings QA pass —
+ * same append-at-end convention as `flavor-profiles/service.ts`'s
+ * `createFlavorProfileValue`).
  */
 export async function createTag(ownerId: string, name: string) {
   const normalizedName = normalizeName(name);
   return prisma.tag.upsert({
     where: { ownerId_normalizedName: { ownerId, normalizedName } },
     update: {},
-    create: { ownerId, normalizedName, displayName: name },
+    create: {
+      ownerId,
+      normalizedName,
+      displayName: name,
+      position:
+        ((
+          await prisma.tag.aggregate({
+            where: { ownerId },
+            _max: { position: true },
+          })
+        )._max.position ?? -1) + 1,
+    },
   });
 }
 
@@ -77,4 +91,37 @@ export async function deleteTag(ownerId: string, id: string) {
   // Cascades DishTag rows (schema onDelete: Cascade) — removes the tag from
   // every Recipe/Part without deleting those items (§45.7).
   return prisma.tag.delete({ where: { id } });
+}
+
+/**
+ * Same pattern as `flavor-profiles/service.ts`'s
+ * `reorderFlavorProfileValues`, except the submitted order covers only the
+ * caller's non-Favorite tags — the protected Favorite tag keeps its existing
+ * pinned-first placement (queries.ts orders by isFavorite desc first) and
+ * is never part of the draggable set.
+ */
+export async function reorderTags(ownerId: string, orderedIds: string[]) {
+  const owned = await prisma.tag.findMany({
+    where: { ownerId, isFavorite: false },
+    select: { id: true },
+  });
+  const ownedIds = new Set(owned.map((tag) => tag.id));
+  const submittedIds = new Set(orderedIds);
+
+  const isExactlyTheOwnedSet =
+    orderedIds.length === submittedIds.size &&
+    submittedIds.size === ownedIds.size &&
+    orderedIds.every((id) => ownedIds.has(id));
+
+  if (!isExactlyTheOwnedSet) {
+    throw new ConflictError(
+      "The submitted order does not match your current tags.",
+    );
+  }
+
+  await prisma.$transaction(
+    orderedIds.map((id, index) =>
+      prisma.tag.update({ where: { id }, data: { position: index } }),
+    ),
+  );
 }

@@ -39,4 +39,17 @@ describe("ThemeToggle", () => {
       "false",
     );
   });
+
+  // Settings QA pass: the default/compact size (used both in the public
+  // nav's desktop row and now in Settings' Appearance section) stays
+  // visually compact on fine-pointer desktop but carries a pointer-coarse
+  // variant that reaches the 44px-class touch target — jsdom can't evaluate
+  // the `pointer: coarse` media feature itself, so this only asserts the
+  // class is present, not that it wins at runtime.
+  it("compact size carries a pointer-coarse touch-target variant", () => {
+    render(<ThemeToggle />);
+    expect(screen.getByRole("radio", { name: "Light" }).className).toMatch(
+      /pointer-coarse:h-11/,
+    );
+  });
 });

@@ -29,6 +29,7 @@ import {
   resolvePartUsageOccurrenceSchema,
   setDishTagsSchema,
   setDishFlavorProfilesSchema,
+  setDishCuisinesSchema,
   toggleFavoriteSchema,
   type DishActionState,
   type DishContentInput,
@@ -365,6 +366,23 @@ export async function setDishFlavorProfiles(
       kind,
       flavorProfileValueIds,
     );
+
+    revalidateDish(kind, dishId);
+    return { status: "success", dishId };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export async function setDishCuisines(
+  kind: DishKindValue,
+  values: { dishId: string; cuisineIds: string[] },
+): Promise<DishActionState> {
+  try {
+    const userId = await requireUserId();
+    const { dishId, cuisineIds } = setDishCuisinesSchema.parse(values);
+
+    await dishMetadata.setDishCuisines(userId, dishId, kind, cuisineIds);
 
     revalidateDish(kind, dishId);
     return { status: "success", dishId };

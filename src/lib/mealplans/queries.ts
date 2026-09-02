@@ -10,7 +10,7 @@ import {
 } from "@/lib/reviews/queries";
 import { getLastCookedAtForDishes } from "@/lib/cooking/queries";
 import { ratingNumericValue } from "@/lib/dishes/library-filters";
-import { listDistinctCuisines } from "@/lib/dishes/queries";
+import { listCuisines } from "@/lib/cuisines/queries";
 import { listTags } from "@/lib/tags/queries";
 import { listFlavorProfileValues } from "@/lib/flavor-profiles/queries";
 import type { MealPlanDetailDto } from "@/lib/mealplans/schema";
@@ -112,14 +112,12 @@ export function toMealPlanDetailDto(
 // filter option lists the editor's pickers need, fully mapped to the shapes
 // `MealPlanEditor` expects.
 export async function loadMealPlanEditorOptions(ownerId: string) {
-  const [candidates, tags, recipeCuisines, partCuisines, flavorProfiles] =
-    await Promise.all([
-      listMealPlanEntryCandidates(ownerId),
-      listTags(ownerId),
-      listDistinctCuisines(ownerId, "RECIPE"),
-      listDistinctCuisines(ownerId, "PART"),
-      listFlavorProfileValues(ownerId),
-    ]);
+  const [candidates, tags, cuisines, flavorProfiles] = await Promise.all([
+    listMealPlanEntryCandidates(ownerId),
+    listTags(ownerId),
+    listCuisines(ownerId),
+    listFlavorProfileValues(ownerId),
+  ]);
 
   return {
     candidates,
@@ -127,9 +125,10 @@ export async function loadMealPlanEditorOptions(ownerId: string) {
       id: tag.id,
       displayName: tag.displayName,
     })),
-    cuisineOptions: [...new Set([...recipeCuisines, ...partCuisines])].sort(
-      (a, b) => a.localeCompare(b),
-    ),
+    cuisineOptions: cuisines.map((cuisine) => ({
+      id: cuisine.id,
+      displayName: cuisine.displayName,
+    })),
     flavorProfileOptions: flavorProfiles.map((value) => ({
       id: value.id,
       displayName: value.displayName,
@@ -184,7 +183,6 @@ export async function listMealPlanEntryCandidates(ownerId: string) {
         id: true,
         kind: true,
         stage: true,
-        cuisine: true,
         currentTitle: true,
         currentVersionId: true,
         updatedAt: true,
@@ -210,6 +208,12 @@ export async function listMealPlanEntryCandidates(ownerId: string) {
         },
         flavorProfiles: {
           select: { flavorProfileValueId: true },
+        },
+        cuisines: {
+          select: {
+            cuisineId: true,
+            cuisine: { select: { displayName: true, position: true } },
+          },
         },
       },
       orderBy: { currentTitle: "asc" },
@@ -245,7 +249,11 @@ export async function listMealPlanEntryCandidates(ownerId: string) {
     dishId: dish.id,
     kind: dish.kind,
     stage: dish.stage,
-    cuisine: dish.cuisine,
+    cuisineIds: dish.cuisines.map((c) => c.cuisineId),
+    cuisineNames: dish.cuisines
+      .map((c) => c.cuisine)
+      .sort((a, b) => a.position - b.position)
+      .map((c) => c.displayName),
     title: dish.currentTitle ?? "Untitled",
     dishVersionId: dish.currentVersionId!,
     versionLabel: dish.currentVersion

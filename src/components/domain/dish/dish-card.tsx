@@ -12,7 +12,7 @@ export type DishCardItem = {
   id: string;
   currentTitle: string | null;
   stage: StageValue;
-  cuisine: string | null;
+  cuisineNames: string[];
   updatedAt: Date;
   imageAssetId: string | null;
   isFavorite?: boolean;
@@ -73,9 +73,11 @@ export function DishCard({
           <div className="flex flex-wrap items-center gap-1.5">
             <StageBadge stage={dish.stage} />
             {dish.rating && <RatingBadge rating={dish.rating} />}
-            {dish.cuisine && (
-              <SemanticChip semantic="green">{dish.cuisine}</SemanticChip>
-            )}
+            {dish.cuisineNames.map((cuisineName) => (
+              <SemanticChip key={cuisineName} semantic="green">
+                {cuisineName}
+              </SemanticChip>
+            ))}
           </div>
         </CardContent>
       </Card>

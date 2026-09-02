@@ -244,7 +244,7 @@ function collectionFixtureContent(
   return {
     title,
     stage: "ACTIVE",
-    cuisine: null,
+    cuisineIds: [],
     description: null,
     yieldQuantity: 2,
     yieldUnit: "servings",
@@ -653,7 +653,7 @@ export async function buildSourceDeletionCancellationFixture(
   const content: DishContentInput = {
     title: "[QA] Ephemeral Share Source",
     stage: "IDEA",
-    cuisine: null,
+    cuisineIds: [],
     description: null,
     yieldQuantity: 1,
     yieldUnit: "serving",

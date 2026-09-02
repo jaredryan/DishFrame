@@ -19,7 +19,7 @@ function content(overrides: Partial<DishContentInput> = {}): DishContentInput {
   return {
     title: "Ginger Soy Bowl",
     stage: "IDEA",
-    cuisine: null,
+    cuisineIds: [],
     description: null,
     yieldQuantity: null,
     yieldUnit: null,
@@ -120,7 +120,7 @@ describe("GET /api/export/dish/[dishId]", () => {
     const dto = await response.json();
 
     expect(dto.format).toBe("dishframe.dish-export");
-    expect(dto.formatVersion).toBe(2);
+    expect(dto.formatVersion).toBe(3);
     expect(dto.exportedAt).toBeTruthy();
     expect(dto.scope.versionMode).toBe("SINGLE");
     expect(dto.scope.versionId).toBe(dish.currentVersionId);

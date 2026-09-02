@@ -89,11 +89,16 @@ describe("normalizeDishExportJson", () => {
     expect(draft.sourceDishKind).toBe("RECIPE");
     expect(draft.presetTags).toEqual(["Quick", "Family favorite"]);
     expect(draft.presetFlavorProfiles).toEqual(["Spicy"]);
+    // PRODUCT_SPEC.md §46 (owner decision, 2026-09-02): this fixture is a
+    // pre-redesign (formatVersion 2) export with the old singular
+    // `cuisine: string` field — still read as a one-element fallback into
+    // `presetCuisines`, so an older DishFrame export still round-trips its
+    // Cuisine (see the "current-format" test below for `cuisines: string[]`).
+    expect(draft.presetCuisines).toEqual(["Mexican"]);
     expect(draft.droppedLinkedPartsCount).toBe(0);
     expect(draft.result.values).toMatchObject({
       title: "Weeknight Tacos",
       stage: "PROVEN",
-      cuisine: "Mexican",
       yieldQuantity: 4,
       yieldUnit: "servings",
       prepTimeMinutes: 10,
@@ -111,6 +116,21 @@ describe("normalizeDishExportJson", () => {
     // representable without live account-side validation.
     expect(draft.result.values.sections[0].partLinks).toEqual([]);
     expect(draft.result.values.partLinks).toEqual([]);
+  });
+
+  it("reads current-format `cuisines: string[]` (v3+) into presetCuisines, preferring it over any legacy `cuisine`", () => {
+    const result = normalizeDishExportJson(
+      dishExportJson({
+        formatVersion: 3,
+        cuisines: ["Mexican", "Tex-Mex"],
+      }),
+    );
+    expect(result.status).toBe("success");
+    if (result.status !== "success") return;
+    const draft = result.drafts[0];
+    expect(draft.status).toBe("ok");
+    if (draft.status !== "ok") return;
+    expect(draft.presetCuisines).toEqual(["Mexican", "Tex-Mex"]);
   });
 
   it("recognizes a Part export and preserves its kind", () => {

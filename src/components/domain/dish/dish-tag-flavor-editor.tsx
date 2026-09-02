@@ -11,7 +11,15 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { setDishFlavorProfiles, setDishTags } from "@/lib/dishes/actions";
+import {
+  setDishFlavorProfiles,
+  setDishTags,
+  setDishCuisines,
+} from "@/lib/dishes/actions";
+import {
+  CuisineSelector,
+  type CuisineOption,
+} from "@/components/domain/dish/cuisine-selector";
 import type { DishKindValue } from "@/lib/dishes/schema";
 
 export type TagOption = {
@@ -20,26 +28,31 @@ export type TagOption = {
   isFavorite: boolean;
 };
 export type FlavorProfileOption = { id: string; displayName: string };
+export type { CuisineOption };
 
 /**
- * PRODUCT_SPEC.md §45.2/§79.2: tags and Flavor profiles are stable Dish
- * metadata — this popover writes them directly (no Version created), the
- * same way the editor's Cuisine field already does for cuisine.
+ * PRODUCT_SPEC.md §45.2/§79.2/§46: tags, Flavor profiles, and (owner
+ * decision, 2026-09-02) Cuisines are all stable Dish metadata — this
+ * popover writes them directly (no Version created).
  */
 export function DishTagFlavorEditor({
   dishId,
   kind,
   tagOptions,
   flavorProfileOptions,
+  cuisineOptions,
   selectedTagIds,
   selectedFlavorProfileValueIds,
+  selectedCuisineIds,
 }: {
   dishId: string;
   kind: DishKindValue;
   tagOptions: TagOption[];
   flavorProfileOptions: FlavorProfileOption[];
+  cuisineOptions: CuisineOption[];
   selectedTagIds: string[];
   selectedFlavorProfileValueIds: string[];
+  selectedCuisineIds: string[];
 }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
@@ -47,6 +60,8 @@ export function DishTagFlavorEditor({
   const [flavorProfileIds, setFlavorProfileIds] = React.useState<string[]>(
     selectedFlavorProfileValueIds,
   );
+  const [cuisineIds, setCuisineIds] =
+    React.useState<string[]>(selectedCuisineIds);
   const [isPending, startTransition] = React.useTransition();
   const [error, setError] = React.useState<string | null>(null);
 
@@ -55,6 +70,7 @@ export function DishTagFlavorEditor({
     if (next) {
       setTagIds(selectedTagIds);
       setFlavorProfileIds(selectedFlavorProfileValueIds);
+      setCuisineIds(selectedCuisineIds);
       setError(null);
     }
   }
@@ -66,18 +82,26 @@ export function DishTagFlavorEditor({
   function handleSave() {
     setError(null);
     startTransition(async () => {
-      const [tagResult, flavorResult] = await Promise.all([
+      const [tagResult, flavorResult, cuisineResult] = await Promise.all([
         setDishTags(kind, { dishId, tagIds }),
         setDishFlavorProfiles(kind, {
           dishId,
           flavorProfileValueIds: flavorProfileIds,
         }),
+        setDishCuisines(kind, { dishId, cuisineIds }),
       ]);
-      if (tagResult.status === "error" || flavorResult.status === "error") {
+      if (
+        tagResult.status === "error" ||
+        flavorResult.status === "error" ||
+        cuisineResult.status === "error"
+      ) {
         setError(
           (tagResult.status === "error" ? tagResult.message : undefined) ??
             (flavorResult.status === "error"
               ? flavorResult.message
+              : undefined) ??
+            (cuisineResult.status === "error"
+              ? cuisineResult.message
               : undefined) ??
             "Could not save.",
         );
@@ -93,13 +117,13 @@ export function DishTagFlavorEditor({
       <PopoverTrigger asChild>
         <Button variant="outline" size="sm" className="gap-1.5">
           <Tags className="size-3.5" aria-hidden="true" />
-          Tags & Flavors
+          Tags, Flavors & Cuisine
         </Button>
       </PopoverTrigger>
       <PopoverContent
         className="w-72 max-w-none"
         align="start"
-        aria-label="Tags & Flavors"
+        aria-label="Tags, Flavors & Cuisine"
       >
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
@@ -155,6 +179,12 @@ export function DishTagFlavorEditor({
               </div>
             )}
           </div>
+
+          <CuisineSelector
+            options={cuisineOptions}
+            selectedIds={cuisineIds}
+            onToggle={(id) => toggle(cuisineIds, id, setCuisineIds)}
+          />
 
           {error && (
             <p role="alert" className="text-destructive-text text-xs">

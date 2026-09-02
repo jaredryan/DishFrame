@@ -18,7 +18,7 @@ function baseFilters(overrides: Partial<LibraryFilters> = {}): LibraryFilters {
     search: "",
     stages: [],
     tagIds: [],
-    cuisines: [],
+    cuisineIds: [],
     flavorProfileValueIds: [],
     rating: null,
     sort: "RECENTLY_UPDATED",
@@ -38,7 +38,7 @@ describe("parseLibrarySearchParams / libraryFiltersToSearchParams", () => {
       q: "  curry  ",
       stage: "ACTIVE,PROVEN",
       tag: "tag1,tag2",
-      cuisine: "Vietnamese,Thai",
+      cuisine: "cuisine1,cuisine2",
       flavor: "fp1",
       rating: "4plus",
       sort: "rating",
@@ -48,7 +48,7 @@ describe("parseLibrarySearchParams / libraryFiltersToSearchParams", () => {
         search: "curry",
         stages: ["ACTIVE", "PROVEN"],
         tagIds: ["tag1", "tag2"],
-        cuisines: ["Vietnamese", "Thai"],
+        cuisineIds: ["cuisine1", "cuisine2"],
         flavorProfileValueIds: ["fp1"],
         rating: "FOUR_PLUS",
         sort: "RATING",
@@ -149,13 +149,15 @@ describe("buildLibraryWhere", () => {
     expect(where.stage).toEqual({ in: ["ACTIVE", "ARCHIVED"] });
   });
 
-  it("uses OR (in) across multiple selected cuisines", () => {
+  it("uses OR (in) across multiple selected Cuisines", () => {
     const where = buildLibraryWhere(
       "owner1",
       "RECIPE",
-      baseFilters({ cuisines: ["Vietnamese", "Thai"] }),
+      baseFilters({ cuisineIds: ["cuisine1", "cuisine2"] }),
     );
-    expect(where.cuisine).toEqual({ in: ["Vietnamese", "Thai"] });
+    expect(where.cuisines).toEqual({
+      some: { cuisineId: { in: ["cuisine1", "cuisine2"] } },
+    });
   });
 
   it("uses match-all (AND) across multiple selected tags and Flavor profiles (§47.6/§47.7)", () => {
@@ -181,7 +183,7 @@ describe("buildLibraryWhere", () => {
       "RECIPE",
       baseFilters({
         stages: ["ACTIVE"],
-        cuisines: ["Vietnamese"],
+        cuisineIds: ["cuisine1"],
         tagIds: ["highProtein"],
       }),
     );
@@ -189,7 +191,7 @@ describe("buildLibraryWhere", () => {
       ownerId: "owner1",
       kind: "RECIPE",
       stage: { in: ["ACTIVE"] },
-      cuisine: { in: ["Vietnamese"] },
+      cuisines: { some: { cuisineId: { in: ["cuisine1"] } } },
       AND: [{ tags: { some: { tagId: "highProtein" } } }],
     });
   });
@@ -200,7 +202,7 @@ describe("computeSearchTier", () => {
     over: Partial<Parameters<typeof computeSearchTier>[0]> = {},
   ) => ({
     currentTitle: "Vietnamese Pho",
-    cuisine: "Vietnamese",
+    cuisineNames: ["Vietnamese"],
     currentStructuralSearchText: "Broth Section Garlic Paste",
     tagNames: ["Weeknight"],
     flavorProfileNames: ["Savory"],
@@ -215,7 +217,7 @@ describe("computeSearchTier", () => {
       "Vietnamese",
     );
     const cuisineOnlyMatch = computeSearchTier(
-      dish({ currentTitle: "Pho", cuisine: "Vietnamese" }),
+      dish({ currentTitle: "Pho", cuisineNames: ["Vietnamese"] }),
       "Vietnamese",
     );
     expect(exactTitleMatch).toBe(1);
@@ -232,11 +234,14 @@ describe("computeSearchTier", () => {
 
   it("ranks Flavor profile above tag, and tag above structural text", () => {
     expect(
-      computeSearchTier(dish({ currentTitle: "X", cuisine: null }), "savory"),
+      computeSearchTier(
+        dish({ currentTitle: "X", cuisineNames: [] }),
+        "savory",
+      ),
     ).toBe(5);
     expect(
       computeSearchTier(
-        dish({ currentTitle: "X", cuisine: null, flavorProfileNames: [] }),
+        dish({ currentTitle: "X", cuisineNames: [], flavorProfileNames: [] }),
         "weeknight",
       ),
     ).toBe(6);
@@ -244,7 +249,7 @@ describe("computeSearchTier", () => {
       computeSearchTier(
         dish({
           currentTitle: "X",
-          cuisine: null,
+          cuisineNames: [],
           flavorProfileNames: [],
           tagNames: [],
         }),

@@ -3,7 +3,7 @@ import { versionContentToInput } from "@/lib/dishes/mappers";
 import type { DishContentInput } from "@/lib/dishes/schema";
 import type { PartFixtureIds, Services } from "./parts";
 import { section } from "./parts";
-import { attachSeedTag } from "./owner";
+import { attachSeedTag, ensureCuisine } from "./owner";
 import type { GarnishFixture } from "./materialized-fixture";
 
 async function loadContent(
@@ -61,7 +61,7 @@ export async function buildRamenFixture(
   const v1_0Content: DishContentInput = {
     title: "[QA] Sunday Ramen Project",
     stage: "ACTIVE",
-    cuisine: null,
+    cuisineIds: [],
     description: "A weekend project ramen build, from broth up.",
     yieldQuantity: 2,
     yieldUnit: "servings",
@@ -128,9 +128,10 @@ export async function buildRamenFixture(
 
   // --- Stable-metadata-only edit: cuisine changes, NO new Version -----
   const v1_1Loaded = await loadContent(getVersionContent, v1_1Id);
+  const japaneseId = await ensureCuisine(ownerId, "Japanese");
   const metadataOnlyContent: DishContentInput = {
     ...v1_1Content,
-    cuisine: "Japanese",
+    cuisineIds: [japaneseId],
     sections: v1_1Loaded.sections,
     partLinks: v1_1Loaded.partLinks,
   };

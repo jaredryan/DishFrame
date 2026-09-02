@@ -31,7 +31,7 @@ function content(overrides: Partial<DishContentInput> = {}): DishContentInput {
   return {
     title: "Ginger Soy Bowl",
     stage: "ACTIVE",
-    cuisine: null,
+    cuisineIds: [],
     description: null,
     yieldQuantity: 4,
     yieldUnit: "servings",

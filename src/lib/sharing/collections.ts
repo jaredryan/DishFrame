@@ -70,7 +70,7 @@ export type ShareableItemSummary = {
   title: string;
   versionLabel: string;
   stage: StageValue;
-  cuisine: string | null;
+  cuisineNames: string[];
   archivedAt: string | null;
   imageAssetId: string | null;
   tagNames: string[];
@@ -102,7 +102,6 @@ export async function listShareableItemsForSender(
         kind: true,
         currentTitle: true,
         stage: true,
-        cuisine: true,
         archivedAt: true,
         currentVersionId: true,
         sourceKind: true,
@@ -119,6 +118,11 @@ export async function listShareableItemsForSender(
         },
         tags: {
           select: { tag: { select: { displayName: true, isFavorite: true } } },
+        },
+        cuisines: {
+          select: {
+            cuisine: { select: { displayName: true, position: true } },
+          },
         },
       },
       orderBy: { currentTitle: "asc" },
@@ -149,7 +153,10 @@ export async function listShareableItemsForSender(
         )
       : "",
     stage: row.stage,
-    cuisine: row.cuisine,
+    cuisineNames: row.cuisines
+      .map((c) => c.cuisine)
+      .sort((a, b) => a.position - b.position)
+      .map((c) => c.displayName),
     archivedAt: row.archivedAt?.toISOString() ?? null,
     imageAssetId: row.currentVersion?.imageAssetId ?? null,
     tagNames: row.tags

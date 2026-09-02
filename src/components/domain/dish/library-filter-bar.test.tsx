@@ -17,7 +17,7 @@ function baseFilters(overrides: Partial<LibraryFilters> = {}): LibraryFilters {
     search: "",
     stages: [],
     tagIds: [],
-    cuisines: [],
+    cuisineIds: [],
     flavorProfileValueIds: [],
     rating: null,
     sort: "RECENTLY_UPDATED",
@@ -33,7 +33,10 @@ function renderBar(overrides: Partial<LibraryFilters> = {}) {
       basePath="/recipes"
       filters={baseFilters(overrides)}
       tagOptions={[{ id: "tag1", displayName: "High Protein" }]}
-      cuisineOptions={["Vietnamese", "Thai"]}
+      cuisineOptions={[
+        { id: "cuisine-vietnamese", displayName: "Vietnamese" },
+        { id: "cuisine-thai", displayName: "Thai" },
+      ]}
       flavorProfileOptions={[{ id: "fp1", displayName: "Spicy" }]}
     />,
   );
@@ -104,14 +107,14 @@ describe("LibraryFilterBar (URL/query-state)", () => {
     expect(push).toHaveBeenCalledWith("/recipes");
   });
 
-  it("selecting a cuisine checkbox navigates with the cuisine param", async () => {
+  it("selecting a cuisine checkbox navigates with the Cuisine's id in the cuisine param", async () => {
     const user = userEvent.setup();
     renderBar();
 
     await user.click(screen.getByRole("button", { name: "Cuisine" }));
     await user.click(screen.getByText("Vietnamese"));
 
-    expect(push).toHaveBeenCalledWith("/recipes?cuisine=Vietnamese");
+    expect(push).toHaveBeenCalledWith("/recipes?cuisine=cuisine-vietnamese");
   });
 
   it("changing the rating select navigates with the mapped rating param", async () => {

@@ -108,7 +108,7 @@ describe("mapSchemaOrgRecipe", () => {
     expect(result?.values.description).toBe("A classic.");
     expect(result?.values.yieldQuantity).toBe(2);
     expect(result?.values.yieldUnit).toBe("servings");
-    expect(result?.values.cuisine).toBe("American");
+    expect(result?.cuisineGuess).toBe("American");
     expect(result?.values.prepTimeMinutes).toBe(5);
     expect(result?.values.cookTimeMinutes).toBe(10);
     expect(result?.values.sections).toHaveLength(1);

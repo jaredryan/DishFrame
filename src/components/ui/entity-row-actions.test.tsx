@@ -95,4 +95,36 @@ describe("EntityRowActions", () => {
       await screen.findByRole("menuitem", { name: "Delete Sourdough" }),
     ).toHaveAttribute("aria-disabled", "true");
   });
+
+  // Settings QA pass (Taster responsive overflow): a disabled action can
+  // carry an explanation. The overflow menu shows it as an always-visible
+  // line under the label (no hover needed — a nested Tooltip/Popover inside
+  // an already-open dropdown doesn't work well, and this reads fine on
+  // touch too).
+  it("shows a disabled action's explanation as visible text inside the overflow menu", async () => {
+    const user = userEvent.setup();
+    render(
+      <EntityRowActions
+        actions={[
+          {
+            key: "delete",
+            label: "Delete You (unavailable)",
+            icon: Trash2,
+            onClick: vi.fn(),
+            disabled: true,
+            disabledHint:
+              "This is the built-in Taster for your own ratings, so it can't be archived or deleted.",
+          },
+        ]}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+    const menuItem = await screen.findByRole("menuitem", {
+      name: /Delete You \(unavailable\)/,
+    });
+    expect(menuItem).toHaveTextContent(
+      "This is the built-in Taster for your own ratings, so it can't be archived or deleted.",
+    );
+  });
 });

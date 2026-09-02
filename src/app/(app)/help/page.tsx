@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { ReplayableGuideList } from "@/components/onboarding/replayable-guide-list";
 import { ContactForm } from "@/components/marketing/contact-form";
 import { AppPageLayout } from "@/components/app/app-page-layout";
-import { Button } from "@/components/ui/button";
+import { JumpToSection } from "@/components/app/jump-to-section";
 
 export const metadata: Metadata = {
   title: "Help",
@@ -120,20 +120,7 @@ export default function HelpPage() {
       descriptionClassName="text-muted-foreground mt-2"
       width="narrow"
     >
-      <div>
-        <h2 className="font-heading text-foreground text-lg font-semibold">
-          Jump to
-        </h2>
-        <ul className="mt-4 flex flex-wrap gap-2">
-          {JUMP_LINKS.map(({ label, href }) => (
-            <li key={href}>
-              <Button asChild variant="outline" size="sm">
-                <a href={href}>{label}</a>
-              </Button>
-            </li>
-          ))}
-        </ul>
-      </div>
+      <JumpToSection links={JUMP_LINKS} />
 
       <div id="guides">
         <h2 className="font-heading text-foreground text-lg font-semibold">

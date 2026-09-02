@@ -16,7 +16,7 @@ export type DishSelectionItem = {
   /** Empty string when Version doesn't apply to this row's context. */
   versionLabel: string;
   stage: StageValue;
-  cuisine: string | null;
+  cuisineNames: string[];
   imageAssetId: string | null;
   /** Custom tags only — the Favorite tag is a separate signal, never listed
    * here (matches every other tagNames convention in this codebase). */
@@ -141,9 +141,11 @@ export function SelectableDishRow({
       )}
       <DishKindBadge kind={item.kind} selected={kindBadgeSelected} />
       <StageBadge stage={item.stage} />
-      {item.cuisine && (
-        <SemanticChip semantic="green">{item.cuisine}</SemanticChip>
-      )}
+      {item.cuisineNames.map((cuisineName) => (
+        <SemanticChip key={cuisineName} semantic="green">
+          {cuisineName}
+        </SemanticChip>
+      ))}
       <RatingBadge rating={item.rating} />
     </>
   );

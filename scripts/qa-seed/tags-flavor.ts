@@ -8,6 +8,7 @@ import { versionContentToInput } from "@/lib/dishes/mappers";
 import type { DishContentInput } from "@/lib/dishes/schema";
 import type { PartFixtureIds, Services } from "./parts";
 import type { RecipeFixtureIds } from "./recipes";
+import { ensureCuisine } from "./owner";
 
 async function loadContent(
   getVersionContent: Services["getVersionContent"],
@@ -76,10 +77,11 @@ async function addStirFrySubstitute(
   const prepSection = loaded.sections.find(
     (s) => s.name === "Prepare vegetables",
   )!;
+  const asianFusionId = await ensureCuisine(ownerId, "Asian Fusion");
   const content: DishContentInput = {
     title: "[QA] Weeknight Stir-Fry",
     stage: "ACTIVE",
-    cuisine: "Asian Fusion",
+    cuisineIds: [asianFusionId],
     description: "A weeknight stir-fry built around rice and peanut sauce.",
     yieldQuantity: 4,
     yieldUnit: "servings",

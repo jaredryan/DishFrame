@@ -27,7 +27,7 @@ function content(overrides: Partial<DishContentInput> = {}): DishContentInput {
   return {
     title: "Ginger Soy Bowl",
     stage: "IDEA",
-    cuisine: null,
+    cuisineIds: [],
     description: null,
     yieldQuantity: null,
     yieldUnit: null,
@@ -757,17 +757,25 @@ describe("direct account-to-account sharing", () => {
         note: null,
       });
 
+      const thai = await prisma.cuisine.create({
+        data: {
+          ownerId: sender.id,
+          normalizedName: "thai",
+          displayName: "Thai",
+          position: 0,
+        },
+      });
       await dishService.editDish(
         sender.id,
         dishId,
         baseVersionId,
-        content({ title: "Edited Title", cuisine: "Thai" }),
+        content({ title: "Edited Title", cuisineIds: [thai.id] }),
         "MAJOR",
       );
 
       const preview = await getDirectSharePreview(recipient.id, directShareId);
       expect(preview.content.title).toBe("Original Title");
-      expect(preview.content.cuisine).toBeNull();
+      expect(preview.content.cuisines).toEqual([]);
     });
 
     it("an in-place metadata edit (no new Version) after Send does not change Preview", async () => {

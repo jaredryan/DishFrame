@@ -24,15 +24,23 @@ export function PreferencesForm({
 }) {
   const [values, setValues] =
     React.useState<PreferencesFormValues>(initialValues);
-  const [state, setState] = React.useState(initialPreferencesFormState);
-  const [isPending, startTransition] = React.useTransition();
+  // `updatePreferences` calls `revalidatePath("/settings")`, which bundles a
+  // fresh render of this route into the same response the action returns.
+  // A plain `useState` set from an awaited promise races that bundled
+  // update and can be discarded before it ever paints — `useActionState`'s
+  // returned state is instead applied as part of the same action-commit
+  // React/Next already synchronize on, so it reliably survives it.
+  const [state, submitAction, isPending] = React.useActionState(
+    async (
+      _prevState: typeof initialPreferencesFormState,
+      next: PreferencesFormValues,
+    ) => updatePreferences(next),
+    initialPreferencesFormState,
+  );
 
   function save(next: PreferencesFormValues) {
     setValues(next);
-    startTransition(async () => {
-      const result = await updatePreferences(next);
-      setState(result);
-    });
+    React.startTransition(() => submitAction(next));
   }
 
   return (
@@ -119,7 +127,12 @@ export function PreferencesForm({
 
       <div className="flex items-center justify-between gap-4">
         <div>
-          <Label htmlFor="timerSoundEnabled">Timer sound</Label>
+          <Label
+            htmlFor="timerSoundEnabled"
+            className="text-foreground text-sm leading-normal font-medium"
+          >
+            Timer sound
+          </Label>
           <p className="text-muted-foreground text-sm">
             Play a short sound when a cooking timer finishes.
           </p>
@@ -136,7 +149,12 @@ export function PreferencesForm({
 
       <div className="flex items-center justify-between gap-4">
         <div>
-          <Label htmlFor="reviewPromptEnabled">Review prompt</Label>
+          <Label
+            htmlFor="reviewPromptEnabled"
+            className="text-foreground text-sm leading-normal font-medium"
+          >
+            Review prompt
+          </Label>
           <p className="text-muted-foreground text-sm">
             Ask &ldquo;Want to record how it went?&rdquo; after cooking.
           </p>

@@ -13,7 +13,7 @@ const dish: DishCardItem = {
   id: "dish1",
   currentTitle: "Weeknight Ragu",
   stage: "ACTIVE",
-  cuisine: null,
+  cuisineNames: [],
   updatedAt: new Date("2026-01-01"),
   imageAssetId: null,
 };

@@ -49,7 +49,6 @@ export async function listGrocerySourceCandidates(ownerId: string) {
         id: true,
         kind: true,
         stage: true,
-        cuisine: true,
         currentTitle: true,
         currentVersionId: true,
         sourceKind: true,
@@ -68,6 +67,11 @@ export async function listGrocerySourceCandidates(ownerId: string) {
         },
         tags: {
           select: { tag: { select: { displayName: true, isFavorite: true } } },
+        },
+        cuisines: {
+          select: {
+            cuisine: { select: { displayName: true, position: true } },
+          },
         },
       },
       orderBy: { currentTitle: "asc" },
@@ -91,7 +95,10 @@ export async function listGrocerySourceCandidates(ownerId: string) {
     dishId: dish.id,
     kind: dish.kind,
     stage: dish.stage,
-    cuisine: dish.cuisine,
+    cuisineNames: dish.cuisines
+      .map((c) => c.cuisine)
+      .sort((a, b) => a.position - b.position)
+      .map((c) => c.displayName),
     title: dish.currentTitle ?? "Untitled",
     versionLabel: dish.currentVersion
       ? versionLabel(

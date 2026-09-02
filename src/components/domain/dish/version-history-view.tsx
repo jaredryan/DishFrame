@@ -83,6 +83,11 @@ export async function VersionHistoryView({
         flavorProfiles: {
           select: { flavorProfileValue: { select: { displayName: true } } },
         },
+        cuisines: {
+          select: {
+            cuisine: { select: { displayName: true, position: true } },
+          },
+        },
       },
     }),
   ]);
@@ -92,6 +97,10 @@ export async function VersionHistoryView({
   const flavorProfileNames = (tagSelections?.flavorProfiles ?? []).map(
     (f) => f.flavorProfileValue.displayName,
   );
+  const cuisineNames = (tagSelections?.cuisines ?? [])
+    .map((c) => c.cuisine)
+    .sort((a, b) => a.position - b.position)
+    .map((c) => c.displayName);
 
   const highestMajor = versions.reduce(
     (max, v) => Math.max(max, v.majorVersion),
@@ -227,7 +236,7 @@ export async function VersionHistoryView({
           <DishMetaChips
             stage={dish.stage}
             versionLabel={versionLabel}
-            cuisine={dish.cuisine}
+            cuisineNames={cuisineNames}
             flavorProfileNames={flavorProfileNames}
             tagNames={tagNames}
             yieldQuantity={decimalToNumber(version.yieldQuantity)}

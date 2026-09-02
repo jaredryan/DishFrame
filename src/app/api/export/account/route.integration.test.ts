@@ -48,7 +48,7 @@ describe("GET /api/export/account", () => {
 
     const dto = await response.json();
     expect(dto.format).toBe("dishframe.account-export");
-    expect(dto.formatVersion).toBe(2);
+    expect(dto.formatVersion).toBe(3);
     expect(dto.scope).toEqual({ exportType: "ACCOUNT" });
   });
 });

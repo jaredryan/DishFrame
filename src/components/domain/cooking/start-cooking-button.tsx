@@ -29,7 +29,7 @@ function toSelectionItem(item: CookablePickerItem): DishSelectionItem {
     title: item.currentTitle ?? "Untitled",
     versionLabel: item.versionLabel,
     stage: item.stage,
-    cuisine: item.cuisine,
+    cuisineNames: item.cuisineNames,
     imageAssetId: item.imageAssetId,
     tagNames: item.tags,
     rating: item.rating,

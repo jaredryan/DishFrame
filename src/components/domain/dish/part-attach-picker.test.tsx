@@ -41,7 +41,7 @@ const mockedValidatePartAttachment = vi.mocked(validatePartAttachment);
 const PART_A = {
   id: "part-a",
   stage: "ACTIVE" as const,
-  cuisine: null,
+  cuisineNames: [],
   currentTitle: "Nuoc Cham",
   currentVersionId: "part-a-v1",
   versionLabel: "V1.0",
@@ -52,7 +52,7 @@ const PART_A = {
 const PART_B = {
   id: "part-b",
   stage: "ACTIVE" as const,
-  cuisine: null,
+  cuisineNames: [],
   currentTitle: "Chili Oil",
   currentVersionId: "part-b-v1",
   versionLabel: "V1.0",

@@ -207,7 +207,7 @@ export function PrintDocument({
     .join(" · ");
 
   const factLine = [
-    content.cuisine,
+    content.cuisines.length > 0 ? content.cuisines.join(", ") : null,
     content.yieldQuantity != null
       ? `Makes ${content.yieldQuantity} ${content.yieldUnit ?? ""}`.trim()
       : null,

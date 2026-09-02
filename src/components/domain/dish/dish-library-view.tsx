@@ -1,7 +1,8 @@
 import { DishLibraryDisplay } from "@/components/domain/dish/dish-library-display";
-import { queryDishLibrary, listDistinctCuisines } from "@/lib/dishes/queries";
+import { queryDishLibrary } from "@/lib/dishes/queries";
 import { listTags } from "@/lib/tags/queries";
 import { listFlavorProfileValues } from "@/lib/flavor-profiles/queries";
+import { listCuisines } from "@/lib/cuisines/queries";
 import { prisma } from "@/lib/db/prisma";
 import type { DishKindValue } from "@/lib/dishes/schema";
 import type { LibraryFilters } from "@/lib/dishes/library-filters";
@@ -24,7 +25,7 @@ export async function DishLibraryView({
       select: { primaryRatingDisplay: true },
     }),
     listTags(ownerId),
-    listDistinctCuisines(ownerId, kind),
+    listCuisines(ownerId),
     listFlavorProfileValues(ownerId),
   ]);
   const dishes = await queryDishLibrary(
@@ -48,7 +49,10 @@ export async function DishLibraryView({
         id: tag.id,
         displayName: tag.displayName,
       }))}
-      cuisineOptions={cuisines}
+      cuisineOptions={cuisines.map((cuisine) => ({
+        id: cuisine.id,
+        displayName: cuisine.displayName,
+      }))}
       flavorProfileOptions={flavorProfiles.map((value) => ({
         id: value.id,
         displayName: value.displayName,

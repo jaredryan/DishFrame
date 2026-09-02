@@ -81,7 +81,7 @@ export type PublicShareContent = {
   versionLabel: string;
   description: string | null;
   imageAssetId: string | null;
-  cuisine: string | null;
+  cuisines: string[];
   tags: string[];
   flavorProfiles: string[];
   yieldQuantity: number | null;
@@ -309,7 +309,7 @@ export async function buildPublicShareContent(
     versionLabel: `V${root.majorVersion}.${root.minorVersion}`,
     description: root.description,
     imageAssetId: root.imageAssetId,
-    cuisine: root.dishCuisine,
+    cuisines: root.dishCuisines,
     tags: dish?.tags.map((t) => t.tag.displayName) ?? [],
     flavorProfiles:
       dish?.flavorProfiles.map((f) => f.flavorProfileValue.displayName) ?? [],

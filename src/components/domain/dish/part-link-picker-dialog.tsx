@@ -29,7 +29,7 @@ function toSelectionItem(part: AttachablePart): DishSelectionItem {
     title: part.currentTitle ?? "Untitled part",
     versionLabel: part.versionLabel,
     stage: part.stage,
-    cuisine: part.cuisine,
+    cuisineNames: part.cuisineNames,
     imageAssetId: part.imageAssetId,
     tagNames: part.tags,
     rating: part.rating,

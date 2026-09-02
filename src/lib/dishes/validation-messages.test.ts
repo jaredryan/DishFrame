@@ -5,7 +5,7 @@ import type { DishContentInput } from "@/lib/dishes/schema";
 const baseValues: DishContentInput = {
   title: "Family Recipe",
   stage: "IDEA",
-  cuisine: null,
+  cuisineIds: [],
   description: null,
   yieldQuantity: null,
   yieldUnit: null,

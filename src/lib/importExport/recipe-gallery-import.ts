@@ -56,8 +56,10 @@ export type ArchiveImportDraft =
       result: PasteParseResult;
       // Importer follow-up pass: Recipe Gallery's `Categories` field
       // ("Vegetables", "Breads", "Uncategorized", …) is an organizational
-      // tag, not a cuisine — never mapped into `result.values.cuisine`
-      // (or any other persisted field). Surfaced here only as an optional,
+      // tag, not a cuisine — never auto-applied to any persisted field on
+      // its own; only the Classifications mapping UI's explicit per-
+      // category choice (Cuisine/Tag/Flavor profile/Ignore) attaches it to
+      // anything. Surfaced here only as an optional,
       // non-persisted hint the batch UI may show to help the user
       // recognize/classify an item; `null` when the recipe was
       // "Uncategorized" or had no Category at all.
@@ -81,6 +83,12 @@ export type ArchiveImportDraft =
       // uses — never a second attachment mechanism.
       presetTags?: string[];
       presetFlavorProfiles?: string[];
+      // PRODUCT_SPEC.md §46 (owner decision, 2026-09-02): same "source
+      // adapter already knows these are real Cuisines" shape as
+      // presetTags/presetFlavorProfiles above — so far only
+      // `dishframe-json-import.ts`, whose export already carries structured
+      // Cuisine names rather than an ambiguous free-text category.
+      presetCuisines?: string[];
       // Import QA polish pass §1 follow-up: a DishFrame JSON export's
       // linked Parts (top-level and Section-nested) are dropped during
       // normalization — see `dishframe-json-import.ts`'s doc comment for

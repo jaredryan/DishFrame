@@ -57,6 +57,7 @@ const RATING_LABEL: Record<RatingFilterValue, string> = {
 
 export type TagFilterOption = { id: string; displayName: string };
 export type FlavorProfileFilterOption = { id: string; displayName: string };
+export type CuisineFilterOption = { id: string; displayName: string };
 
 const STAGE_OPTIONS = stageValues.map((stage) => ({
   value: stage,
@@ -80,7 +81,7 @@ export function LibraryFilterBar({
   basePath: string;
   filters: LibraryFilters;
   tagOptions: TagFilterOption[];
-  cuisineOptions: string[];
+  cuisineOptions: CuisineFilterOption[];
   flavorProfileOptions: FlavorProfileFilterOption[];
 }) {
   const router = useRouter();
@@ -165,11 +166,11 @@ export function LibraryFilterBar({
     navigate({ ...filters, tagIds });
   }
 
-  function toggleCuisine(cuisine: string) {
-    const cuisines = filters.cuisines.includes(cuisine)
-      ? filters.cuisines.filter((c) => c !== cuisine)
-      : [...filters.cuisines, cuisine];
-    navigate({ ...filters, cuisines });
+  function toggleCuisine(cuisineId: string) {
+    const cuisineIds = filters.cuisineIds.includes(cuisineId)
+      ? filters.cuisineIds.filter((id) => id !== cuisineId)
+      : [...filters.cuisineIds, cuisineId];
+    navigate({ ...filters, cuisineIds });
   }
 
   function toggleFlavorProfile(id: string) {
@@ -208,7 +209,7 @@ export function LibraryFilterBar({
       search: "",
       stages: [],
       tagIds: [],
-      cuisines: [],
+      cuisineIds: [],
       flavorProfileValueIds: [],
       rating: null,
       sort: filters.sort,
@@ -220,6 +221,9 @@ export function LibraryFilterBar({
   const tagNameById = new Map(tagOptions.map((t) => [t.id, t.displayName]));
   const flavorProfileNameById = new Map(
     flavorProfileOptions.map((v) => [v.id, v.displayName]),
+  );
+  const cuisineNameById = new Map(
+    cuisineOptions.map((c) => [c.id, c.displayName]),
   );
 
   const activeChips: { key: string; label: string; onRemove: () => void }[] =
@@ -238,11 +242,11 @@ export function LibraryFilterBar({
       onRemove: () => toggleStage(stage),
     });
   }
-  for (const cuisine of filters.cuisines) {
+  for (const cuisineId of filters.cuisineIds) {
     activeChips.push({
-      key: `cuisine-${cuisine}`,
-      label: cuisine,
-      onRemove: () => toggleCuisine(cuisine),
+      key: `cuisine-${cuisineId}`,
+      label: cuisineNameById.get(cuisineId) ?? "Cuisine",
+      onRemove: () => toggleCuisine(cuisineId),
     });
   }
   for (const flavorProfileId of filters.flavorProfileValueIds) {
@@ -318,12 +322,12 @@ export function LibraryFilterBar({
           <FilterPopover
             label="Cuisine"
             options={cuisineOptions.map((cuisine) => ({
-              value: cuisine,
-              label: cuisine,
+              value: cuisine.id,
+              label: cuisine.displayName,
             }))}
-            selected={filters.cuisines}
+            selected={filters.cuisineIds}
             onToggleAction={toggleCuisine}
-            emptyMessage="No cuisines used yet."
+            emptyMessage="No Cuisines yet."
           />
 
           <FilterPopover

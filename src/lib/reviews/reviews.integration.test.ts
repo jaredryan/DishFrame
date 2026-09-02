@@ -32,7 +32,7 @@ function recipeContent(
   return {
     title: "Test Bowl",
     stage: "IDEA",
-    cuisine: null,
+    cuisineIds: [],
     description: null,
     yieldQuantity: null,
     yieldUnit: null,
@@ -74,7 +74,7 @@ function partContent(
   return {
     title,
     stage: "IDEA",
-    cuisine: null,
+    cuisineIds: [],
     description: null,
     yieldQuantity: 2,
     yieldUnit: "cups",

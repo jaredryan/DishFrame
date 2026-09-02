@@ -23,7 +23,10 @@ import { Button } from "@/components/ui/button";
 import { DragHandle } from "@/components/ui/drag-handle";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { DisabledActionHint } from "@/components/app/disabled-action-hint";
+import {
+  EntityRowActions,
+  type EntityRowAction,
+} from "@/components/ui/entity-row-actions";
 import { usePendingAction } from "@/components/ui/use-pending-action";
 import { useReorderSensors } from "@/lib/dnd/sensors";
 import { createReorderAnnouncements } from "@/lib/dnd/announcements";
@@ -78,11 +81,59 @@ function SortableTasterRow({
     transition,
   };
 
+  const actions: EntityRowAction[] = [
+    {
+      key: "rename",
+      label: `Rename ${taster.name}`,
+      icon: Pencil,
+      onClick: () => setEditingId(taster.id),
+      disabled: isPending,
+    },
+    taster.isOwner
+      ? {
+          key: "archive",
+          label: `Archive ${taster.name} (unavailable)`,
+          tooltip: "Archive",
+          icon: Archive,
+          onClick: () => {},
+          disabled: true,
+          disabledHint: OWNER_PROTECTED_EXPLANATION,
+        }
+      : {
+          key: "archive",
+          label: taster.archivedAt
+            ? `Restore ${taster.name}`
+            : `Archive ${taster.name}`,
+          icon: taster.archivedAt ? ArchiveRestore : Archive,
+          onClick: () => onArchiveToggle(taster),
+          disabled: isPending,
+        },
+    taster.isOwner
+      ? {
+          key: "delete",
+          label: `Delete ${taster.name} (unavailable)`,
+          tooltip: "Delete",
+          icon: Trash2,
+          onClick: () => {},
+          disabled: true,
+          disabledHint: OWNER_PROTECTED_EXPLANATION,
+          destructive: true,
+        }
+      : {
+          key: "delete",
+          label: `Delete ${taster.name}`,
+          icon: Trash2,
+          onClick: () => onDelete(taster.id),
+          disabled: isPending,
+          destructive: true,
+        },
+  ];
+
   return (
     <li
       ref={setNodeRef}
       style={style}
-      className="border-border bg-card flex items-center gap-2 rounded-lg border px-3 py-2"
+      className="border-border bg-card @container flex items-center gap-2 rounded-lg border px-3 py-2"
     >
       <DragHandle
         label={`Drag to reorder ${taster.name}`}
@@ -124,7 +175,7 @@ function SortableTasterRow({
         </form>
       ) : (
         <>
-          <span className="flex-1 text-sm">
+          <span className="min-w-0 flex-1 text-sm">
             {taster.name}
             {taster.archivedAt && (
               <span className="text-muted-foreground ml-2 text-xs">
@@ -133,83 +184,7 @@ function SortableTasterRow({
             )}
           </span>
           {taster.isOwner && <Badge variant="secondary">You</Badge>}
-          <div className="flex items-center gap-1">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              disabled={isPending}
-              onClick={() => setEditingId(taster.id)}
-              aria-label={`Rename ${taster.name}`}
-              title={`Rename ${taster.name}`}
-            >
-              <Pencil className="size-4" aria-hidden="true" />
-            </Button>
-            {taster.isOwner ? (
-              <DisabledActionHint explanation={OWNER_PROTECTED_EXPLANATION}>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  disabled
-                  aria-label={`Archive ${taster.name} (unavailable)`}
-                  title={OWNER_PROTECTED_EXPLANATION}
-                >
-                  <Archive className="size-4" aria-hidden="true" />
-                </Button>
-              </DisabledActionHint>
-            ) : (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                disabled={isPending}
-                onClick={() => onArchiveToggle(taster)}
-                aria-label={
-                  taster.archivedAt
-                    ? `Restore ${taster.name}`
-                    : `Archive ${taster.name}`
-                }
-                title={
-                  taster.archivedAt
-                    ? `Restore ${taster.name}`
-                    : `Archive ${taster.name}`
-                }
-              >
-                {taster.archivedAt ? (
-                  <ArchiveRestore className="size-4" aria-hidden="true" />
-                ) : (
-                  <Archive className="size-4" aria-hidden="true" />
-                )}
-              </Button>
-            )}
-            {taster.isOwner ? (
-              <DisabledActionHint explanation={OWNER_PROTECTED_EXPLANATION}>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  disabled
-                  aria-label={`Delete ${taster.name} (unavailable)`}
-                  title={OWNER_PROTECTED_EXPLANATION}
-                >
-                  <Trash2 className="size-4" aria-hidden="true" />
-                </Button>
-              </DisabledActionHint>
-            ) : (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                disabled={isPending}
-                onClick={() => onDelete(taster.id)}
-                aria-label={`Delete ${taster.name}`}
-                title={`Delete ${taster.name}`}
-              >
-                <Trash2 className="size-4" aria-hidden="true" />
-              </Button>
-            )}
-          </div>
+          <EntityRowActions actions={actions} />
         </>
       )}
     </li>

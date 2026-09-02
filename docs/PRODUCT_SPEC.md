@@ -3376,22 +3376,28 @@ That action is a design optimization rather than a separate Favorite data model.
 
 ## 46.1 Stable metadata
 
-Cuisine is optional and belongs to the stable Recipe or Part.
+Cuisine is a normalized, user-owned classification (own entity, own Settings-managed list — the same shape as Tags and Flavor profiles), not a free-text field on the Recipe or Part.
+
+A Cuisine assignment belongs to the stable Recipe or Part.
 
 It does not belong to an individual Version.
 
-Changing cuisine:
+Changing which Cuisines are assigned:
 
 - does not create a Version;
 - changes how the stable item is organized.
 
 If a cooking direction has evolved into a sufficiently different identity and cuisine that historical cuisine needs to remain independently meaningful, the user should duplicate it into another stable Recipe or Part.
 
-## 46.2 One primary cuisine
+## 46.2 Zero, one, or several Cuisines
 
-Tier 1 and Tier 2 support one primary cuisine value per Recipe or Part.
+A Recipe or Part may carry zero, one, or several Cuisines. There is no required primary Cuisine.
 
-Examples:
+Most Recipes naturally have one Cuisine. Assigning more than one supports fusion or cross-cultural dishes without forcing them into a single compound label.
+
+Parts may have no Cuisine at all when it isn't a meaningful classification for that Part (a plain white rice or a base stock, for example).
+
+Examples of individual Cuisine values:
 
 - Vietnamese
 - Japanese
@@ -3400,15 +3406,13 @@ Examples:
 - Korean-American
 - Fusion
 
-Users may use tags for secondary or cross-cultural classification.
+Tags remain available for organizing dimensions that aren't Cuisine at all.
 
-## 46.3 Flexible values
+## 46.3 User-defined values
 
-Cuisine uses free-text values with suggestions based on the user’s existing values.
+Cuisine values are user-defined and managed like the product's other reusable classifications: created, renamed, reordered, and deleted from Settings, and assignable directly from the Recipe/Part create and edit flow.
 
-DishFrame does not impose a rigid global cuisine taxonomy.
-
-Parts may omit cuisine when it is not meaningful.
+DishFrame does not impose a rigid, global cuisine taxonomy — an account's Cuisine list is whatever that user has created. Existing meaningful compound labels a user has created (e.g. Tex-Mex, Nikkei, Korean-American) remain ordinary, valid Cuisine values; multiple Cuisines on one item complement compound labels rather than replacing them.
 
 ---
 
@@ -4570,7 +4574,7 @@ Organization and practical tools are implementation-ready when the following beh
 - The intended product uses flat tags.
 - Custom tag groups remain optional.
 - Favorite is a protected built-in tag.
-- Cuisine is one optional stable-item value.
+- Cuisine is a normalized, user-owned classification; a stable item may carry zero, one, or several Cuisines.
 
 ## Filters and sorting
 

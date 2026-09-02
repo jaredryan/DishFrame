@@ -43,6 +43,7 @@ import {
 } from "@/lib/reviews/queries";
 import { listTags } from "@/lib/tags/queries";
 import { listFlavorProfileValues } from "@/lib/flavor-profiles/queries";
+import { listCuisines } from "@/lib/cuisines/queries";
 import { prisma } from "@/lib/db/prisma";
 
 type DishDetail = Prisma.DishGetPayload<{ include: typeof dishDetailInclude }>;
@@ -124,6 +125,7 @@ export async function DishDetailView({
     lastCookedAt,
     tagOptions,
     flavorProfileOptions,
+    cuisineOptions,
   ] = await Promise.all([
     prisma.userPreference.findUnique({
       where: { userId: dish.ownerId },
@@ -133,11 +135,13 @@ export async function DishDetailView({
     getLastCookedAt(dish.ownerId, dish.id, kind),
     listTags(dish.ownerId),
     listFlavorProfileValues(dish.ownerId),
+    listCuisines(dish.ownerId),
   ]);
   const selectedTagIds = dish.tags.map((t) => t.tagId);
   const selectedFlavorProfileValueIds = dish.flavorProfiles.map(
     (f) => f.flavorProfileValueId,
   );
+  const selectedCuisineIds = dish.cuisines.map((c) => c.cuisineId);
   const isFavorite = dish.tags.some((t) => t.tag.isFavorite);
   const nonFavoriteTagNames = dish.tags
     .filter((t) => !t.tag.isFavorite)
@@ -145,6 +149,10 @@ export async function DishDetailView({
   const flavorProfileNames = dish.flavorProfiles.map(
     (f) => f.flavorProfileValue.displayName,
   );
+  const cuisineNames = dish.cuisines
+    .map((c) => c.cuisine)
+    .sort((a, b) => a.position - b.position)
+    .map((c) => c.displayName);
   const principalRating = computePrincipalRating(
     ratingSummary,
     dish.currentVersionId,
@@ -267,7 +275,7 @@ export async function DishDetailView({
     <DishMetaChips
       stage={dish.stage}
       versionLabel={versionLabel}
-      cuisine={dish.cuisine}
+      cuisineNames={cuisineNames}
       flavorProfileNames={flavorProfileNames}
       tagNames={nonFavoriteTagNames}
       rating={principalRating}
@@ -324,8 +332,10 @@ export async function DishDetailView({
         kind={kind}
         tagOptions={tagOptions}
         flavorProfileOptions={flavorProfileOptions}
+        cuisineOptions={cuisineOptions}
         selectedTagIds={selectedTagIds}
         selectedFlavorProfileValueIds={selectedFlavorProfileValueIds}
+        selectedCuisineIds={selectedCuisineIds}
       />
     </div>
   );

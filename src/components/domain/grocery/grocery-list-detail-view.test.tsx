@@ -498,7 +498,7 @@ describe("GroceryListDetailView — Add meal Version selection", () => {
         dishId: "dish-1",
         kind: "RECIPE",
         stage: "ACTIVE",
-        cuisine: null,
+        cuisineNames: [],
         title: "Weeknight Stir-Fry",
         versionLabel: "V2.0",
         imageAssetId: null,

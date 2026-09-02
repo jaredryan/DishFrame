@@ -180,7 +180,7 @@ describe("extractDishFromJsonFile", () => {
       kind: "RECIPE",
       title: "File Source JSON Recipe",
       stage: "IDEA",
-      cuisine: null,
+      cuisineIds: [],
       tags: [],
       flavorProfiles: [],
       versions: [

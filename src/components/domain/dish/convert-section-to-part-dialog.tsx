@@ -91,7 +91,7 @@ export function ConvertSectionToPartDialog({
     const result = await createDish("PART", {
       title,
       stage: "IDEA",
-      cuisine: null,
+      cuisineIds: [],
       description: description.trim() || null,
       yieldQuantity: null,
       yieldUnit: null,

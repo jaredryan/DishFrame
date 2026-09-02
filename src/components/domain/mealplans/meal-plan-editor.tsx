@@ -92,6 +92,7 @@ import type { DishKindValue, StageValue } from "@/lib/dishes/schema";
 import type {
   TagFilterOption,
   FlavorProfileFilterOption,
+  CuisineFilterOption,
 } from "@/components/domain/dish/library-filter-bar";
 
 /**
@@ -310,7 +311,7 @@ export function MealPlanEditor(
   ) & {
     candidates: MealPlanEntryCandidate[];
     tagOptions: TagFilterOption[];
-    cuisineOptions: string[];
+    cuisineOptions: CuisineFilterOption[];
     flavorProfileOptions: FlavorProfileFilterOption[];
   },
 ) {
@@ -1521,7 +1522,7 @@ function candidateToSelectionItem(
     title: candidate.title,
     versionLabel: candidate.versionLabel,
     stage: candidate.stage,
-    cuisine: candidate.cuisine,
+    cuisineNames: candidate.cuisineNames,
     imageAssetId: candidate.imageAssetId,
     tagNames: candidate.tagNames,
     rating:
@@ -1563,7 +1564,7 @@ function MealPickerModal({
   mode: "add" | "edit";
   candidates: MealPlanEntryCandidate[];
   tagOptions: TagFilterOption[];
-  cuisineOptions: string[];
+  cuisineOptions: CuisineFilterOption[];
   flavorProfileOptions: FlavorProfileFilterOption[];
   initialValues: MealValues | null;
   onOpenChange: (open: boolean) => void;
@@ -1744,7 +1745,7 @@ function MealPickerModal({
       if (favorites && !candidate.isFavorite) return false;
       if (
         cuisineFilter.size > 0 &&
-        (!candidate.cuisine || !cuisineFilter.has(candidate.cuisine))
+        !candidate.cuisineIds.some((id) => cuisineFilter.has(id))
       ) {
         return false;
       }
@@ -1827,11 +1828,14 @@ function MealPickerModal({
       onRemove: () => toggleKind(kind),
     });
   }
-  for (const cuisine of cuisineFilter) {
+  const cuisineNameById = new Map(
+    cuisineOptions.map((c) => [c.id, c.displayName]),
+  );
+  for (const cuisineId of cuisineFilter) {
     activeFilterChips.push({
-      key: `cuisine-${cuisine}`,
-      label: cuisine,
-      onRemove: () => toggleCuisine(cuisine),
+      key: `cuisine-${cuisineId}`,
+      label: cuisineNameById.get(cuisineId) ?? "Cuisine",
+      onRemove: () => toggleCuisine(cuisineId),
     });
   }
   const tagNameById = new Map(tagOptions.map((t) => [t.id, t.displayName]));
@@ -2042,12 +2046,12 @@ function MealPickerModal({
                   <FilterPopover
                     label="Cuisine"
                     options={cuisineOptions.map((cuisine) => ({
-                      value: cuisine,
-                      label: cuisine,
+                      value: cuisine.id,
+                      label: cuisine.displayName,
                     }))}
                     selected={cuisineFilter}
                     onToggleAction={toggleCuisine}
-                    emptyMessage="No cuisines used yet."
+                    emptyMessage="No Cuisines yet."
                   />
                   <FilterPopover
                     label="Flavor profiles"

@@ -11,7 +11,7 @@ function content(overrides: Partial<DishContentInput> = {}): DishContentInput {
   return {
     title: "Ginger Soy Bowl",
     stage: "IDEA",
-    cuisine: null,
+    cuisineIds: [],
     description: null,
     yieldQuantity: null,
     yieldUnit: null,
@@ -345,7 +345,7 @@ describe("print: resolveOwnerPrintContent", () => {
       [
         "aggregateRating",
         "cookTimeMinutes",
-        "cuisine",
+        "cuisines",
         "description",
         "difficulty",
         "dishKind",

@@ -58,7 +58,7 @@ export type LibraryFilters = {
   search: string;
   stages: StageValue[];
   tagIds: string[];
-  cuisines: string[];
+  cuisineIds: string[];
   flavorProfileValueIds: string[];
   rating: RatingFilterValue | null;
   sort: LibrarySortValue;
@@ -141,7 +141,7 @@ export function parseLibrarySearchParams(
     (value): value is StageValue => stageValueSet.has(value),
   );
   const tagIds = splitList(firstParam(params.tag));
-  const cuisines = splitList(firstParam(params.cuisine));
+  const cuisineIds = splitList(firstParam(params.cuisine));
   const flavorProfileValueIds = splitList(firstParam(params.flavor));
   const ratingParam = firstParam(params.rating);
   const rating = ratingParam
@@ -165,7 +165,7 @@ export function parseLibrarySearchParams(
     search,
     stages,
     tagIds,
-    cuisines,
+    cuisineIds,
     flavorProfileValueIds,
     rating,
     sort,
@@ -181,8 +181,8 @@ export function libraryFiltersToSearchParams(
   if (filters.search) params.set("q", filters.search);
   if (filters.stages.length) params.set("stage", filters.stages.join(","));
   if (filters.tagIds.length) params.set("tag", filters.tagIds.join(","));
-  if (filters.cuisines.length)
-    params.set("cuisine", filters.cuisines.join(","));
+  if (filters.cuisineIds.length)
+    params.set("cuisine", filters.cuisineIds.join(","));
   if (filters.flavorProfileValueIds.length) {
     params.set("flavor", filters.flavorProfileValueIds.join(","));
   }
@@ -211,7 +211,7 @@ export function isDefaultLibraryFilters(filters: LibraryFilters): boolean {
     !filters.search &&
     filters.stages.length === 0 &&
     filters.tagIds.length === 0 &&
-    filters.cuisines.length === 0 &&
+    filters.cuisineIds.length === 0 &&
     filters.flavorProfileValueIds.length === 0 &&
     !filters.rating
   );
@@ -227,7 +227,7 @@ export function buildLibraryWhere(
   kind: DishKindValue,
   filters: Pick<
     LibraryFilters,
-    "stages" | "tagIds" | "cuisines" | "flavorProfileValueIds"
+    "stages" | "tagIds" | "cuisineIds" | "flavorProfileValueIds"
   >,
 ): Prisma.DishWhereInput {
   const where: Prisma.DishWhereInput = { ownerId, kind };
@@ -239,8 +239,13 @@ export function buildLibraryWhere(
     ? { in: filters.stages }
     : { not: "ARCHIVED" };
 
-  if (filters.cuisines.length) {
-    where.cuisine = { in: filters.cuisines };
+  // Cuisine (PRODUCT_SPEC.md §46, owner decision 2026-09-02): a Dish may now
+  // carry several Cuisines, so selecting more than one still means "matches
+  // any of these" (the same OR-within-category semantics this filter always
+  // had, back when a Dish carried exactly one Cuisine value) rather than
+  // switching to tags/Flavor profiles' match-all behavior.
+  if (filters.cuisineIds.length) {
+    where.cuisines = { some: { cuisineId: { in: filters.cuisineIds } } };
   }
 
   const matchAllClauses: Prisma.DishWhereInput[] = [
@@ -269,7 +274,7 @@ export function buildLibraryWhere(
 
 export type SearchableDish = {
   currentTitle: string | null;
-  cuisine: string | null;
+  cuisineNames: string[];
   currentStructuralSearchText: string | null;
   tagNames: string[];
   flavorProfileNames: string[];
@@ -318,7 +323,9 @@ export function computeSearchTier(
   if (title === q) return 1;
   if (title.startsWith(q)) return 2;
   if (title.includes(q)) return 3;
-  if (normalizeForSearch(dish.cuisine ?? "").includes(q)) return 4;
+  if (dish.cuisineNames.some((name) => normalizeForSearch(name).includes(q))) {
+    return 4;
+  }
   if (
     dish.flavorProfileNames.some((name) => normalizeForSearch(name).includes(q))
   ) {

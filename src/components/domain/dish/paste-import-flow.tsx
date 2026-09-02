@@ -60,6 +60,8 @@ import { createTag } from "@/lib/tags/actions";
 import { initialCreateTagActionState } from "@/lib/tags/schema";
 import { createFlavorProfile } from "@/lib/flavor-profiles/actions";
 import { initialCreateFlavorProfileActionState } from "@/lib/flavor-profiles/schema";
+import { createCuisine } from "@/lib/cuisines/actions";
+import { initialCreateCuisineActionState } from "@/lib/cuisines/schema";
 import type {
   DishActionState,
   DishContentInput,
@@ -85,15 +87,20 @@ type OkArchiveDraft = Extract<ArchiveImportDraft, { status: "ok" }>;
 
 export type ImportTagOption = { id: string; displayName: string };
 export type ImportFlavorProfileOption = { id: string; displayName: string };
+export type ImportCuisineOption = { id: string; displayName: string };
 
 // Source-metadata mapping (task §5): what to do with one discovered Recipe
-// Gallery `Category` value. Cuisine has no separate entity to create (it's
-// free text on the Dish itself, matching `CuisineField`), so a "cuisine"
-// mapping is applied directly; Tag/Flavor profile mappings resolve to a
-// real id — either an existing one the user picked, or one this pass
-// creates via the exact same `createTag`/`createFlavorProfile` actions
-// Settings' Tag/Flavor-profile managers use (same normalized-name dedup,
-// so re-resolving is always safe).
+// Gallery `Category` value. A "cuisine" mapping is applied directly as the
+// category text, resolved to a real Cuisine (get-or-create, same
+// normalized-name dedup as Tag/Flavor profile) only at actual commit time
+// (`resolveMetadataMappingsForCommit`) — it never gets its own create/
+// existing sub-picker the way Tag/Flavor profile mappings do below, since
+// there's exactly one Cuisine guess per item rather than an ambiguous
+// multi-way choice. Tag/Flavor profile mappings resolve to a real id —
+// either an existing one the user picked, or one this pass creates via the
+// exact same `createTag`/`createFlavorProfile` actions Settings' Tag/
+// Flavor-profile managers use (same normalized-name dedup, so re-resolving
+// is always safe).
 type CategoryMapping =
   | { target: "ignore" }
   | { target: "cuisine" }
@@ -194,12 +201,12 @@ function buildResultsHeadline(
  */
 export function PasteImportFlow({
   kind = "RECIPE",
-  cuisineOptions,
+  cuisineOptions: initialCuisineOptions,
   tagOptions: initialTagOptions = [],
   flavorProfileOptions: initialFlavorProfileOptions = [],
 }: {
   kind?: DishKindValue;
-  cuisineOptions: string[];
+  cuisineOptions: ImportCuisineOption[];
   tagOptions?: ImportTagOption[];
   flavorProfileOptions?: ImportFlavorProfileOption[];
 }) {
@@ -285,13 +292,6 @@ export function PasteImportFlow({
   const [hasReviewedAnyDraft, setHasReviewedAnyDraft] = React.useState(false);
   const [discardConfirmOpen, setDiscardConfirmOpen] = React.useState(false);
 
-  // Metadata-mapping follow-up: indices whose Cuisine was manually edited
-  // during Review — once set, a category→Cuisine mapping stops overwriting
-  // that draft's Cuisine on later Apply/Import/Retry (the manual edit wins).
-  const [manualCuisineOverrides, setManualCuisineOverrides] = React.useState<
-    Set<number>
-  >(new Set());
-
   // Source-metadata mapping (task §5).
   const [categoryMappings, setCategoryMappings] = React.useState<
     Map<string, CategoryMapping>
@@ -299,6 +299,9 @@ export function PasteImportFlow({
   const [tagOptions, setTagOptions] = React.useState(initialTagOptions);
   const [flavorProfileOptions, setFlavorProfileOptions] = React.useState(
     initialFlavorProfileOptions,
+  );
+  const [cuisineOptions, setCuisineOptions] = React.useState(
+    initialCuisineOptions,
   );
 
   // Bulk-import preflight (task §10): every "ok" draft validated against
@@ -412,7 +415,6 @@ export function PasteImportFlow({
     setBatchResults(null);
     setCategoryMappings(new Map());
     setHasReviewedAnyDraft(false);
-    setManualCuisineOverrides(new Set());
     setReviewedIndices(new Set());
     setClassificationOutcomes([]);
     setClassificationWarnings([]);
@@ -496,16 +498,6 @@ export function PasteImportFlow({
     if (!draft || draft.status !== "ok") {
       return { status: "error", message: "Nothing to update." };
     }
-    // Metadata-mapping follow-up: a Cuisine actually changed during Review
-    // is a manual, authoritative edit — locks this index out of future
-    // category→Cuisine mapping application (Apply/Import/Retry).
-    if (draft.result.values.cuisine !== values.cuisine) {
-      setManualCuisineOverrides((prev) => {
-        const next = new Set(prev);
-        next.add(index);
-        return next;
-      });
-    }
     setBatchDrafts((prev) => {
       if (!prev) return prev;
       const current = prev[index];
@@ -565,7 +557,6 @@ export function PasteImportFlow({
     setCollapsedFailedIndices(new Set());
     setCategoryMappings(new Map());
     setHasReviewedAnyDraft(false);
-    setManualCuisineOverrides(new Set());
     setReviewedIndices(new Set());
     setClassificationOutcomes([]);
     setClassificationWarnings([]);
@@ -646,37 +637,31 @@ export function PasteImportFlow({
   }
 
   // Applies any pending "cuisine" category mapping directly into the
-  // matching drafts' `cuisine` field — a *default*, not an authoritative
-  // value: a draft whose Cuisine was manually changed during Review
-  // (`manualCuisineOverrides`) is skipped, so that explicit edit stays
-  // authoritative instead of being overwritten on a later Apply/Import/
-  // Retry. Pure/local — no Server Action calls — so it's safe to run from
-  // "Apply mappings" as well as automatically before Import/Retry.
-  // Takes `mappings` explicitly (rather than closing over `categoryMappings`)
-  // so callers that just computed a new mapping value can apply it in the
-  // same tick, before that value has committed to state.
+  // matching drafts' `result.cuisineGuess` field (a sibling of `values` —
+  // Cuisine isn't part of persisted content any more, PRODUCT_SPEC.md §46,
+  // owner decision 2026-09-02). Pure/local — no Server Action calls — so
+  // it's safe to run from "Apply mappings" as well as automatically before
+  // Import/Retry. Takes `mappings` explicitly (rather than closing over
+  // `categoryMappings`) so callers that just computed a new mapping value
+  // can apply it in the same tick, before that value has committed to state.
   function applyCuisineMappingsToDrafts(
     drafts: ArchiveImportDraft[],
     mappings: Map<string, CategoryMapping>,
   ): ArchiveImportDraft[] {
-    return drafts.map((draft, index) => {
+    return drafts.map((draft) => {
       if (draft.status !== "ok" || !draft.sourceCategory) return draft;
-      if (manualCuisineOverrides.has(index)) return draft;
       const mapping = mappings.get(draft.sourceCategory);
       if (mapping?.target !== "cuisine") return draft;
       const existingMatch = cuisineOptions.find(
         (option) =>
-          normalizeForMatch(option) ===
+          normalizeForMatch(option.displayName) ===
           normalizeForMatch(draft.sourceCategory!),
       );
-      const cuisineValue = existingMatch ?? draft.sourceCategory;
-      if (draft.result.values.cuisine === cuisineValue) return draft;
+      const cuisineValue = existingMatch?.displayName ?? draft.sourceCategory;
+      if (draft.result.cuisineGuess === cuisineValue) return draft;
       return {
         ...draft,
-        result: {
-          ...draft.result,
-          values: { ...draft.result.values, cuisine: cuisineValue },
-        },
+        result: { ...draft.result, cuisineGuess: cuisineValue },
       };
     });
   }
@@ -695,12 +680,15 @@ export function PasteImportFlow({
     mappings: Map<string, CategoryMapping>;
     tagOptions: ImportTagOption[];
     flavorProfileOptions: ImportFlavorProfileOption[];
+    cuisineOptions: ImportCuisineOption[];
     presetTagIdByName: Map<string, string>;
     presetFlavorProfileIdByName: Map<string, string>;
+    cuisineIdByName: Map<string, string>;
   }> {
     const workingMappings = new Map(categoryMappings);
     let workingTagOptions = tagOptions;
     let workingFlavorProfileOptions = flavorProfileOptions;
+    let workingCuisineOptions = cuisineOptions;
 
     // Task §1: preset Tags/Flavor profiles a source adapter already knows
     // are exactly that (so far only `dishframe-json-import.ts`) — resolved
@@ -710,12 +698,22 @@ export function PasteImportFlow({
     // several items sharing a Tag creates it at most once per commit.
     const presetTagNames = new Set<string>();
     const presetFlavorProfileNames = new Set<string>();
+    // PRODUCT_SPEC.md §46 (owner decision, 2026-09-02): every draft's
+    // guessed/mapped Cuisine name (`result.cuisineGuess`, set by the parser
+    // or by a "cuisine" Classifications mapping) plus any source-adapter
+    // preset Cuisine names, deduped the same way — get-or-created here
+    // rather than left as free text, since Cuisine is now a normalized,
+    // user-owned entity like Tag/Flavor profile.
+    const cuisineNames = new Set<string>();
     (batchDrafts ?? []).forEach((draft) => {
       if (draft.status !== "ok") return;
       draft.presetTags?.forEach((name) => presetTagNames.add(name));
       draft.presetFlavorProfiles?.forEach((name) =>
         presetFlavorProfileNames.add(name),
       );
+      draft.presetCuisines?.forEach((name) => cuisineNames.add(name));
+      if (draft.result.cuisineGuess)
+        cuisineNames.add(draft.result.cuisineGuess);
     });
 
     const presetTagIdByName = new Map<string, string>();
@@ -768,6 +766,31 @@ export function PasteImportFlow({
       }
     }
 
+    const cuisineIdByName = new Map<string, string>();
+    for (const name of cuisineNames) {
+      const match = workingCuisineOptions.find(
+        (option) =>
+          normalizeForMatch(option.displayName) === normalizeForMatch(name),
+      );
+      if (match) {
+        cuisineIdByName.set(name, match.id);
+        continue;
+      }
+      const formData = new FormData();
+      formData.set("name", name);
+      const result = await createCuisine(
+        initialCreateCuisineActionState,
+        formData,
+      );
+      if (result.status === "success" && result.cuisine) {
+        workingCuisineOptions = [
+          ...workingCuisineOptions,
+          { id: result.cuisine.id, displayName: result.cuisine.displayName },
+        ];
+        cuisineIdByName.set(name, result.cuisine.id);
+      }
+    }
+
     for (const { category } of categoryStats) {
       const mapping = workingMappings.get(category);
       if (mapping?.target === "tag" && mapping.selection === "create") {
@@ -813,13 +836,16 @@ export function PasteImportFlow({
     setCategoryMappings(workingMappings);
     setTagOptions(workingTagOptions);
     setFlavorProfileOptions(workingFlavorProfileOptions);
+    setCuisineOptions(workingCuisineOptions);
 
     return {
       mappings: workingMappings,
       tagOptions: workingTagOptions,
       flavorProfileOptions: workingFlavorProfileOptions,
+      cuisineOptions: workingCuisineOptions,
       presetTagIdByName,
       presetFlavorProfileIdByName,
+      cuisineIdByName,
     };
   }
 
@@ -830,12 +856,15 @@ export function PasteImportFlow({
     flavorOpts: ImportFlavorProfileOption[],
     presetTagIdByName: Map<string, string>,
     presetFlavorProfileIdByName: Map<string, string>,
+    cuisineIdByName: Map<string, string>,
   ): {
     tags: BulkImportMetadataRef[];
     flavorProfiles: BulkImportMetadataRef[];
+    cuisines: BulkImportMetadataRef[];
   } {
     const tags: BulkImportMetadataRef[] = [];
     const flavorProfiles: BulkImportMetadataRef[] = [];
+    const cuisines: BulkImportMetadataRef[] = [];
 
     draft.presetTags?.forEach((name) => {
       const id = presetTagIdByName.get(name);
@@ -845,6 +874,16 @@ export function PasteImportFlow({
       const id = presetFlavorProfileIdByName.get(name);
       if (id) flavorProfiles.push({ id, displayName: name });
     });
+    draft.presetCuisines?.forEach((name) => {
+      const id = cuisineIdByName.get(name);
+      if (id) cuisines.push({ id, displayName: name });
+    });
+    if (draft.result.cuisineGuess) {
+      const id = cuisineIdByName.get(draft.result.cuisineGuess);
+      if (id && !cuisines.some((ref) => ref.id === id)) {
+        cuisines.push({ id, displayName: draft.result.cuisineGuess });
+      }
+    }
 
     if (draft.sourceCategory) {
       const mapping = mappings.get(draft.sourceCategory);
@@ -869,7 +908,7 @@ export function PasteImportFlow({
       }
     }
 
-    return { tags, flavorProfiles };
+    return { tags, flavorProfiles, cuisines };
   }
 
   function buildBulkImportItemInput(
@@ -880,6 +919,7 @@ export function PasteImportFlow({
     flavorOpts: ImportFlavorProfileOption[],
     presetTagIdByName: Map<string, string>,
     presetFlavorProfileIdByName: Map<string, string>,
+    cuisineIdByName: Map<string, string>,
   ): BulkImportItemInput {
     const metadata = metadataForDraft(
       draft,
@@ -888,6 +928,7 @@ export function PasteImportFlow({
       flavorOpts,
       presetTagIdByName,
       presetFlavorProfileIdByName,
+      cuisineIdByName,
     );
     return {
       sourceRef: draft.sourceRef,
@@ -1050,6 +1091,7 @@ export function PasteImportFlow({
       flavorProfileOptions: flavorOpts,
       presetTagIdByName,
       presetFlavorProfileIdByName,
+      cuisineIdByName,
     } = await resolveMetadataMappingsForCommit();
 
     const blocked = indices.filter((index) => {
@@ -1080,6 +1122,7 @@ export function PasteImportFlow({
           flavorOpts,
           presetTagIdByName,
           presetFlavorProfileIdByName,
+          cuisineIdByName,
         ),
       });
     }
@@ -1212,7 +1255,12 @@ export function PasteImportFlow({
     confirmKind: DishKindValue,
     values: DishContentInput,
   ) {
-    return confirmImport(confirmKind, values, sourceLabel);
+    return confirmImport(
+      confirmKind,
+      values,
+      sourceLabel,
+      parseResult?.cuisineGuess ?? null,
+    );
   }
 
   // Single-item Save confirmation: `DishEditor` awaits this before

@@ -6,7 +6,7 @@ import type {
 import type { getVersionContent as GetVersionContent } from "@/lib/dishes/queries";
 import type { DishContentInput, SectionInput } from "@/lib/dishes/schema";
 import { versionContentToInput } from "@/lib/dishes/mappers";
-import { attachSeedTag } from "./owner";
+import { attachSeedTag, ensureCuisine } from "./owner";
 
 export type Services = {
   createDish: typeof CreateDish;
@@ -73,11 +73,14 @@ export async function buildPartFixtures(
   ownerId: string,
   tagId: string,
 ): Promise<PartFixtureIds> {
+  const southeastAsianId = await ensureCuisine(ownerId, "Southeast Asian");
+  const frenchId = await ensureCuisine(ownerId, "French");
+
   // --- Rice -----------------------------------------------------------
   const riceContent: DishContentInput = {
     title: "[QA] Steamed White Rice",
     stage: "ACTIVE",
-    cuisine: null,
+    cuisineIds: [],
     description: "A basic pot of steamed white rice.",
     yieldQuantity: 4,
     yieldUnit: "servings",
@@ -158,7 +161,7 @@ export async function buildPartFixtures(
   const seasoningContent: DishContentInput = {
     title: "[QA] All-Purpose Seasoning Blend",
     stage: "PROVEN",
-    cuisine: null,
+    cuisineIds: [],
     description: null,
     yieldQuantity: null,
     yieldUnit: null,
@@ -215,7 +218,7 @@ export async function buildPartFixtures(
   const sauceContent: DishContentInput = {
     title: "[QA] Peanut Dipping Sauce",
     stage: "ACTIVE",
-    cuisine: "Southeast Asian",
+    cuisineIds: [southeastAsianId],
     description: "A quick peanut sauce for dipping or drizzling.",
     yieldQuantity: 1,
     yieldUnit: "cup",
@@ -301,7 +304,7 @@ export async function buildPartFixtures(
   const replacementContent: DishContentInput = {
     title: "[QA] Cauliflower Rice",
     stage: "EXPERIMENTAL",
-    cuisine: null,
+    cuisineIds: [],
     description: "A lower-carb stand-in for steamed rice.",
     yieldQuantity: 4,
     yieldUnit: "servings",
@@ -356,7 +359,7 @@ export async function buildPartFixtures(
   const deletemeContent: DishContentInput = {
     title: "[QA] Garlic Confit",
     stage: "ACTIVE",
-    cuisine: "French",
+    cuisineIds: [frenchId],
     description: "Slow-roasted garlic cloves preserved in olive oil.",
     yieldQuantity: 1,
     yieldUnit: "cup",
@@ -432,7 +435,7 @@ export async function buildPartFixtures(
   const unusedContent: DishContentInput = {
     title: "[QA] Toasted Sesame Oil Drizzle",
     stage: "IDEA",
-    cuisine: null,
+    cuisineIds: [],
     description: null,
     yieldQuantity: null,
     yieldUnit: null,

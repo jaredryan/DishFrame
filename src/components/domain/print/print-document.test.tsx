@@ -16,7 +16,7 @@ function baseContent(
     versionLabel: "V1.0",
     description: null,
     imageAssetId: null,
-    cuisine: null,
+    cuisines: [],
     tags: [],
     flavorProfiles: [],
     yieldQuantity: null,

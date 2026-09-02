@@ -6,6 +6,7 @@ import { requireUserId } from "@/lib/auth/session";
 import { toActionErrorMessage } from "@/lib/errors";
 import * as importExportService from "@/lib/importExport/service";
 import * as dishMetadata from "@/lib/dishes/dish-metadata";
+import * as cuisineService from "@/lib/cuisines/service";
 import {
   proposeImportFromPasteSchema,
   proposeImportFromUrlSchema,
@@ -88,6 +89,15 @@ export async function confirmImport(
   kind: DishKindValue,
   values: DishContentInput,
   sourceLabel?: string,
+  // PRODUCT_SPEC.md §46 (owner decision 2026-09-02, restoration pass):
+  // `values.cuisineIds` (the reviewer's own selection in the restored
+  // create-form Cuisine picker) is already persisted atomically by
+  // `createDishWithVersion` via `input.cuisineIds` — this is a *second*,
+  // additive source: a source adapter's free-text guessed Cuisine *name*
+  // (parsed content has no id to submit), get-or-created and unioned onto
+  // the form's own selection right after the Dish exists, never replacing
+  // it.
+  cuisineName?: string | null,
 ): Promise<DishActionState> {
   try {
     const userId = await requireUserId();
@@ -100,6 +110,20 @@ export async function confirmImport(
       input,
       sourceLabel,
     );
+
+    if (cuisineName) {
+      try {
+        const cuisine = await cuisineService.createCuisine(userId, cuisineName);
+        await dishMetadata.setDishCuisines(userId, dishId, parsedKind, [
+          ...new Set([...input.cuisineIds, cuisine.id]),
+        ]);
+      } catch (metadataError) {
+        console.error(
+          "[confirmImport] Could not apply the guessed Cuisine:",
+          metadataError,
+        );
+      }
+    }
 
     revalidatePath(parsedKind === "PART" ? "/parts" : "/recipes");
     revalidatePath(
@@ -129,6 +153,7 @@ export type BulkImportItemInput = {
   // attachment fails (see `BulkImportItemResult.metadataWarnings`).
   tags?: BulkImportMetadataRef[];
   flavorProfiles?: BulkImportMetadataRef[];
+  cuisines?: BulkImportMetadataRef[];
 };
 
 export type BulkImportItemResult =
@@ -145,7 +170,7 @@ export type BulkImportItemResult =
   | { sourceRef: string; status: "error"; message: string };
 
 function describeMetadataFailure(
-  label: "Tag" | "Flavor profile",
+  label: "Tag" | "Flavor profile" | "Cuisine",
   refs: BulkImportMetadataRef[],
 ): string {
   const plural = refs.length === 1 ? label : `${label}s`;
@@ -224,6 +249,29 @@ export async function confirmImportBatch(
           );
           metadataWarnings.push(
             describeMetadataFailure("Flavor profile", item.flavorProfiles),
+          );
+        }
+      }
+      if (item.cuisines?.length) {
+        try {
+          // `input.cuisineIds` (the reviewer's own selection, if this item
+          // went through batch Review) is already persisted by
+          // `importExportService.confirmImport` above — union, don't
+          // replace, so a mapped/preset Cuisine name adds to that selection
+          // instead of wiping it.
+          await dishMetadata.setDishCuisines(userId, dishId, parsedKind, [
+            ...new Set([
+              ...input.cuisineIds,
+              ...item.cuisines.map((cuisine) => cuisine.id),
+            ]),
+          ]);
+        } catch (metadataError) {
+          console.error(
+            "[confirmImportBatch] Could not apply mapped Cuisines:",
+            metadataError,
+          );
+          metadataWarnings.push(
+            describeMetadataFailure("Cuisine", item.cuisines),
           );
         }
       }

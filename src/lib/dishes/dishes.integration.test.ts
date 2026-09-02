@@ -36,7 +36,7 @@ function content(overrides: Partial<DishContentInput> = {}): DishContentInput {
   return {
     title: "Ginger Soy Bowl",
     stage: "IDEA",
-    cuisine: null,
+    cuisineIds: [],
     description: null,
     yieldQuantity: null,
     yieldUnit: null,
@@ -92,6 +92,7 @@ async function loadDishWithVersion(dishId: string) {
       currentVersion: {
         include: { sections: { include: { ingredients: true } } },
       },
+      cuisines: { select: { cuisineId: true } },
     },
   });
 }
@@ -199,6 +200,14 @@ describe("dishes service", () => {
       const user = await createTestUser();
       userId = user.id;
 
+      const japanese = await prisma.cuisine.create({
+        data: {
+          ownerId: userId,
+          normalizedName: "japanese",
+          displayName: "Japanese",
+          position: 0,
+        },
+      });
       const dishId = await dishService.createDish(userId, "RECIPE", content());
       const before = await loadDishWithVersion(dishId);
 
@@ -206,12 +215,15 @@ describe("dishes service", () => {
         userId,
         dishId,
         before.currentVersionId!,
-        content({ cuisine: "Japanese", sections: unchangedSections(before) }),
+        content({
+          cuisineIds: [japanese.id],
+          sections: unchangedSections(before),
+        }),
         undefined,
       );
 
       const after = await loadDishWithVersion(dishId);
-      expect(after.cuisine).toBe("Japanese");
+      expect(after.cuisines.map((c) => c.cuisineId)).toEqual([japanese.id]);
       expect(after.currentVersionId).toBe(before.currentVersionId);
       expect(await versionCount(dishId)).toBe(1);
     });
@@ -627,6 +639,14 @@ describe("dishes service", () => {
       const user = await createTestUser();
       userId = user.id;
 
+      const thai = await prisma.cuisine.create({
+        data: {
+          ownerId: userId,
+          normalizedName: "thai",
+          displayName: "Thai",
+          position: 0,
+        },
+      });
       const dishId = await dishService.createDish(userId, "RECIPE", content());
       const before = await loadDishWithVersion(dishId);
 
@@ -635,7 +655,7 @@ describe("dishes service", () => {
         dishId,
         before.currentVersionId!,
         content({
-          cuisine: "Thai",
+          cuisineIds: [thai.id],
           prepTimeMinutes: 20,
           sections: unchangedSections(before),
         }),
@@ -643,7 +663,7 @@ describe("dishes service", () => {
       );
 
       const after = await loadDishWithVersion(dishId);
-      expect(after.cuisine).toBe("Thai");
+      expect(after.cuisines.map((c) => c.cuisineId)).toEqual([thai.id]);
       expect(after.currentVersion?.prepTimeMinutes).toBe(20);
       expect(after.currentVersionId).toBe(before.currentVersionId);
       expect(await versionCount(dishId)).toBe(1);

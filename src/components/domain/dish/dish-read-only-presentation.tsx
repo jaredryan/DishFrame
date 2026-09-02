@@ -71,7 +71,7 @@ export function DishCoverImage({
 export function DishMetaChips({
   stage,
   versionLabel,
-  cuisine,
+  cuisineNames,
   flavorProfileNames,
   tagNames,
   rating,
@@ -84,7 +84,7 @@ export function DishMetaChips({
 }: {
   stage?: StageValue;
   versionLabel: string;
-  cuisine?: string | null;
+  cuisineNames?: string[];
   flavorProfileNames?: string[];
   tagNames?: string[];
   rating?: PrincipalRating;
@@ -102,7 +102,11 @@ export function DishMetaChips({
         {versionLabel}
       </SemanticChip>
       {rating && rating.kind !== "none" && <RatingBadge rating={rating} />}
-      {cuisine && <SemanticChip semantic="green">{cuisine}</SemanticChip>}
+      {cuisineNames?.map((name) => (
+        <SemanticChip key={`cuisine-${name}`} semantic="green">
+          {name}
+        </SemanticChip>
+      ))}
       {flavorProfileNames?.map((name) => (
         <SemanticChip key={`flavor-${name}`} semantic="green">
           {name}
