@@ -95,5 +95,6 @@ describe("ShareDialog (Publish)", () => {
     expect(
       screen.getByRole("button", { name: "Copy link" }),
     ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open" })).toBeInTheDocument();
   });
 });

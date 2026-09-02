@@ -63,31 +63,56 @@ export const directShareRecipientHistorySchema = z.object({
     .pipe(z.email("Enter a valid email address.")),
 });
 
+const recipientEmailSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .pipe(z.email("Enter a valid email address."));
+
+const directShareItemsSchema = z
+  .array(
+    z.object({
+      dishId: z.string().min(1),
+      dishVersionId: z.string().min(1),
+    }),
+  )
+  .min(1, "Select at least one item.")
+  .max(
+    DIRECT_SHARE_MAX_ITEMS,
+    `You can send at most ${DIRECT_SHARE_MAX_ITEMS} items at once.`,
+  );
+
+const directShareNoteSchema = z.string().trim().max(1000).nullable().optional();
+
+// Toast/Send/Publish QA batch item 4: a Send now addresses one or many
+// recipients — every recipient still goes through the exact same
+// per-recipient `sendDirectShareCollection` service call (looped at the
+// action layer, see `actions.ts`), so ownership/dedup/claim behavior is
+// unchanged per recipient. Deduped here (after normalization) so an
+// accidental double-paste never becomes two collections to the same email.
 export const sendDirectShareCollectionSchema = z.object({
-  recipientEmail: z
-    .string()
-    .trim()
-    .toLowerCase()
-    .pipe(z.email("Enter a valid email address.")),
+  recipientEmails: z
+    .array(recipientEmailSchema)
+    .min(1, "Add at least one recipient.")
+    .transform((emails) => [...new Set(emails)]),
   // Each selected item carries its own explicit Version choice (design
   // pass) — never one Version applied across the whole batch.
-  items: z
-    .array(
-      z.object({
-        dishId: z.string().min(1),
-        dishVersionId: z.string().min(1),
-      }),
-    )
-    .min(1, "Select at least one item.")
-    .max(
-      DIRECT_SHARE_MAX_ITEMS,
-      `You can send at most ${DIRECT_SHARE_MAX_ITEMS} items at once.`,
-    ),
-  note: z.string().trim().max(1000).nullable().optional(),
+  items: directShareItemsSchema,
+  note: directShareNoteSchema,
 });
 export type SendDirectShareCollectionInput = z.infer<
   typeof sendDirectShareCollectionSchema
 >;
+
+/** The per-recipient shape `sharing/collections.ts#sendDirectShareCollection`
+ * (unchanged, one recipient per call) actually consumes — `actions.ts` loops
+ * `SendDirectShareCollectionInput.recipientEmails` and calls the service once
+ * per recipient with this shape. */
+export type SendOneDirectShareCollectionInput = {
+  recipientEmail: string;
+  items: z.infer<typeof directShareItemsSchema>;
+  note?: string | null;
+};
 
 // ============================================================================
 // `/share` generalized bulk Publish: one shared settings payload, applied to

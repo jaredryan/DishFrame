@@ -39,6 +39,11 @@ vi.mock("@/lib/dishes/actions", () => ({
     versions,
     hasMore: false,
   })),
+  listDishVersionOptions: vi.fn(async () => ({
+    status: "success",
+    versions,
+    currentVersionId: "v2",
+  })),
 }));
 
 function versionCombobox() {
@@ -78,7 +83,9 @@ describe("DishDetailActions — contextual sharing stays single-item", () => {
     expect(
       await screen.findByRole("heading", { name: "Send this recipe" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Grandma's Chili")).toBeInTheDocument();
+    expect(
+      screen.getByText("Grandma's Chili", { exact: false }),
+    ).toBeInTheDocument();
     expect(
       screen.queryByPlaceholderText("Search your items…"),
     ).not.toBeInTheDocument();

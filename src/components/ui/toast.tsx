@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { createPortal } from "react-dom";
-import { X, CircleCheck, CircleAlert, Info } from "lucide-react";
+import { X, CircleCheck, CircleAlert, Info, Bell } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -12,9 +12,20 @@ import { cn } from "@/lib/utils";
  * save confirmations, etc.); each caller decides *whether* a toast is
  * warranted and supplies its own copy. Mounted once, at the root layout, so
  * any route (marketing or authenticated app) can call `useToast()`.
+ *
+ * Toast-refinement pass: variant now carries a semantic meaning everywhere
+ * it's used — success (green), error (red), default (neutral,
+ * informational/no-op), attention (blue, action-needed, e.g. "you have a
+ * new shared recipe") — expressed via icon shape + a restrained left-border
+ * accent (never a full-bleed tinted card), so color reinforces rather than
+ * replaces the icon/title/text signal. Set per caller via `variant`; a
+ * caller supplying `durationMs: null` opts into a persistent toast (stays
+ * until explicitly dismissed via the always-present close control, or via
+ * an `actions` entry the caller wires to also dismiss) for content worth
+ * keeping on screen, e.g. a newly published public URL.
  */
 
-export type ToastVariant = "default" | "success" | "error";
+export type ToastVariant = "default" | "success" | "error" | "attention";
 
 export type ToastAction = {
   label: string;
@@ -26,7 +37,9 @@ export type ToastOptions = {
   title: string;
   description?: string;
   variant?: ToastVariant;
-  action?: ToastAction;
+  // One or two caller-supplied actions (e.g. Copy + Open on a Publish
+  // toast) — rendered alongside the always-present dismiss control.
+  actions?: ToastAction[];
   // `null` disables auto-dismiss — for a toast whose only reasonable
   // dismissal is the user acting on it (e.g. the received-share notice,
   // which is dismissed explicitly, not on a timer). Defaults to 6s.
@@ -119,12 +132,24 @@ const VARIANT_ICON: Record<
   default: Info,
   success: CircleCheck,
   error: CircleAlert,
+  attention: Bell,
 };
 
 const VARIANT_ICON_CLASS: Record<ToastVariant, string> = {
   default: "text-muted-foreground",
-  success: "text-primary",
+  success: "text-brand-green-text",
   error: "text-destructive-text",
+  attention: "text-brand-blue-text",
+};
+
+// Restrained left-border accent, matching the same state-color idiom already
+// used for step indicators (`cook-moment.tsx`) — never a full tinted card,
+// per the "not every toast visually loud" requirement.
+const VARIANT_BORDER_CLASS: Record<ToastVariant, string> = {
+  default: "border-l-border",
+  success: "border-l-brand-green",
+  error: "border-l-destructive",
+  attention: "border-l-brand-blue",
 };
 
 /** Renders the live toast stack via a portal so it always sits above route
@@ -153,7 +178,10 @@ export function Toaster() {
           <div
             key={toast.id}
             role="status"
-            className="border-border bg-card text-foreground pointer-events-auto flex w-full max-w-sm items-start gap-2.5 rounded-lg border p-3 shadow-lg"
+            className={cn(
+              "border-border bg-card text-foreground pointer-events-auto flex w-full max-w-sm items-start gap-2.5 rounded-lg border border-l-[3px] p-3 shadow-lg",
+              VARIANT_BORDER_CLASS[variant],
+            )}
           >
             <Icon
               className={cn(
@@ -169,14 +197,19 @@ export function Toaster() {
                   {toast.description}
                 </p>
               )}
-              {toast.action && (
-                <button
-                  type="button"
-                  onClick={toast.action.onClick}
-                  className="text-primary text-sm font-medium underline-offset-4 hover:underline"
-                >
-                  {toast.action.label}
-                </button>
+              {toast.actions && toast.actions.length > 0 && (
+                <div className="flex flex-wrap gap-3">
+                  {toast.actions.map((action, index) => (
+                    <button
+                      key={index}
+                      type="button"
+                      onClick={action.onClick}
+                      className="text-primary text-sm font-medium underline-offset-4 hover:underline"
+                    >
+                      {action.label}
+                    </button>
+                  ))}
+                </div>
               )}
             </div>
             <button

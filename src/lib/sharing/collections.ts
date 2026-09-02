@@ -31,7 +31,7 @@ import {
 } from "@/lib/sharing/graph";
 import {
   DIRECT_SHARE_MAX_ITEMS,
-  type SendDirectShareCollectionInput,
+  type SendOneDirectShareCollectionInput,
 } from "@/lib/sharing/schema";
 import type { DirectShareStatusValue } from "@/lib/sharing/schema";
 
@@ -205,7 +205,7 @@ export async function getDirectShareHistoryForRecipient(
 
 export async function sendDirectShareCollection(
   senderId: string,
-  input: SendDirectShareCollectionInput,
+  input: SendOneDirectShareCollectionInput,
 ): Promise<{ collectionId: string }> {
   // Dedupe by dishId (last explicit Version choice for a given item wins) —
   // the picker only ever produces one entry per selected item, this just

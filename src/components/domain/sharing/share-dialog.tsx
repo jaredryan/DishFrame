@@ -78,12 +78,20 @@ export function ShareDialog({
           title: "Published",
           description: response.url,
           durationMs: null,
-          action: {
-            label: "Copy link",
-            onClick: () => {
-              void navigator.clipboard.writeText(response.url);
+          actions: [
+            {
+              label: "Copy link",
+              onClick: () => {
+                void navigator.clipboard.writeText(response.url);
+              },
             },
-          },
+            {
+              label: "Open",
+              onClick: () => {
+                window.open(response.url, "_blank", "noopener,noreferrer");
+              },
+            },
+          ],
         });
       } else {
         showToast({ variant: "error", title: response.message });

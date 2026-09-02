@@ -31,8 +31,9 @@ async function createAndSendRecipe(
   await openMoreActions(page);
   await page.getByRole("menuitem", { name: "Send" }).click();
   const sendDialog = page.getByRole("dialog");
-  await sendDialog.getByLabel("Recipient's email").fill(recipientEmail);
-  await sendDialog.getByRole("button", { name: "Review" }).click();
+  const recipientsInput = sendDialog.getByLabel("Recipients");
+  await recipientsInput.fill(recipientEmail);
+  await recipientsInput.press("Enter");
   await sendDialog.getByRole("button", { name: "Send" }).click();
   // On success the dialog closes itself and shows a transient success toast
   // rather than an inline "Sent." confirmation step.

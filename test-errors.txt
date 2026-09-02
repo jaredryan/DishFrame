@@ -1,0 +1,1135 @@
+
+> dishframe@0.1.0 verify:frontend /Users/jaredryan/Desktop/coding-projects/DishFrame
+> pnpm run test:frontend
+
+
+> dishframe@0.1.0 test:frontend /Users/jaredryan/Desktop/coding-projects/DishFrame
+> vitest run
+
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.10 [39m[90m/Users/jaredryan/Desktop/coding-projects/DishFrame[39m
+
+ [31m❯[39m src/components/ui/toast.test.tsx [2m([22m[2m7 tests[22m[2m | [22m[31m7 failed[39m[2m)[22m[32m 130[2mms[22m[39m
+[31m     [31m×[31m renders the success variant with its border accent[39m[32m 100[2mms[22m[39m
+[31m     [31m×[31m renders the error variant with its border accent[39m[32m 7[2mms[22m[39m
+[31m     [31m×[31m renders the attention variant with its border accent[39m[32m 5[2mms[22m[39m
+[31m     [31m×[31m renders the default variant with its border accent[39m[32m 3[2mms[22m[39m
+[31m     [31m×[31m a persistent toast (durationMs: null) stays and always shows a dismiss control[39m[32m 3[2mms[22m[39m
+[31m     [31m×[31m renders every caller-supplied action[39m[32m 7[2mms[22m[39m
+[31m     [31m×[31m dismissing fires onDismiss exactly once[39m[32m 4[2mms[22m[39m
+ [31m❯[39m src/components/ui/email-chip-input.test.tsx [2m([22m[2m6 tests[22m[2m | [22m[31m1 failed[39m[2m)[22m[33m 465[2mms[22m[39m
+     [32m✓[39m commits a typed address to a chip on Enter and dedupes case-insensitively[32m 264[2mms[22m[39m
+     [32m✓[39m also commits on comma and on blur[32m 104[2mms[22m[39m
+     [32m✓[39m shows an inline error for an implausible address instead of creating a chip[32m 41[2mms[22m[39m
+     [32m✓[39m removes a chip via its own remove control[32m 21[2mms[22m[39m
+     [32m✓[39m Backspace on an empty field removes the last chip[32m 22[2mms[22m[39m
+[31m     [31m×[31m splits a pasted comma-separated list into multiple chips[39m[32m 11[2mms[22m[39m
+[90mstderr[2m | src/lib/sharing/direct-share-collection-actions.test.ts[2m > [22m[2msharing/actions.ts Slice 22 auth boundary[2m > [22m[2mresolves every recipient independently — one failure doesn't block the rest
+[22m[39m[action] Unexpected error: Error: Already shared.
+    at [90m/Users/jaredryan/Desktop/coding-projects/DishFrame/[39msrc/lib/sharing/direct-share-collection-actions.test.ts:146:30
+    at [90mfile:///Users/jaredryan/Desktop/coding-projects/DishFrame/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@4.1.10/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:302:11
+    at [90mfile:///Users/jaredryan/Desktop/coding-projects/DishFrame/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@4.1.10/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:1903:26
+    at [90mfile:///Users/jaredryan/Desktop/coding-projects/DishFrame/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@4.1.10/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2326:20
+    at new Promise (<anonymous>)
+    at runWithCancel [90m(file:///Users/jaredryan/Desktop/coding-projects/DishFrame/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@4.1.10/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2323:10[90m)[39m
+    at [90mfile:///Users/jaredryan/Desktop/coding-projects/DishFrame/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@4.1.10/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2305:20
+    at new Promise (<anonymous>)
+    at runWithTimeout [90m(file:///Users/jaredryan/Desktop/coding-projects/DishFrame/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@4.1.10/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2272:10[90m)[39m
+    at [90mfile:///Users/jaredryan/Desktop/coding-projects/DishFrame/[39mnode_modules/[4m.pnpm[24m/@vitest+runner@4.1.10/node_modules/[4m@vitest/runner[24m/dist/chunk-artifact.js:2955:64
+
+ [31m❯[39m src/lib/sharing/direct-share-collection-actions.test.ts [2m([22m[2m9 tests[22m[2m | [22m[31m1 failed[39m[2m)[22m[33m 918[2mms[22m[39m
+     [33m[2m✓[22m[39m rejects an unauthenticated shareable-items list without calling the service [33m 899[2mms[22m[39m
+     [32m✓[39m rejects an unauthenticated collection send without calling the service[32m 1[2mms[22m[39m
+     [32m✓[39m rejects an unauthenticated collection cancel without calling the service[32m 1[2mms[22m[39m
+     [32m✓[39m rejects an unauthenticated collection detail fetch without calling the service[32m 1[2mms[22m[39m
+     [32m✓[39m rejects an unauthenticated finalize without calling the service[32m 1[2mms[22m[39m
+     [32m✓[39m passes the signed-in user id through to sendDirectShareCollection on success[32m 4[2mms[22m[39m
+     [32m✓[39m enforces the server batch maximum before the service is ever called[32m 2[2mms[22m[39m
+[31m     [31m×[31m resolves every recipient independently — one failure doesn't block the rest[39m[32m 8[2mms[22m[39m
+     [32m✓[39m dedupes a repeated recipient address before calling the service[32m 0[2mms[22m[39m
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor heading[2m > [22m[2mshows a New heading with no dish, and an Edit heading with one
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor heading[2m > [22m[2mlabels the composition area 'Recipe' even when editing a Part
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor unsaved-changes guard[2m > [22m[2mshows the discard-changes dialog when an in-app link is clicked while dirty, and navigates on Discard
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/paste-import-flow.test.tsx[2m > [22m[2mPasteImportFlow[2m > [22m[2mparses pasted text and shows the review editor pre-filled with the proposal
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor unsaved-changes guard[2m > [22m[2mshows the discard-changes dialog when an in-app link is clicked while dirty, and navigates on Discard
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor unsaved-changes guard[2m > [22m[2mshows the discard-changes dialog when an in-app link is clicked while dirty, and navigates on Discard
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor unsaved-changes guard[2m > [22m[2mshows the discard-changes dialog when an in-app link is clicked while dirty, and navigates on Discard
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/paste-import-flow.test.tsx[2m > [22m[2mPasteImportFlow[2m > [22m[2mshows a needs-review banner when the parser flags ambiguous lines
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor unsaved-changes guard[2m > [22m[2mkeeps editing and dismisses the dialog without navigating
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor unsaved-changes guard[2m > [22m[2mkeeps editing and dismisses the dialog without navigating
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/paste-import-flow.test.tsx[2m > [22m[2mPasteImportFlow[2m > [22m[2mreturns to the paste step on Discard import
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+Not implemented: navigation to another Document
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor unsaved-changes guard[2m > [22m[2mkeeps editing and dismisses the dialog without navigating
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor unsaved-changes guard[2m > [22m[2mkeeps editing and dismisses the dialog without navigating
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+Not implemented: navigation to another Document
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor unsaved-changes guard[2m > [22m[2mdoes not show the dialog when the form is clean
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+Not implemented: navigation to another Document
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Sections[2m > [22m[2mopens Add section as a modal draft, invisible on the page until Finished
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/nutrition-fields.test.tsx[2m > [22m[2mmanual nutrition entry[2m > [22m[2mlets the user type calories/protein/carbs/fat directly
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/paste-import-flow.test.tsx[2m > [22m[2mPasteImportFlow[2m > [22m[2mSave on a single-item import opens the Recipe/Part choice dialog; Save as recipe persists via confirmImport
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/nutrition-fields.test.tsx[2m > [22m[2mmanual nutrition entry[2m > [22m[2mlets the user type calories/protein/carbs/fat directly
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+Not implemented: navigation to another Document
+[90mstderr[2m | src/components/domain/dish/paste-import-flow.test.tsx[2m > [22m[2mPasteImportFlow[2m > [22m[2mSave on a single-item import opens the Recipe/Part choice dialog; Save as recipe persists via confirmImport
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/paste-import-flow.test.tsx[2m > [22m[2mPasteImportFlow[2m > [22m[2mSave on a single-item import opens the Recipe/Part choice dialog; Save as recipe persists via confirmImport
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/paste-import-flow.test.tsx[2m > [22m[2mPasteImportFlow[2m > [22m[2mSave on a single-item import opens the Recipe/Part choice dialog; Save as recipe persists via confirmImport
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+ [31m❯[39m src/components/domain/dish/dish-detail-actions.test.tsx [2m([22m[2m12 tests[22m[2m | [22m[31m1 failed[39m[2m)[22m[33m 2907[2mms[22m[39m
+[31m     [31m×[31m Send opens a dialog locked to this item, with no searchable item selector[39m[33m 371[2mms[22m[39m
+     [32m✓[39m Publish stays single-item, offering the fixed/latest version wording[32m 240[2mms[22m[39m
+     [32m✓[39m on Archive failure, keeps the dialog open and shows an error toast[32m 207[2mms[22m[39m
+     [32m✓[39m on Archive success, closes the dialog and shows a success toast (nav/details QA batch item 11)[32m 186[2mms[22m[39m
+     [32m✓[39m links a Recipe's 'Cooking history' action to its own dedicated history page[32m 61[2mms[22m[39m
+     [32m✓[39m also offers a Part's own 'Cooking history' action, distinct from its composition-based history[32m 90[2mms[22m[39m
+     [32m✓[39m defaults to the current Version[32m 151[2mms[22m[39m
+     [33m[2m✓[22m[39m switches to an explicit historical Version, hides the picker once scope is Include all Versions [33m 387[2mms[22m[39m
+     [32m✓[39m fetches the selected Version/tier, closes the dialog, and shows a success toast with the filename[32m 243[2mms[22m[39m
+     [32m✓[39m prevents a duplicate submission while a download is in flight[32m 226[2mms[22m[39m
+     [33m[2m✓[22m[39m omits versionId when the scope is Include all Versions [33m 520[2mms[22m[39m
+     [32m✓[39m on failure, shows the error toast and keeps the dialog open and usable[32m 222[2mms[22m[39m
+[90mstderr[2m | src/components/domain/dish/nutrition-fields.test.tsx[2m > [22m[2mmanual nutrition entry[2m > [22m[2mshows the per-amount basis fields only once Per serving/output unit is selected
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Sections[2m > [22m[2mdiscards a new Section draft entirely on Cancel
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/nutrition-fields.test.tsx[2m > [22m[2mmanual nutrition entry[2m > [22m[2mshows the per-amount basis fields only once Per serving/output unit is selected
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/paste-import-flow.test.tsx[2m > [22m[2mPasteImportFlow[2m > [22m[2mCancel on the Save dialog closes it without losing edits
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/paste-import-flow.test.tsx[2m > [22m[2mPasteImportFlow[2m > [22m[2mCancel on the Save dialog closes it without losing edits
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/nutrition-fields.test.tsx[2m > [22m[2mFDC search and select[2m > [22m[2msearches, lists results, and applies a selected result into form state
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/paste-import-flow.test.tsx[2m > [22m[2mPasteImportFlow[2m > [22m[2mCancel on the Save dialog closes it without losing edits
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/paste-import-flow.test.tsx[2m > [22m[2mPasteImportFlow[2m > [22m[2mCancel on the Save dialog closes it without losing edits
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Sections[2m > [22m[2mremoves a finished Section
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/nutrition-fields.test.tsx[2m > [22m[2mFDC search and select[2m > [22m[2msearches, lists results, and applies a selected result into form state
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/paste-import-flow.test.tsx[2m > [22m[2mPasteImportFlow[2m > [22m[2mSave as Part persists via confirmImport with PART
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/nutrition-fields.test.tsx[2m > [22m[2mFDC search and select[2m > [22m[2msearches, lists results, and applies a selected result into form state
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+ [32m✓[39m src/components/domain/cooking/cooking-mode-shell.test.tsx [2m([22m[2m26 tests[22m[2m)[22m[33m 3530[2mms[22m[39m
+     [33m[2m✓[22m[39m selects a Section in one click, showing only that Section's content in the center panel [33m 413[2mms[22m[39m
+[90mstderr[2m | src/components/domain/dish/paste-import-flow.test.tsx[2m > [22m[2mPasteImportFlow[2m > [22m[2mSave as Part persists via confirmImport with PART
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/paste-import-flow.test.tsx[2m > [22m[2mPasteImportFlow[2m > [22m[2mSave as Part persists via confirmImport with PART
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/paste-import-flow.test.tsx[2m > [22m[2mPasteImportFlow[2m > [22m[2mSave as Part persists via confirmImport with PART
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Sections[2m > [22m[2mcommits an edited existing Section's changes on Finish
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/nutrition-fields.test.tsx[2m > [22m[2mFDC search and select[2m > [22m[2mshows a friendly error and never blocks manual entry when search fails
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/nutrition-fields.test.tsx[2m > [22m[2mFDC search and select[2m > [22m[2mshows a friendly error and never blocks manual entry when search fails
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/paste-import-flow.test.tsx[2m > [22m[2mPasteImportFlow[2m > [22m[2mdrags a file onto the drop zone and shows the review editor
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Sections[2m > [22m[2mcommits an edited existing Section's changes on Finish
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/nutrition-fields.test.tsx[2m > [22m[2mFDC search and select[2m > [22m[2mshows a friendly error and never blocks manual entry when search fails
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/paste-import-flow.test.tsx[2m > [22m[2mPasteImportFlow[2m > [22m[2mextracts text from an uploaded .md file (via the picker) and shows the review editor
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+ [32m✓[39m src/components/domain/grocery/grocery-list-detail-view.test.tsx [2m([22m[2m27 tests[22m[2m)[22m[33m 2214[2mms[22m[39m
+     [33m[2m✓[22m[39m shows 'Use substitute' for an eligible primary-selected contribution and invokes selection with SUBSTITUTE [33m 459[2mms[22m[39m
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Sections[2m > [22m[2mreverts an edited existing Section's changes on Cancel
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/nutrition-fields.test.tsx[2m > [22m[2mdetach from source[2m > [22m[2mclears source attribution while preserving nutrition values
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/nutrition-fields.test.tsx[2m > [22m[2mdetach from source[2m > [22m[2mclears source attribution while preserving nutrition values
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/nutrition-fields.test.tsx[2m > [22m[2mMore nutrients[2m > [22m[2mshows and edits the recognized whitelist
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/nutrition-fields.test.tsx[2m > [22m[2mMore nutrients[2m > [22m[2mshows and edits the recognized whitelist
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+ [32m✓[39m src/components/domain/dish/nutrition-fields.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[33m 2809[2mms[22m[39m
+     [33m[2m✓[22m[39m lets the user type calories/protein/carbs/fat directly [33m 864[2mms[22m[39m
+     [33m[2m✓[22m[39m shows the per-amount basis fields only once Per serving/output unit is selected [33m 423[2mms[22m[39m
+     [33m[2m✓[22m[39m searches, lists results, and applies a selected result into form state [33m 502[2mms[22m[39m
+     [33m[2m✓[22m[39m shows a friendly error and never blocks manual entry when search fails [33m 587[2mms[22m[39m
+[90mstderr[2m | src/components/domain/dish/paste-import-flow.test.tsx[2m > [22m[2mPasteImportFlow[2m > [22m[2mimports from a website URL and shows the review editor
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Sections[2m > [22m[2mtreats Escape the same as Cancel
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Sections[2m > [22m[2mexposes an accessible drag handle for reordering a Section
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/paste-import-flow.test.tsx[2m > [22m[2mPasteImportFlow[2m > [22m[2mreviewing a batch row updates the pending draft and returns to the list via Finish review, without persisting
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/paste-import-flow.test.tsx[2m > [22m[2mPasteImportFlow[2m > [22m[2mreviewing a batch row updates the pending draft and returns to the list via Finish review, without persisting
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Sections[2m > [22m[2mnumbers Sections by current position among top-level items, not by fieldArray order
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Ingredients[2m > [22m[2madds and removes an Ingredient
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/paste-import-flow.test.tsx[2m > [22m[2mPasteImportFlow[2m > [22m[2mCancel in batch Review discards the current edits and returns to the import list
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/paste-import-flow.test.tsx[2m > [22m[2mPasteImportFlow[2m > [22m[2mCancel in batch Review discards the current edits and returns to the import list
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Ingredients[2m > [22m[2mexposes an accessible drag handle for reordering an Ingredient
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+ [32m✓[39m src/components/domain/dish/library-filter-bar.test.tsx [2m([22m[2m13 tests[22m[2m)[22m[33m 1140[2mms[22m[39m
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Ingredients[2m > [22m[2mdefaults to Single amount mode and switches to Range, exposing From/To fields
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+ [32m✓[39m src/components/domain/sharing/bulk-publish-dialog.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[33m 971[2mms[22m[39m
+ [32m✓[39m src/components/domain/mealplans/meal-plan-editor.test.tsx [2m([22m[2m15 tests[22m[2m)[22m[33m 5438[2mms[22m[39m
+     [33m[2m✓[22m[39m does not show a meaningless Planned badge for a newly-added unsaved meal [33m 603[2mms[22m[39m
+     [33m[2m✓[22m[39m clicking the card row (not a nested action) opens Edit [33m 378[2mms[22m[39m
+     [33m[2m✓[22m[39m stages the selected Version on the draft entry, persisted on Save [33m 332[2mms[22m[39m
+     [33m[2m✓[22m[39m preserves a user-chosen target yield across a Version switch, recalculating the scale from the newly selected Version's own yield [33m 352[2mms[22m[39m
+     [33m[2m✓[22m[39m Add plan commits a scheduled meal, grouped under its date's day card [33m 599[2mms[22m[39m
+     [33m[2m✓[22m[39m prevents scheduling more servings than the Meal's target yield across entries (§77.2) [33m 517[2mms[22m[39m
+     [33m[2m✓[22m[39m removing the Meal a schedule entry belongs to clears that schedule entry too [33m 466[2mms[22m[39m
+     [33m[2m✓[22m[39m Save sends the schedule as scheduleAssignments keyed to the new entry's localKey [33m 445[2mms[22m[39m
+     [33m[2m✓[22m[39m blocks Save with a clear message when a Meal's target yield drops below its already-scheduled servings [33m 539[2mms[22m[39m
+[90mstderr[2m | src/components/domain/dish/paste-import-flow.test.tsx[2m > [22m[2mPasteImportFlow[2m > [22m[2mapplies a category→Cuisine mapping as a default, but a manual Cuisine edit made during Review wins on Import
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+ [32m✓[39m src/components/domain/sharing/direct-share-collection-dialog.test.tsx [2m([22m[2m9 tests[22m[2m)[22m[33m 2211[2mms[22m[39m
+     [33m[2m✓[22m[39m is the generalized flow: `/share`'s Send opens with nothing preselected [33m 314[2mms[22m[39m
+     [33m[2m✓[22m[39m sends each selected item with its own independently chosen Version, not one shared Version for the whole batch [33m 350[2mms[22m[39m
+     [33m[2m✓[22m[39m disables items already shared (accepted or pending) to the single entered recipient and excludes them from Select all [33m 551[2mms[22m[39m
+[90mstderr[2m | src/components/domain/dish/paste-import-flow.test.tsx[2m > [22m[2mPasteImportFlow[2m > [22m[2mapplies a category→Cuisine mapping as a default, but a manual Cuisine edit made during Review wins on Import
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Ingredients[2m > [22m[2mswitching back from Range to Single clears the stale quantityEnd
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Ingredients[2m > [22m[2mswitching back from Range to Single clears the stale quantityEnd
+[22m[39mAn update to ForwardRef(SelectItem) inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Ingredients[2m > [22m[2mswitching back from Range to Single clears the stale quantityEnd
+[22m[39mA component suspended inside an `act` scope, but the `act` call was not awaited. When testing React components that depend on asynchronous data, you must await the result:
+
+await act(() => ...)
+
+ [32m✓[39m src/components/domain/cooking/session-review-form.test.tsx [2m([22m[2m7 tests[22m[2m)[22m[33m 1205[2mms[22m[39m
+     [33m[2m✓[22m[39m links Edit recipe to the exact cooked Version and this session, after saving [33m 341[2mms[22m[39m
+     [33m[2m✓[22m[39m changing the draft dropdown after a save never rewrites the already-shown success toast (save-state bug fix) [33m 345[2mms[22m[39m
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Ingredients[2m > [22m[2mTo taste and As needed modes show no amount inputs
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/paste-import-flow.test.tsx[2m > [22m[2mPasteImportFlow[2m > [22m[2mmarks a Needs-review row Reviewed after Finish review and sinks it to the bottom of the group
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Ingredients[2m > [22m[2mFree text mode exposes a text box for the amount description
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+ [32m✓[39m src/app/(app)/layout.test.ts [2m([22m[2m1 test[22m[2m)[22m[33m 1201[2mms[22m[39m
+     [33m[2m✓[22m[39m is noindex, nofollow for the whole protected app shell [33m 1199[2mms[22m[39m
+ [32m✓[39m src/components/domain/dish/paste-import-flow.test.tsx [2m([22m[2m34 tests[22m[2m)[22m[33m 8081[2mms[22m[39m
+     [33m[2m✓[22m[39m parses pasted text and shows the review editor pre-filled with the proposal [33m 614[2mms[22m[39m
+     [33m[2m✓[22m[39m returns to the paste step on Discard import [33m 388[2mms[22m[39m
+     [33m[2m✓[22m[39m Save on a single-item import opens the Recipe/Part choice dialog; Save as recipe persists via confirmImport [33m 864[2mms[22m[39m
+     [33m[2m✓[22m[39m Cancel on the Save dialog closes it without losing edits [33m 479[2mms[22m[39m
+     [33m[2m✓[22m[39m Save as Part persists via confirmImport with PART [33m 548[2mms[22m[39m
+     [33m[2m✓[22m[39m imports from a website URL and shows the review editor [33m 351[2mms[22m[39m
+     [33m[2m✓[22m[39m reviewing a batch row updates the pending draft and returns to the list via Finish review, without persisting [33m 328[2mms[22m[39m
+     [33m[2m✓[22m[39m applies a category→Cuisine mapping as a default, but a manual Cuisine edit made during Review wins on Import [33m 393[2mms[22m[39m
+     [33m[2m✓[22m[39m resolves/creates a pending new Tag only once Import actually begins [33m 372[2mms[22m[39m
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Instructions[2m > [22m[2madds and removes an Instruction
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+ [32m✓[39m src/components/domain/cooking/start-cooking-button.test.tsx [2m([22m[2m9 tests[22m[2m)[22m[33m 1224[2mms[22m[39m
+     [33m[2m✓[22m[39m does not fetch until opened, and opens the What will you cook? dialog [33m 338[2mms[22m[39m
+ [32m✓[39m src/components/app/delete-account-dialog.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[33m 1264[2mms[22m[39m
+     [33m[2m✓[22m[39m keeps the destructive action disabled until the exact email is typed [33m 692[2mms[22m[39m
+ [32m✓[39m src/components/domain/grocery/grocery-source-picker.test.tsx [2m([22m[2m7 tests[22m[2m)[22m[33m 1128[2mms[22m[39m
+     [33m[2m✓[22m[39m recalculates the scale factor from the newly selected Version's own yield, preserving the user's chosen target servings [33m 432[2mms[22m[39m
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Instructions[2m > [22m[2mexposes an accessible drag handle for reordering an Instruction
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor minimum-content validation[2m > [22m[2mblocks save and shows an error when there is no ingredient or instruction
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor minimum-content validation[2m > [22m[2mblocks save and shows an error when there is no ingredient or instruction
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor minimum-content validation[2m > [22m[2mblocks save and shows an error when there is no ingredient or instruction
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor minimum-content validation[2m > [22m[2mdoes not show the minimum-content error on an untouched create form
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor substitute handling[2m > [22m[2mcreates successfully when 'Add substitute' was clicked but left entirely blank
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor substitute handling[2m > [22m[2mcreates successfully when 'Add substitute' was clicked but left entirely blank
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+ [32m✓[39m src/components/app/sidebar-nav.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[33m 339[2mms[22m[39m
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor substitute handling[2m > [22m[2mpersists a fully completed substitute
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor substitute handling[2m > [22m[2mpersists a fully completed substitute
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+ [32m✓[39m src/components/domain/home/home-dashboard.test.tsx [2m([22m[2m17 tests[22m[2m)[22m[33m 1008[2mms[22m[39m
+ [32m✓[39m src/app/(cook)/layout.test.ts [2m([22m[2m1 test[22m[2m)[22m[33m 643[2mms[22m[39m
+     [33m[2m✓[22m[39m is noindex, nofollow for the full-bleed cooking session shell [33m 641[2mms[22m[39m
+ [32m✓[39m src/components/domain/sharing/direct-share-single-item-dialog.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[33m 1192[2mms[22m[39m
+     [33m[2m✓[22m[39m titles itself by kind and locks the collection to exactly this dish — direct Send, no Review step [33m 522[2mms[22m[39m
+ [32m✓[39m src/components/domain/dish/dish-library-display.test.tsx [2m([22m[2m8 tests[22m[2m)[22m[33m 701[2mms[22m[39m
+ [32m✓[39m src/components/domain/sharing/direct-share-received-list.test.tsx [2m([22m[2m7 tests[22m[2m)[22m[33m 321[2mms[22m[39m
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor substitute handling[2m > [22m[2mblocks Finish section and shows a field-level error for a partially completed substitute, until it's fixed
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor substitute handling[2m > [22m[2mblocks Finish section and shows a field-level error for a partially completed substitute, until it's fixed
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+ [32m✓[39m src/components/domain/sharing/direct-share-collection-review-dialog.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[33m 575[2mms[22m[39m
+ [32m✓[39m src/components/domain/cooking/scale-control.test.tsx [2m([22m[2m13 tests[22m[2m)[22m[33m 434[2mms[22m[39m
+ [32m✓[39m src/components/onboarding/replayable-guide-list.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[33m 866[2mms[22m[39m
+ [32m✓[39m src/components/ui/date-picker-field.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[33m 962[2mms[22m[39m
+     [33m[2m✓[22m[39m disables days before min and after max, leaving in-range days selectable [33m 455[2mms[22m[39m
+     [33m[2m✓[22m[39m commits an in-range day and does not respond to a disabled out-of-range day [33m 507[2mms[22m[39m
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor substitute handling[2m > [22m[2mdefensively blocks final Save when a partial substitute reaches the parent form directly, bypassing the Section modal
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor substitute handling[2m > [22m[2mdefensively blocks final Save when a partial substitute reaches the parent form directly, bypassing the Section modal
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+ [32m✓[39m src/components/domain/cooking/dish-cook-sessions-view.test.tsx [2m([22m[2m12 tests[22m[2m)[22m[33m 891[2mms[22m[39m
+     [33m[2m✓[22m[39m expands Notes to show the currently-selected cooking units (present tense) and current Cooking notes [33m 379[2mms[22m[39m
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor minor/major version choice[2m > [22m[2msaves directly, without the choice dialog, when only a metadata field (title) changed
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor minor/major version choice[2m > [22m[2msaves directly, without the choice dialog, when only a metadata field (title) changed
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor minor/major version choice[2m > [22m[2msaves directly, without the choice dialog, when only a metadata field (title) changed
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor minor/major version choice[2m > [22m[2msaves directly, without the choice dialog, when only a metadata field (title) changed
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor minor/major version choice[2m > [22m[2mshows the choice dialog when an Ingredient changed, and saves as a refinement on that choice
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+ [32m✓[39m src/components/domain/dish/version-picker-field.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[33m 436[2mms[22m[39m
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor minor/major version choice[2m > [22m[2mshows the choice dialog when an Ingredient changed, and saves as a refinement on that choice
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor minor/major version choice[2m > [22m[2mshows the choice dialog when an Ingredient changed, and saves as a refinement on that choice
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor minor/major version choice[2m > [22m[2mshows the choice dialog when an Ingredient changed, and saves as a refinement on that choice
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor minor/major version choice[2m > [22m[2mshows the choice dialog when an Ingredient changed, and saves as a refinement on that choice
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor minor/major version choice[2m > [22m[2msaves as a new major version when that choice is made
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+ [32m✓[39m src/components/domain/dish/dish-tag-flavor-editor.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[33m 743[2mms[22m[39m
+     [33m[2m✓[22m[39m saves the selected tags and Flavor profiles [33m 563[2mms[22m[39m
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor minor/major version choice[2m > [22m[2msaves as a new major version when that choice is made
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+ [32m✓[39m src/components/ui/confirm-dialog.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[33m 533[2mms[22m[39m
+     [33m[2m✓[22m[39m renders title, description, and calls onConfirm from the confirm button [33m 425[2mms[22m[39m
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor minor/major version choice[2m > [22m[2msaves as a new major version when that choice is made
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+ [32m✓[39m src/components/domain/dish/convert-section-to-part-dialog.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 902[2mms[22m[39m
+     [33m[2m✓[22m[39m prefills the name from the Section, converts its content, and hands the link back without navigating [33m 810[2mms[22m[39m
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor minor/major version choice[2m > [22m[2msaves as a new major version when that choice is made
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor minor/major version choice[2m > [22m[2msaves as a new major version when that choice is made
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor consolidated note and default scale[2m > [22m[2msaves a Note-only change via updateVersionNote, without the minor/major dialog
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor consolidated note and default scale[2m > [22m[2msaves a Note-only change via updateVersionNote, without the minor/major dialog
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor consolidated note and default scale[2m > [22m[2msaves a Note-only change via updateVersionNote, without the minor/major dialog
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+ [32m✓[39m src/components/domain/dish/part-link-fields.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[33m 750[2mms[22m[39m
+     [33m[2m✓[22m[39m Apply updates the parent draft's multiplier and the header chip, without persisting anything [33m 435[2mms[22m[39m
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor consolidated note and default scale[2m > [22m[2msaves a Note-only change via updateVersionNote, without the minor/major dialog
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor consolidated note and default scale[2m > [22m[2mdoes not call updateVersionNote when the note is unchanged
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor consolidated note and default scale[2m > [22m[2mdoes not call updateVersionNote when the note is unchanged
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor consolidated note and default scale[2m > [22m[2mcomputes the default-scale result text from yield × scale, and Reset visibly returns the input to 1
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+ [32m✓[39m src/components/app/account-menu.test.tsx [2m([22m[2m8 tests[22m[2m)[22m[33m 600[2mms[22m[39m
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor consolidated note and default scale[2m > [22m[2mcomputes the default-scale result text from yield × scale, and Reset visibly returns the input to 1
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor consolidated note and default scale[2m > [22m[2mcomputes the default-scale result text from yield × scale, and Reset visibly returns the input to 1
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor consolidated note and default scale[2m > [22m[2mcomputes the default-scale result text from yield × scale, and Reset visibly returns the input to 1
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor consolidated note and default scale[2m > [22m[2mcomputes the default-scale result text from yield × scale, and Reset visibly returns the input to 1
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor consolidated note and default scale[2m > [22m[2mdisplays a stored custom scale as-is
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+ [32m✓[39m src/components/domain/sharing/share-link-list.test.tsx [2m([22m[2m7 tests[22m[2m)[22m[33m 484[2mms[22m[39m
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor consolidated note and default scale[2m > [22m[2mdisplays a stored custom scale as-is
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor consolidated note and default scale[2m > [22m[2mblurring an emptied input resolves the visible value back to 1
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor consolidated note and default scale[2m > [22m[2mblurring an emptied input resolves the visible value back to 1
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor consolidated note and default scale[2m > [22m[2mblurring an emptied input resolves the visible value back to 1
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor consolidated note and default scale[2m > [22m[2mpersists the default scale via setDefaultScale only when it changed
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor consolidated note and default scale[2m > [22m[2mpersists the default scale via setDefaultScale only when it changed
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor consolidated note and default scale[2m > [22m[2mpersists the default scale via setDefaultScale only when it changed
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor consolidated note and default scale[2m > [22m[2mpersists the default scale via setDefaultScale only when it changed
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor consolidated note and default scale[2m > [22m[2mdoes not call setDefaultScale when an unset scale is explicitly typed as 1
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+ [32m✓[39m src/lib/images/processing.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 237[2mms[22m[39m
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor consolidated note and default scale[2m > [22m[2mdoes not call setDefaultScale when an unset scale is explicitly typed as 1
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor consolidated note and default scale[2m > [22m[2mdoes not call setDefaultScale when an unset scale is explicitly typed as 1
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor consolidated note and default scale[2m > [22m[2mdoes not call setDefaultScale when an unset scale is explicitly typed as 1
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor consolidated note and default scale[2m > [22m[2mclears the stored custom scale via setDefaultScale(null) when Reset is saved
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor consolidated note and default scale[2m > [22m[2mclears the stored custom scale via setDefaultScale(null) when Reset is saved
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor consolidated note and default scale[2m > [22m[2mclears the stored custom scale via setDefaultScale(null) when Reset is saved
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor consolidated note and default scale[2m > [22m[2mclears the stored custom scale via setDefaultScale(null) when Reset is saved
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+ [32m✓[39m src/components/domain/dish/top-level-reorder-dialog.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 356[2mms[22m[39m
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Convert Section to Part[2m > [22m[2mreplaces the Section with a PartLink at the same position, without saving the parent or navigating away
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Convert Section to Part[2m > [22m[2mreplaces the Section with a PartLink at the same position, without saving the parent or navigating away
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Replace Section with Part[2m > [22m[2mreplaces the Section with the selected Part at the Section's exact position, leaving the rest of the order untouched
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Replace Section with Part[2m > [22m[2mreplaces the Section with the selected Part at the Section's exact position, leaving the rest of the order untouched
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+ [32m✓[39m src/components/domain/dish/part-attach-picker.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[33m 637[2mms[22m[39m
+     [33m[2m✓[22m[39m fetches eligible Parts only once opened, and again — fresh — on every reopening [33m 328[2mms[22m[39m
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Replace Section with Part[2m > [22m[2mCancel leaves the Section unchanged
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+ [32m✓[39m src/components/domain/cooking/cooking-setup.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[32m 294[2mms[22m[39m
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Replace Section with Part[2m > [22m[2mstill relies on server-side eligibility validation, not just the fetched candidate list
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+ [32m✓[39m src/components/domain/dish/fdc-search-picker.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[33m 490[2mms[22m[39m
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor linked-Part inline rendering[2m > [22m[2mstarts collapsed for an already-saved linked Part, expands to reveal pinned content
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor historical Version identification[2m > [22m[2midentifies both the cooked Version and the current Version when editing a historical base
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor historical Version identification[2m > [22m[2mfalls back to a generic notice when the current Version's label isn't available
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor session evidence[2m > [22m[2mshows the trigger only when evidence is present
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor session evidence[2m > [22m[2mopens and closes the evidence Sheet without resetting unsaved form edits
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+ [32m✓[39m src/components/domain/dish/section-fields.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 367[2mms[22m[39m
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Details/Nutrition collapse[2m > [22m[2mstarts Details and Nutrition collapsed when editing an existing Recipe/Part
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Details/Nutrition collapse[2m > [22m[2mstarts Details and Nutrition expanded when creating a new Recipe/Part
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+ [32m✓[39m src/components/domain/sharing/share-dialog.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 628[2mms[22m[39m
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Details/Nutrition collapse[2m > [22m[2mstarts Details and Nutrition expanded for an import/create-review flow
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Details/Nutrition collapse[2m > [22m[2mcollapsing Details preserves the entered values
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Details/Nutrition collapse[2m > [22m[2mcollapsing Details preserves the entered values
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Details/Nutrition collapse[2m > [22m[2mcollapsing Details preserves the entered values
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+ [32m✓[39m src/components/ui/dropdown-menu.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[33m 466[2mms[22m[39m
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Details/Nutrition collapse[2m > [22m[2mcollapsing Details preserves the entered values
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+ [32m✓[39m src/components/app/disabled-action-hint.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[33m 322[2mms[22m[39m
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Details/Nutrition collapse[2m > [22m[2mcollapsing Details preserves the entered values
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Details/Nutrition collapse[2m > [22m[2mcollapsing Nutrition preserves the entered values
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+ [32m✓[39m src/components/domain/sharing/direct-share-sent-list.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[32m 223[2mms[22m[39m
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Details/Nutrition collapse[2m > [22m[2mcollapsing Nutrition preserves the entered values
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+ [32m✓[39m src/lib/sharing/direct-share-actions.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 267[2mms[22m[39m
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Details/Nutrition collapse[2m > [22m[2mexpands Details and Nutrition independently of one another
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Details/Nutrition collapse[2m > [22m[2mexpands Details and Nutrition independently of one another
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Reorder[2m > [22m[2mhides the Reorder action when there's nothing to reorder
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Reorder[2m > [22m[2mopens the Reorder modal with the editor's current top-level order
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Reorder[2m > [22m[2mCancel leaves the editor's order unchanged
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor Reorder[2m > [22m[2mApply updates the editor's draft order immediately, without saving a Version
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor import-review overrides[2m > [22m[2msubmitLabel overrides the primary button's text
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor import-review overrides[2m > [22m[2monCancelAction replaces the Cancel link with a callback and never navigates
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+[90mstderr[2m | src/components/domain/dish/dish-editor.test.tsx[2m > [22m[2mDishEditor import-review overrides[2m > [22m[2mshows the orange Needs-review warning and a working jump link for an imported Needs-review Section
+[22m[39mEncountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+Encountered two children with the same key, `0`. Keys should be unique so that components maintain their identity across updates. Non-unique keys may cause children to be duplicated and/or omitted — the behavior is unsupported and could change in a future version.
+
+ [32m✓[39m src/components/domain/dish/dish-editor.test.tsx [2m([22m[2m60 tests[22m[2m)[22m[33m 19104[2mms[22m[39m
+     [33m[2m✓[22m[39m shows a New heading with no dish, and an Edit heading with one [33m 438[2mms[22m[39m
+     [33m[2m✓[22m[39m shows the discard-changes dialog when an in-app link is clicked while dirty, and navigates on Discard [33m 428[2mms[22m[39m
+     [33m[2m✓[22m[39m keeps editing and dismisses the dialog without navigating [33m 429[2mms[22m[39m
+     [33m[2m✓[22m[39m opens Add section as a modal draft, invisible on the page until Finished [33m 690[2mms[22m[39m
+     [33m[2m✓[22m[39m discards a new Section draft entirely on Cancel [33m 482[2mms[22m[39m
+     [33m[2m✓[22m[39m removes a finished Section [33m 451[2mms[22m[39m
+     [33m[2m✓[22m[39m commits an edited existing Section's changes on Finish [33m 464[2mms[22m[39m
+     [33m[2m✓[22m[39m reverts an edited existing Section's changes on Cancel [33m 653[2mms[22m[39m
+     [33m[2m✓[22m[39m adds and removes an Ingredient [33m 377[2mms[22m[39m
+     [33m[2m✓[22m[39m exposes an accessible drag handle for reordering an Ingredient [33m 529[2mms[22m[39m
+     [33m[2m✓[22m[39m defaults to Single amount mode and switches to Range, exposing From/To fields [33m 355[2mms[22m[39m
+     [33m[2m✓[22m[39m switching back from Range to Single clears the stale quantityEnd [33m 958[2mms[22m[39m
+     [33m[2m✓[22m[39m To taste and As needed modes show no amount inputs [33m 504[2mms[22m[39m
+     [33m[2m✓[22m[39m Free text mode exposes a text box for the amount description [33m 722[2mms[22m[39m
+     [33m[2m✓[22m[39m adds and removes an Instruction [33m 401[2mms[22m[39m
+     [33m[2m✓[22m[39m creates successfully when 'Add substitute' was clicked but left entirely blank [33m 956[2mms[22m[39m
+     [33m[2m✓[22m[39m persists a fully completed substitute [33m 868[2mms[22m[39m
+     [33m[2m✓[22m[39m blocks Finish section and shows a field-level error for a partially completed substitute, until it's fixed [33m 1556[2mms[22m[39m
+     [33m[2m✓[22m[39m shows the choice dialog when an Ingredient changed, and saves as a refinement on that choice [33m 468[2mms[22m[39m
+     [33m[2m✓[22m[39m saves as a new major version when that choice is made [33m 885[2mms[22m[39m
+     [33m[2m✓[22m[39m saves a Note-only change via updateVersionNote, without the minor/major dialog [33m 302[2mms[22m[39m
+     [33m[2m✓[22m[39m Cancel leaves the editor's order unchanged [33m 390[2mms[22m[39m
+ [32m✓[39m src/components/domain/cooking/cook-sessions-view.test.tsx [2m([22m[2m11 tests[22m[2m)[22m[33m 635[2mms[22m[39m
+ [32m✓[39m src/app/(share)/layout.test.ts [2m([22m[2m1 test[22m[2m)[22m[33m 538[2mms[22m[39m
+     [33m[2m✓[22m[39m is noindex, nofollow for public token-based share pages [33m 537[2mms[22m[39m
+ [32m✓[39m src/components/domain/grocery/grocery-list-rows.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[33m 434[2mms[22m[39m
+ [32m✓[39m src/app/(auth)/sign-in/page.test.ts [2m([22m[2m5 tests[22m[2m)[22m[33m 412[2mms[22m[39m
+     [33m[2m✓[22m[39m is noindex, nofollow [33m 408[2mms[22m[39m
+ [32m✓[39m src/components/ui/entity-row-actions.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 436[2mms[22m[39m
+ [32m✓[39m src/components/app/auth-session-manager.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[32m 230[2mms[22m[39m
+ [32m✓[39m src/components/onboarding/example-recipe-demo.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[33m 396[2mms[22m[39m
+     [33m[2m✓[22m[39m never calls a mocked persistence function while being interacted with [33m 392[2mms[22m[39m
+ [32m✓[39m src/components/auth/sign-in-card.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[33m 322[2mms[22m[39m
+ [32m✓[39m src/components/domain/dish/dish-compact-card.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[33m 329[2mms[22m[39m
+ [32m✓[39m src/components/domain/dish/part-usage-panel.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[32m 289[2mms[22m[39m
+ [32m✓[39m src/components/onboarding/coach-mark.test.tsx [2m([22m[2m8 tests[22m[2m)[22m[33m 313[2mms[22m[39m
+ [32m✓[39m src/components/marketing/hero-showcase.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 158[2mms[22m[39m
+ [32m✓[39m src/components/domain/sharing/share-menu-button.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[33m 487[2mms[22m[39m
+ [32m✓[39m src/components/domain/sharing/public-share-view.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[32m 217[2mms[22m[39m
+ [32m✓[39m src/components/domain/dish/image-field.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 367[2mms[22m[39m
+     [33m[2m✓[22m[39m previews a newly selected first image via a local object URL, not the authorized route [33m 301[2mms[22m[39m
+ [32m✓[39m src/components/layout/public-header.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 291[2mms[22m[39m
+ [32m✓[39m src/components/domain/dish/barcode-scanner.test.tsx [2m([22m[2m8 tests[22m[2m)[22m[33m 303[2mms[22m[39m
+ [32m✓[39m src/components/marketing/closing-cta.test.tsx [2m([22m[2m1 test[22m[2m)[22m[32m 182[2mms[22m[39m
+ [32m✓[39m src/components/ui/button.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[32m 169[2mms[22m[39m
+ [32m✓[39m src/components/marketing/contact-form.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[32m 166[2mms[22m[39m
+ [32m✓[39m src/components/theme/theme-toggle.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[32m 279[2mms[22m[39m
+ [32m✓[39m src/components/domain/sharing/received-share-notifier.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[33m 321[2mms[22m[39m
+ [32m✓[39m src/components/layout/not-found-content.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 315[2mms[22m[39m
+ [32m✓[39m src/components/domain/dish/scaled-version-view.test.tsx [2m([22m[2m1 test[22m[2m)[22m[32m 282[2mms[22m[39m
+ [32m✓[39m src/components/domain/dish/create-part-link.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 155[2mms[22m[39m
+ [32m✓[39m src/components/domain/dish/version-sections-view.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[33m 359[2mms[22m[39m
+     [33m[2m✓[22m[39m interleaves Sections and top-level linked Parts by persisted position [33m 304[2mms[22m[39m
+ [32m✓[39m src/components/domain/print/print-document.test.tsx [2m([22m[2m10 tests[22m[2m)[22m[32m 167[2mms[22m[39m
+ [32m✓[39m src/components/domain/dish/part-link-tree-view.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 170[2mms[22m[39m
+ [32m✓[39m src/components/ui/breadcrumbs.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[32m 175[2mms[22m[39m
+ [32m✓[39m src/components/domain/dish/nutrition-summary.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[32m 51[2mms[22m[39m
+ [32m✓[39m src/lib/date.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 19[2mms[22m[39m
+ [32m✓[39m src/app/api/cron/cleanup-orphan-images/route.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 36[2mms[22m[39m
+ [32m✓[39m src/components/ui/batch-progress.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[32m 235[2mms[22m[39m
+ [32m✓[39m scripts/lib/next-diagnostics-core.test.ts [2m([22m[2m18 tests[22m[2m)[22m[32m 26[2mms[22m[39m
+ [32m✓[39m src/components/marketing/json-ld.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 37[2mms[22m[39m
+ [32m✓[39m src/lib/units/conversion.test.ts [2m([22m[2m12 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+[90mstderr[2m | src/lib/nutrition/actions.test.ts[2m > [22m[2msearchFdc[2m > [22m[2mfails clearly without ever calling FDC when FDC_API_KEY is not configured
+[22m[39m[nutrition] FDC_API_KEY is not configured.
+
+[90mstderr[2m | src/lib/nutrition/actions.test.ts[2m > [22m[2mapplyFdcResult[2m > [22m[2mfails clearly when FDC_API_KEY is not configured
+[22m[39m[nutrition] FDC_API_KEY is not configured.
+
+ [32m✓[39m src/lib/nutrition/actions.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 22[2mms[22m[39m
+ [32m✓[39m src/lib/dishes/library-filters.test.ts [2m([22m[2m37 tests[22m[2m)[22m[32m 32[2mms[22m[39m
+ [32m✓[39m src/components/ui/use-pending-action.test.tsx [2m([22m[2m1 test[22m[2m)[22m[32m 31[2mms[22m[39m
+ [32m✓[39m src/lib/dishes/schema.test.ts [2m([22m[2m43 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+ [32m✓[39m src/components/domain/cooking/use-checklist-state.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 19[2mms[22m[39m
+ [32m✓[39m src/lib/importExport/paste-parser.test.ts [2m([22m[2m28 tests[22m[2m)[22m[32m 15[2mms[22m[39m
+ [32m✓[39m src/lib/importExport/recipe-gallery-import.test.ts [2m([22m[2m12 tests[22m[2m)[22m[32m 20[2mms[22m[39m
+ [32m✓[39m src/lib/dishes/validation-messages.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32m✓[39m src/lib/importExport/url-fetch.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 37[2mms[22m[39m
+ [32m✓[39m src/components/onboarding/onboarding-provider.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 38[2mms[22m[39m
+ [32m✓[39m src/lib/cooking/timer-sound.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32m✓[39m src/components/domain/mealplans/schedule-shared.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 44[2mms[22m[39m
+[90mstderr[2m | src/app/(marketing)/contact/actions.test.ts[2m > [22m[2msubmitContactForm[2m > [22m[2mreturns an error and no false success when Resend rejects the send
+[22m[39m[contact] Resend rejected the send { name: [32m'validation_error'[39m, statusCode: [33m422[39m }
+
+[90mstderr[2m | src/app/(marketing)/contact/actions.test.ts[2m > [22m[2msubmitContactForm[2m > [22m[2mreturns an error and no false success when the Resend call throws
+[22m[39m[contact] Unexpected error sending contact email: network down
+
+[90mstderr[2m | src/app/(marketing)/contact/actions.test.ts[2m > [22m[2msubmitContactForm when Resend isn't configured[2m > [22m[2mfails clearly instead of attempting to send
+[22m[39m[contact] Resend is not configured — set RESEND_API_KEY and CONTACT_TO_EMAIL.
+
+ [32m✓[39m src/app/(marketing)/contact/actions.test.ts [2m([22m[2m13 tests[22m[2m)[22m[32m 35[2mms[22m[39m
+ [32m✓[39m src/lib/importExport/file-sources.test.ts [2m([22m[2m22 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+ [32m✓[39m src/app/robots.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 30[2mms[22m[39m
+ [32m✓[39m src/lib/importExport/website-import.test.ts [2m([22m[2m19 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+ [32m✓[39m src/lib/importExport/dishframe-json-import.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+ [32m✓[39m src/lib/dishes/compare.test.ts [2m([22m[2m28 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32m✓[39m src/lib/nutrition/fdc-client.test.ts [2m([22m[2m12 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+ [32m✓[39m src/app/sitemap.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 19[2mms[22m[39m
+ [32m✓[39m src/lib/site.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32m✓[39m src/lib/grocery/combine.test.ts [2m([22m[2m19 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+ [32m✓[39m src/lib/sharing/tokens.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+ [32m✓[39m src/lib/importExport/export-dto.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+ [32m✓[39m src/lib/auth/session.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32m✓[39m src/lib/cooking/timer-math.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+ [32m✓[39m src/lib/db/local-guard.test.ts [2m([22m[2m12 tests[22m[2m)[22m[32m 13[2mms[22m[39m
+ [32m✓[39m next.config.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32m✓[39m src/lib/cycles/reachability.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+ [32m✓[39m src/lib/nutrition/barcode-scanner.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32m✓[39m src/lib/dishes/version-note.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 18[2mms[22m[39m
+ [32m✓[39m src/lib/dishes/format.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 2[2mms[22m[39m
+ [32m✓[39m src/lib/sharing/graph.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 2[2mms[22m[39m
+ [32m✓[39m src/components/domain/dish/amount-mode.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32m✓[39m src/lib/sharing/view-model.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32m✓[39m src/lib/dishes/display-order.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32m✓[39m src/lib/units/scaling.test.ts [2m([22m[2m15 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+ [32m✓[39m src/lib/dishes/scaled-display.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 22[2mms[22m[39m
+ [32m✓[39m src/lib/dishes/section-duplication.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+ [32m✓[39m src/components/domain/dish/number-field.test.ts [2m([22m[2m13 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+ [32m✓[39m src/components/app/nav-items.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 3[2mms[22m[39m
+ [32m✓[39m src/app/manifest.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 2[2mms[22m[39m
+ [32m✓[39m src/lib/mealplans/allocation.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+ [32m✓[39m src/lib/account/service.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 2[2mms[22m[39m
+
+[31m⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 10 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[41m[1m FAIL [22m[49m src/components/ui/email-chip-input.test.tsx[2m > [22mEmailChipInput[2m > [22msplits a pasted comma-separated list into multiple chips
+[31m[1mTestingLibraryElementError[22m: Unable to find an element with the text: a@example.invalid. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+[36m<body>[31m
+  [36m<div>[31m
+    [36m<div[31m
+      [33mclass[31m=[32m"space-y-1.5"[31m
+    [36m>[31m
+      [36m<div[31m
+        [33mclass[31m=[32m"border-input focus-within:border-ring focus-within:ring-ring/50 flex min-h-8 w-full flex-wrap items-center gap-1.5 rounded-lg border bg-transparent px-2 py-1.5 focus-within:ring-3"[31m
+      [36m>[31m
+        [36m<span[31m
+          [33mclass[31m=[32m"bg-primary/15 text-brand-blue-text flex items-center gap-1 rounded-4xl py-0.5 pr-1 pl-2 text-xs font-medium"[31m
+        [36m>[31m
+          [0mb@example.invalid[0m
+          [36m<button[31m
+            [33maria-label[31m=[32m"Remove b@example.invalid"[31m
+            [33mclass[31m=[32m"hover:bg-primary/20 cursor-pointer rounded-full p-0.5"[31m
+            [33mtype[31m=[32m"button"[31m
+          [36m>[31m
+            [36m<svg[31m
+              [33maria-hidden[31m=[32m"true"[31m
+              [33mclass[31m=[32m"lucide lucide-x size-3"[31m
+              [33mfill[31m=[32m"none"[31m
+              [33mheight[31m=[32m"24"[31m
+              [33mstroke[31m=[32m"currentColor"[31m
+              [33mstroke-linecap[31m=[32m"round"[31m
+              [33mstroke-linejoin[31m=[32m"round"[31m
+              [33mstroke-width[31m=[32m"2"[31m
+              [33mviewBox[31m=[32m"0 0 24 24"[31m
+              [33mwidth[31m=[32m"24"[31m
+              [33mxmlns[31m=[32m"http://www.w3.org/2000/svg"[31m
+            [36m>[31m
+              [36m<path[31m
+                [33md[31m=[32m"M18 6 6 18"[31m
+              [36m/>[31m
+              [36m<path[31m
+                [33md[31m=[32m"m6 6 12 12"[31m
+              [36m/>[31m
+            [36m</svg>[31m
+          [36m</button>[31m
+        [36m</span>[31m
+        [36m<input[31m
+          [33maria-label[31m=[32m"Recipients"[31m
+          [33mclass[31m=[32m"placeholder:text-muted-foreground min-w-32 flex-1 bg-transparent text-sm outline-none placeholder:opacity-70"[31m
+          [33mid[31m=[32m"recipients"[31m
+          [33mtype[31m=[32m"email"[31m
+          [33mvalue[31m=[32m""[31m
+        [36m/>[31m
+      [36m</div>[31m
+    [36m</div>[31m
+  [36m</div>[31m
+[36m</body>[31m[39m
+[90m [2m❯[22m Object.getElementError node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:[2m37:19[22m[39m
+[90m [2m❯[22m node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:[2m76:38[22m[39m
+[90m [2m❯[22m node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:[2m52:17[22m[39m
+[90m [2m❯[22m node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:[2m95:19[22m[39m
+[36m [2m❯[22m src/components/ui/email-chip-input.test.tsx:[2m89:19[22m[39m
+    [90m 87|[39m     [35mawait[39m user[33m.[39m[34mpaste[39m([32m"a@example.invalid, b@example.invalid"[39m)[33m;[39m
+    [90m 88|[39m
+    [90m 89|[39m     [34mexpect[39m(screen[33m.[39m[34mgetByText[39m([32m"a@example.invalid"[39m))[33m.[39m[34mtoBeInTheDocument[39m()[33m;[39m
+    [90m   |[39m                   [31m^[39m
+    [90m 90|[39m     [34mexpect[39m(screen[33m.[39m[34mgetByText[39m([32m"b@example.invalid"[39m))[33m.[39m[34mtoBeInTheDocument[39m()[33m;[39m
+    [90m 91|[39m   })[33m;[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/10]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m src/components/ui/toast.test.tsx[2m > [22mToast semantic variants[2m > [22mrenders the success variant with its border accent
+[41m[1m FAIL [22m[49m src/components/ui/toast.test.tsx[2m > [22mToast semantic variants[2m > [22mrenders the error variant with its border accent
+[41m[1m FAIL [22m[49m src/components/ui/toast.test.tsx[2m > [22mToast semantic variants[2m > [22mrenders the attention variant with its border accent
+[41m[1m FAIL [22m[49m src/components/ui/toast.test.tsx[2m > [22mToast semantic variants[2m > [22mrenders the default variant with its border accent
+[31m[1mTestingLibraryElementError[22m: Unable to find an accessible element with the role "status"
+
+There are no accessible roles. But there might be some inaccessible roles. If you wish to access them, then set the `hidden` option to `true`. Learn more about this here: https://testing-library.com/docs/dom-testing-library/api-queries#byrole
+
+Ignored nodes: comments, script, style
+[36m<body>[31m
+  [36m<div />[31m
+[36m</body>[31m[39m
+[90m [2m❯[22m Object.getElementError node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:[2m37:19[22m[39m
+[90m [2m❯[22m node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:[2m76:38[22m[39m
+[90m [2m❯[22m node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:[2m52:17[22m[39m
+[90m [2m❯[22m node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:[2m95:19[22m[39m
+[36m [2m❯[22m src/components/ui/toast.test.tsx:[2m48:21[22m[39m
+    [90m 46|[39m       [35mconst[39m { showToast } [33m=[39m [34mrenderWithToast[39m()[33m;[39m
+    [90m 47|[39m       [34mshowToast[39m({ title[33m:[39m [32m"Hello"[39m[33m,[39m variant })[33m;[39m
+    [90m 48|[39m       expect(screen.getByRole("status").className).toContain(borderCla…
+    [90m   |[39m                     [31m^[39m
+    [90m 49|[39m     }[33m,[39m
+    [90m 50|[39m   )[33m;[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/10]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m src/components/ui/toast.test.tsx[2m > [22mToast semantic variants[2m > [22ma persistent toast (durationMs: null) stays and always shows a dismiss control
+[31m[1mTestingLibraryElementError[22m: Unable to find an accessible element with the role "status"
+
+There are no accessible roles. But there might be some inaccessible roles. If you wish to access them, then set the `hidden` option to `true`. Learn more about this here: https://testing-library.com/docs/dom-testing-library/api-queries#byrole
+
+Ignored nodes: comments, script, style
+[36m<body>[31m
+  [36m<div />[31m
+[36m</body>[31m[39m
+[90m [2m❯[22m Object.getElementError node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:[2m37:19[22m[39m
+[90m [2m❯[22m node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:[2m76:38[22m[39m
+[90m [2m❯[22m node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:[2m52:17[22m[39m
+[90m [2m❯[22m node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:[2m95:19[22m[39m
+[36m [2m❯[22m src/components/ui/toast.test.tsx:[2m56:19[22m[39m
+    [90m 54|[39m     [34mshowToast[39m({ title[33m:[39m [32m"Published"[39m[33m,[39m durationMs[33m:[39m [35mnull[39m })[33m;[39m
+    [90m 55|[39m
+    [90m 56|[39m     [34mexpect[39m(screen[33m.[39m[34mgetByRole[39m([32m"status"[39m))[33m.[39m[34mtoBeInTheDocument[39m()[33m;[39m
+    [90m   |[39m                   [31m^[39m
+    [90m 57|[39m     [34mexpect[39m(
+    [90m 58|[39m       screen[33m.[39m[34mgetByRole[39m([32m"button"[39m[33m,[39m { name[33m:[39m [32m"Dismiss notification"[39m })[33m,[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/10]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m src/components/ui/toast.test.tsx[2m > [22mToast semantic variants[2m > [22mrenders every caller-supplied action
+[31m[1mTestingLibraryElementError[22m: Unable to find an accessible element with the role "button" and name "Copy link"
+
+There are no accessible roles. But there might be some inaccessible roles. If you wish to access them, then set the `hidden` option to `true`. Learn more about this here: https://testing-library.com/docs/dom-testing-library/api-queries#byrole
+
+Ignored nodes: comments, script, style
+[36m<body>[31m
+  [36m<div />[31m
+[36m</body>[31m[39m
+[90m [2m❯[22m Object.getElementError node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:[2m37:19[22m[39m
+[90m [2m❯[22m node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:[2m76:38[22m[39m
+[90m [2m❯[22m node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:[2m52:17[22m[39m
+[90m [2m❯[22m node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:[2m95:19[22m[39m
+[36m [2m❯[22m src/components/ui/toast.test.tsx:[2m76:29[22m[39m
+    [90m 74|[39m     })[33m;[39m
+    [90m 75|[39m
+    [90m 76|[39m     await user.click(screen.getByRole("button", { name: "Copy link" })…
+    [90m   |[39m                             [31m^[39m
+    [90m 77|[39m     [35mawait[39m user[33m.[39m[34mclick[39m(screen[33m.[39m[34mgetByRole[39m([32m"button"[39m[33m,[39m { name[33m:[39m [32m"Open"[39m }))[33m;[39m
+    [90m 78|[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/10]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m src/components/ui/toast.test.tsx[2m > [22mToast semantic variants[2m > [22mdismissing fires onDismiss exactly once
+[31m[1mTestingLibraryElementError[22m: Unable to find an accessible element with the role "button" and name "Dismiss notification"
+
+There are no accessible roles. But there might be some inaccessible roles. If you wish to access them, then set the `hidden` option to `true`. Learn more about this here: https://testing-library.com/docs/dom-testing-library/api-queries#byrole
+
+Ignored nodes: comments, script, style
+[36m<body>[31m
+  [36m<div />[31m
+[36m</body>[31m[39m
+[90m [2m❯[22m Object.getElementError node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:[2m37:19[22m[39m
+[90m [2m❯[22m node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:[2m76:38[22m[39m
+[90m [2m❯[22m node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:[2m52:17[22m[39m
+[90m [2m❯[22m node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:[2m95:19[22m[39m
+[36m [2m❯[22m src/components/ui/toast.test.tsx:[2m90:14[22m[39m
+    [90m 88|[39m
+    [90m 89|[39m     [35mawait[39m user[33m.[39m[34mclick[39m(
+    [90m 90|[39m       screen[33m.[39m[34mgetByRole[39m([32m"button"[39m[33m,[39m { name[33m:[39m [32m"Dismiss notification"[39m })[33m,[39m
+    [90m   |[39m              [31m^[39m
+    [90m 91|[39m     )[33m;[39m
+    [90m 92|[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/10]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m src/lib/sharing/direct-share-collection-actions.test.ts[2m > [22msharing/actions.ts Slice 22 auth boundary[2m > [22mresolves every recipient independently — one failure doesn't block the rest
+[31m[1mAssertionError[22m: expected { Object (status, results) } to deeply equal { Object (status, results) }[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -4,11 +4,11 @@[39m
+[2m        "collectionId": "c1",[22m
+[2m        "recipientEmail": "a@example.invalid",[22m
+[2m        "status": "success",[22m
+[2m      },[22m
+[2m      {[22m
+[32m-       "message": "Already shared.",[39m
+[31m+       "message": "Something went wrong. Please try again.",[39m
+[2m        "recipientEmail": "b@example.invalid",[22m
+[2m        "status": "error",[22m
+[2m      },[22m
+[2m      {[22m
+[2m        "collectionId": "c3",[22m
+
+[36m [2m❯[22m src/lib/sharing/direct-share-collection-actions.test.ts:[2m161:20[22m[39m
+    [90m159|[39m
+    [90m160|[39m     [34mexpect[39m(mockSendCollection)[33m.[39m[34mtoHaveBeenCalledTimes[39m([34m3[39m)[33m;[39m
+    [90m161|[39m     [34mexpect[39m(result)[33m.[39m[34mtoEqual[39m({
+    [90m   |[39m                    [31m^[39m
+    [90m162|[39m       status[33m:[39m [32m"success"[39m[33m,[39m
+    [90m163|[39m       results[33m:[39m [
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/10]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m src/components/domain/dish/dish-detail-actions.test.tsx[2m > [22mDishDetailActions — contextual sharing stays single-item[2m > [22mSend opens a dialog locked to this item, with no searchable item selector
+[31m[1mError[22m: [vitest] No "listDishVersionOptions" export is defined on the "@/lib/dishes/actions" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+[39m
+vi.mock(import("@/lib/dishes/actions"), async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    // your mocked methods
+  }
+})
+
+[36m [2m❯[22m src/components/domain/dish/version-picker-field.tsx:[2m73:5[22m[39m
+    [90m 71|[39m     // eslint-disable-next-line react-hooks/set-state-in-effect -- res…
+    [90m 72|[39m     [34msetState[39m({ status[33m:[39m [32m"loading"[39m })[33m;[39m
+    [90m 73|[39m     [34mlistDishVersionOptions[39m(kind[33m,[39m dishId)[33m.[39m[34mthen[39m((result) [33m=>[39m {
+    [90m   |[39m     [31m^[39m
+    [90m 74|[39m       [35mif[39m (cancelled) [35mreturn[39m[33m;[39m
+    [90m 75|[39m       [34msetState[39m(
+[90m [2m❯[22m Object.react_stack_bottom_frame node_modules/.pnpm/react-dom@19.2.4_react@19.2.4/node_modules/react-dom/cjs/react-dom-client.development.js:[2m25989:20[22m[39m
+[90m [2m❯[22m runWithFiberInDEV node_modules/.pnpm/react-dom@19.2.4_react@19.2.4/node_modules/react-dom/cjs/react-dom-client.development.js:[2m874:13[22m[39m
+[90m [2m❯[22m commitHookEffectListMount node_modules/.pnpm/react-dom@19.2.4_react@19.2.4/node_modules/react-dom/cjs/react-dom-client.development.js:[2m13249:29[22m[39m
+[90m [2m❯[22m commitHookPassiveMountEffects node_modules/.pnpm/react-dom@19.2.4_react@19.2.4/node_modules/react-dom/cjs/react-dom-client.development.js:[2m13336:11[22m[39m
+[90m [2m❯[22m commitPassiveMountOnFiber node_modules/.pnpm/react-dom@19.2.4_react@19.2.4/node_modules/react-dom/cjs/react-dom-client.development.js:[2m15484:13[22m[39m
+[90m [2m❯[22m recursivelyTraversePassiveMountEffects node_modules/.pnpm/react-dom@19.2.4_react@19.2.4/node_modules/react-dom/cjs/react-dom-client.development.js:[2m15439:11[22m[39m
+[90m [2m❯[22m commitPassiveMountOnFiber node_modules/.pnpm/react-dom@19.2.4_react@19.2.4/node_modules/react-dom/cjs/react-dom-client.development.js:[2m15718:11[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/10]⎯[22m[39m
+
+
+[2m Test Files [22m [1m[31m4 failed[39m[22m[2m | [22m[1m[32m123 passed[39m[22m[90m (127)[39m
+[2m      Tests [22m [1m[31m10 failed[39m[22m[2m | [22m[1m[32m978 passed[39m[22m[90m (988)[39m
+[2m   Start at [22m 10:24:25
+[2m   Duration [22m 36.74s[2m (transform 8.77s, setup 22.00s, import 48.64s, tests 82.47s, environment 82.66s)[22m
+
+ ELIFECYCLE  Command failed with exit code 1.
+ ELIFECYCLE  Command failed with exit code 1.
+
+> pnpm verify:e2e-built
+
+> dishframe@0.1.0 verify:e2e-built /Users/jaredryan/Desktop/coding-projects/DishFrame
+> node scripts/kill-dev-server.mjs && PLAYWRIGHT_WEB_SERVER_COMMAND="pnpm run start" playwright test --project=chromium --workers=1
+
+  1) [chromium] › tests/e2e/direct-sharing.spec.ts:82:7 › Direct sharing: accept, decline, and sender-cancel › recipient can see and accept a pending direct share; the accepted copy and status appear on both sides 
+
+    Test timeout of 30000ms exceeded.
+
+    Error: locator.fill: Test timeout of 30000ms exceeded.
+    Call log:
+      - waiting for getByRole('dialog').getByLabel('Recipient\'s email')
+
+
+      32 |   await page.getByRole("menuitem", { name: "Send" }).click();
+      33 |   const sendDialog = page.getByRole("dialog");
+    > 34 |   await sendDialog.getByLabel("Recipient's email").fill(recipientEmail);
+         |                                                    ^
+      35 |   await sendDialog.getByRole("button", { name: "Review" }).click();
+      36 |   await sendDialog.getByRole("button", { name: "Send" }).click();
+      37 |   // On success the dialog closes itself and shows a transient success toast
+        at createAndSendRecipe (/Users/jaredryan/Desktop/coding-projects/DishFrame/tests/e2e/direct-sharing.spec.ts:34:52)
+        at /Users/jaredryan/Desktop/coding-projects/DishFrame/tests/e2e/direct-sharing.spec.ts:85:23
+
+    Error Context: test-results/direct-sharing-Direct-shar-3b52b-status-appear-on-both-sides-chromium/error-context.md
+
+  2) [chromium] › tests/e2e/direct-sharing.spec.ts:120:7 › Direct sharing: accept, decline, and sender-cancel › recipient can decline a pending direct share; it is never treated as accepted on either side 
+
+    Test timeout of 30000ms exceeded.
+
+    Error: locator.fill: Test timeout of 30000ms exceeded.
+    Call log:
+      - waiting for getByRole('dialog').getByLabel('Recipient\'s email')
+
+
+      32 |   await page.getByRole("menuitem", { name: "Send" }).click();
+      33 |   const sendDialog = page.getByRole("dialog");
+    > 34 |   await sendDialog.getByLabel("Recipient's email").fill(recipientEmail);
+         |                                                    ^
+      35 |   await sendDialog.getByRole("button", { name: "Review" }).click();
+      36 |   await sendDialog.getByRole("button", { name: "Send" }).click();
+      37 |   // On success the dialog closes itself and shows a transient success toast
+        at createAndSendRecipe (/Users/jaredryan/Desktop/coding-projects/DishFrame/tests/e2e/direct-sharing.spec.ts:34:52)
+        at /Users/jaredryan/Desktop/coding-projects/DishFrame/tests/e2e/direct-sharing.spec.ts:123:23
+
+    Error Context: test-results/direct-sharing-Direct-shar-54b76--as-accepted-on-either-side-chromium/error-context.md
+
+  3) [chromium] › tests/e2e/direct-sharing.spec.ts:145:7 › Direct sharing: accept, decline, and sender-cancel › sender can cancel a pending direct share; the recipient can no longer accept it 
+
+    Test timeout of 30000ms exceeded.
+
+    Error: locator.fill: Test timeout of 30000ms exceeded.
+    Call log:
+      - waiting for getByRole('dialog').getByLabel('Recipient\'s email')
+
+
+      32 |   await page.getByRole("menuitem", { name: "Send" }).click();
+      33 |   const sendDialog = page.getByRole("dialog");
+    > 34 |   await sendDialog.getByLabel("Recipient's email").fill(recipientEmail);
+         |                                                    ^
+      35 |   await sendDialog.getByRole("button", { name: "Review" }).click();
+      36 |   await sendDialog.getByRole("button", { name: "Send" }).click();
+      37 |   // On success the dialog closes itself and shows a transient success toast
+        at createAndSendRecipe (/Users/jaredryan/Desktop/coding-projects/DishFrame/tests/e2e/direct-sharing.spec.ts:34:52)
+        at /Users/jaredryan/Desktop/coding-projects/DishFrame/tests/e2e/direct-sharing.spec.ts:148:23
+
+    Error Context: test-results/direct-sharing-Direct-shar-55b58-ent-can-no-longer-accept-it-chromium/error-context.md

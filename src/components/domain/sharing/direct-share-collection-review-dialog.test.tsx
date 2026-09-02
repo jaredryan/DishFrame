@@ -115,6 +115,44 @@ describe("DirectShareCollectionReviewDialog", () => {
     );
   });
 
+  it("reuses the shared batch-progress treatment while accepting and prevents duplicate submission", async () => {
+    const user = userEvent.setup();
+    let resolveFirstAccept!: (value: {
+      status: "success";
+      outcome: "accepted";
+    }) => void;
+    mockAccept.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveFirstAccept = resolve;
+      }),
+    );
+    mockAccept.mockResolvedValue({ status: "success", outcome: "accepted" });
+    renderDialog();
+    await waitFor(() => expect(screen.getByText("Soup")).toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: "Accept all" }));
+
+    expect(
+      await screen.findByText("Accepting shared items…"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("progressbar")).toBeInTheDocument();
+    // No submit controls while a submission is in flight — can't be
+    // double-clicked into a second concurrent submission.
+    expect(
+      screen.queryByRole("button", { name: "Accept all" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Decline all" }),
+    ).not.toBeInTheDocument();
+
+    resolveFirstAccept({ status: "success", outcome: "accepted" });
+    await waitFor(() =>
+      expect(
+        screen.getByText("Saved your decision for this collection."),
+      ).toBeInTheDocument(),
+    );
+  });
+
   it("Decline all declines every pending item and never calls accept", async () => {
     const user = userEvent.setup();
     mockDecline.mockResolvedValue({ status: "success", outcome: "declined" });

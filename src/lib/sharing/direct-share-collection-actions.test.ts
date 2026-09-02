@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { AuthorizationError } from "@/lib/errors";
+import { AuthorizationError, ConflictError } from "@/lib/errors";
 
 /**
  * Slice 22: mirrors direct-share-actions.test.ts's pattern for the new
@@ -57,7 +57,7 @@ describe("sharing/actions.ts Slice 22 auth boundary", () => {
   it("rejects an unauthenticated collection send without calling the service", async () => {
     const { sendDirectShareCollection } = await importActions();
     const result = await sendDirectShareCollection({
-      recipientEmail: "a@example.invalid",
+      recipientEmails: ["a@example.invalid"],
       items: [{ dishId: "d1", dishVersionId: "v1" }],
       note: null,
     });
@@ -99,12 +99,21 @@ describe("sharing/actions.ts Slice 22 auth boundary", () => {
       { dishId: "d2", dishVersionId: "v2" },
     ];
     const result = await sendDirectShareCollection({
-      recipientEmail: "a@example.invalid",
+      recipientEmails: ["a@example.invalid"],
       items,
       note: "Hi",
     });
 
-    expect(result).toEqual({ status: "success", collectionId: "c1" });
+    expect(result).toEqual({
+      status: "success",
+      results: [
+        {
+          recipientEmail: "a@example.invalid",
+          status: "success",
+          collectionId: "c1",
+        },
+      ],
+    });
     expect(mockSendCollection).toHaveBeenCalledWith("user-1", {
       recipientEmail: "a@example.invalid",
       items,
@@ -121,12 +130,67 @@ describe("sharing/actions.ts Slice 22 auth boundary", () => {
       dishVersionId: `v${i}`,
     }));
     const result = await sendDirectShareCollection({
-      recipientEmail: "a@example.invalid",
+      recipientEmails: ["a@example.invalid"],
       items: tooMany,
       note: null,
     });
 
     expect(result.status).toBe("error");
     expect(mockSendCollection).not.toHaveBeenCalled();
+  });
+
+  it("resolves every recipient independently — one failure doesn't block the rest", async () => {
+    mockRequireUserId.mockResolvedValue("user-1");
+    mockSendCollection
+      .mockResolvedValueOnce({ collectionId: "c1" })
+      .mockRejectedValueOnce(new ConflictError("Already shared."))
+      .mockResolvedValueOnce({ collectionId: "c3" });
+    const { sendDirectShareCollection } = await importActions();
+
+    const result = await sendDirectShareCollection({
+      recipientEmails: [
+        "a@example.invalid",
+        "b@example.invalid",
+        "c@example.invalid",
+      ],
+      items: [{ dishId: "d1", dishVersionId: "v1" }],
+      note: null,
+    });
+
+    expect(mockSendCollection).toHaveBeenCalledTimes(3);
+    expect(result).toEqual({
+      status: "success",
+      results: [
+        {
+          recipientEmail: "a@example.invalid",
+          status: "success",
+          collectionId: "c1",
+        },
+        {
+          recipientEmail: "b@example.invalid",
+          status: "error",
+          message: "Already shared.",
+        },
+        {
+          recipientEmail: "c@example.invalid",
+          status: "success",
+          collectionId: "c3",
+        },
+      ],
+    });
+  });
+
+  it("dedupes a repeated recipient address before calling the service", async () => {
+    mockRequireUserId.mockResolvedValue("user-1");
+    mockSendCollection.mockResolvedValue({ collectionId: "c1" });
+    const { sendDirectShareCollection } = await importActions();
+
+    await sendDirectShareCollection({
+      recipientEmails: ["A@example.invalid", "a@example.invalid"],
+      items: [{ dishId: "d1", dishVersionId: "v1" }],
+      note: null,
+    });
+
+    expect(mockSendCollection).toHaveBeenCalledTimes(1);
   });
 });

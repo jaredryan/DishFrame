@@ -33,6 +33,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { BatchProgressDialog } from "@/components/ui/batch-progress";
 import { useToast } from "@/components/ui/toast";
 import { DishEditor } from "@/components/domain/dish/dish-editor";
 import { FileDropzone } from "@/components/domain/dish/file-dropzone";
@@ -2214,32 +2215,11 @@ export function PasteImportFlow({
             chunked confirm calls) begins. Not dismissible: no close button,
             outside click, or Escape — the same click-guard `Discard
             import`'s absence already gives the row-selection controls. */}
-        <Dialog open={batchImporting}>
-          <DialogContent
-            showCloseButton={false}
-            onEscapeKeyDown={(event) => event.preventDefault()}
-            onInteractOutside={(event) => event.preventDefault()}
-          >
-            <DialogHeader>
-              <DialogTitle>Importing…</DialogTitle>
-              <DialogDescription>
-                This may take a moment. Keep this page open.
-              </DialogDescription>
-            </DialogHeader>
-            <div
-              role="progressbar"
-              aria-valuenow={Math.round(importProgress)}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              className="bg-muted h-2 w-full overflow-hidden rounded-full"
-            >
-              <div
-                className="bg-primary h-full rounded-full transition-[width] duration-150 ease-linear"
-                style={{ width: `${importProgress}%` }}
-              />
-            </div>
-          </DialogContent>
-        </Dialog>
+        <BatchProgressDialog
+          open={batchImporting}
+          title="Importing…"
+          progress={{ percent: importProgress }}
+        />
 
         {renderPreflightBlockDialog()}
       </div>

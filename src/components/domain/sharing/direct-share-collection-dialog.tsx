@@ -1,8 +1,8 @@
 import * as React from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { EmailChipInput } from "@/components/ui/email-chip-input";
 import {
   Dialog,
   DialogContent,
@@ -58,7 +58,7 @@ export function DirectShareCollectionDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const [step, setStep] = React.useState<Step>("select");
-  const [email, setEmail] = React.useState("");
+  const [recipients, setRecipients] = React.useState<string[]>([]);
   const [items, setItems] = React.useState<ShareableItemSummary[] | null>(null);
   const [itemsError, setItemsError] = React.useState<string | null>(null);
   const [search, setSearch] = React.useState("");
@@ -94,34 +94,41 @@ export function DirectShareCollectionDialog({
     });
   }, [open]);
 
-  const isValidEmail = /\S+@\S+\.\S+/.test(email.trim());
+  // Already-shared graying only reads cleanly against exactly one candidate
+  // recipient — with several recipients at once, "already shared" can't
+  // honestly gray out a single row (it may differ per recipient), so the
+  // full-eligibility picker is left alone and the authoritative per-
+  // recipient re-validation in `sendDirectShareCollection` is the real
+  // safety net for that case.
+  const singleRecipientEmail = recipients.length === 1 ? recipients[0] : null;
+  // recipientHistory only applies to the single-recipient case above; once
+  // that condition stops holding, treat any stale fetched history as absent
+  // rather than clearing it with a synchronous setState from an effect.
+  const effectiveRecipientHistory = singleRecipientEmail
+    ? recipientHistory
+    : null;
 
   // Guards both the debounced fetch below and a same-render invalidation:
   // bumping it makes any in-flight or already-queued response for a
   // superseded email a no-op when it eventually resolves.
   const historyRequestRef = React.useRef(0);
 
-  function handleEmailChange(value: string) {
-    setEmail(value);
-    if (!/\S+@\S+\.\S+/.test(value.trim())) {
-      historyRequestRef.current++;
-      setRecipientHistory(null);
-    }
-  }
-
   // Resend-prevention: re-fetch this sender's ACCEPTED/PENDING DirectShare
-  // history against the entered recipient whenever it changes to a valid
-  // address, debounced since it re-fires on every keystroke. The eligibility
+  // history against the single entered recipient whenever it changes,
+  // debounced since it re-fires on every chip edit. The eligibility
   // response and the resulting prune of `selected` both land together in the
   // fetch's own callback (never a synchronous setState in the effect body
-  // itself) — a stale response (superseded by a newer email edit, including
-  // one that went invalid in between) is discarded via `historyRequestRef`.
+  // itself) — a stale response (superseded by a newer recipient edit) is
+  // discarded via `historyRequestRef`.
   React.useEffect(() => {
-    if (!open || !isValidEmail) return;
+    if (!open || !singleRecipientEmail) {
+      historyRequestRef.current++;
+      return;
+    }
     const requestId = ++historyRequestRef.current;
     const timeout = setTimeout(() => {
       void getDirectShareRecipientHistory({
-        recipientEmail: email.trim(),
+        recipientEmail: singleRecipientEmail,
       }).then((result) => {
         if (historyRequestRef.current !== requestId) return;
         const history = result.status === "success" ? result.history : null;
@@ -135,12 +142,12 @@ export function DirectShareCollectionDialog({
       });
     }, RECIPIENT_HISTORY_DEBOUNCE_MS);
     return () => clearTimeout(timeout);
-  }, [open, isValidEmail, email]);
+  }, [open, singleRecipientEmail]);
 
   function close() {
     onOpenChange(false);
     setStep("select");
-    setEmail("");
+    setRecipients([]);
     setItems(null);
     setItemsError(null);
     setSearch("");
@@ -150,7 +157,7 @@ export function DirectShareCollectionDialog({
     setNote("");
   }
 
-  const canConfigure = isValidEmail && selected.size > 0;
+  const canConfigure = recipients.length > 0 && selected.size > 0;
   const canSend =
     selected.size > 0 &&
     [...selected].every((id) => selectedVersionByDishId[id]);
@@ -165,21 +172,21 @@ export function DirectShareCollectionDialog({
   }
 
   const eligibleItems = React.useMemo(
-    () => items?.filter((item) => !recipientHistory?.[item.id]) ?? [],
-    [items, recipientHistory],
+    () => items?.filter((item) => !effectiveRecipientHistory?.[item.id]) ?? [],
+    [items, effectiveRecipientHistory],
   );
 
   const itemStatusLabels = React.useMemo(() => {
-    if (!recipientHistory) return undefined;
+    if (!effectiveRecipientHistory) return undefined;
     const labels: Record<string, string> = {};
-    for (const [dishId, status] of Object.entries(recipientHistory)) {
+    for (const [dishId, status] of Object.entries(effectiveRecipientHistory)) {
       labels[dishId] = SHARE_HISTORY_LABEL[status];
     }
     return labels;
-  }, [recipientHistory]);
+  }, [effectiveRecipientHistory]);
 
   const selectAllLabel =
-    items && recipientHistory && eligibleItems.length < items.length
+    items && effectiveRecipientHistory && eligibleItems.length < items.length
       ? `Select all (${eligibleItems.length} eligible)`
       : "Select all";
 
@@ -193,10 +200,9 @@ export function DirectShareCollectionDialog({
 
   function handleSend() {
     const sentCount = selected.size;
-    const recipient = email.trim();
     startTransition(async () => {
       const result = await sendDirectShareCollection({
-        recipientEmail: email,
+        recipientEmails: recipients,
         items: [...selected].map((dishId) => ({
           dishId,
           dishVersionId: selectedVersionByDishId[dishId],
@@ -207,11 +213,29 @@ export function DirectShareCollectionDialog({
         showToast({ variant: "error", title: result.message });
         return;
       }
+      const failures = result.results.filter((r) => r.status === "error");
+      const successes = result.results.filter((r) => r.status === "success");
+      if (failures.length === 0) {
+        showToast({
+          variant: "success",
+          title:
+            successes.length === 1
+              ? `Sent ${sentCount} item${sentCount === 1 ? "" : "s"} to ${successes[0].recipientEmail}.`
+              : `Sent ${sentCount} item${sentCount === 1 ? "" : "s"} to ${successes.length} recipients.`,
+        });
+        close();
+        return;
+      }
+      // Never resend to a recipient who already succeeded — only the
+      // still-failing addresses remain, so the dialog stays usable to retry.
+      setRecipients(failures.map((f) => f.recipientEmail));
       showToast({
-        variant: "success",
-        title: `Sent ${sentCount} item${sentCount === 1 ? "" : "s"} to ${recipient}.`,
+        variant: "error",
+        title:
+          failures.length === 1
+            ? failures[0].message
+            : `Couldn't send to ${failures.length} of ${result.results.length} recipients.`,
       });
-      close();
     });
   }
 
@@ -235,7 +259,8 @@ export function DirectShareCollectionDialog({
             <div className="space-y-4">
               <div className="border-border rounded-lg border p-3 text-sm">
                 <p>
-                  Sending to <span className="font-medium">{email.trim()}</span>
+                  Sending to{" "}
+                  <span className="font-medium">{recipients.join(", ")}</span>
                 </p>
                 <p className="mt-1">
                   {selected.size} item{selected.size === 1 ? "" : "s"} selected
@@ -285,15 +310,12 @@ export function DirectShareCollectionDialog({
           ) : (
             <div className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="collection-share-email">
-                  Recipient&apos;s email
-                </Label>
-                <Input
-                  id="collection-share-email"
-                  type="email"
-                  value={email}
-                  onChange={(event) => handleEmailChange(event.target.value)}
-                  placeholder="name@example.com"
+                <Label htmlFor="collection-share-recipients">Recipients</Label>
+                <EmailChipInput
+                  id="collection-share-recipients"
+                  value={recipients}
+                  onChangeAction={setRecipients}
+                  ariaLabel="Recipients"
                 />
                 <p className="text-muted-foreground text-sm">
                   They&apos;ll see this in DishFrame if they have an account

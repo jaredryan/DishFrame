@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { DirectSharePreview } from "@/components/domain/sharing/direct-share-preview";
+import { BatchProgressIndicator } from "@/components/ui/batch-progress";
 import { useToast } from "@/components/ui/toast";
 import {
   getDirectShareCollectionDetail,
@@ -158,11 +159,15 @@ export function DirectShareCollectionReviewDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Review shared items</DialogTitle>
+          <DialogTitle>
+            {progress ? "Accepting shared items…" : "Review shared items"}
+          </DialogTitle>
           <DialogDescription>
-            {detail
-              ? `From ${detail.senderName}${detail.note ? ` — "${detail.note}"` : ""}`
-              : "Loading…"}
+            {progress
+              ? "This may take a moment. Keep this page open."
+              : detail
+                ? `From ${detail.senderName}${detail.note ? ` — "${detail.note}"` : ""}`
+                : "Loading…"}
           </DialogDescription>
         </DialogHeader>
 
@@ -175,26 +180,12 @@ export function DirectShareCollectionReviewDialog({
         {done ? (
           <p className="text-sm">Saved your decision for this collection.</p>
         ) : progress ? (
-          <div className="space-y-2">
-            <p className="text-sm">
-              Accepting shared recipes — {progress.completed} / {progress.total}{" "}
-              recipes
-            </p>
-            <div
-              role="progressbar"
-              aria-valuenow={progress.completed}
-              aria-valuemin={0}
-              aria-valuemax={progress.total}
-              className="bg-muted h-2 w-full overflow-hidden rounded-full"
-            >
-              <div
-                className="bg-primary h-full rounded-full transition-[width]"
-                style={{
-                  width: `${(progress.completed / progress.total) * 100}%`,
-                }}
-              />
-            </div>
-          </div>
+          <BatchProgressIndicator
+            progress={{
+              percent: (progress.completed / progress.total) * 100,
+              label: `${progress.completed} / ${progress.total} recipes`,
+            }}
+          />
         ) : (
           detail && (
             <div className="space-y-3">

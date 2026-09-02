@@ -164,7 +164,7 @@ describe("DirectShareCollectionDialog", () => {
     expect(screen.queryByText(/No DishFrame account/)).not.toBeInTheDocument();
   });
 
-  it("enables Review once a plausible email is entered and an item is selected", async () => {
+  it("enables Next once a recipient chip is added and an item is selected", async () => {
     const user = userEvent.setup();
     renderDialog();
     await waitFor(() =>
@@ -174,8 +174,8 @@ describe("DirectShareCollectionDialog", () => {
     expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
 
     await user.type(
-      screen.getByLabelText("Recipient's email"),
-      "person@example.invalid",
+      screen.getByLabelText("Recipients"),
+      "person@example.invalid{Enter}",
     );
     expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
 
@@ -190,10 +190,31 @@ describe("DirectShareCollectionDialog", () => {
     ).toBeInTheDocument();
   });
 
+  it("accepts more than one recipient chip", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await waitFor(() =>
+      expect(screen.getByText("Recipe One")).toBeInTheDocument(),
+    );
+
+    await user.type(
+      screen.getByLabelText("Recipients"),
+      "a@example.invalid,b@example.invalid,",
+    );
+    expect(screen.getByText("a@example.invalid")).toBeInTheDocument();
+    expect(screen.getByText("b@example.invalid")).toBeInTheDocument();
+  });
+
   it("sends each selected item with its own independently chosen Version, not one shared Version for the whole batch", async () => {
     mockSendCollection.mockResolvedValue({
       status: "success",
-      collectionId: "collection1",
+      results: [
+        {
+          recipientEmail: "person@example.invalid",
+          status: "success",
+          collectionId: "collection1",
+        },
+      ],
     });
     const user = userEvent.setup();
     const onOpenChange = vi.fn();
@@ -203,8 +224,8 @@ describe("DirectShareCollectionDialog", () => {
     );
 
     await user.type(
-      screen.getByLabelText("Recipient's email"),
-      "person@example.invalid",
+      screen.getByLabelText("Recipients"),
+      "person@example.invalid{Enter}",
     );
     await user.click(screen.getByLabelText("Select Recipe One"));
     await user.click(screen.getByLabelText("Select Recipe Two"));
@@ -225,6 +246,7 @@ describe("DirectShareCollectionDialog", () => {
 
     expect(mockSendCollection).toHaveBeenCalledWith(
       expect.objectContaining({
+        recipientEmails: ["person@example.invalid"],
         items: expect.arrayContaining([
           { dishId: "r1", dishVersionId: "r1-v2" },
           { dishId: "r2", dishVersionId: "r2-v1" },
@@ -239,7 +261,7 @@ describe("DirectShareCollectionDialog", () => {
     ).toBeInTheDocument();
   });
 
-  it("on failure, keeps the dialog open and shows an error toast", async () => {
+  it("on operation-level failure, keeps the dialog open and shows an error toast", async () => {
     mockSendCollection.mockResolvedValue({
       status: "error",
       message: "Could not send — try again.",
@@ -252,8 +274,8 @@ describe("DirectShareCollectionDialog", () => {
     );
 
     await user.type(
-      screen.getByLabelText("Recipient's email"),
-      "person@example.invalid",
+      screen.getByLabelText("Recipients"),
+      "person@example.invalid{Enter}",
     );
     await user.click(screen.getByLabelText("Select Recipe One"));
     await waitFor(() =>
@@ -272,7 +294,48 @@ describe("DirectShareCollectionDialog", () => {
     expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument();
   });
 
-  it("disables items already shared (accepted or pending) to the entered recipient and excludes them from Select all", async () => {
+  it("on a per-recipient failure, keeps only the failed recipient chip so it can be retried", async () => {
+    mockSendCollection.mockResolvedValue({
+      status: "success",
+      results: [
+        {
+          recipientEmail: "ok@example.invalid",
+          status: "success",
+          collectionId: "c1",
+        },
+        {
+          recipientEmail: "bad@example.invalid",
+          status: "error",
+          message: "Already shared.",
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    renderDialog(onOpenChange);
+    await waitFor(() =>
+      expect(screen.getByText("Recipe One")).toBeInTheDocument(),
+    );
+
+    await user.type(
+      screen.getByLabelText("Recipients"),
+      "ok@example.invalid,bad@example.invalid,",
+    );
+    await user.click(screen.getByLabelText("Select Recipe One"));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Next" })).toBeEnabled(),
+    );
+    await user.click(screen.getByRole("button", { name: "Next" }));
+
+    const versionTrigger = await screen.findByRole("combobox");
+    await waitFor(() => expect(versionTrigger).not.toBeDisabled());
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(await screen.findByText("Already shared.")).toBeInTheDocument();
+  });
+
+  it("disables items already shared (accepted or pending) to the single entered recipient and excludes them from Select all", async () => {
     mockGetRecipientHistory.mockResolvedValue({
       status: "success",
       history: { r1: "ACCEPTED", p1: "PENDING" },
@@ -284,8 +347,8 @@ describe("DirectShareCollectionDialog", () => {
     );
 
     await user.type(
-      screen.getByLabelText("Recipient's email"),
-      "sister@example.invalid",
+      screen.getByLabelText("Recipients"),
+      "sister@example.invalid{Enter}",
     );
 
     await waitFor(

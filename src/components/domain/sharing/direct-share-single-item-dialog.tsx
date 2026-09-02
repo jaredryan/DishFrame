@@ -1,8 +1,8 @@
 import * as React from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { Textarea } from "@/components/ui/textarea";
+import { EmailChipInput } from "@/components/ui/email-chip-input";
 import {
   Dialog,
   DialogContent,
@@ -12,10 +12,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
+import { RichDishVersionPicker } from "@/components/domain/dish/version-picker-field";
 import { sendDirectShareCollection } from "@/lib/sharing/actions";
 import type { DishKindValue } from "@/lib/dishes/schema";
-
-type Step = "compose" | "review";
 
 /**
  * Contextual "Send" from a Recipe/Part detail page: sends this specific
@@ -24,6 +23,13 @@ type Step = "compose" | "review";
  * same `DirectShareCollection`/`sendDirectShareCollection` backend as the
  * generalized `/share` Send flow (`DirectShareCollectionDialog`), just
  * with exactly one child item.
+ *
+ * Toast/Send/Publish QA batch item 3: a direct single-modal action — no
+ * Review step, no dedicated Sent screen. Version, Recipients, Send, in
+ * that order; the shared Version picker preselects the current Version.
+ * Recipients now accepts one or many addresses via the shared chip input
+ * (item 4) — every recipient resolves independently, so a partial failure
+ * removes the already-sent chips and leaves only the failed ones to retry.
  */
 export function DirectShareSingleItemDialog({
   open,
@@ -40,37 +46,58 @@ export function DirectShareSingleItemDialog({
   dishKind: DishKindValue;
   dishTitle: string;
 }) {
-  const [step, setStep] = React.useState<Step>("compose");
-  const [email, setEmail] = React.useState("");
+  const [versionId, setVersionId] = React.useState<string | null>(
+    dishVersionId,
+  );
+  const [recipients, setRecipients] = React.useState<string[]>([]);
   const [note, setNote] = React.useState("");
   const [isPending, startTransition] = React.useTransition();
   const { showToast } = useToast();
 
   function close() {
     onOpenChange(false);
-    setStep("compose");
-    setEmail("");
+    setVersionId(dishVersionId);
+    setRecipients([]);
     setNote("");
   }
 
-  const canReview = /\S+@\S+\.\S+/.test(email.trim());
+  const canSend = recipients.length > 0 && Boolean(versionId) && !isPending;
 
   function handleSend() {
+    if (!versionId) return;
     startTransition(async () => {
       const result = await sendDirectShareCollection({
-        recipientEmail: email,
-        items: [{ dishId, dishVersionId }],
+        recipientEmails: recipients,
+        items: [{ dishId, dishVersionId: versionId }],
         note: note.trim().length > 0 ? note.trim() : null,
       });
       if (result.status === "error") {
         showToast({ variant: "error", title: result.message });
         return;
       }
+      const failures = result.results.filter((r) => r.status === "error");
+      const successes = result.results.filter((r) => r.status === "success");
+      if (failures.length === 0) {
+        showToast({
+          variant: "success",
+          title:
+            successes.length === 1
+              ? `Sent "${dishTitle}" to ${successes[0].recipientEmail}.`
+              : `Sent "${dishTitle}" to ${successes.length} recipients.`,
+        });
+        close();
+        return;
+      }
+      // Partial (or total) failure: never resend to a recipient who already
+      // succeeded — only the still-failing addresses remain in the input.
+      setRecipients(failures.map((f) => f.recipientEmail));
       showToast({
-        variant: "success",
-        title: `Sent "${dishTitle}" to ${email.trim()}.`,
+        variant: "error",
+        title:
+          failures.length === 1
+            ? failures[0].message
+            : `Couldn't send to ${failures.length} of ${result.results.length} recipients.`,
       });
-      close();
     });
   }
 
@@ -83,83 +110,55 @@ export function DirectShareSingleItemDialog({
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
-            Choose who to send it to, then review before sending.
+            Choose a Version and who to send &ldquo;{dishTitle}&rdquo; to.
           </DialogDescription>
         </DialogHeader>
 
-        {step === "review" ? (
-          <div className="space-y-4">
-            <div className="border-border rounded-lg border p-3 text-sm">
-              <p>
-                Sending to <span className="font-medium">{email.trim()}</span>
-              </p>
-              <p className="mt-1">&ldquo;{dishTitle}&rdquo;</p>
-            </div>
-            {note.trim().length > 0 && (
-              <p className="text-sm italic">&ldquo;{note.trim()}&rdquo;</p>
-            )}
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <div className="border-border bg-muted rounded-md border px-3 py-2 text-sm">
-              {dishTitle}
-            </div>
+        <div className="space-y-4">
+          <RichDishVersionPicker
+            id="single-share-version"
+            kind={dishKind}
+            dishId={dishId}
+            value={versionId}
+            onChangeAction={setVersionId}
+          />
 
-            <div className="space-y-2">
-              <Label htmlFor="single-share-email">Recipient&apos;s email</Label>
-              <Input
-                id="single-share-email"
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                placeholder="name@example.com"
-              />
-              <p className="text-muted-foreground text-sm">
-                They&apos;ll see this in DishFrame if they have an account with
-                this email, or after signing in with it.
-              </p>
-            </div>
+          <Field>
+            <FieldLabel htmlFor="single-share-recipients">
+              Recipients
+            </FieldLabel>
+            <EmailChipInput
+              id="single-share-recipients"
+              value={recipients}
+              onChangeAction={setRecipients}
+              ariaLabel="Recipients"
+              autoFocus
+            />
+            <p className="text-muted-foreground text-sm">
+              They&apos;ll see this in DishFrame if they have an account with
+              this email, or after signing in with it.
+            </p>
+          </Field>
 
-            <div className="space-y-2">
-              <Label htmlFor="single-share-note">Note (optional)</Label>
-              <Textarea
-                id="single-share-note"
-                value={note}
-                onChange={(event) => setNote(event.target.value)}
-                maxLength={1000}
-                rows={3}
-              />
-            </div>
-          </div>
-        )}
+          <Field>
+            <FieldLabel htmlFor="single-share-note">Note (optional)</FieldLabel>
+            <Textarea
+              id="single-share-note"
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+              maxLength={1000}
+              rows={3}
+            />
+          </Field>
+        </div>
 
         <DialogFooter>
-          {step === "review" ? (
-            <>
-              <Button
-                variant="outline"
-                onClick={() => setStep("compose")}
-                disabled={isPending}
-              >
-                Back
-              </Button>
-              <Button onClick={handleSend} loading={isPending}>
-                Send
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button variant="outline" onClick={close}>
-                Cancel
-              </Button>
-              <Button
-                onClick={() => setStep("review")}
-                disabled={!canReview || isPending}
-              >
-                Review
-              </Button>
-            </>
-          )}
+          <Button variant="outline" onClick={close} disabled={isPending}>
+            Cancel
+          </Button>
+          <Button onClick={handleSend} disabled={!canSend} loading={isPending}>
+            Send
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

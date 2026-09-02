@@ -1,0 +1,225 @@
+
+> dishframe@0.1.0 verify:frontend /Users/jaredryan/Desktop/coding-projects/DishFrame
+> pnpm run test:frontend
+
+
+> dishframe@0.1.0 test:frontend /Users/jaredryan/Desktop/coding-projects/DishFrame
+> vitest run
+
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.10 [39m[90m/Users/jaredryan/Desktop/coding-projects/DishFrame[39m
+
+ [31m❯[39m src/components/ui/toast.test.tsx [2m([22m[2m7 tests[22m[2m | [22m[31m7 failed[39m[2m)[22m[32m 159[2mms[22m[39m
+[31m     [31m×[31m renders the success variant with its border accent[39m[32m 109[2mms[22m[39m
+[31m     [31m×[31m renders the error variant with its border accent[39m[32m 28[2mms[22m[39m
+[31m     [31m×[31m renders the attention variant with its border accent[39m[32m 9[2mms[22m[39m
+[31m     [31m×[31m renders the default variant with its border accent[39m[32m 2[2mms[22m[39m
+[31m     [31m×[31m a persistent toast (durationMs: null) stays and always shows a dismiss control[39m[32m 2[2mms[22m[39m
+[31m     [31m×[31m renders every caller-supplied action[39m[32m 5[2mms[22m[39m
+[31m     [31m×[31m dismissing fires onDismiss exactly once[39m[32m 2[2mms[22m[39m
+ [31m❯[39m src/components/ui/email-chip-input.test.tsx [2m([22m[2m6 tests[22m[2m | [22m[31m1 failed[39m[2m)[22m[33m 478[2mms[22m[39m
+     [32m✓[39m commits a typed address to a chip on Enter and dedupes case-insensitively[32m 269[2mms[22m[39m
+     [32m✓[39m also commits on comma and on blur[32m 116[2mms[22m[39m
+     [32m✓[39m shows an inline error for an implausible address instead of creating a chip[32m 35[2mms[22m[39m
+     [32m✓[39m removes a chip via its own remove control[32m 24[2mms[22m[39m
+     [32m✓[39m Backspace on an empty field removes the last chip[32m 20[2mms[22m[39m
+[31m     [31m×[31m splits a pasted comma-separated list into multiple chips[39m[32m 14[2mms[22m[39m
+ [31m❯[39m src/lib/sharing/direct-share-collection-actions.test.ts [2m([22m[2m9 tests[22m[2m | [22m[31m1 failed[39m[2m)[22m[33m 1146[2mms[22m[39m
+     [33m[2m✓[22m[39m rejects an unauthenticated shareable-items list without calling the service [33m 1126[2mms[22m[39m
+     [32m✓[39m rejects an unauthenticated collection send without calling the service[32m 1[2mms[22m[39m
+     [32m✓[39m rejects an unauthenticated collection cancel without calling the service[32m 0[2mms[22m[39m
+     [32m✓[39m rejects an unauthenticated collection detail fetch without calling the service[32m 0[2mms[22m[39m
+     [32m✓[39m rejects an unauthenticated finalize without calling the service[32m 0[2mms[22m[39m
+     [32m✓[39m passes the signed-in user id through to sendDirectShareCollection on success[32m 2[2mms[22m[39m
+     [32m✓[39m enforces the server batch maximum before the service is ever called[32m 1[2mms[22m[39m
+[31m     [31m×[31m resolves every recipient independently — one failure doesn't block the rest[39m[32m 13[2mms[22m[39m
+     [32m✓[39m dedupes a repeated recipient address before calling the service[32m 1[2mms[22m[39m
+ [31m❯[39m src/components/domain/dish/dish-detail-actions.test.tsx [2m([22m[2m12 tests[22m[2m | [22m[31m1 failed[39m[2m)[22m[33m 3849[2mms[22m[39m
+[31m     [31m×[31m Send opens a dialog locked to this item, with no searchable item selector[39m[33m 419[2mms[22m[39m
+     [32m✓[39m Publish stays single-item, offering the fixed/latest version wording[32m 260[2mms[22m[39m
+     [32m✓[39m on Archive failure, keeps the dialog open and shows an error toast[32m 282[2mms[22m[39m
+     [32m✓[39m on Archive success, closes the dialog and shows a success toast (nav/details QA batch item 11)[32m 289[2mms[22m[39m
+     [32m✓[39m links a Recipe's 'Cooking history' action to its own dedicated history page[32m 118[2mms[22m[39m
+     [32m✓[39m also offers a Part's own 'Cooking history' action, distinct from its composition-based history[32m 105[2mms[22m[39m
+     [32m✓[39m defaults to the current Version[32m 268[2mms[22m[39m
+     [33m[2m✓[22m[39m switches to an explicit historical Version, hides the picker once scope is Include all Versions [33m 743[2mms[22m[39m
+     [33m[2m✓[22m[39m fetches the selected Version/tier, closes the dialog, and shows a success toast with the filename [33m 344[2mms[22m[39m
+     [32m✓[39m prevents a duplicate submission while a download is in flight[32m 294[2mms[22m[39m
+     [33m[2m✓[22m[39m omits versionId when the scope is Include all Versions [33m 428[2mms[22m[39m
+     [32m✓[39m on failure, shows the error toast and keeps the dialog open and usable[32m 291[2mms[22m[39m
+ [32m✓[39m src/components/domain/cooking/cooking-mode-shell.test.tsx [2m([22m[2m26 tests[22m[2m)[22m[33m 4101[2mms[22m[39m
+     [33m[2m✓[22m[39m selects a Section in one click, showing only that Section's content in the center panel [33m 361[2mms[22m[39m
+     [33m[2m✓[22m[39m does not auto-collapse when the final Instruction is checked individually [33m 413[2mms[22m[39m
+ [32m✓[39m src/components/domain/dish/nutrition-fields.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[33m 3386[2mms[22m[39m
+     [33m[2m✓[22m[39m lets the user type calories/protein/carbs/fat directly [33m 1179[2mms[22m[39m
+     [33m[2m✓[22m[39m shows the per-amount basis fields only once Per serving/output unit is selected [33m 516[2mms[22m[39m
+     [33m[2m✓[22m[39m searches, lists results, and applies a selected result into form state [33m 675[2mms[22m[39m
+     [33m[2m✓[22m[39m shows a friendly error and never blocks manual entry when search fails [33m 526[2mms[22m[39m
+ [32m✓[39m src/components/domain/grocery/grocery-list-detail-view.test.tsx [2m([22m[2m27 tests[22m[2m)[22m[33m 2593[2mms[22m[39m
+     [33m[2m✓[22m[39m shows 'Use substitute' for an eligible primary-selected contribution and invokes selection with SUBSTITUTE [33m 500[2mms[22m[39m
+     [33m[2m✓[22m[39m preserves the persisted target when switching Version, recalculating the scale from the newly selected Version's own yield [33m 361[2mms[22m[39m
+ [32m✓[39m src/components/domain/dish/library-filter-bar.test.tsx [2m([22m[2m13 tests[22m[2m)[22m[33m 2328[2mms[22m[39m
+     [33m[2m✓[22m[39m preserves an active `display` view param (owned by DishLibraryDisplay) across a filter navigation [33m 702[2mms[22m[39m
+     [33m[2m✓[22m[39m submits a typed search query as the q param [33m 381[2mms[22m[39m
+ [32m✓[39m src/components/domain/sharing/bulk-publish-dialog.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[33m 1608[2mms[22m[39m
+     [33m[2m✓[22m[39m Continue stays disabled until at least one item is selected [33m 441[2mms[22m[39m
+     [33m[2m✓[22m[39m applies one shared settings payload and creates one independent link per selected item [33m 594[2mms[22m[39m
+ [32m✓[39m src/components/domain/mealplans/meal-plan-editor.test.tsx [2m([22m[2m15 tests[22m[2m)[22m[33m 7546[2mms[22m[39m
+     [33m[2m✓[22m[39m defaults Start date to today and End date to today + 6 days [33m 465[2mms[22m[39m
+     [33m[2m✓[22m[39m does not show a meaningless Planned badge for a newly-added unsaved meal [33m 890[2mms[22m[39m
+     [33m[2m✓[22m[39m clicking the card row (not a nested action) opens Edit [33m 621[2mms[22m[39m
+     [33m[2m✓[22m[39m Favorites filters to Favorite-tagged candidates only [33m 321[2mms[22m[39m
+     [33m[2m✓[22m[39m stages the selected Version on the draft entry, persisted on Save [33m 371[2mms[22m[39m
+     [33m[2m✓[22m[39m preserves a user-chosen target yield across a Version switch, recalculating the scale from the newly selected Version's own yield [33m 335[2mms[22m[39m
+     [33m[2m✓[22m[39m Add plan commits a scheduled meal, grouped under its date's day card [33m 625[2mms[22m[39m
+     [33m[2m✓[22m[39m prevents scheduling more servings than the Meal's target yield across entries (§77.2) [33m 924[2mms[22m[39m
+     [33m[2m✓[22m[39m removing the Meal a schedule entry belongs to clears that schedule entry too [33m 1023[2mms[22m[39m
+     [33m[2m✓[22m[39m Save sends the schedule as scheduleAssignments keyed to the new entry's localKey [33m 807[2mms[22m[39m
+     [33m[2m✓[22m[39m blocks Save with a clear message when a Meal's target yield drops below its already-scheduled servings [33m 607[2mms[22m[39m
+ [32m✓[39m src/components/domain/sharing/direct-share-collection-dialog.test.tsx [2m([22m[2m9 tests[22m[2m)[22m[33m 3289[2mms[22m[39m
+     [33m[2m✓[22m[39m is the generalized flow: `/share`'s Send opens with nothing preselected [33m 368[2mms[22m[39m
+     [33m[2m✓[22m[39m Select all checks every loaded item (Recipes and Parts alike), and individual rows can be deselected [33m 471[2mms[22m[39m
+     [33m[2m✓[22m[39m enables Next once a recipient chip is added and an item is selected [33m 422[2mms[22m[39m
+     [33m[2m✓[22m[39m sends each selected item with its own independently chosen Version, not one shared Version for the whole batch [33m 515[2mms[22m[39m
+     [33m[2m✓[22m[39m on operation-level failure, keeps the dialog open and shows an error toast [33m 377[2mms[22m[39m
+     [33m[2m✓[22m[39m on a per-recipient failure, keeps only the failed recipient chip so it can be retried [33m 312[2mms[22m[39m
+     [33m[2m✓[22m[39m disables items already shared (accepted or pending) to the single entered recipient and excludes them from Select all [33m 572[2mms[22m[39m
+ [32m✓[39m src/components/domain/cooking/session-review-form.test.tsx [2m([22m[2m7 tests[22m[2m)[22m[33m 1297[2mms[22m[39m
+     [33m[2m✓[22m[39m links Edit recipe to the exact cooked Version and this session, after saving [33m 470[2mms[22m[39m
+     [33m[2m✓[22m[39m Cancel discards the open Stage editor without saving; Save persists it, collapses back, and shows a success toast for the actually-saved value [33m 329[2mms[22m[39m
+     [33m[2m✓[22m[39m changing the draft dropdown after a save never rewrites the already-shown success toast (save-state bug fix) [33m 317[2mms[22m[39m
+ [32m✓[39m src/app/(app)/layout.test.ts [2m([22m[2m1 test[22m[2m)[22m[33m 1297[2mms[22m[39m
+     [33m[2m✓[22m[39m is noindex, nofollow for the whole protected app shell [33m 1296[2mms[22m[39m
+ [32m✓[39m src/components/domain/cooking/start-cooking-button.test.tsx [2m([22m[2m9 tests[22m[2m)[22m[33m 1099[2mms[22m[39m
+ [32m✓[39m src/components/domain/grocery/grocery-source-picker.test.tsx [2m([22m[2m7 tests[22m[2m)[22m[33m 1174[2mms[22m[39m
+     [33m[2m✓[22m[39m recalculates the scale factor from the newly selected Version's own yield, preserving the user's chosen target servings [33m 387[2mms[22m[39m
+ [32m✓[39m src/components/domain/dish/paste-import-flow.test.tsx [2m([22m[2m34 tests[22m[2m)[22m[33m 10872[2mms[22m[39m
+     [33m[2m✓[22m[39m parses pasted text and shows the review editor pre-filled with the proposal [33m 952[2mms[22m[39m
+     [33m[2m✓[22m[39m shows a needs-review banner when the parser flags ambiguous lines [33m 323[2mms[22m[39m
+     [33m[2m✓[22m[39m returns to the paste step on Discard import [33m 729[2mms[22m[39m
+     [33m[2m✓[22m[39m Save on a single-item import opens the Recipe/Part choice dialog; Save as recipe persists via confirmImport [33m 891[2mms[22m[39m
+     [33m[2m✓[22m[39m Cancel on the Save dialog closes it without losing edits [33m 681[2mms[22m[39m
+     [33m[2m✓[22m[39m Save as Part persists via confirmImport with PART [33m 527[2mms[22m[39m
+     [33m[2m✓[22m[39m lets a row be reclassified as a Part, reflected in the counts and the bulk call [33m 338[2mms[22m[39m
+     [33m[2m✓[22m[39m reviewing a batch row updates the pending draft and returns to the list via Finish review, without persisting [33m 678[2mms[22m[39m
+     [33m[2m✓[22m[39m Cancel in batch Review discards the current edits and returns to the import list [33m 467[2mms[22m[39m
+     [33m[2m✓[22m[39m applies a category→Cuisine mapping as a default, but a manual Cuisine edit made during Review wins on Import [33m 677[2mms[22m[39m
+     [33m[2m✓[22m[39m marks a Needs-review row Reviewed after Finish review and sinks it to the bottom of the group [33m 359[2mms[22m[39m
+     [33m[2m✓[22m[39m reports a created Tag's outcome under Classifications on the results page [33m 430[2mms[22m[39m
+ [32m✓[39m src/components/app/delete-account-dialog.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[33m 1218[2mms[22m[39m
+     [33m[2m✓[22m[39m keeps the destructive action disabled until the exact email is typed [33m 554[2mms[22m[39m
+ [32m✓[39m src/components/domain/home/home-dashboard.test.tsx [2m([22m[2m17 tests[22m[2m)[22m[33m 1004[2mms[22m[39m
+ [32m✓[39m src/components/app/sidebar-nav.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[33m 358[2mms[22m[39m
+ [32m✓[39m src/app/(cook)/layout.test.ts [2m([22m[2m1 test[22m[2m)[22m[33m 727[2mms[22m[39m
+     [33m[2m✓[22m[39m is noindex, nofollow for the full-bleed cooking session shell [33m 726[2mms[22m[39m
+ [32m✓[39m src/components/domain/sharing/direct-share-received-list.test.tsx [2m([22m[2m7 tests[22m[2m)[22m[33m 330[2mms[22m[39m
+ [32m✓[39m src/components/domain/dish/dish-library-display.test.tsx [2m([22m[2m8 tests[22m[2m)[22m[33m 756[2mms[22m[39m
+ [32m✓[39m src/components/domain/sharing/direct-share-single-item-dialog.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[33m 1314[2mms[22m[39m
+     [33m[2m✓[22m[39m titles itself by kind and locks the collection to exactly this dish — direct Send, no Review step [33m 506[2mms[22m[39m
+ [32m✓[39m src/components/domain/sharing/direct-share-collection-review-dialog.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[33m 1056[2mms[22m[39m
+     [33m[2m✓[22m[39m defaults every pending Recipe to selected (Accept all is one click) [33m 422[2mms[22m[39m
+ [32m✓[39m src/components/domain/cooking/scale-control.test.tsx [2m([22m[2m13 tests[22m[2m)[22m[33m 612[2mms[22m[39m
+     [33m[2m✓[22m[39m computes the multiplier from a target output against a usable Makes basis [33m 395[2mms[22m[39m
+ [32m✓[39m src/components/onboarding/replayable-guide-list.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[33m 661[2mms[22m[39m
+ [32m✓[39m src/components/ui/date-picker-field.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[33m 706[2mms[22m[39m
+     [33m[2m✓[22m[39m disables days before min and after max, leaving in-range days selectable [33m 516[2mms[22m[39m
+ [32m✓[39m src/components/domain/cooking/dish-cook-sessions-view.test.tsx [2m([22m[2m12 tests[22m[2m)[22m[33m 724[2mms[22m[39m
+ [32m✓[39m src/components/domain/dish/version-picker-field.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[33m 635[2mms[22m[39m
+ [32m✓[39m src/components/domain/dish/dish-tag-flavor-editor.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[33m 637[2mms[22m[39m
+     [33m[2m✓[22m[39m saves the selected tags and Flavor profiles [33m 486[2mms[22m[39m
+ [32m✓[39m src/components/ui/confirm-dialog.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[33m 456[2mms[22m[39m
+ [32m✓[39m src/components/domain/dish/convert-section-to-part-dialog.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 916[2mms[22m[39m
+     [33m[2m✓[22m[39m prefills the name from the Section, converts its content, and hands the link back without navigating [33m 788[2mms[22m[39m
+ [32m✓[39m src/components/domain/dish/part-link-fields.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[33m 789[2mms[22m[39m
+     [33m[2m✓[22m[39m Apply updates the parent draft's multiplier and the header chip, without persisting anything [33m 495[2mms[22m[39m
+ [32m✓[39m src/components/app/account-menu.test.tsx [2m([22m[2m8 tests[22m[2m)[22m[33m 717[2mms[22m[39m
+     [33m[2m✓[22m[39m shows the signed-in user's name and email [33m 326[2mms[22m[39m
+ [32m✓[39m src/components/domain/sharing/share-link-list.test.tsx [2m([22m[2m7 tests[22m[2m)[22m[33m 434[2mms[22m[39m
+ [32m✓[39m src/lib/images/processing.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 293[2mms[22m[39m
+ [32m✓[39m src/components/domain/dish/top-level-reorder-dialog.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 424[2mms[22m[39m
+ [32m✓[39m src/components/domain/cooking/cooking-setup.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 355[2mms[22m[39m
+ [32m✓[39m src/components/domain/dish/part-attach-picker.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[33m 648[2mms[22m[39m
+     [33m[2m✓[22m[39m fetches eligible Parts only once opened, and again — fresh — on every reopening [33m 355[2mms[22m[39m
+ [32m✓[39m src/components/domain/dish/fdc-search-picker.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[33m 535[2mms[22m[39m
+     [33m[2m✓[22m[39m hands a decoded barcode to the existing FDC search and lets the user apply a branded result [33m 322[2mms[22m[39m
+ [32m✓[39m src/components/domain/dish/section-fields.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 337[2mms[22m[39m
+ [32m✓[39m src/components/domain/sharing/share-dialog.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 643[2mms[22m[39m
+     [33m[2m✓[22m[39m shows the Version picker only after switching to Share a fixed version [33m 310[2mms[22m[39m
+ [32m✓[39m src/components/ui/dropdown-menu.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[33m 559[2mms[22m[39m
+ [32m✓[39m src/components/domain/sharing/direct-share-sent-list.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[32m 255[2mms[22m[39m
+ [32m✓[39m src/components/app/disabled-action-hint.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 293[2mms[22m[39m
+ [32m✓[39m src/lib/sharing/direct-share-actions.test.ts [2m([22m[2m3 tests[22m[2m)[22m[33m 339[2mms[22m[39m
+     [33m[2m✓[22m[39m rejects an unauthenticated decline without calling the service [33m 336[2mms[22m[39m
+ [32m✓[39m src/app/(share)/layout.test.ts [2m([22m[2m1 test[22m[2m)[22m[33m 402[2mms[22m[39m
+     [33m[2m✓[22m[39m is noindex, nofollow for public token-based share pages [33m 401[2mms[22m[39m
+ [32m✓[39m src/components/domain/grocery/grocery-list-rows.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[33m 417[2mms[22m[39m
+ [32m✓[39m src/components/domain/cooking/cook-sessions-view.test.tsx [2m([22m[2m11 tests[22m[2m)[22m[33m 526[2mms[22m[39m
+ [32m✓[39m src/app/(auth)/sign-in/page.test.ts [2m([22m[2m5 tests[22m[2m)[22m[33m 370[2mms[22m[39m
+     [33m[2m✓[22m[39m is noindex, nofollow [33m 367[2mms[22m[39m
+ [32m✓[39m src/components/ui/entity-row-actions.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 473[2mms[22m[39m
+ [32m✓[39m src/components/app/auth-session-manager.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[32m 297[2mms[22m[39m
+ [32m✓[39m src/components/domain/dish/dish-editor.test.tsx [2m([22m[2m60 tests[22m[2m)[22m[33m 23630[2mms[22m[39m
+     [33m[2m✓[22m[39m shows a New heading with no dish, and an Edit heading with one [33m 583[2mms[22m[39m
+     [33m[2m✓[22m[39m shows the discard-changes dialog when an in-app link is clicked while dirty, and navigates on Discard [33m 679[2mms[22m[39m
+     [33m[2m✓[22m[39m keeps editing and dismisses the dialog without navigating [33m 827[2mms[22m[39m
+     [33m[2m✓[22m[39m opens Add section as a modal draft, invisible on the page until Finished [33m 670[2mms[22m[39m
+     [33m[2m✓[22m[39m discards a new Section draft entirely on Cancel [33m 548[2mms[22m[39m
+     [33m[2m✓[22m[39m removes a finished Section [33m 503[2mms[22m[39m
+     [33m[2m✓[22m[39m commits an edited existing Section's changes on Finish [33m 408[2mms[22m[39m
+     [33m[2m✓[22m[39m reverts an edited existing Section's changes on Cancel [33m 776[2mms[22m[39m
+     [33m[2m✓[22m[39m treats Escape the same as Cancel [33m 496[2mms[22m[39m
+     [33m[2m✓[22m[39m exposes an accessible drag handle for reordering a Section [33m 762[2mms[22m[39m
+     [33m[2m✓[22m[39m adds and removes an Ingredient [33m 775[2mms[22m[39m
+     [33m[2m✓[22m[39m exposes an accessible drag handle for reordering an Ingredient [33m 490[2mms[22m[39m
+     [33m[2m✓[22m[39m defaults to Single amount mode and switches to Range, exposing From/To fields [33m 347[2mms[22m[39m
+     [33m[2m✓[22m[39m switching back from Range to Single clears the stale quantityEnd [33m 1194[2mms[22m[39m
+     [33m[2m✓[22m[39m To taste and As needed modes show no amount inputs [33m 523[2mms[22m[39m
+     [33m[2m✓[22m[39m Free text mode exposes a text box for the amount description [33m 820[2mms[22m[39m
+     [33m[2m✓[22m[39m adds and removes an Instruction [33m 355[2mms[22m[39m
+     [33m[2m✓[22m[39m creates successfully when 'Add substitute' was clicked but left entirely blank [33m 835[2mms[22m[39m
+     [33m[2m✓[22m[39m persists a fully completed substitute [33m 1554[2mms[22m[39m
+     [33m[2m✓[22m[39m blocks Finish section and shows a field-level error for a partially completed substitute, until it's fixed [33m 1873[2mms[22m[39m
+     [33m[2m✓[22m[39m defensively blocks final Save when a partial substitute reaches the parent form directly, bypassing the Section modal [33m 415[2mms[22m[39m
+     [33m[2m✓[22m[39m shows the choice dialog when an Ingredient changed, and saves as a refinement on that choice [33m 877[2mms[22m[39m
+     [33m[2m✓[22m[39m saves as a new major version when that choice is made [33m 722[2mms[22m[39m
+     [33m[2m✓[22m[39m saves a Note-only change via updateVersionNote, without the minor/major dialog [33m 335[2mms[22m[39m
+     [33m[2m✓[22m[39m clears the stored custom scale via setDefaultScale(null) when Reset is saved [33m 349[2mms[22m[39m
+     [33m[2m✓[22m[39m replaces the Section with the selected Part at the Section's exact position, leaving the rest of the order untouched [33m 314[2mms[22m[39m
+     [33m[2m✓[22m[39m still relies on server-side eligibility validation, not just the fetched candidate list [33m 308[2mms[22m[39m
+     [33m[2m✓[22m[39m collapsing Details preserves the entered values [33m 358[2mms[22m[39m
+     [33m[2m✓[22m[39m collapsing Nutrition preserves the entered values [33m 304[2mms[22m[39m
+ [32m✓[39m src/components/onboarding/example-recipe-demo.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 223[2mms[22m[39m
+ [32m✓[39m src/components/auth/sign-in-card.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[32m 228[2mms[22m[39m
+ [32m✓[39m src/components/domain/dish/part-usage-panel.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[32m 180[2mms[22m[39m
+ [32m✓[39m src/components/domain/dish/dish-compact-card.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 261[2mms[22m[39m
+ [32m✓[39m src/components/onboarding/coach-mark.test.tsx [2m([22m[2m8 tests[22m[2m)[22m[32m 295[2mms[22m[39m
+ [32m✓[39m src/components/domain/sharing/share-menu-button.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[33m 450[2mms[22m[39m
+     [33m[2m✓[22m[39m opens a dropdown exposing Send and Publish, and opens the generalized Send flow [33m 361[2mms[22m[39m
+ [32m✓[39m src/components/marketing/hero-showcase.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 171[2mms[22m[39m
+ [32m✓[39m src/components/domain/dish/image-field.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[32m 243[2mms[22m[39m
+ [32m✓[39m src/components/domain/sharing/public-share-view.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[32m 144[2mms[22m[39m
+ [32m✓[39m src/components/domain/dish/barcode-scanner.test.tsx [2m([22m[2m8 tests[22m[2m)[22m[32m 194[2mms[22m[39m
+ [32m✓[39m src/components/layout/public-header.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 198[2mms[22m[39m
+ [32m✓[39m src/components/marketing/closing-cta.test.tsx [2m([22m[2m1 test[22m[2m)[22m[32m 223[2mms[22m[39m
+ [32m✓[39m src/components/ui/button.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[32m 192[2mms[22m[39m
+ [32m✓[39m src/components/theme/theme-toggle.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[32m 177[2mms[22m[39m
+ [32m✓[39m src/components/marketing/contact-form.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[32m 236[2mms[22m[39m
+ [32m✓[39m src/components/layout/not-found-content.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[32m 147[2mms[22m[39m
+ [32m✓[39m src/components/domain/dish/scaled-version-view.test.tsx [2m([22m[2m1 test[22m[2m)[22m[32m 177[2mms[22m[39m
+ [32m✓[39m src/components/domain/sharing/received-share-notifier.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[32m 255[2mms[22m[39m
+ [32m✓[39m src/components/domain/dish/version-sections-view.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 268[2mms[22m[39m
+ [32m✓[39m src/components/domain/dish/create-part-link.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 203[2mms[22m[39m
+ [32m✓[39m src/components/domain/print/print-document.test.tsx [2m([22m[2m10 tests[22m[2m)[22m[32m 248[2mms[22m[39m
+ [32m✓[39m src/components/domain/dish/part-link-tree-view.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 218[2mms[22m[39m
+ [32m✓[39m src/components/ui/breadcrumbs.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[32m 120[2mms[22m[39m
+ [32m✓[39m src/components/domain/dish/nutrition-summary.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[32m 116[2mms[22m[39m
+ [32m✓[39m src/lib/date.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 51[2mms[22m[39m
+ [32m✓[39m src/app/api/cron/cleanup-orphan-images/route.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 54[2mms[22m[39m
+ [32m✓[39m src/components/ui/batch-progress.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 360[2mms[22m[39m
+     [33m[2m✓[22m[39m renders honest determinate progress with its label [33m 308[2mms[22m[39m
+ [32m✓[39m scripts/lib/next-diagnostics-core.test.ts [2m([22m[2m18 tests[22m[2m)[22m[32m 29[2mms[22m[39m
+ [32m✓[39m src/components/marketing/json-ld.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 57[2mms[22m[39m
+ [32m✓[39m src/lib/units/conversion.test.ts [2m([22m[2m12 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32m✓[39m src/lib/nutrition/actions.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 28[2mms[22m[39m
+ ELIFECYCLE  Command failed with exit code 130.
+ ELIFECYCLE  Command failed with exit code 130.

@@ -324,22 +324,56 @@ export async function getDirectShareRecipientHistory(
   }
 }
 
+export type SendDirectShareCollectionRecipientResult =
+  | { recipientEmail: string; status: "success"; collectionId: string }
+  | { recipientEmail: string; status: "error"; message: string };
+
 export type SendDirectShareCollectionActionState =
-  | { status: "success"; collectionId: string }
+  | {
+      status: "success";
+      results: SendDirectShareCollectionRecipientResult[];
+    }
   | { status: "error"; message: string };
 
+/**
+ * Multi-recipient Send (toast/Send/Publish QA batch item 4): each recipient
+ * resolves independently through the unmodified single-recipient
+ * `sendDirectShareCollection` service call — same per-recipient
+ * ownership/self-send/already-shared/claim behavior as before, just looped
+ * here rather than reimplemented for N recipients. Sequential (not
+ * `Promise.all`) so one recipient's failure never aborts the rest and a
+ * large recipient list doesn't open that many concurrent transactions at
+ * once — mirrors the sequential per-item loop `direct-share-collection-
+ * review-dialog.tsx`'s bulk accept already uses.
+ */
 export async function sendDirectShareCollection(
   values: unknown,
 ): Promise<SendDirectShareCollectionActionState> {
   try {
     const userId = await requireUserId();
     const input = sendDirectShareCollectionSchema.parse(values);
-    const result = await collectionsService.sendDirectShareCollection(
-      userId,
-      input,
-    );
+    const results: SendDirectShareCollectionRecipientResult[] = [];
+    for (const recipientEmail of input.recipientEmails) {
+      try {
+        const result = await collectionsService.sendDirectShareCollection(
+          userId,
+          { recipientEmail, items: input.items, note: input.note },
+        );
+        results.push({
+          recipientEmail,
+          status: "success",
+          collectionId: result.collectionId,
+        });
+      } catch (error) {
+        results.push({
+          recipientEmail,
+          status: "error",
+          message: toActionErrorMessage(error),
+        });
+      }
+    }
     revalidatePath(SHARE_MANAGEMENT_PATH);
-    return { status: "success", ...result };
+    return { status: "success", results };
   } catch (error) {
     return { status: "error", message: toActionErrorMessage(error) };
   }

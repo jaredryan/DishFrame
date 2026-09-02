@@ -50,16 +50,19 @@ export function ReceivedShareNotifier({
           ? "You have a new shared recipe"
           : `You have ${newShareCount} new shared recipes`,
       description: "Someone sent you a recipe or Part to review.",
+      variant: "attention",
       durationMs: null,
-      action: {
-        label: "View received shares",
-        onClick: () => {
-          // Dismissing (not just navigating) is what fires `onDismiss`
-          // below, so following the link counts as acknowledging it too.
-          dismissToast("received-shares");
-          router.push("/share#received");
+      actions: [
+        {
+          label: "View received shares",
+          onClick: () => {
+            // Dismissing (not just navigating) is what fires `onDismiss`
+            // below, so following the link counts as acknowledging it too.
+            dismissToast("received-shares");
+            router.push("/share#received");
+          },
         },
-      },
+      ],
       onDismiss: () => {
         void acknowledgeShareNotifications();
       },
