@@ -10,9 +10,8 @@ import { signOut } from "@/lib/auth/client";
  * supports: there's no password/OTP to re-verify in place, and `/sign-in`
  * immediately redirects a still-signed-in visitor away
  * (`app/(auth)/sign-in/page.tsx`), so the session must actually end before
- * Google's flow can mint a fresh one. Used both for session management
- * (Better Auth's own `listSessions` freshness gate) and account deletion
- * (this app's equivalent freshness check).
+ * Google's flow can mint a fresh one. Used for account deletion (this
+ * app's own freshness check, `isSessionFresh`).
  */
 export function ReauthenticatePrompt({ reason }: { reason: string }) {
   const router = useRouter();

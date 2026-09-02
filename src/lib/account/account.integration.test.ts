@@ -5,10 +5,15 @@ import { createTestUser, deleteTestUser } from "@/test/factories";
 import * as dishService from "@/lib/dishes/service";
 import * as sharingService from "@/lib/sharing/service";
 import { sendDirectShareCollection } from "@/lib/sharing/collections";
-import { deleteAccount, revokeAuthSession } from "@/lib/account/service";
+import {
+  deleteAccount,
+  revokeAuthSession,
+  listAuthSessionsForDisplay,
+} from "@/lib/account/service";
 import { deleteImageAssetIfOrphaned } from "@/lib/images/service";
 import { AuthorizationError, NotFoundError } from "@/lib/errors";
 import type { DishContentInput } from "@/lib/dishes/schema";
+import type { Session } from "@/lib/auth/auth";
 
 // Same reasoning as dishes.integration.test.ts: these tests create
 // ImageAsset rows directly against Postgres, no real Blob upload — the
@@ -523,5 +528,103 @@ describe("revokeAuthSession authorization", () => {
       where: { userId: owner.id },
     });
     expect(remaining.map((s) => s.id)).toEqual([sessionB.id]);
+  });
+});
+
+describe("listAuthSessionsForDisplay", () => {
+  let ownerId: string | undefined;
+  let otherUserId: string | undefined;
+
+  afterEach(async () => {
+    if (ownerId) {
+      await deleteTestUser(ownerId);
+      ownerId = undefined;
+    }
+    if (otherUserId) {
+      await deleteTestUser(otherUserId);
+      otherUserId = undefined;
+    }
+  });
+
+  it("lists the caller's own sessions even when the caller's session isn't fresh", async () => {
+    const owner = await createTestUser();
+    ownerId = owner.id;
+
+    const staleCreatedAt = new Date(Date.now() - 1000 * 60 * 60 * 24 * 2);
+    const current = await prisma.session.create({
+      data: {
+        id: `${owner.id}-session-current`,
+        token: `${owner.id}-token-current`,
+        userId: owner.id,
+        createdAt: staleCreatedAt,
+        updatedAt: staleCreatedAt,
+        expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30),
+      },
+    });
+    const other = await prisma.session.create({
+      data: {
+        id: `${owner.id}-session-other`,
+        token: `${owner.id}-token-other`,
+        userId: owner.id,
+        expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30),
+      },
+    });
+
+    // `current` is well past PRODUCT_SPEC.md §91's freshness window —
+    // exercising exactly the case that used to force reauthentication just
+    // to view this list.
+    const callerSession = {
+      session: current,
+      user: owner,
+    } as unknown as Session;
+
+    const sessions = await listAuthSessionsForDisplay(callerSession);
+
+    expect(sessions.map((s) => s.id).sort()).toEqual(
+      [current.id, other.id].sort(),
+    );
+    expect(sessions.find((s) => s.id === current.id)?.isCurrent).toBe(true);
+    expect(sessions.find((s) => s.id === other.id)?.isCurrent).toBe(false);
+  });
+
+  it("excludes another account's sessions and this account's own expired sessions", async () => {
+    const owner = await createTestUser();
+    ownerId = owner.id;
+    const stranger = await createTestUser();
+    otherUserId = stranger.id;
+
+    const current = await prisma.session.create({
+      data: {
+        id: `${owner.id}-session-current`,
+        token: `${owner.id}-token-current`,
+        userId: owner.id,
+        expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30),
+      },
+    });
+    await prisma.session.create({
+      data: {
+        id: `${owner.id}-session-expired`,
+        token: `${owner.id}-token-expired`,
+        userId: owner.id,
+        expiresAt: new Date(Date.now() - 1000 * 60 * 60),
+      },
+    });
+    await prisma.session.create({
+      data: {
+        id: `${stranger.id}-session`,
+        token: `${stranger.id}-token`,
+        userId: stranger.id,
+        expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30),
+      },
+    });
+
+    const callerSession = {
+      session: current,
+      user: owner,
+    } as unknown as Session;
+
+    const sessions = await listAuthSessionsForDisplay(callerSession);
+
+    expect(sessions.map((s) => s.id)).toEqual([current.id]);
   });
 });

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { CirclePlay, CircleStop, Clock, Eye, Trash2 } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
-import { TooltipIconButton } from "@/components/domain/dish/reorder-buttons";
+import { EntityRowActions } from "@/components/ui/entity-row-actions";
 import {
   CLICKABLE_ROW_CLASS,
   ClickableRowOverlay,
@@ -80,7 +80,7 @@ export function ActiveSessionCardShell({
   return (
     <li
       className={cn(
-        "border-border bg-card relative flex flex-col gap-3 rounded-lg border px-4 py-3",
+        "border-border bg-card @container relative flex flex-col gap-3 rounded-lg border px-4 py-3",
         CLICKABLE_ROW_CLASS,
       )}
     >
@@ -107,20 +107,24 @@ export function ActiveSessionCardShell({
             </DisclosurePill>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-1">
-          <TooltipIconButton
-            label={`Resume ${actionSubject}`}
-            tooltip="Resume"
-            icon={CirclePlay}
-            onClick={() => router.push(`/cook/${session.id}`)}
-          />
-          <TooltipIconButton
-            label={`End ${actionSubject}`}
-            tooltip="End session"
-            icon={CircleStop}
-            onClick={() => setEndOpen(true)}
-          />
-        </div>
+        <EntityRowActions
+          actions={[
+            {
+              key: "resume",
+              label: `Resume ${actionSubject}`,
+              tooltip: "Resume",
+              icon: CirclePlay,
+              onClick: () => router.push(`/cook/${session.id}`),
+            },
+            {
+              key: "end",
+              label: `End ${actionSubject}`,
+              tooltip: "End session",
+              icon: CircleStop,
+              onClick: () => setEndOpen(true),
+            },
+          ]}
+        />
       </div>
 
       {notesOpen && (
@@ -183,7 +187,7 @@ export function CompletedSessionCardShell({
   return (
     <li
       className={cn(
-        "border-border bg-card relative flex flex-col gap-3 rounded-lg border px-4 py-3",
+        "border-border bg-card @container relative flex flex-col gap-3 rounded-lg border px-4 py-3",
         CLICKABLE_ROW_CLASS,
       )}
     >
@@ -211,21 +215,25 @@ export function CompletedSessionCardShell({
             </DisclosurePill>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-1">
-          <TooltipIconButton
-            label={`View ${actionSubject}`}
-            tooltip="View"
-            icon={Eye}
-            onClick={() => router.push(`/cook/${session.id}`)}
-          />
-          <TooltipIconButton
-            label={`Delete ${actionSubject}`}
-            tooltip="Delete session"
-            icon={Trash2}
-            onClick={() => setDeleteOpen(true)}
-            className="text-destructive-text hover:bg-destructive/10 hover:text-destructive-text"
-          />
-        </div>
+        <EntityRowActions
+          actions={[
+            {
+              key: "view",
+              label: `View ${actionSubject}`,
+              tooltip: "View",
+              icon: Eye,
+              onClick: () => router.push(`/cook/${session.id}`),
+            },
+            {
+              key: "delete",
+              label: `Delete ${actionSubject}`,
+              tooltip: "Delete session",
+              icon: Trash2,
+              onClick: () => setDeleteOpen(true),
+              destructive: true,
+            },
+          ]}
+        />
       </div>
 
       {ratingsOpen && session.ratings.length > 0 && (

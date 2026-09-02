@@ -9,7 +9,6 @@ import {
   revokeAuthSessionAction,
   revokeOtherAuthSessionsAction,
 } from "@/lib/account/actions";
-import { ReauthenticatePrompt } from "@/components/app/reauthenticate-prompt";
 import type { AuthSessionSummary } from "@/lib/account/service";
 
 function formatRelative(iso: string): string {
@@ -23,18 +22,12 @@ function formatRelative(iso: string): string {
   return `${days}d ago`;
 }
 
-/**
- * PRODUCT_SPEC.md §89: initial list comes from the server component that
- * renders `/profile` (Better Auth's `listSessions` requires a fresh
- * session, so the "needs reauth" state is decided there); this component
- * only handles revoke interactions and refreshes the page afterward,
- * matching `ShareLinkList`'s pattern.
- */
+// PRODUCT_SPEC.md §89: initial list comes from `/profile`'s server
+// component (see `listAuthSessionsForDisplay`); this only handles revoke
+// interactions and refreshes the page afterward, matching `ShareLinkList`.
 export function AuthSessionManager({
-  status,
   sessions,
 }: {
-  status: "ready" | "needs_reauth";
   sessions: AuthSessionSummary[];
 }) {
   const router = useRouter();
@@ -42,12 +35,6 @@ export function AuthSessionManager({
     "revoke-others" | `revoke-${string}`
   >();
   const [error, setError] = React.useState<string | null>(null);
-
-  if (status === "needs_reauth") {
-    return (
-      <ReauthenticatePrompt reason="View and manage your signed-in devices." />
-    );
-  }
 
   function handleRevoke(sessionId: string) {
     setError(null);

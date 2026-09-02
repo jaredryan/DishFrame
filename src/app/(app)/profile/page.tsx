@@ -19,7 +19,7 @@ export default async function ProfilePage() {
   }
 
   const { user } = session;
-  const sessionListResult = await listAuthSessionsForDisplay(session);
+  const authSessions = await listAuthSessionsForDisplay(session);
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-8">
@@ -46,16 +46,7 @@ export default async function ProfilePage() {
           Signed-in devices
         </h2>
         <div className="border-border bg-card rounded-xl border p-5">
-          <AuthSessionManager
-            status={
-              sessionListResult.status === "ready" ? "ready" : "needs_reauth"
-            }
-            sessions={
-              sessionListResult.status === "ready"
-                ? sessionListResult.sessions
-                : []
-            }
-          />
+          <AuthSessionManager sessions={authSessions} />
         </div>
       </section>
 

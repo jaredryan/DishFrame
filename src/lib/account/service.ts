@@ -78,45 +78,24 @@ export type AuthSessionSummary = {
   lastActiveAt: string;
 };
 
-export type AuthSessionListResult =
-  | { status: "ready"; sessions: AuthSessionSummary[] }
-  | { status: "needs_reauth" };
-
-/**
- * Thin wrapper over Better Auth's own `listSessions` (PRODUCT_SPEC.md §89,
- * BUILD_PLAN.md Slice 19) — never exposes a raw session token to the
- * client, only the row id (safe: a lookup key, not a bearer credential).
- * `listSessions` itself requires a fresh session; any failure from that
- * call while the caller is authenticated is treated as the freshness gate
- * (the only realistic failure mode here) rather than parsing Better Auth's
- * internal error shape.
- */
+// Reads `Session` directly rather than via Better Auth's `listSessions`
+// endpoint, which bakes in `freshSessionMiddleware` and would force
+// reauthentication just to view this read-only list (§89). Row id only,
+// never the raw token.
 export async function listAuthSessionsForDisplay(
   session: Session,
-): Promise<AuthSessionListResult> {
-  if (!isSessionFresh(session)) {
-    return { status: "needs_reauth" };
-  }
-  try {
-    const sessions = await auth.api.listSessions({
-      headers: await headers(),
-    });
-    return {
-      status: "ready",
-      sessions: sessions
-        .slice()
-        .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
-        .map((row) => ({
-          id: row.id,
-          isCurrent: row.id === session.session.id,
-          description: describeUserAgent(row.userAgent ?? null),
-          createdAt: row.createdAt.toISOString(),
-          lastActiveAt: row.updatedAt.toISOString(),
-        })),
-    };
-  } catch {
-    return { status: "needs_reauth" };
-  }
+): Promise<AuthSessionSummary[]> {
+  const rows = await prisma.session.findMany({
+    where: { userId: session.user.id, expiresAt: { gt: new Date() } },
+    orderBy: { updatedAt: "desc" },
+  });
+  return rows.map((row) => ({
+    id: row.id,
+    isCurrent: row.id === session.session.id,
+    description: describeUserAgent(row.userAgent ?? null),
+    createdAt: row.createdAt.toISOString(),
+    lastActiveAt: row.updatedAt.toISOString(),
+  }));
 }
 
 /** Resolves `sessionId` to its token server-side only — the client never

@@ -10,4 +10,13 @@ describe("HeroShowcase", () => {
       screen.getByRole("link", { name: /create your first recipe/i }),
     ).toHaveAttribute("href", "/home");
   });
+
+  it("introduces the DishFrame brand lockup in the hero content", () => {
+    render(<HeroShowcase />);
+
+    expect(screen.getByRole("link", { name: "DishFrame" })).toHaveAttribute(
+      "href",
+      "/",
+    );
+  });
 });

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { ReplayableGuideList } from "@/components/onboarding/replayable-guide-list";
 import { ContactForm } from "@/components/marketing/contact-form";
 import { AppPageLayout } from "@/components/app/app-page-layout";
+import { Button } from "@/components/ui/button";
 
 export const metadata: Metadata = {
   title: "Help",
@@ -126,12 +127,9 @@ export default function HelpPage() {
         <ul className="mt-4 flex flex-wrap gap-2">
           {JUMP_LINKS.map(({ label, href }) => (
             <li key={href}>
-              <a
-                href={href}
-                className="border-border bg-card hover:bg-muted text-foreground block rounded-lg border px-3 py-1.5 text-sm"
-              >
-                {label}
-              </a>
+              <Button asChild variant="outline" size="sm">
+                <a href={href}>{label}</a>
+              </Button>
             </li>
           ))}
         </ul>

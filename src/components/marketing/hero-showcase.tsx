@@ -10,6 +10,7 @@ import {
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Wordmark } from "@/components/branding/wordmark";
 import { cn } from "@/lib/utils";
 import { HeroCookingVisual } from "@/components/marketing/hero-cooking-visual";
 import { HeroPartsVisual } from "@/components/marketing/hero-parts-visual";
@@ -132,6 +133,8 @@ export function HeroShowcase() {
   return (
     <section className="mx-auto grid max-w-6xl gap-8 px-4 pt-16 pb-20 sm:px-6 sm:pt-20 sm:pb-28 lg:grid-cols-2 lg:items-center lg:gap-x-10 lg:gap-y-6 lg:px-8 [&>*]:min-w-0">
       <div className="flex min-w-0 flex-col items-center gap-6 lg:col-start-1 lg:row-start-1 lg:items-start">
+        {/* Makes cropped hero screenshots identify the product without the navbar. */}
+        <Wordmark className="text-base" />
         <span className="text-primary text-sm font-semibold tracking-wide uppercase">
           Your personal cooking framework
         </span>

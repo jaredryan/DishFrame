@@ -6,7 +6,7 @@ import { StageBadge } from "@/components/domain/dish/stage-badge";
 import { RatingBadge } from "@/components/domain/dish/rating-badge";
 import { SemanticChip } from "@/components/domain/dish/semantic-chip";
 import { Badge } from "@/components/ui/badge";
-import { TooltipIconButton } from "@/components/domain/dish/reorder-buttons";
+import { EntityRowActions } from "@/components/ui/entity-row-actions";
 import { DishKindBadge } from "@/components/domain/dish/dish-kind-badge";
 import {
   dishBasePath,
@@ -50,7 +50,7 @@ export function DishCompactCard({
   return (
     <div
       className={cn(
-        "border-border bg-card relative flex items-center justify-between gap-3 rounded-lg border px-4 py-3",
+        "border-border bg-card @container relative flex items-center justify-between gap-3 rounded-lg border px-4 py-3",
         CLICKABLE_ROW_CLASS,
       )}
     >
@@ -80,20 +80,25 @@ export function DishCompactCard({
           </Badge>
         </div>
       </div>
-      <div className="relative z-10 flex shrink-0 items-center gap-1">
-        <TooltipIconButton
-          label={`View ${title}`}
-          tooltip="View"
-          icon={Eye}
-          onClick={() => router.push(`${basePath}/${dish.id}`)}
-        />
-        <TooltipIconButton
-          label={`Edit ${title}`}
-          tooltip="Edit"
-          icon={Pencil}
-          onClick={() => router.push(`${basePath}/${dish.id}/edit`)}
-        />
-      </div>
+      <EntityRowActions
+        className="relative z-10"
+        actions={[
+          {
+            key: "view",
+            label: `View ${title}`,
+            tooltip: "View",
+            icon: Eye,
+            onClick: () => router.push(`${basePath}/${dish.id}`),
+          },
+          {
+            key: "edit",
+            label: `Edit ${title}`,
+            tooltip: "Edit",
+            icon: Pencil,
+            onClick: () => router.push(`${basePath}/${dish.id}/edit`),
+          },
+        ]}
+      />
     </div>
   );
 }

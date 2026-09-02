@@ -17,8 +17,6 @@ vi.mock("@/lib/account/actions", () => ({
     mockRevokeOthers(...args),
 }));
 
-vi.mock("@/lib/auth/client", () => ({ signOut: vi.fn() }));
-
 const SESSIONS: AuthSessionSummary[] = [
   {
     id: "current",
@@ -43,14 +41,8 @@ describe("AuthSessionManager", () => {
     mockRevokeOthers.mockClear();
   });
 
-  it("shows a reauthentication prompt instead of the list when the session isn't fresh", () => {
-    render(<AuthSessionManager status="needs_reauth" sessions={[]} />);
-    expect(screen.getByText("Sign in again to continue")).toBeInTheDocument();
-    expect(screen.queryByText("Chrome on macOS")).not.toBeInTheDocument();
-  });
-
   it("marks the current session and only offers Sign out for other sessions", () => {
-    render(<AuthSessionManager status="ready" sessions={SESSIONS} />);
+    render(<AuthSessionManager sessions={SESSIONS} />);
     expect(screen.getByText("This device")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Sign out" })).toHaveLength(1);
   });
@@ -58,7 +50,7 @@ describe("AuthSessionManager", () => {
   it("revokes a specific other session and refreshes", async () => {
     mockRevoke.mockResolvedValueOnce({ status: "success" });
     const user = userEvent.setup();
-    render(<AuthSessionManager status="ready" sessions={SESSIONS} />);
+    render(<AuthSessionManager sessions={SESSIONS} />);
 
     await user.click(screen.getByRole("button", { name: "Sign out" }));
 
@@ -69,7 +61,7 @@ describe("AuthSessionManager", () => {
   it("revokes every other session at once", async () => {
     mockRevokeOthers.mockResolvedValueOnce({ status: "success" });
     const user = userEvent.setup();
-    render(<AuthSessionManager status="ready" sessions={SESSIONS} />);
+    render(<AuthSessionManager sessions={SESSIONS} />);
 
     await user.click(
       screen.getByRole("button", { name: "Sign out all other devices" }),
@@ -85,7 +77,7 @@ describe("AuthSessionManager", () => {
       message: "That session isn't available to revoke.",
     });
     const user = userEvent.setup();
-    render(<AuthSessionManager status="ready" sessions={SESSIONS} />);
+    render(<AuthSessionManager sessions={SESSIONS} />);
 
     await user.click(screen.getByRole("button", { name: "Sign out" }));
 
