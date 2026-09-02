@@ -114,7 +114,7 @@ test.describe("Home dashboard: navigation (empty account)", () => {
     await expect(mealPlans.getByText("No Meal Plans yet.")).toBeVisible();
     await mealPlans.getByRole("link", { name: "Plan meals" }).click();
     await expect(page).toHaveURL(/\/meal-plans\/new$/, { timeout: 15_000 });
-    await expect(page.getByLabel("Title")).toBeVisible();
+    await expect(page.getByLabel("Title")).toBeVisible({ timeout: 15_000 });
 
     await page.goto("/home");
     await dashboardSection(page, "Meal plans")
@@ -122,14 +122,22 @@ test.describe("Home dashboard: navigation (empty account)", () => {
       .click();
     await expect(page).toHaveURL(/\/meal-plans$/, { timeout: 15_000 });
 
-    // --- Grocery lists: empty state, primary action + View grocery lists both -> Grocery Lists ---
+    // --- Grocery lists: empty state (disabled entry point, since there are
+    // no Recipes/Parts/Meal Plans to generate from), View grocery lists -> Grocery Lists ---
     await page.goto("/home");
     const groceryLists = dashboardSection(page, "Grocery lists");
     await expect(
       groceryLists.getByText("No active grocery lists."),
     ).toBeVisible();
-    await groceryLists.getByRole("link", { name: "Make grocery list" }).click();
-    await expect(page).toHaveURL(/\/grocery-lists$/, { timeout: 15_000 });
+    // The DisabledActionHint tooltip wrapper also carries role="button"
+    // (for Enter/Space parity) and matches the same accessible name, so
+    // disambiguate with the real <button disabled> element specifically.
+    await expect(
+      groceryLists.getByRole("button", {
+        name: "Make grocery list",
+        disabled: true,
+      }),
+    ).toBeDisabled();
 
     await page.goto("/home");
     await dashboardSection(page, "Grocery lists")
@@ -247,6 +255,7 @@ test.describe("Home dashboard: populated data", () => {
     await page.goto("/grocery-lists");
     await page.getByRole("button", { name: "Make grocery list" }).click();
     await page.getByLabel("Title").fill(groceryListTitle);
+    await page.getByRole("radio", { name: "Recipes & parts" }).click();
     await page.getByRole("checkbox", { name: recipeTitle }).check();
     await page.getByRole("button", { name: "Next" }).click();
     await page.getByRole("button", { name: "Generate" }).click();

@@ -265,6 +265,75 @@ describe("mealplans service", () => {
       expect(names).toEqual(["Garlic", "Ginger"]);
     });
 
+    it("fully combines every eligible ingredient when the exact same Recipe/Version is added as a second Meal Plan entry after the list already exists (grocery combine QA finding)", async () => {
+      const { mealPlanId } = await setupMealPlan();
+      const dish = await dishService.createDish(
+        userId!,
+        "RECIPE",
+        content({
+          title: "Fried Rice",
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({ name: "Soy Sauce", quantity: 2, unit: "tbsp" }),
+                ingredient({ name: "Rice", quantity: 2, unit: "cup" }),
+                ingredient({ name: "Egg", quantity: 2, unit: null }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      await mealPlanService.addMealPlanEntry(userId!, mealPlanId, {
+        dishId: dish,
+        cookDate: new Date("2026-08-03T00:00:00.000Z"),
+      });
+      const listId = await mealPlanService.generateGroceryListFromMealPlan(
+        userId!,
+        mealPlanId,
+        { title: "Shopping" },
+      );
+
+      // Cooking it a second time during the plan: the exact same dish
+      // added as a second entry after the list already exists, exercising
+      // resync's incremental "Added" fold path (not the initial batched
+      // generation, which already combined correctly).
+      const entryBId = await mealPlanService.addMealPlanEntry(
+        userId!,
+        mealPlanId,
+        {
+          dishId: dish,
+          cookDate: new Date("2026-08-04T00:00:00.000Z"),
+        },
+      );
+      await mealPlanService.setMealPlanGroceryListEntryIncluded(
+        userId!,
+        mealPlanId,
+        listId,
+        entryBId,
+        true,
+      );
+
+      const list = await prisma.groceryList.findUniqueOrThrow({
+        where: { id: listId },
+        include: { items: { include: { contributions: true } } },
+      });
+      expect(list.items).toHaveLength(3);
+      for (const item of list.items) {
+        expect(item.contributions).toHaveLength(2);
+      }
+      const soySauce = list.items.find((i) => i.name === "Soy Sauce")!;
+      expect(soySauce.quantityDecimal?.toNumber()).toBeCloseTo(4, 3);
+      const rice = list.items.find((i) => i.name === "Rice")!;
+      expect(rice.quantityDecimal?.toNumber()).toBeCloseTo(4, 3);
+      const egg = list.items.find((i) => i.name === "Egg")!;
+      expect(egg.quantityDecimal?.toNumber()).toBeCloseTo(4, 3);
+    });
+
     it("removing an entry flags its contribution REMOVED and preserves checkedAt (round-2 Correction 5)", async () => {
       const { mealPlanId } = await setupMealPlan();
       const dishId = await dishService.createDish(

@@ -341,6 +341,37 @@ export async function startSessionFromEntry(values: {
   }
 }
 
+export type MealPlanEntryForGrocerySelectionDto = {
+  id: string;
+  title: string;
+  cookDate: string;
+};
+export type ListMealPlanEntriesForGrocerySelectionState =
+  | { status: "success"; entries: MealPlanEntryForGrocerySelectionDto[] }
+  | { status: "error"; message: string };
+
+/**
+ * The selected Meal Plan's own entries, for the New-grocery-list modal's
+ * `Meal plan` basis (§8) — fetched on demand once a plan is picked, rather
+ * than upfront for every candidate, mirroring `listGrocerySourceVersionOptions`'
+ * on-demand convention. Read-only; no domain mutation.
+ */
+export async function listMealPlanEntriesForGrocerySelection(values: {
+  mealPlanId: string;
+}): Promise<ListMealPlanEntriesForGrocerySelectionState> {
+  try {
+    const userId = await requireUserId();
+    const { mealPlanId } = mealPlanIdSchema.parse(values);
+    const entries = await mealPlanService.getMealPlanEntriesForGrocerySelection(
+      userId,
+      mealPlanId,
+    );
+    return { status: "success", entries };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
 export type GenerateGroceryListActionState =
   { status: "success"; listId: string } | { status: "error"; message: string };
 

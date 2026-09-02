@@ -5,6 +5,7 @@ import {
   GrocerySourcePickerProvider,
   GrocerySourcePickerTrigger,
   GrocerySourcePickerPanel,
+  type MealPlanGroceryCandidate,
 } from "@/components/domain/grocery/grocery-source-picker";
 import { ToastProvider, Toaster } from "@/components/ui/toast";
 import type { GrocerySourceCandidate } from "@/lib/grocery/queries";
@@ -20,6 +21,23 @@ vi.mock("@/lib/grocery/list-actions", () => ({
   listGrocerySourceVersionOptions: (...args: unknown[]) =>
     mockListGrocerySourceVersionOptions(...args),
 }));
+
+const mockGenerateGroceryListFromMealPlan = vi.fn();
+const mockListMealPlanEntriesForGrocerySelection = vi.fn();
+vi.mock("@/lib/mealplans/actions", () => ({
+  generateGroceryListFromMealPlan: (...args: unknown[]) =>
+    mockGenerateGroceryListFromMealPlan(...args),
+  listMealPlanEntriesForGrocerySelection: (...args: unknown[]) =>
+    mockListMealPlanEntriesForGrocerySelection(...args),
+}));
+
+const MEAL_PLAN_CANDIDATE: MealPlanGroceryCandidate = {
+  id: "plan-1",
+  title: "This week's plan",
+  startDate: new Date("2026-09-01"),
+  endDate: new Date("2026-09-07"),
+  _count: { entries: 2 },
+};
 
 const RECIPE_CANDIDATE: GrocerySourceCandidate = {
   dishId: "dish-1",
@@ -39,9 +57,22 @@ const RECIPE_CANDIDATE: GrocerySourceCandidate = {
 beforeEach(() => {
   mockGenerateGroceryList.mockReset();
   mockListGrocerySourceVersionOptions.mockReset();
+  mockGenerateGroceryListFromMealPlan.mockReset();
+  mockListMealPlanEntriesForGrocerySelection.mockReset();
   mockGenerateGroceryList.mockResolvedValue({
     status: "success",
     listId: "list-1",
+  });
+  mockGenerateGroceryListFromMealPlan.mockResolvedValue({
+    status: "success",
+    listId: "list-2",
+  });
+  mockListMealPlanEntriesForGrocerySelection.mockResolvedValue({
+    status: "success",
+    entries: [
+      { id: "entry-1", title: "Chili Crisp Bowl", cookDate: "2026-09-02" },
+      { id: "entry-2", title: "Nuoc Cham Bowl", cookDate: "2026-09-04" },
+    ],
   });
   mockListGrocerySourceVersionOptions.mockResolvedValue({
     status: "success",
@@ -64,16 +95,33 @@ beforeEach(() => {
   });
 });
 
-function renderPicker(candidates: GrocerySourceCandidate[]) {
+function renderPicker(
+  candidates: GrocerySourceCandidate[],
+  mealPlanCandidates: MealPlanGroceryCandidate[] = [],
+) {
   return render(
     <ToastProvider>
       <GrocerySourcePickerProvider>
-        <GrocerySourcePickerTrigger hasCandidates={candidates.length > 0} />
-        <GrocerySourcePickerPanel candidates={candidates} />
+        <GrocerySourcePickerTrigger
+          hasCandidates={candidates.length > 0 || mealPlanCandidates.length > 0}
+        />
+        <GrocerySourcePickerPanel
+          candidates={candidates}
+          mealPlanCandidates={mealPlanCandidates}
+        />
       </GrocerySourcePickerProvider>
       <Toaster />
     </ToastProvider>,
   );
+}
+
+/** Switches the open modal from its default `Meal plan` basis to
+ * `Recipes & parts` — every pre-existing Recipes/Parts-basis test needs
+ * this first now that Meal plan is the default. */
+async function switchToRecipesAndParts(
+  user: ReturnType<typeof userEvent.setup>,
+) {
+  await user.click(screen.getByRole("radio", { name: "Recipes & parts" }));
 }
 
 /**
@@ -111,6 +159,7 @@ describe("GrocerySourcePicker", () => {
     expect(button).toBeEnabled();
 
     await user.click(button);
+    await switchToRecipesAndParts(user);
     expect(screen.getByText("Weeknight Stir-Fry")).toBeInTheDocument();
   });
 
@@ -119,6 +168,7 @@ describe("GrocerySourcePicker", () => {
     renderPicker([RECIPE_CANDIDATE]);
 
     await user.click(screen.getByRole("button", { name: "Make grocery list" }));
+    await switchToRecipesAndParts(user);
     await user.click(screen.getByLabelText("Select Weeknight Stir-Fry"));
     await user.click(screen.getByRole("button", { name: "Next" }));
 
@@ -155,5 +205,70 @@ describe("GrocerySourcePicker", () => {
         ],
       }),
     );
+  });
+
+  it("defaults the new-list basis to Meal plan", async () => {
+    const user = userEvent.setup();
+    renderPicker([RECIPE_CANDIDATE], [MEAL_PLAN_CANDIDATE]);
+
+    await user.click(screen.getByRole("button", { name: "Make grocery list" }));
+
+    expect(
+      screen.getByRole("radio", { name: "Meal plan", checked: true }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("This week's plan")).toBeInTheDocument();
+    expect(screen.queryByText("Weeknight Stir-Fry")).not.toBeInTheDocument();
+  });
+
+  it("shows each Meal Plan result's name, date range, and entry count, and collapses the search into the selected plan", async () => {
+    const user = userEvent.setup();
+    renderPicker([], [MEAL_PLAN_CANDIDATE]);
+
+    await user.click(screen.getByRole("button", { name: "Make grocery list" }));
+
+    expect(screen.getByText("This week's plan")).toBeInTheDocument();
+    expect(screen.getByText(/2 entries/)).toBeInTheDocument();
+
+    await user.click(screen.getByText("This week's plan"));
+
+    // The search list collapses — searching for Meal Plans is no longer
+    // presented — replaced by the selected plan's own summary card.
+    expect(
+      screen.queryByPlaceholderText("Search Meal Plans"),
+    ).not.toBeInTheDocument();
+    expect(await screen.findByText("Chili Crisp Bowl")).toBeInTheDocument();
+    expect(screen.getByText("Nuoc Cham Bowl")).toBeInTheDocument();
+  });
+
+  it("generates from the selected Meal Plan's checked subset of meals", async () => {
+    const user = userEvent.setup();
+    renderPicker([], [MEAL_PLAN_CANDIDATE]);
+
+    await user.click(screen.getByRole("button", { name: "Make grocery list" }));
+    await user.click(screen.getByText("This week's plan"));
+    await screen.findByText("Chili Crisp Bowl");
+
+    // Every meal starts checked (matching Meal Plan Details' own default);
+    // uncheck one to exercise the subset-selection semantics.
+    await user.click(screen.getByRole("checkbox", { name: "Nuoc Cham Bowl" }));
+    await user.click(screen.getByRole("button", { name: "Generate" }));
+
+    expect(mockGenerateGroceryListFromMealPlan).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mealPlanId: "plan-1",
+        entryIds: ["entry-1"],
+      }),
+    );
+  });
+
+  it("Recipes & parts basis still supports the existing standalone multi-select flow", async () => {
+    const user = userEvent.setup();
+    renderPicker([RECIPE_CANDIDATE], [MEAL_PLAN_CANDIDATE]);
+
+    await user.click(screen.getByRole("button", { name: "Make grocery list" }));
+    await switchToRecipesAndParts(user);
+
+    expect(screen.getByText("Weeknight Stir-Fry")).toBeInTheDocument();
+    expect(screen.queryByText("This week's plan")).not.toBeInTheDocument();
   });
 });

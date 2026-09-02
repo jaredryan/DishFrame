@@ -5,6 +5,7 @@ import {
   listGroceryListsForOwner,
   listGrocerySourceCandidates,
 } from "@/lib/grocery/queries";
+import { listMealPlansForOwner } from "@/lib/mealplans/queries";
 import {
   GrocerySourcePickerProvider,
   GrocerySourcePickerTrigger,
@@ -20,19 +21,19 @@ export default async function GroceryListsPage() {
   const session = await getServerSession();
   if (!session) redirect("/sign-in");
 
-  const [{ active, completed }, candidates] = await Promise.all([
+  const [{ active, completed }, candidates, mealPlans] = await Promise.all([
     listGroceryListsForOwner(session.user.id),
     listGrocerySourceCandidates(session.user.id),
+    listMealPlansForOwner(session.user.id),
   ]);
+  const hasAnyCandidates = candidates.length > 0 || mealPlans.active.length > 0;
 
   return (
     <GrocerySourcePickerProvider>
       <AppPageLayout
         title="Grocery lists"
         description="Generate a shopping list from your Recipes and Parts, combine equivalent items, and check them off as you shop."
-        action={
-          <GrocerySourcePickerTrigger hasCandidates={candidates.length > 0} />
-        }
+        action={<GrocerySourcePickerTrigger hasCandidates={hasAnyCandidates} />}
       >
         <CoachMark guideKey="grocery-lists-intro" title="Grocery Lists">
           Generate a list from one or more Recipes/Parts, or from a Meal Plan.
@@ -40,7 +41,10 @@ export default async function GroceryListsPage() {
           never changes the Recipe or Part itself.
         </CoachMark>
 
-        <GrocerySourcePickerPanel candidates={candidates} />
+        <GrocerySourcePickerPanel
+          candidates={candidates}
+          mealPlanCandidates={mealPlans.active}
+        />
 
         <GroceryListRows active={active} completed={completed} />
       </AppPageLayout>

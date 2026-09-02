@@ -11,7 +11,7 @@
     "dev-build": "next build && next start",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint . --max-warnings=0",
+    "lint": "eslint . --max-warnings=0 --fix",
     "typecheck": "tsc --noEmit",
     "diagnostics": "tsx scripts/next-diagnostics.ts",
     "test:frontend": "vitest run",

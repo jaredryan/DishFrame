@@ -196,6 +196,67 @@ describe("grocery list service", () => {
       expect(items).toHaveLength(4);
     });
 
+    it("fully combines every eligible ingredient when the exact same Recipe/Version is included twice (grocery combine QA finding)", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      await initializeNewUser(userId);
+
+      const recipe = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({
+          title: "Fried Rice",
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({ name: "Soy Sauce", quantity: 2, unit: "tbsp" }),
+                ingredient({ name: "Rice", quantity: 2, unit: "cup" }),
+                ingredient({ name: "Egg", quantity: 2, unit: null }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+
+      // Cooking it twice during the plan: the same Recipe added as two
+      // separate sources rather than a single doubled scale factor — the
+      // literal QA repro (two sources sharing one dish/version, folded in
+      // one at a time via `addGroceryListSource`'s incremental combine
+      // path, not `generateGroceryList`'s single batched pass).
+      const listId = await listService.generateGroceryList(userId, {
+        title: "This week",
+        plannedDate: new Date(),
+        sources: [{ dishId: recipe, scaleFactor: 1 }],
+      });
+      await listService.addGroceryListSource(
+        userId,
+        listId,
+        recipe,
+        undefined,
+        1,
+      );
+
+      const list = await prisma.groceryList.findUniqueOrThrow({
+        where: { id: listId },
+        include: { items: { include: { contributions: true } } },
+      });
+      expect(list.items).toHaveLength(3);
+      for (const item of list.items) {
+        expect(item.contributions).toHaveLength(2);
+      }
+      const soySauce = list.items.find((i) => i.name === "Soy Sauce")!;
+      expect(soySauce.quantityDecimal?.toNumber()).toBeCloseTo(4, 3);
+      const rice = list.items.find((i) => i.name === "Rice")!;
+      expect(rice.quantityDecimal?.toNumber()).toBeCloseTo(4, 3);
+      const egg = list.items.find((i) => i.name === "Egg")!;
+      expect(egg.quantityDecimal?.toNumber()).toBeCloseTo(4, 3);
+    });
+
     it("auto-combines two optional occurrences of the same equivalent ingredient (Slice 12 correction)", async () => {
       const user = await createTestUser();
       userId = user.id;
@@ -2400,6 +2461,79 @@ describe("grocery list service", () => {
       await expect(
         listService.previewGroceryListSourceRefresh(userId, listId, source.id),
       ).rejects.toThrow(ValidationError);
+    });
+
+    it("applies a refresh cleanly even when a concurrent mutation already removed one of the source's contributions (intermittent Sync failure QA finding)", async () => {
+      // Regression for a real race: `applyGroceryListSourceRefresh` used to
+      // read this source's existing contributions with a plain (pre-
+      // transaction) query, then delete/update them by id inside the
+      // transaction that followed. A concurrent mutation landing in that
+      // gap (another tab, a second rapid Sync click) could delete a row
+      // this transaction still held a now-stale id for, throwing a Prisma
+      // "record not found" error — intermittent, and gone on retry once
+      // the stale read was no longer in play. The fix reads existing
+      // contributions from inside the transaction instead; this simulates
+      // the race by deleting a contribution/item out from under the
+      // refresh (standing in for a concurrent actor) immediately before
+      // calling it, and asserts the refresh still completes without
+      // throwing, correctly recreating the vanished ingredient.
+      const user = await createTestUser();
+      userId = user.id;
+      await initializeNewUser(userId);
+
+      const recipeId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({ name: "Flour", quantity: 2, unit: "cup" }),
+                ingredient({ name: "Sugar", quantity: 1, unit: "cup" }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      const listId = await listService.generateGroceryList(userId, {
+        title: "This week",
+        plannedDate: new Date(),
+        sources: [{ dishId: recipeId, scaleFactor: 1 }],
+      });
+
+      const flourItem = await prisma.groceryListItem.findFirstOrThrow({
+        where: { groceryListId: listId, name: "Flour" },
+      });
+      // Stand-in for a concurrent mutation that removed this ingredient's
+      // sole contribution (and, with it, the item) between an old
+      // implementation's pre-transaction read and its transactional
+      // deletes.
+      await prisma.groceryItemContribution.deleteMany({
+        where: { groceryListItemId: flourItem.id },
+      });
+      await prisma.groceryListItem.delete({ where: { id: flourItem.id } });
+
+      const source = await prisma.groceryListSource.findFirstOrThrow({
+        where: { groceryListId: listId },
+      });
+
+      await expect(
+        listService.applyGroceryListSourceRefresh(userId, listId, source.id),
+      ).resolves.not.toThrow();
+
+      const flourAfter = await prisma.groceryListItem.findFirstOrThrow({
+        where: { groceryListId: listId, name: "Flour" },
+      });
+      expect(flourAfter.quantityDecimal?.toNumber()).toBe(2);
+      const sugarAfter = await prisma.groceryListItem.findFirstOrThrow({
+        where: { groceryListId: listId, name: "Sugar" },
+      });
+      expect(sugarAfter.quantityDecimal?.toNumber()).toBe(1);
     });
   });
 

@@ -1,37 +1,73 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Eye, ShoppingCart, Trash2 } from "lucide-react";
+import {
+  CheckCircle2,
+  Eye,
+  RotateCcw,
+  ShoppingCart,
+  Trash2,
+} from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
-import { TooltipIconButton } from "@/components/domain/dish/reorder-buttons";
+import {
+  EntityRowActions,
+  type EntityRowAction,
+} from "@/components/ui/entity-row-actions";
 import {
   CLICKABLE_ROW_CLASS,
   ClickableRowOverlay,
 } from "@/components/ui/clickable-row";
 import { cn } from "@/lib/utils";
-import { deleteGroceryList } from "@/lib/grocery/list-actions";
+import {
+  deleteGroceryList,
+  completeGroceryList,
+  reopenGroceryList,
+} from "@/lib/grocery/list-actions";
 
 export type GroceryListRowItem = {
   id: string;
   title: string;
   createdAt: Date;
+  completedAt: Date | null;
+  linkedMealPlanId: string | null;
+  linkedMealPlan: { title: string } | null;
   _count: { items: number };
 };
 
 /**
  * Single Grocery List row, shared by the Grocery Lists index
- * (`GroceryListRows`) and the Home dashboard's "Grocery lists" section. The
- * whole card stays a "stretched link" to the list — View is the default
- * destination for both variants, since opening a list is as likely to mean
- * shopping from it as editing it.
+ * (`GroceryListRows`) and the Home dashboard's "Grocery lists" section.
+ * Follows the same settled entity-card rule `MealPlanCard` established:
+ * `View details` is the card's primary action and default whole-row/card
+ * click target; Mark complete/Reopen and Delete stay explicit secondary
+ * icon controls, collapsing into `EntityRowActions`' shared overflow menu
+ * at constrained card widths.
  */
 export function GroceryListCard({ list }: { list: GroceryListRowItem }) {
   const router = useRouter();
   const [isPending, startTransition] = React.useTransition();
   const [deleteOpen, setDeleteOpen] = React.useState(false);
   const { showToast } = useToast();
+  const isCompleted = list.completedAt != null;
+
+  function runStatusChange(
+    action: () => Promise<{ status: string; message?: string }>,
+  ) {
+    startTransition(async () => {
+      const result = await action();
+      if (result.status === "success") {
+        router.refresh();
+      } else {
+        showToast({
+          variant: "error",
+          title: result.message ?? "Something went wrong.",
+        });
+      }
+    });
+  }
 
   function confirmDelete() {
     startTransition(async () => {
@@ -48,41 +84,76 @@ export function GroceryListCard({ list }: { list: GroceryListRowItem }) {
     });
   }
 
+  const actions: EntityRowAction[] = [
+    {
+      key: "view",
+      label: `View details for ${list.title}`,
+      tooltip: "View details",
+      icon: Eye,
+      onClick: () => router.push(`/grocery-lists/${list.id}`),
+    },
+    isCompleted
+      ? {
+          key: "reopen",
+          label: `Reopen ${list.title}`,
+          tooltip: "Reopen",
+          icon: RotateCcw,
+          disabled: isPending,
+          onClick: () =>
+            runStatusChange(() => reopenGroceryList({ listId: list.id })),
+        }
+      : {
+          key: "complete",
+          label: `Mark ${list.title} complete`,
+          tooltip: "Mark complete",
+          icon: CheckCircle2,
+          disabled: isPending,
+          onClick: () =>
+            runStatusChange(() => completeGroceryList({ listId: list.id })),
+        },
+    {
+      key: "delete",
+      label: `Delete ${list.title}`,
+      tooltip: "Delete",
+      icon: Trash2,
+      destructive: true,
+      onClick: () => setDeleteOpen(true),
+    },
+  ];
+
   return (
     <li
       className={cn(
-        "border-border bg-card relative flex items-center justify-between gap-3 rounded-lg border px-4 py-3",
+        "border-border bg-card @container relative flex items-center justify-between gap-3 rounded-lg border px-4 py-3",
         CLICKABLE_ROW_CLASS,
       )}
     >
       <ClickableRowOverlay
         href={`/grocery-lists/${list.id}`}
-        label={`Open ${list.title}`}
+        label={`View details for ${list.title}`}
       />
       <div className="min-w-0">
         <p className="text-foreground truncate text-sm font-medium">
           {list.title}
         </p>
-        <p className="text-muted-foreground mt-2 text-xs">
-          {list.createdAt.toLocaleDateString()} · {list._count.items} item
-          {list._count.items === 1 ? "" : "s"}
-        </p>
+        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+          <p className="text-muted-foreground text-xs">
+            {list.createdAt.toLocaleDateString()} · {list._count.items} item
+            {list._count.items === 1 ? "" : "s"}
+          </p>
+          {list.linkedMealPlanId && (
+            <Link
+              href={`/meal-plans/${list.linkedMealPlanId}`}
+              onClick={(e) => e.stopPropagation()}
+              className="text-primary relative z-10 flex items-center text-xs font-medium underline-offset-2 hover:underline pointer-coarse:min-h-11"
+            >
+              Linked to meal plan
+              {list.linkedMealPlan ? `: ${list.linkedMealPlan.title}` : ""}
+            </Link>
+          )}
+        </div>
       </div>
-      <div className="relative z-10 flex shrink-0 items-center gap-1">
-        <TooltipIconButton
-          label={`View ${list.title}`}
-          tooltip="View"
-          icon={Eye}
-          onClick={() => router.push(`/grocery-lists/${list.id}`)}
-        />
-        <TooltipIconButton
-          label={`Delete ${list.title}`}
-          tooltip="Delete"
-          icon={Trash2}
-          className="text-destructive-text hover:bg-destructive/10 hover:text-destructive-text"
-          onClick={() => setDeleteOpen(true)}
-        />
-      </div>
+      <EntityRowActions actions={actions} className="relative z-10" />
 
       <ConfirmDialog
         open={deleteOpen}

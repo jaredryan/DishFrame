@@ -205,6 +205,8 @@ export async function listGroceryListsForOwner(ownerId: string) {
       title: true,
       createdAt: true,
       completedAt: true,
+      linkedMealPlanId: true,
+      linkedMealPlan: { select: { title: true } },
       _count: { select: { items: true } },
     },
     orderBy: [{ completedAt: "asc" }, { createdAt: "desc" }],

@@ -108,6 +108,11 @@ export type GroceryContributionDto = {
   groceryListSourceId: string | null;
   originalName: string;
   quantityText: string | null;
+  /** Raw numeric quantity backing `quantityText`, in `unit` — lets the
+   * client re-sum a combined item's total locally (§81.7 optimistic UI)
+   * using the same pure `combine.ts` grouping the server uses, rather than
+   * re-parsing the formatted display text. */
+  quantityDecimal: number | null;
   unit: string | null;
   isOptional: boolean;
   /** Has a persisted substitute snapshot to select (Slice 12 correction). */
@@ -123,6 +128,11 @@ export type GroceryContributionDto = {
    * `GroceryListSource` or `MealPlanEntry`) — null only for legacy/mixed
    * data with neither snapshot available. */
   sourceTitle: string | null;
+  /** The owning Meal Plan entry, present only on a `MEAL_PLAN_LINKED`
+   * list's contributions — lets the client locally recompute an item's
+   * displayed aggregate the instant a Meal Plan entry's inclusion checkbox
+   * is toggled, without waiting on the server (§81.7 optimistic UI). */
+  mealPlanEntryId: string | null;
 };
 
 export type GroceryListItemDto = {

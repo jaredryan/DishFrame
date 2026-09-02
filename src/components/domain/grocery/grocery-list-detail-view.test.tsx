@@ -77,9 +77,13 @@ const { resyncMealPlanGroceryLists, setMealPlanGroceryListEntryIncluded } =
         summary: null,
       }),
     ),
-    setMealPlanGroceryListEntryIncluded: vi.fn(async () => ({
-      status: "success" as const,
-    })),
+    setMealPlanGroceryListEntryIncluded: vi.fn(
+      async (): Promise<
+        { status: "success" } | { status: "error"; message: string }
+      > => ({
+        status: "success",
+      }),
+    ),
   }));
 
 vi.mock("@/lib/mealplans/actions", () => ({
@@ -95,6 +99,7 @@ function contribution(
     groceryListSourceId: "source-1",
     originalName: "Butter",
     quantityText: "1 cup",
+    quantityDecimal: 1,
     unit: "cup",
     isOptional: false,
     hasSubstitute: false,
@@ -102,6 +107,7 @@ function contribution(
     syncState: null,
     previousQuantityText: null,
     sourceTitle: null,
+    mealPlanEntryId: null,
     ...overrides,
   };
 }
@@ -608,6 +614,116 @@ describe("GroceryListDetailView — Meal-Plan-linked Meals section (§81.7)", ()
       entryId: "entry-1",
       included: false,
     });
+  });
+
+  it("updates the checkbox immediately, before the server mutation resolves (§81.7 optimistic UI)", async () => {
+    let resolveMutation: (value: { status: "success" }) => void;
+    setMealPlanGroceryListEntryIncluded.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveMutation = resolve;
+        }),
+    );
+    const user = userEvent.setup();
+    renderList([], {
+      id: "list-9",
+      ...linkedList([
+        {
+          id: "entry-1",
+          dishKind: "RECIPE",
+          title: "Chili Crisp Bowl",
+          versionLabel: "V1.0",
+          targetYieldQuantity: 4,
+          targetYieldUnit: "servings",
+          included: true,
+        },
+      ]),
+    });
+
+    const checkbox = screen.getByRole("checkbox", { name: /Chili Crisp Bowl/ });
+    expect(checkbox).toBeChecked();
+    await user.click(checkbox);
+
+    // Unchecked immediately — the mutation promise above is still pending.
+    expect(checkbox).not.toBeChecked();
+    resolveMutation!({ status: "success" });
+  });
+
+  it("rolls the checkbox back and shows the error toast when the mutation fails (§81.7 rollback)", async () => {
+    setMealPlanGroceryListEntryIncluded.mockImplementationOnce(async () => ({
+      status: "error" as const,
+      message: "Could not update this meal's inclusion.",
+    }));
+    const user = userEvent.setup();
+    renderList([], {
+      id: "list-9",
+      ...linkedList([
+        {
+          id: "entry-1",
+          dishKind: "RECIPE",
+          title: "Chili Crisp Bowl",
+          versionLabel: "V1.0",
+          targetYieldQuantity: 4,
+          targetYieldUnit: "servings",
+          included: true,
+        },
+      ]),
+    });
+
+    const checkbox = screen.getByRole("checkbox", { name: /Chili Crisp Bowl/ });
+    await user.click(checkbox);
+
+    expect(
+      await screen.findByText("Could not update this meal's inclusion."),
+    ).toBeInTheDocument();
+    expect(checkbox).toBeChecked();
+  });
+
+  it("locally recomputes an item's contents when a Meal Plan entry is unchecked, hiding an item that entry solely contributed to", async () => {
+    let resolveMutation: (value: { status: "success" }) => void;
+    setMealPlanGroceryListEntryIncluded.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveMutation = resolve;
+        }),
+    );
+    const user = userEvent.setup();
+    renderList(
+      [
+        item({
+          name: "Cilantro",
+          contributions: [
+            contribution({
+              id: "c1",
+              originalName: "Cilantro",
+              mealPlanEntryId: "entry-1",
+              syncState: "ACTIVE",
+            }),
+          ],
+        }),
+      ],
+      {
+        id: "list-9",
+        ...linkedList([
+          {
+            id: "entry-1",
+            dishKind: "RECIPE",
+            title: "Chili Crisp Bowl",
+            versionLabel: "V1.0",
+            targetYieldQuantity: 4,
+            targetYieldUnit: "servings",
+            included: true,
+          },
+        ]),
+      },
+    );
+
+    expect(screen.getByText(/Cilantro/)).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("checkbox", { name: /Chili Crisp Bowl/ }),
+    );
+    expect(screen.queryByText(/Cilantro/)).not.toBeInTheDocument();
+    resolveMutation!({ status: "success" });
   });
 
   it("standalone lists keep Add meal and never show Update meal plan", () => {

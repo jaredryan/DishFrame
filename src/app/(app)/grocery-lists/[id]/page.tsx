@@ -145,6 +145,7 @@ export default async function GroceryListDetailPage({
             (decimalToNumber(effective.quantityDecimal) != null
               ? String(decimalToNumber(effective.quantityDecimal))
               : null),
+          quantityDecimal: decimalToNumber(effective.quantityDecimal),
           unit: effective.unit,
           isOptional: c.isOptional,
           hasSubstitute: c.substituteIngredientLineageId != null,
@@ -155,6 +156,7 @@ export default async function GroceryListDetailPage({
             c.groceryListSource?.sourceDishTitleSnapshot ??
             c.mealPlanEntry?.sourceDishTitleSnapshot ??
             null,
+          mealPlanEntryId: c.mealPlanEntryId,
         };
       }),
     })),

@@ -92,6 +92,29 @@ async function resyncLinkedLists(
   return summaries;
 }
 
+export type MealPlanEntryForGrocerySelection = {
+  id: string;
+  title: string;
+  cookDate: string;
+};
+
+/**
+ * A Meal Plan's own entries, for the New-grocery-list modal's `Meal plan`
+ * basis (§8) — fetched on demand once a plan is picked from the search
+ * results, rather than upfront for every candidate.
+ */
+export async function getMealPlanEntriesForGrocerySelection(
+  ownerId: string,
+  mealPlanId: string,
+): Promise<MealPlanEntryForGrocerySelection[]> {
+  const mealPlan = await getOwnedMealPlanOrThrow(ownerId, mealPlanId);
+  return mealPlan.entries.map((entry) => ({
+    id: entry.id,
+    title: entry.sourceDishTitleSnapshot,
+    cookDate: entry.cookDate.toISOString(),
+  }));
+}
+
 // ---------------------------------------------------------------------------
 // Meal Plan CRUD (§76.1, §78)
 // ---------------------------------------------------------------------------

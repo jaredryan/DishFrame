@@ -4,7 +4,6 @@ import {
   CalendarDays,
   ChefHat,
   Clock,
-  ListChecks,
   ShoppingCart,
   CalendarRange,
 } from "lucide-react";
@@ -22,6 +21,13 @@ import {
   GroceryListCard,
   type GroceryListRowItem,
 } from "@/components/domain/grocery/grocery-list-rows";
+import {
+  GrocerySourcePickerProvider,
+  GrocerySourcePickerTrigger,
+  GrocerySourcePickerPanel,
+  type MealPlanGroceryCandidate,
+} from "@/components/domain/grocery/grocery-source-picker";
+import type { GrocerySourceCandidate } from "@/lib/grocery/queries";
 import { DishCompactCard } from "@/components/domain/dish/dish-compact-card";
 import type { DishCardItem } from "@/components/domain/dish/dish-card";
 import type { DishKindValue } from "@/lib/dishes/schema";
@@ -35,6 +41,8 @@ export type HomeDashboardProps = {
   activeMealPlans: MealPlanRowData[];
   hasCompletedMealPlans: boolean;
   activeGroceryLists: GroceryListRowItem[];
+  grocerySourceCandidates: GrocerySourceCandidate[];
+  mealPlanGroceryCandidates: MealPlanGroceryCandidate[];
 };
 
 function SectionCard({
@@ -100,6 +108,8 @@ export function HomeDashboard({
   activeMealPlans,
   hasCompletedMealPlans,
   activeGroceryLists,
+  grocerySourceCandidates,
+  mealPlanGroceryCandidates,
 }: HomeDashboardProps) {
   return (
     <div className="grid gap-4 md:grid-cols-2">
@@ -185,29 +195,35 @@ export function HomeDashboard({
         )}
       </SectionCard>
 
-      <SectionCard
-        title="Grocery lists"
-        icon={ShoppingCart}
-        action={
-          <Button size="sm" asChild>
-            <Link href="/grocery-lists">
-              <ListChecks />
-              Make grocery list
-            </Link>
-          </Button>
-        }
-        footer={<ViewLink href="/grocery-lists">View grocery lists</ViewLink>}
-      >
-        {activeGroceryLists.length === 0 ? (
-          <EmptyRow>No active grocery lists.</EmptyRow>
-        ) : (
-          <ul className="flex flex-col gap-2">
-            {activeGroceryLists.map((list) => (
-              <GroceryListCard key={list.id} list={list} />
-            ))}
-          </ul>
-        )}
-      </SectionCard>
+      <GrocerySourcePickerProvider>
+        <SectionCard
+          title="Grocery lists"
+          icon={ShoppingCart}
+          action={
+            <GrocerySourcePickerTrigger
+              hasCandidates={
+                grocerySourceCandidates.length > 0 ||
+                mealPlanGroceryCandidates.length > 0
+              }
+            />
+          }
+          footer={<ViewLink href="/grocery-lists">View grocery lists</ViewLink>}
+        >
+          {activeGroceryLists.length === 0 ? (
+            <EmptyRow>No active grocery lists.</EmptyRow>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {activeGroceryLists.map((list) => (
+                <GroceryListCard key={list.id} list={list} />
+              ))}
+            </ul>
+          )}
+        </SectionCard>
+        <GrocerySourcePickerPanel
+          candidates={grocerySourceCandidates}
+          mealPlanCandidates={mealPlanGroceryCandidates}
+        />
+      </GrocerySourcePickerProvider>
     </div>
   );
 }

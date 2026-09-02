@@ -4,7 +4,10 @@ import { getServerSession } from "@/lib/auth/session";
 import { listSessionsForOwner } from "@/lib/cooking/queries";
 import { listRecentlyUpdatedDishes } from "@/lib/dishes/queries";
 import { listMealPlansForOwner } from "@/lib/mealplans/queries";
-import { listGroceryListsForOwner } from "@/lib/grocery/queries";
+import {
+  listGroceryListsForOwner,
+  listGrocerySourceCandidates,
+} from "@/lib/grocery/queries";
 import { prisma } from "@/lib/db/prisma";
 import { HomeDashboard } from "@/components/domain/home/home-dashboard";
 
@@ -24,7 +27,13 @@ export default async function AppHomePage() {
   }
   const ownerId = session.user.id;
 
-  const [sessions, preference, mealPlans, groceryLists] = await Promise.all([
+  const [
+    sessions,
+    preference,
+    mealPlans,
+    groceryLists,
+    grocerySourceCandidates,
+  ] = await Promise.all([
     listSessionsForOwner(ownerId),
     prisma.userPreference.findUnique({
       where: { userId: ownerId },
@@ -32,6 +41,7 @@ export default async function AppHomePage() {
     }),
     listMealPlansForOwner(ownerId),
     listGroceryListsForOwner(ownerId),
+    listGrocerySourceCandidates(ownerId),
   ]);
   const recentlyUpdated = await listRecentlyUpdatedDishes(
     ownerId,
@@ -56,6 +66,8 @@ export default async function AppHomePage() {
         activeMealPlans={mealPlans.active.slice(0, MEAL_PLAN_LIMIT)}
         hasCompletedMealPlans={mealPlans.completed.length > 0}
         activeGroceryLists={groceryLists.active.slice(0, GROCERY_LIST_LIMIT)}
+        grocerySourceCandidates={grocerySourceCandidates}
+        mealPlanGroceryCandidates={mealPlans.active}
       />
     </div>
   );

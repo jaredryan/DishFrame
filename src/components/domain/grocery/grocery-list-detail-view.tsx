@@ -90,6 +90,7 @@ import {
   resyncMealPlanGroceryLists,
   setMealPlanGroceryListEntryIncluded,
 } from "@/lib/mealplans/actions";
+import { previewMealPlanEntryInclusion } from "@/lib/grocery/meal-plan-inclusion-preview";
 import Link from "next/link";
 import type {
   GroceryListDetailDto,
@@ -148,6 +149,51 @@ function aggregateOptionalityDisplay(
   return "mixed";
 }
 
+/**
+ * Shared section-disclosure header (Meals/Groceries) — the whole left side
+ * (section name plus chevron, and the available left-side header space) is
+ * one toggle target, not just the chevron icon, with a 44px-class hit area
+ * on coarse pointers. Right-side section actions are a sibling, never part
+ * of this button, so they keep their own independent click targets.
+ */
+function DisclosureHeader({
+  title,
+  collapsed,
+  onToggle,
+  actions,
+}: {
+  title: string;
+  collapsed: boolean;
+  onToggle: () => void;
+  actions?: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={!collapsed}
+        aria-label={`${collapsed ? "Expand" : "Collapse"} ${title}`}
+        className="hover:bg-muted/50 -ml-1.5 flex min-w-0 flex-1 items-center gap-1 rounded-md py-1 pr-2 pl-1.5 text-left pointer-coarse:min-h-11"
+      >
+        <h2 className="font-heading truncate text-lg font-medium">{title}</h2>
+        {collapsed ? (
+          <ChevronDown
+            className="text-muted-foreground shrink-0"
+            aria-hidden="true"
+          />
+        ) : (
+          <ChevronUp
+            className="text-muted-foreground shrink-0"
+            aria-hidden="true"
+          />
+        )}
+      </button>
+      {actions}
+    </div>
+  );
+}
+
 export function GroceryListDetailView({
   list,
   categoryOptions,
@@ -183,17 +229,37 @@ export function GroceryListDetailView({
   const sensors = useReorderSensors();
 
   const [prevItems, setPrevItems] = React.useState(list.items);
+  // Local optimistic override for a Meal Plan entry's inclusion checkbox
+  // (§81.7) — cleared for an entry once the server's own `list` prop
+  // reflects it (a successful mutation's `router.refresh()`), restored to
+  // its prior value on a failed mutation (rollback).
+  const [entryOverrides, setEntryOverrides] = React.useState<
+    Map<string, boolean>
+  >(new Map());
   if (prevItems !== list.items) {
     setPrevItems(list.items);
     setCheckedIds(
       new Set(list.items.filter((i) => i.checkedAt).map((i) => i.id)),
     );
+    setEntryOverrides(new Map());
   }
 
   const isCompleted = list.completedAt != null;
   const isMealPlanLinked =
     list.mode === "MEAL_PLAN_LINKED" && list.linkedMealPlanId != null;
-  const groups = groupByCategory(list.items);
+  const displayMealPlanEntries = React.useMemo(
+    () =>
+      list.mealPlanEntries.map((entry) => ({
+        ...entry,
+        included: entryOverrides.get(entry.id) ?? entry.included,
+      })),
+    [list.mealPlanEntries, entryOverrides],
+  );
+  const displayItems = React.useMemo(
+    () => previewMealPlanEntryInclusion(list.items, entryOverrides),
+    [list.items, entryOverrides],
+  );
+  const groups = groupByCategory(displayItems);
 
   function refresh() {
     router.refresh();
@@ -218,6 +284,43 @@ export function GroceryListDetailView({
         showToast({
           variant: "error",
           title: result.message ?? "Could not update this item.",
+        });
+      }
+    });
+  }
+
+  /**
+   * §81.7 optimistic UI — the checkbox and every affected item's displayed
+   * quantity update immediately (`entryOverrides`, recomputed through
+   * `previewMealPlanEntryInclusion`); the real toggle persists in the
+   * background, and a failure rolls the override back to its prior value
+   * and shows the shared error toast rather than leaving the optimistic
+   * state as a false success.
+   */
+  function handleMealPlanEntryToggle(entryId: string, included: boolean) {
+    if (!list.linkedMealPlanId) return;
+    const mealPlanId = list.linkedMealPlanId;
+    const previous = entryOverrides.get(entryId);
+    setEntryOverrides((prev) => new Map(prev).set(entryId, included));
+    run("other", async () => {
+      const result = await setMealPlanGroceryListEntryIncluded({
+        mealPlanId,
+        listId: list.id,
+        entryId,
+        included,
+      });
+      if (result.status === "success") {
+        refresh();
+      } else {
+        setEntryOverrides((prev) => {
+          const next = new Map(prev);
+          if (previous === undefined) next.delete(entryId);
+          else next.set(entryId, previous);
+          return next;
+        });
+        showToast({
+          variant: "error",
+          title: result.message ?? "Could not update this meal's inclusion.",
         });
       }
     });
@@ -339,7 +442,7 @@ export function GroceryListDetailView({
             {list.mode === "MEAL_PLAN_LINKED" && list.linkedMealPlanId && (
               <Link
                 href={`/meal-plans/${list.linkedMealPlanId}`}
-                className="text-muted-foreground text-sm underline"
+                className="text-primary flex items-center text-sm font-medium underline-offset-2 hover:underline pointer-coarse:min-h-11"
               >
                 Linked to Meal Plan
               </Link>
@@ -409,18 +512,14 @@ export function GroceryListDetailView({
       </div>
 
       <section className="flex flex-col gap-2">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-1">
-            <h2 className="font-heading text-lg font-medium">Meals</h2>
-            <TooltipIconButton
-              label={mealsCollapsed ? "Expand Meals" : "Collapse Meals"}
-              icon={mealsCollapsed ? ChevronDown : ChevronUp}
-              onClick={() => setMealsCollapsed((v) => !v)}
-            />
-          </div>
-          {!isCompleted &&
+        <DisclosureHeader
+          title="Meals"
+          collapsed={mealsCollapsed}
+          onToggle={() => setMealsCollapsed((v) => !v)}
+          actions={
+            !isCompleted &&
             (isMealPlanLinked ? (
-              <Button type="button" variant="outline" size="sm" asChild>
+              <Button type="button" size="sm" asChild>
                 <Link href={`/meal-plans/${list.linkedMealPlanId}/edit`}>
                   <Pencil aria-hidden="true" /> Update meal plan
                 </Link>
@@ -434,30 +533,24 @@ export function GroceryListDetailView({
               >
                 <Plus aria-hidden="true" /> Add meal
               </Button>
-            ))}
-        </div>
+            ))
+          }
+        />
         {!mealsCollapsed &&
           (isMealPlanLinked ? (
             <div className="flex flex-col gap-2">
-              {list.mealPlanEntries.length === 0 ? (
+              {displayMealPlanEntries.length === 0 ? (
                 <p className="text-muted-foreground text-sm">
                   This Meal Plan has no entries yet.
                 </p>
               ) : (
-                list.mealPlanEntries.map((entry) => (
+                displayMealPlanEntries.map((entry) => (
                   <MealPlanEntryRow
                     key={entry.id}
                     entry={entry}
-                    disabled={isCompleted}
+                    disabled={isCompleted || isPending}
                     onToggle={(included) =>
-                      runAction(() =>
-                        setMealPlanGroceryListEntryIncluded({
-                          mealPlanId: list.linkedMealPlanId!,
-                          listId: list.id,
-                          entryId: entry.id,
-                          included,
-                        }),
-                      )
+                      handleMealPlanEntryToggle(entry.id, included)
                     }
                   />
                 ))
@@ -486,35 +579,14 @@ export function GroceryListDetailView({
       </section>
 
       <section className="flex flex-col gap-2">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-1">
-            <h2 className="font-heading text-lg font-medium">Groceries</h2>
-            <TooltipIconButton
-              label={
-                groceriesCollapsed ? "Expand Groceries" : "Collapse Groceries"
-              }
-              icon={groceriesCollapsed ? ChevronDown : ChevronUp}
-              onClick={() => setGroceriesCollapsed((v) => !v)}
-            />
-          </div>
-          {!isCompleted && (
-            <Button
-              type="button"
-              size="sm"
-              className="shrink-0"
-              onClick={() => setAddItemOpen(true)}
-            >
-              <Plus aria-hidden="true" /> Add item
-            </Button>
-          )}
-        </div>
-
-        {!groceriesCollapsed && (
-          <div className="flex flex-col gap-4">
-            {!isCompleted &&
-              list.mode === "MEAL_PLAN_LINKED" &&
-              list.linkedMealPlanId && (
-                <div className="flex items-center gap-2">
+        <DisclosureHeader
+          title="Groceries"
+          collapsed={groceriesCollapsed}
+          onToggle={() => setGroceriesCollapsed((v) => !v)}
+          actions={
+            !isCompleted && (
+              <div className="flex shrink-0 items-center gap-2">
+                {isMealPlanLinked && (
                   <Button
                     type="button"
                     variant="outline"
@@ -525,9 +597,21 @@ export function GroceryListDetailView({
                   >
                     <RefreshCw aria-hidden="true" /> Sync now
                   </Button>
-                </div>
-              )}
+                )}
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => setAddItemOpen(true)}
+                >
+                  <Plus aria-hidden="true" /> Add item
+                </Button>
+              </div>
+            )
+          }
+        />
 
+        {!groceriesCollapsed && (
+          <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-5">
               {groups.map((group) => {
                 const dragDisabledBase = isCompleted;
@@ -770,8 +854,15 @@ function MealCard({
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  const canEdit = !isCompleted && !source.isDeleted;
   return (
-    <div className="border-border bg-card flex items-center justify-between gap-2 rounded-lg border p-3">
+    <div
+      onClick={() => canEdit && onEdit()}
+      className={cn(
+        "border-border bg-card flex items-center justify-between gap-2 rounded-lg border p-3",
+        canEdit && "hover:bg-muted/50 cursor-pointer",
+      )}
+    >
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium">
           {source.sourceDishTitleSnapshot}{" "}
@@ -786,19 +877,22 @@ function MealCard({
         )}
       </div>
       {!isCompleted && (
-        <div className="flex shrink-0 items-center gap-0.5">
-          {!source.isDeleted && (
-            <TooltipIconButton
-              label={`Sync ${source.sourceDishTitleSnapshot}`}
-              icon={RefreshCw}
-              onClick={onSync}
-            />
-          )}
+        <div
+          className="flex shrink-0 items-center gap-0.5"
+          onClick={(e) => e.stopPropagation()}
+        >
           {!source.isDeleted && (
             <TooltipIconButton
               label={`Edit ${source.sourceDishTitleSnapshot}`}
               icon={Pencil}
               onClick={onEdit}
+            />
+          )}
+          {!source.isDeleted && (
+            <TooltipIconButton
+              label={`Sync ${source.sourceDishTitleSnapshot}`}
+              icon={RefreshCw}
+              onClick={onSync}
             />
           )}
           <TooltipIconButton
@@ -838,9 +932,13 @@ function MealPlanEntryRow({
   return (
     <div
       onClick={() => !disabled && onToggle(!entry.included)}
+      // A completed list keeps this card's normal content styling (§12 —
+      // matching the completed standalone list's own read-only pattern):
+      // only the checkbox itself is disabled, never the whole card washed
+      // out. `disabled` still blocks the row's own click-to-toggle above.
       className={cn(
         "border-border bg-card flex items-center gap-2 rounded-lg border p-3",
-        disabled ? "opacity-60" : "hover:bg-muted/50 cursor-pointer",
+        !disabled && "hover:bg-muted/50 cursor-pointer",
       )}
     >
       <Checkbox
@@ -977,7 +1075,7 @@ function AddMealDialog({
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent
         ref={scrollRef}
-        className="flex max-h-[85vh] flex-col overflow-y-auto sm:max-w-md"
+        className="flex max-h-[85vh] flex-col overflow-y-auto sm:max-w-2xl"
       >
         <DialogHeader>
           <DialogTitle>Add meal</DialogTitle>
@@ -989,7 +1087,7 @@ function AddMealDialog({
         </DialogHeader>
 
         {selected ? (
-          <div className="flex flex-col gap-4">
+          <div className="-mb-4 flex flex-col gap-4">
             <SelectableDishRow
               item={candidateToSelectionItem(selected)}
               selectionControl="remove"
@@ -1029,7 +1127,7 @@ function AddMealDialog({
             selectionMode="single"
             selected={selectedSet}
             onToggle={(id) => selectDish(id)}
-            className="flex-1"
+            className="-mb-4 flex-1"
           />
         )}
 
@@ -1433,7 +1531,7 @@ function GroceryItemRow({
         <div className="flex flex-wrap items-center gap-2 pl-7">
           {isCombined && (
             <Button
-              variant="ghost"
+              variant="outline"
               size="sm"
               onClick={() => setExpanded((p) => !p)}
             >
@@ -1441,7 +1539,7 @@ function GroceryItemRow({
             </Button>
           )}
           {isCombined && (
-            <Button variant="ghost" size="sm" onClick={onUncombine}>
+            <Button variant="outline" size="sm" onClick={onUncombine}>
               Uncombine
             </Button>
           )}

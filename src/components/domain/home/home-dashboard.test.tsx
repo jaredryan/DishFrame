@@ -41,10 +41,26 @@ vi.mock("@/lib/mealplans/actions", () => ({
   deleteMealPlan: vi.fn(async () => ({ status: "idle" })),
   completeMealPlan: vi.fn(async () => ({ status: "idle" })),
   reactivateMealPlan: vi.fn(async () => ({ status: "idle" })),
+  generateGroceryListFromMealPlan: vi.fn(async () => ({
+    status: "success",
+    listId: "list-1",
+  })),
+  listMealPlanEntriesForGrocerySelection: vi.fn(async () => ({
+    status: "success",
+    entries: [],
+  })),
 }));
 
 vi.mock("@/lib/grocery/list-actions", () => ({
   deleteGroceryList: vi.fn(async () => ({ status: "idle" })),
+  generateGroceryList: vi.fn(async () => ({
+    status: "success",
+    listId: "list-1",
+  })),
+  listGrocerySourceVersionOptions: vi.fn(async () => ({
+    status: "success",
+    versions: [],
+  })),
 }));
 
 const noSessions: SessionRowData[] = [];
@@ -78,6 +94,8 @@ function baseProps() {
     activeMealPlans: noMealPlans,
     hasCompletedMealPlans: false,
     activeGroceryLists: noGroceryLists,
+    grocerySourceCandidates: [],
+    mealPlanGroceryCandidates: [],
   };
 }
 
@@ -127,6 +145,9 @@ function groceryList(
     id: "list-1",
     title: "Weekly groceries",
     createdAt: new Date("2026-01-01"),
+    completedAt: null,
+    linkedMealPlanId: null,
+    linkedMealPlan: null,
     _count: { items: 5 },
     ...overrides,
   };
@@ -315,16 +336,44 @@ describe("HomeDashboard", () => {
       expect(screen.getByText("Farmers Market")).toBeInTheDocument();
     });
 
-    it("renders the Make grocery list primary action and a View grocery lists link, both to /grocery-lists", () => {
+    it("renders a View grocery lists link to /grocery-lists", () => {
       render(<HomeDashboard {...baseProps()} />);
-      const links = screen.getAllByRole("link", { name: /grocery list/i });
-      const makeListLink = links.find((link) =>
-        link.textContent?.includes("Make grocery list"),
-      );
-      expect(makeListLink).toHaveAttribute("href", "/grocery-lists");
       expect(
         screen.getByRole("link", { name: /View grocery lists/i }),
       ).toHaveAttribute("href", "/grocery-lists");
+    });
+
+    // §8 — Home launches the exact same New-grocery-list modal/flow as
+    // `/grocery-lists` (same provider/trigger/panel trio), rather than only
+    // linking over to that page, so the two never diverge.
+    it("Make grocery list opens the same New grocery list modal used on /grocery-lists, defaulting to the Meal plan basis", async () => {
+      const user = userEvent.setup();
+      render(
+        <HomeDashboard
+          {...baseProps()}
+          mealPlanGroceryCandidates={[
+            {
+              id: "plan-1",
+              title: "This week's plan",
+              startDate: new Date("2026-01-01"),
+              endDate: new Date("2026-01-07"),
+              _count: { entries: 2 },
+            },
+          ]}
+        />,
+      );
+
+      await user.click(
+        screen.getByRole("button", { name: "Make grocery list" }),
+      );
+
+      expect(
+        await screen.findByRole("dialog", { name: "New grocery list" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("radio", { name: "Meal plan", checked: true }),
+      ).toBeInTheDocument();
+      expect(screen.getByText("This week's plan")).toBeInTheDocument();
     });
   });
 });

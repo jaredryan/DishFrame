@@ -471,13 +471,20 @@ async function foldOccurrenceIntoGroceryList(
     candidates,
   } = params;
 
-  const combinable = candidates.find(
-    (candidate) =>
-      candidate.contributions[0] &&
-      canCombine(
-        contributionToCombinable(candidate.contributions[0]),
-        toCombinable("new", occurrence),
-      ),
+  // Checked against every one of the candidate's current contributions, not
+  // just an arbitrary single one: by construction every existing member of
+  // an already-combined item is mutually combinable with every other, so
+  // matching *any* live member is equivalent to matching the group — but
+  // checking only one arbitrary member (e.g. the first fetched row) is not
+  // equivalent when that particular row doesn't represent the rest (a
+  // `REMOVED` Meal-Plan contribution, or one whose selected substitute
+  // variant diverges from the group's own name/unit). That mismatch was
+  // silently splitting an otherwise-combinable duplicate ingredient into a
+  // second item instead of folding it in (grocery combine QA finding).
+  const combinable = candidates.find((candidate) =>
+    candidate.contributions.some((c) =>
+      canCombine(contributionToCombinable(c), toCombinable("new", occurrence)),
+    ),
   );
 
   let target: CombinableCandidateItem;
@@ -524,7 +531,10 @@ async function foldOccurrenceIntoGroceryList(
       ...substituteSnapshotFields(occurrence.substitute),
     },
   });
-  target.contributions = [contribution];
+  // Appended, not replaced — a later occurrence in this same loop must be
+  // able to see every live member gathered so far, not just the most
+  // recent one, for the `.some()` combinability check above to hold.
+  target.contributions = [...target.contributions, contribution];
 
   await recomputeItemAggregate(tx, target.id);
 }
@@ -1068,16 +1078,30 @@ export async function applyGroceryListSourceRefresh(
       .map((f) => [f.ingredientLineageId, f]),
   );
 
-  const existingContributions = await prisma.groceryItemContribution.findMany({
-    where: { groceryListSourceId: sourceId },
-  });
-  const existingByLineage = new Map(
-    existingContributions
-      .filter((c) => c.ingredientLineageId)
-      .map((c) => [c.ingredientLineageId!, c]),
-  );
-
   await prisma.$transaction(async (tx) => {
+    // Read inside the transaction, not before it (fix for an intermittent
+    // Sync failure — grocery Sync QA finding): the target Version's fresh
+    // occurrences above come from the Recipe/Part side, which this list's
+    // own mutations never race against, but `existingContributions` is
+    // this list's own state. Reading it with a plain `prisma` call before
+    // opening the transaction left a window where a concurrent mutation on
+    // this same source (another tab, a Meal-Plan-triggered resync, a
+    // second rapid Sync click) could delete/alter a row this transaction
+    // then tried to delete/update by a now-stale id, throwing a Prisma
+    // "record not found" error that a bare retry (re-reading fresh state)
+    // would no longer hit. Reading through `tx` here instead closes that
+    // window — Postgres serializes a concurrent transaction touching the
+    // same rows against this one rather than letting both act on
+    // independently-stale snapshots.
+    const existingContributions = await tx.groceryItemContribution.findMany({
+      where: { groceryListSourceId: sourceId },
+    });
+    const existingByLineage = new Map(
+      existingContributions
+        .filter((c) => c.ingredientLineageId)
+        .map((c) => [c.ingredientLineageId!, c]),
+    );
+
     // Removed
     for (const contribution of existingContributions) {
       if (
@@ -1148,7 +1172,10 @@ export async function applyGroceryListSourceRefresh(
     const candidates: CombinableCandidateItem[] = await tx.groceryListItem
       .findMany({
         where: { groceryListId: listId },
-        include: { contributions: { take: 1 } },
+        // Every contribution, not just a `take: 1` first row — the fold
+        // match below must be able to check every live member (see
+        // `foldOccurrenceIntoGroceryList`'s combinability comment).
+        include: { contributions: true },
       })
       .then((items) =>
         items.map((item) => ({
@@ -1247,7 +1274,10 @@ export async function addGroceryListSource(
     const candidates: CombinableCandidateItem[] = await tx.groceryListItem
       .findMany({
         where: { groceryListId: listId },
-        include: { contributions: { take: 1 } },
+        // Every contribution, not just a `take: 1` first row — the fold
+        // match below must be able to check every live member (see
+        // `foldOccurrenceIntoGroceryList`'s combinability comment).
+        include: { contributions: true },
       })
       .then((items) =>
         items.map((item) => ({
@@ -2017,7 +2047,9 @@ export async function resyncGroceryListFromMealPlan(
   const candidateItems: CombinableCandidateItem[] = await tx.groceryListItem
     .findMany({
       where: { groceryListId, isManual: false },
-      include: { contributions: { take: 1 } },
+      // Every contribution, not just a `take: 1` first row (grocery combine
+      // QA finding — see `foldOccurrenceIntoGroceryList`).
+      include: { contributions: true },
     })
     .then((items) =>
       items.map((item) => ({
