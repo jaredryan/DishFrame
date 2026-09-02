@@ -144,7 +144,7 @@ export function MobileCookingLayout(props: CookingLayoutProps) {
       </main>
 
       <div
-        className={`border-border bg-background fixed inset-x-0 bottom-0 z-20 border-t ${
+        className={`border-border bg-background fixed inset-x-0 bottom-0 z-20 border-t pb-[env(safe-area-inset-bottom)] ${
           hasExpiredTimer ? "bg-brand-orange/10" : ""
         }`}
       >

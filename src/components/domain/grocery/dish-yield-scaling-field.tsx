@@ -3,17 +3,12 @@ import { Input } from "@/components/ui/input";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { ScaleControl } from "@/components/domain/cooking/scale-control";
 import { formatYieldAmount } from "@/lib/dishes/format";
+import {
+  parsePositiveAmount as parseServings,
+  formatScaleFactor as formatFactor,
+} from "@/lib/units/scaling";
 
-export function parseServings(text: string): number | null {
-  const trimmed = text.trim();
-  if (!trimmed) return null;
-  const value = Number(trimmed);
-  return Number.isFinite(value) && value > 0 ? value : null;
-}
-
-export function formatFactor(value: number): string {
-  return String(Math.round(value * 100) / 100);
-}
+export { parseServings, formatFactor };
 
 /**
  * A Recipe/Part Version with an authored yield gets a compact servings

@@ -102,6 +102,24 @@ const KITCHEN_FRACTION_DENOMINATORS = [2, 3, 4, 6, 8] as const;
 // floating-point noise and the 3-decimal-place storage rounding.
 const FRACTION_TOLERANCE = 0.01;
 
+/**
+ * Parses a user-typed target-amount/servings string into a positive number,
+ * or `null` for blank/invalid input — shared by every scale-target field
+ * (grocery `DishYieldScalingField`, Cooking Setup's `TargetScaleField`) so
+ * "what counts as a usable typed amount" stays one definition.
+ */
+export function parsePositiveAmount(text: string): number | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  const value = Number(trimmed);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+/** Display formatting for a derived scale factor (e.g. `1.5` → `"1.5"`). */
+export function formatScaleFactor(value: number): string {
+  return String(Math.round(value * 100) / 100);
+}
+
 function gcd(a: number, b: number): number {
   return b === 0 ? a : gcd(b, a % b);
 }

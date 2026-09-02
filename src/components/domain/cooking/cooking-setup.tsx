@@ -3,13 +3,18 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
-import { ChefHat, ChevronDown, ChevronUp, Plus, Trash2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { ChefHat } from "lucide-react";
+import { DndContext, closestCenter, type DragEndEvent } from "@dnd-kit/core";
 import {
-  ContentCard,
-  CONTENT_CARD_TITLE_CLASS,
-} from "@/components/domain/dish/content-card";
-import { TooltipIconButton } from "@/components/domain/dish/reorder-buttons";
+  SortableContext,
+  arrayMove,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { DragHandle } from "@/components/ui/drag-handle";
 import { useToast } from "@/components/ui/toast";
 import {
   Dialog,
@@ -19,15 +24,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useReorderSensors } from "@/lib/dnd/sensors";
+import { createReorderAnnouncements } from "@/lib/dnd/announcements";
+import { cn } from "@/lib/utils";
 import { startCookingSession, endCookingSession } from "@/lib/cooking/actions";
 import {
-  ScaleControl,
+  TargetScaleField,
   computeOutputBasis,
 } from "@/components/domain/cooking/scale-control";
 import {
-  RichVersionPickerField,
+  VersionPicker,
   type VersionOption,
-} from "@/components/domain/dish/version-picker-field";
+} from "@/components/domain/dish/version-picker";
 
 export type SetupUnit = {
   unitKey: string;
@@ -44,6 +52,8 @@ export type SetupUnit = {
   // sibling of the thing that links to it (PRODUCT_SPEC.md §23.4).
   parentPartLabel: string | null;
 };
+
+const SECTION_HEADING_CLASS = "font-heading text-lg font-medium";
 
 function countsLabel(unit: SetupUnit): string {
   const parts: string[] = [];
@@ -68,6 +78,7 @@ function countsLabel(unit: SetupUnit): string {
  */
 export function CookingSetup({
   dishId,
+  dishKind,
   dishVersionId,
   dishTitle,
   versionLabel,
@@ -80,6 +91,7 @@ export function CookingSetup({
   cancelHref,
 }: {
   dishId: string;
+  dishKind: "RECIPE" | "PART";
   dishVersionId: string;
   dishTitle: string;
   versionLabel: string;
@@ -112,11 +124,17 @@ export function CookingSetup({
     router.push(`${pathname}?${params.toString()}`);
   }
 
-  // §23.3: every eligible unit begins included, in the server-suggested
-  // order (§23.5). `includedKeys` is the ordered active plan; anything not
-  // in it is available to add back.
-  const [includedKeys, setIncludedKeys] = React.useState<string[]>(
+  // §23.3: every eligible unit begins included. `order` is the user's
+  // manually chosen sequence for every unit — included or not — so
+  // unchecking a unit never displaces it; re-checking restores it exactly
+  // where it was (QA item 7). `includedKeys`, derived below, is `order`
+  // filtered down to what's actually checked — that's what drives Cooking
+  // Mode's content and order.
+  const [order, setOrder] = React.useState<string[]>(
     units.map((u) => u.unitKey),
+  );
+  const [included, setIncluded] = React.useState<Record<string, boolean>>(() =>
+    Object.fromEntries(units.map((u) => [u.unitKey, true])),
   );
   const [sessionMultiplier, setSessionMultiplier] = React.useState<
     number | null
@@ -135,26 +153,27 @@ export function CookingSetup({
     () => new Map(units.map((u) => [u.unitKey, u])),
     [units],
   );
-  const excludedKeys = units
-    .map((u) => u.unitKey)
-    .filter((key) => !includedKeys.includes(key));
+  const includedKeys = order.filter((key) => included[key]);
 
-  function moveUnit(index: number, direction: -1 | 1) {
-    setIncludedKeys((prev) => {
-      const next = [...prev];
-      const target = index + direction;
-      if (target < 0 || target >= next.length) return prev;
-      [next[index], next[target]] = [next[target], next[index]];
-      return next;
+  const sensors = useReorderSensors();
+  const announcements = createReorderAnnouncements(
+    (id) => unitByKey.get(id)?.label ?? "unit",
+    (id) => ({ index: order.indexOf(id), total: order.length }),
+  );
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setOrder((prev) => {
+      const oldIndex = prev.indexOf(String(active.id));
+      const newIndex = prev.indexOf(String(over.id));
+      if (oldIndex === -1 || newIndex === -1) return prev;
+      return arrayMove(prev, oldIndex, newIndex);
     });
   }
 
-  function removeUnit(unitKey: string) {
-    setIncludedKeys((prev) => prev.filter((key) => key !== unitKey));
-  }
-
-  function addUnit(unitKey: string) {
-    setIncludedKeys((prev) => [...prev, unitKey]);
+  function toggleIncluded(unitKey: string, checked: boolean) {
+    setIncluded((prev) => ({ ...prev, [unitKey]: checked }));
   }
 
   function handleStart() {
@@ -192,8 +211,10 @@ export function CookingSetup({
     });
   }
 
+  const kindNoun = dishKind === "PART" ? "part" : "recipe";
+
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-6">
+    <div className="mx-auto flex max-w-2xl flex-col gap-8">
       <div className="flex flex-col gap-1">
         <h1 className="font-heading text-foreground text-2xl font-semibold">
           Cooking setup
@@ -204,132 +225,86 @@ export function CookingSetup({
         </p>
       </div>
 
-      <RichVersionPickerField
-        id="cooking-setup-version"
-        versions={versions}
-        currentVersionId={currentVersionId}
-        value={dishVersionId}
-        onChangeAction={handleVersionChange}
-      />
+      <div className="flex flex-col gap-3">
+        <h2 className={SECTION_HEADING_CLASS}>Version</h2>
+        <VersionPicker
+          id="cooking-setup-version"
+          versions={versions}
+          currentVersionId={currentVersionId}
+          value={dishVersionId}
+          onChangeAction={handleVersionChange}
+        />
+      </div>
 
-      <ContentCard>
-        <h2 className={CONTENT_CARD_TITLE_CLASS}>Whole-session scale</h2>
-        <ScaleControl
+      <div className="flex flex-col gap-3">
+        <h2 className={SECTION_HEADING_CLASS}>Whole-session scale</h2>
+        <p className="text-muted-foreground text-sm">
+          Adjust the entire {kindNoun} to cook the amount you need.
+        </p>
+        <TargetScaleField
+          id="cooking-setup-whole-session-scale"
           outputQuantity={sourceOutputQuantity}
           outputUnit={sourceOutputUnit}
+          subjectLabel={dishKind === "PART" ? "The part" : "The recipe"}
           targetLabel="Cook for"
           multiplierLabel="Scale the whole session"
           onMultiplierChange={setSessionMultiplier}
         />
-      </ContentCard>
+      </div>
 
-      <ContentCard>
-        <h2 className={CONTENT_CARD_TITLE_CLASS}>Included, in order</h2>
-        {includedKeys.length === 0 && (
+      <div className="flex flex-col gap-3">
+        <h2 className={SECTION_HEADING_CLASS}>Cooking order and scale</h2>
+        <p className="text-muted-foreground text-sm">
+          Choose what to include, change the order it appears in Cooking Mode,
+          and scale each section or Part for exactly what you want to cook.
+        </p>
+
+        {order.length === 0 ? (
           <p className="text-muted-foreground text-sm">
-            Nothing selected yet — add a Section or Part below.
+            Nothing to cook for this Version.
           </p>
+        ) : (
+          <DndContext
+            id="cooking-setup-order"
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+            accessibility={{ announcements }}
+          >
+            <SortableContext
+              items={order}
+              strategy={verticalListSortingStrategy}
+            >
+              <ul className="flex flex-col gap-2">
+                {order.map((unitKey) => {
+                  const unit = unitByKey.get(unitKey);
+                  if (!unit) return null;
+                  return (
+                    <SetupUnitRow
+                      key={unitKey}
+                      unit={unit}
+                      isIncluded={!!included[unitKey]}
+                      onToggleIncluded={(checked) =>
+                        toggleIncluded(unitKey, checked)
+                      }
+                      outputQuantity={computeOutputBasis(
+                        unit.outputQuantity,
+                        sessionMultiplier ?? 1,
+                      )}
+                      onMultiplierChange={(multiplier) =>
+                        setUnitMultipliers((prev) => ({
+                          ...prev,
+                          [unitKey]: multiplier,
+                        }))
+                      }
+                    />
+                  );
+                })}
+              </ul>
+            </SortableContext>
+          </DndContext>
         )}
-        <ul className="flex flex-col gap-2">
-          {includedKeys.map((unitKey, index) => {
-            const unit = unitByKey.get(unitKey);
-            if (!unit) return null;
-            return (
-              <li
-                key={unitKey}
-                className="border-border bg-muted/30 flex flex-col gap-2 rounded-lg border p-3"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="text-foreground text-sm font-medium">
-                      {unit.label}
-                    </p>
-                    <p className="text-muted-foreground text-xs">
-                      {[
-                        unit.parentPartLabel
-                          ? `Part · nested in ${unit.parentPartLabel}`
-                          : unit.kind === "PART"
-                            ? "Part"
-                            : "Section",
-                        unit.estimatedDurationMinutes != null
-                          ? `~${unit.estimatedDurationMinutes} min`
-                          : null,
-                        countsLabel(unit) || null,
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-0.5">
-                    <TooltipIconButton
-                      label={`Move ${unit.label} up`}
-                      icon={ChevronUp}
-                      onClick={() => moveUnit(index, -1)}
-                      disabled={index === 0}
-                    />
-                    <TooltipIconButton
-                      label={`Move ${unit.label} down`}
-                      icon={ChevronDown}
-                      onClick={() => moveUnit(index, 1)}
-                      disabled={index === includedKeys.length - 1}
-                    />
-                    <TooltipIconButton
-                      label={`Remove ${unit.label}`}
-                      icon={Trash2}
-                      onClick={() => removeUnit(unitKey)}
-                      className="text-destructive-text hover:bg-destructive/10 hover:text-destructive-text"
-                    />
-                  </div>
-                </div>
-                <ScaleControl
-                  outputQuantity={computeOutputBasis(
-                    unit.outputQuantity,
-                    sessionMultiplier ?? 1,
-                  )}
-                  outputUnit={unit.outputUnit}
-                  targetLabel={`Make`}
-                  multiplierLabel="Scale this unit"
-                  onMultiplierChange={(multiplier) =>
-                    setUnitMultipliers((prev) => ({
-                      ...prev,
-                      [unitKey]: multiplier,
-                    }))
-                  }
-                />
-              </li>
-            );
-          })}
-        </ul>
-
-        {excludedKeys.length > 0 && (
-          <div className="flex flex-col gap-2 pt-2">
-            <h3 className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
-              Not included
-            </h3>
-            <ul className="flex flex-col gap-2">
-              {excludedKeys.map((unitKey) => {
-                const unit = unitByKey.get(unitKey);
-                if (!unit) return null;
-                return (
-                  <li
-                    key={unitKey}
-                    className="border-border flex items-center justify-between gap-2 rounded-lg border border-dashed p-3"
-                  >
-                    <p className="text-muted-foreground text-sm">
-                      {unit.label}
-                    </p>
-                    <TooltipIconButton
-                      label={`Add ${unit.label} back`}
-                      icon={Plus}
-                      onClick={() => addUnit(unitKey)}
-                    />
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        )}
-      </ContentCard>
+      </div>
 
       <div className="flex flex-wrap items-center gap-2">
         <Button
@@ -382,5 +357,95 @@ export function CookingSetup({
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/**
+ * One draggable, checkable unit card. The checkbox (inclusion) sits on the
+ * left — the conventional selection position — and the drag handle sits on
+ * the right (QA item 8's deliberate exception to drag handles normally
+ * appearing on the left), so the two responsibilities read distinctly: left
+ * = "is this part of this cooking session," right = "where does it appear."
+ * Only the handle is a drag-initiation target (`useSortable`'s
+ * `attributes`/`listeners` are applied to `DragHandle` alone), since the
+ * card also hosts the interactive per-unit scale field.
+ */
+function SetupUnitRow({
+  unit,
+  isIncluded,
+  onToggleIncluded,
+  outputQuantity,
+  onMultiplierChange,
+}: {
+  unit: SetupUnit;
+  isIncluded: boolean;
+  onToggleIncluded: (checked: boolean) => void;
+  outputQuantity: number | null;
+  onMultiplierChange: (multiplier: number | null) => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: unit.unitKey });
+  const style = { transform: CSS.Transform.toString(transform), transition };
+
+  return (
+    <li
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        "border-border bg-muted/30 flex flex-col gap-2 rounded-lg border p-3",
+        !isIncluded && "opacity-60",
+      )}
+    >
+      <div className="flex items-start gap-2">
+        <Checkbox
+          checked={isIncluded}
+          onCheckedChange={(checked) => onToggleIncluded(checked === true)}
+          aria-label={`Include ${unit.label} in this cooking session`}
+          className="mt-0.5"
+        />
+        <div className="min-w-0 flex-1">
+          <p className="text-foreground text-sm font-medium">{unit.label}</p>
+          <p className="text-muted-foreground text-xs">
+            {[
+              unit.parentPartLabel
+                ? `Part · nested in ${unit.parentPartLabel}`
+                : unit.kind === "PART"
+                  ? "Part"
+                  : "Section",
+              unit.estimatedDurationMinutes != null
+                ? `~${unit.estimatedDurationMinutes} min`
+                : null,
+              countsLabel(unit) || null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </p>
+        </div>
+        <DragHandle
+          label={`Drag to reorder ${unit.label}`}
+          attributes={attributes}
+          listeners={listeners}
+          isDragging={isDragging}
+          className="mt-0.5"
+        />
+      </div>
+      {isIncluded && (
+        <TargetScaleField
+          id={`cooking-setup-scale-${unit.unitKey}`}
+          outputQuantity={outputQuantity}
+          outputUnit={unit.outputUnit}
+          subjectLabel={unit.kind === "PART" ? "This part" : "This section"}
+          targetLabel="Make"
+          multiplierLabel="Scale this unit"
+          onMultiplierChange={onMultiplierChange}
+        />
+      )}
+    </li>
   );
 }

@@ -84,6 +84,7 @@ export default async function PartCookingSetupPage({
       // re-derived server-side for the new Version.
       key={version.id}
       dishId={dish.id}
+      dishKind="PART"
       dishVersionId={version.id}
       dishTitle={dish.currentTitle || "Untitled"}
       versionLabel={versionLabel(version.majorVersion, version.minorVersion)}

@@ -938,6 +938,34 @@ describe("CookingModeShell — leave-page warning bypass", () => {
   });
 });
 
+describe("CookingModeShell — mobile bottom safe-area spacing (QA pass)", () => {
+  it("gives the mobile fixed timer tray safe-area-aware bottom padding so it clears the device edge", () => {
+    const originalInnerWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 390,
+    });
+
+    try {
+      const { container } = render(
+        <CookingModeShell {...baseProps} units={[unit({})]} />,
+      );
+
+      // The device inset, not a fixed pixel value, so it behaves correctly
+      // across iPhones/iPads with different safe-area sizes.
+      const tray = container.querySelector(
+        '[class*="env(safe-area-inset-bottom)"]',
+      );
+      expect(tray).toBeInTheDocument();
+    } finally {
+      Object.defineProperty(window, "innerWidth", {
+        configurable: true,
+        value: originalInnerWidth,
+      });
+    }
+  });
+});
+
 describe("CookingModeShell — checklist items keep their position", () => {
   it("does not reorder a checked Instruction to the bottom of the list", async () => {
     const user = userEvent.setup();

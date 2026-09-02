@@ -2,6 +2,11 @@ import * as React from "react";
 import { Input } from "@/components/ui/input";
 import { Field, FieldLabel, FieldDescription } from "@/components/ui/field";
 import { Button } from "@/components/ui/button";
+import {
+  parsePositiveAmount,
+  formatScaleFactor,
+  computeTargetYieldScaleFactor,
+} from "@/lib/units/scaling";
 
 /**
  * PRODUCT_SPEC.md §24.1/§24.2/§24.4 — natural target-output scaling. When the
@@ -33,13 +38,6 @@ export type ScaleControlProps = {
    */
   currentMultiplier?: number | null;
 };
-
-function parsePositiveNumber(text: string): number | null {
-  const trimmed = text.trim();
-  if (!trimmed) return null;
-  const value = Number(trimmed);
-  return Number.isFinite(value) && value > 0 ? value : null;
-}
 
 function formatNumber(value: number): string {
   return String(Math.round(value * 1000) / 1000);
@@ -90,7 +88,7 @@ export function ScaleControl({
 
   function handleChange(nextText: string) {
     setText(nextText);
-    const parsed = parsePositiveNumber(nextText);
+    const parsed = parsePositiveAmount(nextText);
     if (parsed == null) {
       // Safe mode: blank (or otherwise unparseable) input leaves the pending
       // value untouched rather than resetting it — Setup keeps its existing
@@ -167,6 +165,89 @@ export function ScaleControl({
           Reset to authored amount (1×)
         </Button>
       )}
+    </Field>
+  );
+}
+
+/**
+ * Cooking Setup's target-amount scale field (QA pass): unlike `ScaleControl`,
+ * which leaves the field blank and means "use the authored amount," this
+ * always prepopulates with the current/default amount so the user edits
+ * from a concrete starting point, and always shows the derived multiplier —
+ * "{subjectLabel} will be scaled by X×." (the same derived-scale-language
+ * pattern as `DishYieldScalingField`'s "{kind} will be scaled by X×."). The
+ * multiplier itself is computed with the same shared
+ * `computeTargetYieldScaleFactor` helper the grocery scaling field and
+ * server-side scale-from-yield paths already use, not a new calculation.
+ *
+ * While the user hasn't typed into the field, its displayed default tracks
+ * `outputQuantity` live — so a per-unit field still reflects a changing
+ * whole-session scale composed into its basis (`computeOutputBasis`) the
+ * same way the old blank/placeholder version did. Once the user types, the
+ * raw text is preserved and reinterpreted against the current basis on every
+ * change, exactly like `ScaleControl`.
+ */
+export function TargetScaleField({
+  id,
+  outputQuantity,
+  outputUnit,
+  onMultiplierChange,
+  subjectLabel,
+  targetLabel = "Cook for",
+  multiplierLabel = "Scale",
+  className,
+}: {
+  id?: string;
+  outputQuantity: number | null;
+  outputUnit: string | null;
+  onMultiplierChange: (multiplier: number | null) => void;
+  /** e.g. "The recipe", "This section" — composed into "{subjectLabel} will be scaled by X×." */
+  subjectLabel: string;
+  targetLabel?: string;
+  multiplierLabel?: string;
+  className?: string;
+}) {
+  const hasOutputBasis =
+    outputQuantity != null && outputQuantity > 0 && !!outputUnit;
+  const defaultText = hasOutputBasis ? String(outputQuantity) : "1";
+
+  const [typedText, setTypedText] = React.useState<string | null>(null);
+  const text = typedText ?? defaultText;
+
+  const parsed = parsePositiveAmount(text);
+  const factor = hasOutputBasis
+    ? computeTargetYieldScaleFactor(parsed, outputQuantity)
+    : (parsed ?? 1);
+
+  const notifyMultiplierChange = React.useEffectEvent(onMultiplierChange);
+  React.useEffect(() => {
+    notifyMultiplierChange(hasOutputBasis ? factor : parsed);
+  }, [factor, parsed, hasOutputBasis]);
+
+  function handleChange(nextText: string) {
+    setTypedText(nextText);
+  }
+
+  return (
+    <Field className={className}>
+      <FieldLabel htmlFor={id}>
+        {hasOutputBasis ? targetLabel : multiplierLabel}
+      </FieldLabel>
+      <div className="flex items-center gap-2">
+        <Input
+          id={id}
+          inputMode="decimal"
+          value={text}
+          onChange={(e) => handleChange(e.target.value)}
+          className="max-w-28"
+        />
+        {hasOutputBasis && (
+          <span className="text-muted-foreground text-sm">{outputUnit}</span>
+        )}
+      </div>
+      <FieldDescription>
+        {subjectLabel} will be scaled by {formatScaleFactor(factor)}×.
+      </FieldDescription>
     </Field>
   );
 }
