@@ -44,7 +44,6 @@ import {
 import type { DishKindValue } from "@/lib/dishes/schema";
 import type {
   CookingModeChecklistItem,
-  CookingModeTimer,
   CookingModeUnit,
   RailTimer,
   UnitViewModel,
@@ -189,18 +188,14 @@ export function CookingModeShell({
       : null,
   );
 
-  function unitEffectiveTimers(unit: CookingModeUnit): CookingModeTimer[] {
-    return unit.timers
-      .map((t) => timerActions.effective(t))
-      .filter((t) => t.state !== "DISMISSED");
-  }
-
   const timerEntries = React.useMemo(
     () =>
       activeUnits.flatMap((unit) =>
-        unitEffectiveTimers(unit).map((timer) => ({ timer, unit })),
+        unit.timers
+          .map((t) => timerActions.effective(t))
+          .filter((t) => t.state !== "DISMISSED")
+          .map((timer) => ({ timer, unit })),
       ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [activeUnits, timerActions],
   );
   const allTimers: LiveTimer[] = timerEntries.map((e) => e.timer);

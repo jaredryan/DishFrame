@@ -147,7 +147,7 @@ export function LibraryFilterBar({
       navigate({ ...filters, search: searchValue.trim() });
     }, 300);
     return () => clearTimeout(searchDebounceRef.current);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce should only reset on typing, not on every navigate()-driven filters/navigate identity change
   }, [searchValue]);
 
   function toggleStage(value: string) {

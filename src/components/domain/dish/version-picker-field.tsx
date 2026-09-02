@@ -90,11 +90,13 @@ function useDishVersionOptions(
   // Every picker starts on "what's current" and only diverges from it on an
   // explicit user choice — necessarily an effect since it reacts to the
   // async fetch resolving, not to a render-time value.
+  const notifyDefaultVersion = React.useEffectEvent((versionId: string) => {
+    onChangeAction(versionId);
+  });
   React.useEffect(() => {
     if (state.status === "ready" && value == null && state.currentVersionId) {
-      onChangeAction(state.currentVersionId);
+      notifyDefaultVersion(state.currentVersionId);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, value]);
 
   return state;

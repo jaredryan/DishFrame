@@ -89,10 +89,12 @@ function ServingsScalingField({
   const parsed = parseServings(text);
   const factor = parsed != null ? parsed / defaultYield : null;
 
+  const notifyScaleChange = React.useEffectEvent((value: number | null) => {
+    onScaleChange(value);
+  });
   React.useEffect(() => {
-    onScaleChange(factor);
     // Only re-run when the computed factor actually changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    notifyScaleChange(factor);
   }, [factor]);
 
   return (

@@ -132,7 +132,7 @@ function PartLinkBlock({
         </span>
       </p>
       {link.imageAssetId && (
-        // eslint-disable-next-line @next/next/no-img-element -- private, authenticated route, not a static/optimizable asset
+        // eslint-disable-next-line @next/next/no-img-element -- authorized route, not a static/optimizable asset
         <img
           src={imageSrc(link.imageAssetId)}
           alt=""
@@ -182,7 +182,7 @@ export function PublicShareView({
           {creatorName ? ` · Shared by ${creatorName}` : ""}
         </p>
         {content.imageAssetId && (
-          // eslint-disable-next-line @next/next/no-img-element -- private, authenticated route, not a static/optimizable asset
+          // eslint-disable-next-line @next/next/no-img-element -- authorized route, not a static/optimizable asset
           <img
             src={imageSrc(content.imageAssetId)}
             alt=""

@@ -192,8 +192,7 @@ export function GrocerySourcePickerPanel({
         });
       });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDishIds, versionsByDishId, versionLoadErrors]);
+  }, [selectedDishIds, versionsByDishId, versionLoadErrors, candidatesById]);
 
   function toggle(dishId: string) {
     setSelectedDishIds((prev) => {

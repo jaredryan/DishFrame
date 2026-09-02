@@ -338,27 +338,22 @@ export function MealPlanEditor(
   // mode) from every existing entry's `plannedMeals`, keyed back to that
   // entry's id. `initialScheduleRef` is that starting snapshot, used to
   // detect a schedule-only change (see `isDirty`/`hasEntryChanges` below).
-  const initialSchedule = React.useMemo<ScheduleItem[]>(
-    () =>
-      mealPlan
-        ? mealPlan.entries.flatMap((entry) =>
-            entry.plannedMeals.map((meal) => ({
-              localId: meal.id,
-              mealKey: entry.id,
-              label: meal.label,
-              date: dateOnly(meal.date),
-              servings: meal.servings,
-            })),
-          )
-        : [],
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+  const [schedule, setSchedule] = React.useState<ScheduleItem[]>(() =>
+    mealPlan
+      ? mealPlan.entries.flatMap((entry) =>
+          entry.plannedMeals.map((meal) => ({
+            localId: meal.id,
+            mealKey: entry.id,
+            label: meal.label,
+            date: dateOnly(meal.date),
+            servings: meal.servings,
+          })),
+        )
+      : [],
   );
   const [initialScheduleSnapshot] = React.useState(() =>
-    JSON.stringify(initialSchedule),
+    JSON.stringify(schedule),
   );
-  const [schedule, setSchedule] =
-    React.useState<ScheduleItem[]>(initialSchedule);
   const [scheduleModalKey, setScheduleModalKey] = React.useState<string | null>(
     null,
   );
@@ -1740,6 +1735,11 @@ function MealPickerModal({
 
   const scrollRef = useStepScrollReset(selectedDishId != null);
   const selectedCandidate = candidates.find((c) => c.dishId === selectedDishId);
+  // The only piece of `candidates` the version-fetch effect below needs — a
+  // stable primitive, so it can react to the selected candidate's kind
+  // actually changing without re-running on every unrelated `candidates`
+  // array identity change (e.g. a parent re-render).
+  const selectedCandidateKind = selectedCandidate?.kind ?? null;
   const selectedVersion = dishVersions?.find((v) => v.id === selectedVersionId);
   // The selected Version's own yield once loaded; falls back to the
   // candidate's (current-Version) yield while versions are still loading.
@@ -1752,31 +1752,26 @@ function MealPickerModal({
   // Recipe/Part is selected — necessarily an effect, since it reacts to
   // `selectedDishId` changing rather than a render-time value.
   React.useEffect(() => {
-    if (!selectedDishId) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- clears version state synchronously when the selection is cleared
-      setDishVersions(null);
-      setCurrentVersionId(null);
-      setDishVersionsError(null);
-      return;
-    }
-    const candidate = candidates.find((c) => c.dishId === selectedDishId);
-    if (!candidate) return;
+    // `selectDish` below already clears version state synchronously before
+    // `selectedDishId` becomes null, so this effect only needs to fetch.
+    if (!selectedDishId || !selectedCandidateKind) return;
     let cancelled = false;
-    listDishVersionOptions(candidate.kind, selectedDishId).then((result) => {
-      if (cancelled) return;
-      if (result.status === "success") {
-        setDishVersions(result.versions);
-        setCurrentVersionId(result.currentVersionId);
-        setSelectedVersionId((prev) => prev ?? result.currentVersionId);
-      } else {
-        setDishVersionsError(result.message);
-      }
-    });
+    listDishVersionOptions(selectedCandidateKind, selectedDishId).then(
+      (result) => {
+        if (cancelled) return;
+        if (result.status === "success") {
+          setDishVersions(result.versions);
+          setCurrentVersionId(result.currentVersionId);
+          setSelectedVersionId((prev) => prev ?? result.currentVersionId);
+        } else {
+          setDishVersionsError(result.message);
+        }
+      },
+    );
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDishId]);
+  }, [selectedDishId, selectedCandidateKind]);
 
   function close() {
     onOpenChange(false);

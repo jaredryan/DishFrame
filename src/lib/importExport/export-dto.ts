@@ -1,6 +1,7 @@
 import "server-only";
 import { prisma } from "@/lib/db/prisma";
 import { NotFoundError } from "@/lib/errors";
+import type { Prisma } from "@/generated/prisma/client";
 import { decimalToNumber } from "@/lib/dishes/format";
 import { versionLabel } from "@/lib/dishes/version-note";
 import type { DishKindValue } from "@/lib/dishes/schema";
@@ -103,8 +104,8 @@ const versionContentInclude = {
 
 type ExportIngredientRow = {
   name: string;
-  quantity: unknown;
-  quantityEnd: unknown;
+  quantity: Prisma.Decimal | null;
+  quantityEnd: Prisma.Decimal | null;
   isApproximate: boolean;
   unit: string | null;
   displayText: string | null;
@@ -114,8 +115,8 @@ type ExportIngredientRow = {
   substituteForIngredientId: string | null;
   substitute: {
     name: string;
-    quantity: unknown;
-    quantityEnd: unknown;
+    quantity: Prisma.Decimal | null;
+    quantityEnd: Prisma.Decimal | null;
     isApproximate: boolean;
     unit: string | null;
     displayText: string | null;
@@ -126,8 +127,8 @@ type ExportIngredientRow = {
 export function ingredientDto(ingredient: ExportIngredientRow) {
   return {
     name: ingredient.name,
-    quantity: decimalToNumber(ingredient.quantity as never),
-    quantityEnd: decimalToNumber(ingredient.quantityEnd as never),
+    quantity: decimalToNumber(ingredient.quantity),
+    quantityEnd: decimalToNumber(ingredient.quantityEnd),
     isApproximate: ingredient.isApproximate,
     unit: ingredient.unit,
     displayText: ingredient.displayText,
@@ -137,10 +138,8 @@ export function ingredientDto(ingredient: ExportIngredientRow) {
     substitute: ingredient.substitute
       ? {
           name: ingredient.substitute.name,
-          quantity: decimalToNumber(ingredient.substitute.quantity as never),
-          quantityEnd: decimalToNumber(
-            ingredient.substitute.quantityEnd as never,
-          ),
+          quantity: decimalToNumber(ingredient.substitute.quantity),
+          quantityEnd: decimalToNumber(ingredient.substitute.quantityEnd),
           isApproximate: ingredient.substitute.isApproximate,
           unit: ingredient.substitute.unit,
           displayText: ingredient.substitute.displayText,
@@ -156,17 +155,17 @@ type ExportVersionRow = {
   minorVersion: number;
   title: string;
   description: string | null;
-  yieldQuantity: unknown;
+  yieldQuantity: Prisma.Decimal | null;
   yieldUnit: string | null;
   prepTimeMinutes: number | null;
   cookTimeMinutes: number | null;
   difficulty: string | null;
-  calories: unknown;
-  protein: unknown;
-  carbs: unknown;
-  fat: unknown;
+  calories: Prisma.Decimal | null;
+  protein: Prisma.Decimal | null;
+  carbs: Prisma.Decimal | null;
+  fat: Prisma.Decimal | null;
   nutritionBasis: string | null;
-  nutritionBasisQuantity: unknown;
+  nutritionBasisQuantity: Prisma.Decimal | null;
   nutritionBasisUnit: string | null;
   moreNutrients: unknown;
   nutritionSourceProvider: string | null;
@@ -186,7 +185,7 @@ type ExportVersionRow = {
   partLinks: Array<{
     sectionId: string | null;
     position: number;
-    multiplier: unknown;
+    multiplier: Prisma.Decimal | null;
     targetDishId: string | null;
     targetDishVersionId: string | null;
   }>;
@@ -207,18 +206,18 @@ export function versionContentDto(version: ExportVersionRow) {
     versionLabel: versionLabel(version.majorVersion, version.minorVersion),
     title: version.title,
     description: version.description,
-    yieldQuantity: decimalToNumber(version.yieldQuantity as never),
+    yieldQuantity: decimalToNumber(version.yieldQuantity),
     yieldUnit: version.yieldUnit,
     prepTimeMinutes: version.prepTimeMinutes,
     cookTimeMinutes: version.cookTimeMinutes,
     difficulty: version.difficulty,
     nutrition: {
-      calories: decimalToNumber(version.calories as never),
-      protein: decimalToNumber(version.protein as never),
-      carbs: decimalToNumber(version.carbs as never),
-      fat: decimalToNumber(version.fat as never),
+      calories: decimalToNumber(version.calories),
+      protein: decimalToNumber(version.protein),
+      carbs: decimalToNumber(version.carbs),
+      fat: decimalToNumber(version.fat),
       basis: version.nutritionBasis,
-      basisQuantity: decimalToNumber(version.nutritionBasisQuantity as never),
+      basisQuantity: decimalToNumber(version.nutritionBasisQuantity),
       basisUnit: version.nutritionBasisUnit,
       moreNutrients: version.moreNutrients,
       sourceProvider: version.nutritionSourceProvider,
@@ -244,7 +243,7 @@ export function versionContentDto(version: ExportVersionRow) {
         .map((link) => ({
           targetDishId: link.targetDishId,
           targetDishVersionId: link.targetDishVersionId,
-          multiplier: decimalToNumber(link.multiplier as never),
+          multiplier: decimalToNumber(link.multiplier),
           position: link.position,
         })),
     })),
@@ -253,7 +252,7 @@ export function versionContentDto(version: ExportVersionRow) {
       .map((link) => ({
         targetDishId: link.targetDishId,
         targetDishVersionId: link.targetDishVersionId,
-        multiplier: decimalToNumber(link.multiplier as never),
+        multiplier: decimalToNumber(link.multiplier),
         position: link.position,
       })),
   };
@@ -487,7 +486,7 @@ async function buildFullPrivateHistory(
             whatDidNotGoWell: session.review.whatDidNotGoWell,
             anythingElse: session.review.anythingElse,
             actualAmountQuantity: decimalToNumber(
-              session.review.actualAmountQuantity as never,
+              session.review.actualAmountQuantity,
             ),
             actualAmountUnit: session.review.actualAmountUnit,
             reviewAdjustedDurationSeconds:
@@ -792,7 +791,7 @@ export async function buildAccountBackupDto(ownerId: string) {
       title: dish.currentTitle,
       stage: dish.stage,
       cuisine: dish.cuisine,
-      defaultScale: decimalToNumber(dish.defaultScale as never),
+      defaultScale: decimalToNumber(dish.defaultScale),
       sourceKind: dish.sourceKind,
       sourceTitle: dish.sourceTitle,
       sourceDishVersionLabel: dish.sourceDishVersionLabel,
@@ -815,7 +814,7 @@ export async function buildAccountBackupDto(ownerId: string) {
       startedAt: session.startedAt,
       endedAt: session.endedAt,
       adjustedDurationSeconds: session.adjustedDurationSeconds,
-      scaleFactor: decimalToNumber(session.scaleFactor as never),
+      scaleFactor: decimalToNumber(session.scaleFactor),
       cookingNotes: session.cookingNotes,
       review: session.review
         ? {
@@ -823,7 +822,7 @@ export async function buildAccountBackupDto(ownerId: string) {
             whatDidNotGoWell: session.review.whatDidNotGoWell,
             anythingElse: session.review.anythingElse,
             actualAmountQuantity: decimalToNumber(
-              session.review.actualAmountQuantity as never,
+              session.review.actualAmountQuantity,
             ),
             actualAmountUnit: session.review.actualAmountUnit,
             reviewAdjustedDurationSeconds:
@@ -846,12 +845,12 @@ export async function buildAccountBackupDto(ownerId: string) {
         title: s.sourceDishTitleSnapshot,
         kind: s.sourceDishKindSnapshot,
         versionLabel: s.sourceDishVersionLabelSnapshot,
-        scaleFactor: decimalToNumber(s.scaleFactor as never),
+        scaleFactor: decimalToNumber(s.scaleFactor),
       })),
       items: list.items.map((item) => ({
         name: item.name,
         quantityText: item.quantityText,
-        quantityDecimal: decimalToNumber(item.quantityDecimal as never),
+        quantityDecimal: decimalToNumber(item.quantityDecimal),
         unit: item.unit,
         isOptional: item.isOptional,
         isManual: item.isManual,
@@ -866,9 +865,7 @@ export async function buildAccountBackupDto(ownerId: string) {
       notes: plan.notes,
       entries: plan.entries.map((entry) => ({
         cookDate: entry.cookDate,
-        targetYieldQuantity: decimalToNumber(
-          entry.targetYieldQuantity as never,
-        ),
+        targetYieldQuantity: decimalToNumber(entry.targetYieldQuantity),
         targetYieldUnit: entry.targetYieldUnit,
         note: entry.note,
         status: entry.status,
@@ -878,7 +875,7 @@ export async function buildAccountBackupDto(ownerId: string) {
         plannedMeals: entry.plannedMeals.map((meal) => ({
           label: meal.label,
           date: meal.date,
-          servings: decimalToNumber(meal.servings as never),
+          servings: decimalToNumber(meal.servings),
         })),
       })),
     })),
