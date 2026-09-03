@@ -132,14 +132,14 @@ export function HeroShowcase() {
 
   return (
     <section className="mx-auto grid max-w-6xl gap-8 px-4 pt-16 pb-20 sm:px-6 sm:pt-20 sm:pb-28 lg:grid-cols-2 lg:items-center lg:gap-x-10 lg:gap-y-6 lg:px-8 [&>*]:min-w-0">
-      <div className="flex min-w-0 flex-col items-center gap-6 lg:col-start-1 lg:row-start-1 lg:items-start">
-        {/* Makes cropped hero screenshots identify the product without the navbar. */}
-        <Wordmark className="text-base" />
-        <span className="text-primary text-sm font-semibold tracking-wide uppercase">
-          Your personal cooking framework
-        </span>
-        <h1 className="font-heading text-foreground max-w-lg text-4xl font-semibold tracking-tight text-balance sm:text-5xl lg:max-w-xl lg:text-[3.25rem]">
-          Build dishes the way you actually cook.
+      <div className="flex min-w-0 flex-col items-center gap-5 lg:col-start-1 lg:row-start-1 lg:items-start">
+        <Wordmark
+          href={null}
+          className="gap-3 text-3xl font-medium sm:text-4xl lg:text-[2.75rem]"
+          iconClassName="size-9 sm:size-11 lg:size-12"
+        />
+        <h1 className="font-heading text-foreground max-w-lg text-3xl font-semibold tracking-tight text-balance sm:text-4xl lg:max-w-xl lg:text-5xl">
+          A better framework for the dishes you cook.
         </h1>
 
         <div

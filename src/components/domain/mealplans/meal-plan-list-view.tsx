@@ -44,8 +44,8 @@ function formatRange(start: Date, end: Date): string {
 /**
  * Single Meal Plan row, shared by the Meal Plans index (`MealPlanListView`)
  * and the Home dashboard's "Meal plans" section. The whole row is also a
- * click target for View, its primary/leftmost action; Complete-or-
- * Reactivate/Delete stay explicit icon-only controls.
+ * click target for View, its primary/leftmost action; Mark complete-or-
+ * Reopen/Delete stay explicit icon-only controls.
  */
 export function MealPlanCard({
   plan,
@@ -123,8 +123,8 @@ export function MealPlanCard({
         />
         {isCompleted ? (
           <TooltipIconButton
-            label={`Reactivate ${plan.title}`}
-            tooltip="Reactivate"
+            label={`Reopen ${plan.title}`}
+            tooltip="Reopen"
             icon={RotateCcw}
             disabled={isPending}
             onClick={() =>
@@ -133,8 +133,8 @@ export function MealPlanCard({
           />
         ) : (
           <TooltipIconButton
-            label={`Mark ${plan.title} completed`}
-            tooltip="Mark completed"
+            label={`Mark ${plan.title} complete`}
+            tooltip="Mark complete"
             icon={CheckCircle2}
             disabled={isPending}
             onClick={() =>

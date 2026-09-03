@@ -133,3 +133,18 @@ export async function clickAndWaitForServerAction(
 ): Promise<void> {
   await waitForServerAction(page, () => locator.click());
 }
+
+/**
+ * `DisabledActionHint` (disabled-action-hint.tsx) wraps a disabled control
+ * in its own `<span role="button" tabIndex={0}>` hover/tap-to-explain
+ * trigger, sitting alongside the real (also disabled) `<button>` — both
+ * match `getByRole("button", { name })`, so a plain role query on a
+ * disabled action is a strict-mode violation between the two. Intersecting
+ * with a bare `locator("button")` keeps only the real native element.
+ */
+export function nativeButton(
+  scope: Page | Locator,
+  name: string | RegExp,
+): Locator {
+  return scope.getByRole("button", { name }).and(scope.locator("button"));
+}

@@ -5,7 +5,8 @@
 export const SITE_URL =
   process.env.NEXT_PUBLIC_APP_URL?.trim() || "http://localhost:3000";
 export const SITE_NAME = "DishFrame";
-export const SITE_TITLE = "DishFrame — a better framework for the way you cook";
+export const SITE_TITLE =
+  "DishFrame — a better framework for the dishes you cook";
 export const SITE_DESCRIPTION =
   "DishFrame is a personal cooking framework: turn scattered notes into structured, living recipes you can cook from, improve over time, plan around, and share.";
 

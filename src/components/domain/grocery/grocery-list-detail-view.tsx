@@ -481,7 +481,7 @@ export function GroceryListDetailView({
                     runAction(() => completeGroceryList({ listId: list.id }))
                   }
                 >
-                  Complete
+                  Mark complete
                 </DropdownMenuItem>
               )}
               <DropdownMenuItem

@@ -5,7 +5,7 @@ test("marketing home loads with the hero headline", async ({ page }) => {
   await expect(
     page.getByRole("heading", {
       level: 1,
-      name: "Build dishes the way you actually cook.",
+      name: "A better framework for the dishes you cook.",
     }),
   ).toBeVisible();
 });

@@ -1051,7 +1051,7 @@ Opening:
 
 ---
 
-## 16.1 Current public copy (Slice 21)
+## 16.1 Current public copy (updated: root hero/tagline polish)
 
 DishFrame is a **personal cooking framework**. Its defining idea:
 
@@ -1059,19 +1059,14 @@ DishFrame is a **personal cooking framework**. Its defining idea:
 
 ### Hero
 
-Eyebrow:
+Headline (canonical visible Home hero H1) and current tagline, used across
+the root hero and `<title>`/OpenGraph metadata:
 
-> Your personal cooking framework
+> **A better framework for the dishes you cook.**
 
-Headline (canonical visible Home hero H1):
-
-> **Build dishes the way you actually cook.**
-
-Approved supporting brand language (not the visible H1, but still current —
-used in `<title>`/OpenGraph metadata and available for promotional or other
-secondary contexts where benefit-oriented phrasing fits better than the H1):
-
-> Recipes that get better every time you cook.
+The hero eyebrow ("Your personal cooking framework") was removed — the
+larger DishFrame icon + wordmark lockup in the hero now carries that
+identity role directly.
 
 Supporting copy:
 
@@ -1368,11 +1363,9 @@ Should define technical architecture, database schema, authentication, APIs, sto
 - Frame expressed through composition rather than literal decoration
 - Governing voice: **DishFrame thinks in systems but speaks like a capable home cook**
 - Main interface terms: Parts, Sections, Recipe Status, Cooking Session, Session Review, Servings Made, Version
-- Public hero headline (canonical visible Home H1, resolved after Slice 21):
-  **Build dishes the way you actually cook.**
-- Approved supporting brand language (Slice 21 original headline, retained —
-  used in metadata/`<title>`/OG, not the visible H1): **Recipes that get
-  better every time you cook.**
+- Public hero headline and current tagline (canonical visible Home H1,
+  also used in metadata/`<title>`/OG): **A better framework for the dishes
+  you cook.**
 - Public hero description (Slice 21): **Turn scattered notes into structured, living recipes you can cook from, improve over time, plan around, and share with the people you feed.**
 - Short brand line (Slice 21): **Cook. Refine. Repeat.**
 - Core loop (Slice 21): **Build → Cook → Improve**, expanded as **Plan → Shop → Cook → Review → Refine**
