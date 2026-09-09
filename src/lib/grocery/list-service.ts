@@ -822,6 +822,55 @@ export async function uncombineGroceryItem(
   });
 }
 
+/**
+ * Combine — the reverse of `uncombineGroceryItem`: re-parents every other
+ * still-`canCombine`-compatible item's contribution(s) onto `itemId` and
+ * deletes those now-empty items, the same pure-re-parenting approach
+ * uncombine uses (never a destructive rebuild). Exposed on a single-
+ * contribution, non-manual item — the shape uncombine produces — so a user
+ * can recombine split-off sources back together; throws when there's
+ * nothing left compatible to combine with.
+ */
+export async function combineGroceryItems(
+  ownerId: string,
+  listId: string,
+  itemId: string,
+): Promise<void> {
+  const list = await getOwnedGroceryListOrThrow(ownerId, listId);
+  assertListActive(list);
+  const item = findOwnedItem(list, itemId);
+  const anchor = item.contributions[0];
+  if (item.isManual || !anchor) {
+    throw new ValidationError("This item has nothing to combine.");
+  }
+
+  const matches = list.items.filter((other) => {
+    if (other.id === itemId || other.isManual) return false;
+    const otherAnchor = other.contributions[0];
+    return (
+      otherAnchor != null &&
+      canCombine(
+        contributionToCombinable(anchor),
+        contributionToCombinable(otherAnchor),
+      )
+    );
+  });
+  if (matches.length === 0) {
+    throw new ValidationError("No other items to combine this with.");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    for (const match of matches) {
+      await tx.groceryItemContribution.updateMany({
+        where: { groceryListItemId: match.id },
+        data: { groceryListItemId: itemId },
+      });
+      await tx.groceryListItem.delete({ where: { id: match.id } });
+    }
+    await recomputeItemAggregate(tx, itemId);
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Substitute selection (§62.2 — "while editing the generated list")
 // ---------------------------------------------------------------------------

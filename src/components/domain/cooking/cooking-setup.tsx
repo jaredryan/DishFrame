@@ -233,6 +233,7 @@ export function CookingSetup({
           currentVersionId={currentVersionId}
           value={dishVersionId}
           onChangeAction={handleVersionChange}
+          triggerClassName="bg-card dark:bg-card"
         />
       </div>
 
@@ -398,7 +399,7 @@ function SetupUnitRow({
       ref={setNodeRef}
       style={style}
       className={cn(
-        "border-border bg-muted/30 flex flex-col gap-2 rounded-lg border p-3",
+        "border-border bg-card flex flex-col gap-2 rounded-lg border p-3",
         !isIncluded && "opacity-60",
       )}
     >

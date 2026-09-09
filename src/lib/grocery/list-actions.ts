@@ -251,6 +251,21 @@ export async function uncombineGroceryItem(values: {
   }
 }
 
+export async function combineGroceryItem(values: {
+  listId: string;
+  itemId: string;
+}): Promise<ActionState> {
+  try {
+    const userId = await requireUserId();
+    const { listId, itemId } = itemIdSchema.parse(values);
+    await listService.combineGroceryItems(userId, listId, itemId);
+    revalidateList(listId);
+    return { status: "success" };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
 export async function selectGroceryItemVariant(values: {
   listId: string;
   itemId: string;

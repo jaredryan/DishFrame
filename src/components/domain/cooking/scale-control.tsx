@@ -239,7 +239,7 @@ export function TargetScaleField({
           inputMode="decimal"
           value={text}
           onChange={(e) => handleChange(e.target.value)}
-          className="max-w-28"
+          className="bg-card dark:bg-card w-13"
         />
         {hasOutputBasis && (
           <span className="text-muted-foreground text-sm">{outputUnit}</span>

@@ -106,7 +106,10 @@ test.describe("Recipes: create, view, edit, archive, restore, duplicate, delete"
       .getByRole("dialog")
       .getByRole("button", { name: "Archive" })
       .click();
-    await expect(page.getByText("Archived")).toBeVisible();
+    // exact: a toast confirmation ("Archived "<title>".") also contains
+    // this substring now, so only an exact match is unique to the dish's
+    // own Stage badge.
+    await expect(page.getByText("Archived", { exact: true })).toBeVisible();
 
     // Slice 10 (BUILD_PLAN.md, §43.3): the old "Show archived" link is gone
     // — Stage's own value set now includes Archived, and selecting it as a

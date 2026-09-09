@@ -873,6 +873,101 @@ describe("grocery list service", () => {
     });
   });
 
+  describe("combineGroceryItems", () => {
+    it("re-merges every split-off compatible item back onto the one Combine was invoked on, preserving both contributions", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      await initializeNewUser(userId);
+
+      const recipeA = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({ name: "Soy Sauce", quantity: 2, unit: "tbsp" }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      const recipeB = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({ name: "Soy Sauce", quantity: 1, unit: "tbsp" }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      const listId = await listService.generateGroceryList(userId, {
+        title: "This week",
+        plannedDate: new Date(),
+        sources: [
+          { dishId: recipeA, scaleFactor: 1 },
+          { dishId: recipeB, scaleFactor: 1 },
+        ],
+      });
+      const combined = await prisma.groceryListItem.findFirstOrThrow({
+        where: { groceryListId: listId },
+      });
+      await listService.uncombineGroceryItem(userId, listId, combined.id);
+      const split = await prisma.groceryListItem.findMany({
+        where: { groceryListId: listId },
+      });
+      expect(split).toHaveLength(2);
+
+      await listService.combineGroceryItems(userId, listId, split[0].id);
+
+      const items = await prisma.groceryListItem.findMany({
+        where: { groceryListId: listId },
+        include: { contributions: true },
+      });
+      expect(items).toHaveLength(1);
+      expect(items[0].contributions).toHaveLength(2);
+      expect(decimalToNumber(items[0].quantityDecimal)).toBe(3);
+    });
+
+    it("throws when there is nothing compatible to combine with", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      await initializeNewUser(userId);
+
+      const recipeId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content(),
+      );
+      const listId = await listService.generateGroceryList(userId, {
+        title: "This week",
+        plannedDate: new Date(),
+        sources: [{ dishId: recipeId, scaleFactor: 1 }],
+      });
+      const item = await prisma.groceryListItem.findFirstOrThrow({
+        where: { groceryListId: listId },
+      });
+
+      await expect(
+        listService.combineGroceryItems(userId, listId, item.id),
+      ).rejects.toThrow(ValidationError);
+    });
+  });
+
   describe("recategorizeGroceryItem", () => {
     it("updates the item's category and IngredientCategoryMemory without creating a new DishVersion", async () => {
       const user = await createTestUser();

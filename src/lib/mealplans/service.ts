@@ -888,15 +888,20 @@ export async function resyncMealPlanGroceryLists(
   focusListId?: string,
 ): Promise<GroceryListResyncSummary | null> {
   const mealPlan = await getOwnedMealPlanOrThrow(ownerId, mealPlanId);
-  return prisma.$transaction(async (tx) => {
-    const summaries = await resyncLinkedLists(
-      tx,
-      ownerId,
-      mealPlanId,
-      mealPlan.entries.map(toContributionEntry),
-    );
-    return focusListId ? (summaries.get(focusListId) ?? null) : null;
-  });
+  // Same P2028 timeout risk as `setMealPlanGroceryListEntryIncluded` (see its
+  // comment) — this resyncs the exact same every-active-linked-list work.
+  return prisma.$transaction(
+    async (tx) => {
+      const summaries = await resyncLinkedLists(
+        tx,
+        ownerId,
+        mealPlanId,
+        mealPlan.entries.map(toContributionEntry),
+      );
+      return focusListId ? (summaries.get(focusListId) ?? null) : null;
+    },
+    { timeout: 15000 },
+  );
 }
 
 /**
@@ -916,22 +921,31 @@ export async function setMealPlanGroceryListEntryIncluded(
   const mealPlan = await getOwnedMealPlanOrThrow(ownerId, mealPlanId);
   findOwnedEntry(mealPlan, entryId);
 
-  await prisma.$transaction(async (tx) => {
-    await setGroceryListMealPlanEntryExclusion(
-      tx,
-      ownerId,
-      listId,
-      mealPlanId,
-      entryId,
-      !included,
-    );
-    await resyncLinkedLists(
-      tx,
-      ownerId,
-      mealPlanId,
-      mealPlan.entries.map(toContributionEntry),
-    );
-  });
+  // Production observed `P2028` (transaction expired at Prisma's 5000ms
+  // default) here: this resyncs every active linked list, each walking the
+  // full ingredient tree for every entry in the plan, which can exceed the
+  // default under real network latency even for a modest plan. A single
+  // checkbox toggle doesn't do meaningfully less work than "Sync now"
+  // (`resyncMealPlanGroceryLists`), so it needs the same headroom.
+  await prisma.$transaction(
+    async (tx) => {
+      await setGroceryListMealPlanEntryExclusion(
+        tx,
+        ownerId,
+        listId,
+        mealPlanId,
+        entryId,
+        !included,
+      );
+      await resyncLinkedLists(
+        tx,
+        ownerId,
+        mealPlanId,
+        mealPlan.entries.map(toContributionEntry),
+      );
+    },
+    { timeout: 15000 },
+  );
 }
 
 // ---------------------------------------------------------------------------

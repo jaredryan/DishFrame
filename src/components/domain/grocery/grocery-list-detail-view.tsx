@@ -72,6 +72,7 @@ import {
   recategorizeGroceryItem,
   reorderGroceryListItems,
   uncombineGroceryItem,
+  combineGroceryItem,
   selectGroceryItemVariant,
   updateGroceryListDetails,
   completeGroceryList,
@@ -548,7 +549,7 @@ export function GroceryListDetailView({
                   <MealPlanEntryRow
                     key={entry.id}
                     entry={entry}
-                    disabled={isCompleted || isPending}
+                    disabled={isCompleted}
                     onToggle={(included) =>
                       handleMealPlanEntryToggle(entry.id, included)
                     }
@@ -688,6 +689,14 @@ export function GroceryListDetailView({
                               onUncombine={() =>
                                 runAction(() =>
                                   uncombineGroceryItem({
+                                    listId: list.id,
+                                    itemId: item.id,
+                                  }),
+                                )
+                              }
+                              onCombine={() =>
+                                runAction(() =>
+                                  combineGroceryItem({
                                     listId: list.id,
                                     itemId: item.id,
                                   }),
@@ -1335,6 +1344,7 @@ function GroceryItemRow({
   onEdit,
   onRemove,
   onUncombine,
+  onCombine,
   onSelectVariant,
   onAcknowledgeSync,
 }: {
@@ -1355,12 +1365,19 @@ function GroceryItemRow({
   }) => void;
   onRemove: () => void;
   onUncombine: () => void;
+  onCombine: () => void;
   onSelectVariant: (variant: "PRIMARY" | "SUBSTITUTE") => void;
   onAcknowledgeSync: () => void;
 }) {
   const [expanded, setExpanded] = React.useState(false);
   const isCombined = item.contributions.length > 1;
   const soleContribution = !isCombined ? item.contributions[0] : undefined;
+  // A single, not-yet-(re)combined, not-manually-added line — the exact
+  // shape `uncombineGroceryItem` produces — can offer `Combine` back
+  // (mirroring `Uncombine` in the opposite direction) and its own source
+  // identity, once "Show sources" no longer applies (only a combined item
+  // has multiple sources to disclose).
+  const canRecombine = !item.isManual && soleContribution != null;
   // Only show a variant-selection action that can actually succeed (Slice 12
   // correction 2) — a single, not-yet-combined, not-manually-added line with
   // a saved substitute (§62.2).
@@ -1510,6 +1527,12 @@ function GroceryItemRow({
           )}
         </div>
 
+        {!isEditing && canRecombine && soleContribution!.sourceTitle && (
+          <Badge variant="outline" className="shrink-0">
+            {soleContribution!.sourceTitle}
+          </Badge>
+        )}
+
         {!disabled && !isEditing && (
           <div className="flex shrink-0 items-center gap-0.5">
             <TooltipIconButton
@@ -1527,44 +1550,52 @@ function GroceryItemRow({
         )}
       </div>
 
-      {!disabled && !isEditing && (isCombined || canSelectVariant) && (
-        <div className="flex flex-wrap items-center gap-2 pl-7">
-          {isCombined && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setExpanded((p) => !p)}
-            >
-              {expanded ? "Hide" : "Show"} sources ({item.contributions.length})
-            </Button>
-          )}
-          {isCombined && (
-            <Button variant="outline" size="sm" onClick={onUncombine}>
-              Uncombine
-            </Button>
-          )}
-          {canSelectVariant &&
-            soleContribution!.selectedVariant === "PRIMARY" && (
+      {!disabled &&
+        !isEditing &&
+        (isCombined || canRecombine || canSelectVariant) && (
+          <div className="flex flex-wrap items-center gap-2 pl-7">
+            {isCombined && (
               <Button
-                variant="ghost"
+                variant="outline"
                 size="sm"
-                onClick={() => onSelectVariant("SUBSTITUTE")}
+                onClick={() => setExpanded((p) => !p)}
               >
-                Use substitute
+                {expanded ? "Hide" : "Show"} sources (
+                {item.contributions.length})
               </Button>
             )}
-          {canSelectVariant &&
-            soleContribution!.selectedVariant === "SUBSTITUTE" && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => onSelectVariant("PRIMARY")}
-              >
-                Use original
+            {isCombined && (
+              <Button variant="outline" size="sm" onClick={onUncombine}>
+                Uncombine
               </Button>
             )}
-        </div>
-      )}
+            {canRecombine && (
+              <Button variant="outline" size="sm" onClick={onCombine}>
+                Combine
+              </Button>
+            )}
+            {canSelectVariant &&
+              soleContribution!.selectedVariant === "PRIMARY" && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onSelectVariant("SUBSTITUTE")}
+                >
+                  Use substitute
+                </Button>
+              )}
+            {canSelectVariant &&
+              soleContribution!.selectedVariant === "SUBSTITUTE" && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onSelectVariant("PRIMARY")}
+                >
+                  Use original
+                </Button>
+              )}
+          </div>
+        )}
 
       {expanded && isCombined && (
         <ul className="text-muted-foreground border-border ml-7 flex flex-col gap-1 border-l pl-3 text-xs">

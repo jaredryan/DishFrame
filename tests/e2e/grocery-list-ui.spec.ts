@@ -104,7 +104,12 @@ test.describe("Grocery List UI", () => {
 
     // --- Standalone source card: clicking the card body (not its icon
     // actions) opens Edit ---
-    await page.getByText(recipeTitle).click();
+    // `.first()`: the Groceries section below can render a same-named
+    // source-attribution badge (GroceryItemRow's `canRecombine` badge in
+    // grocery-list-detail-view.tsx) once items are combined/uncombined,
+    // so a bare text match is no longer unique — the Meals section (and
+    // this source card's own title) renders first in DOM order.
+    await page.getByText(recipeTitle).first().click();
     await expect(
       page.getByRole("dialog", { name: `Edit ${recipeTitle}` }),
     ).toBeVisible();

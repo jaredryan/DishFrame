@@ -185,15 +185,17 @@ test.describe("Meal Plan UI", () => {
       name: "This planned meal has not been eaten yet",
     });
     await waitForServerAction(page, () => eatenCheckbox.click());
-    const daySummary = page.getByRole("button", { name: /1\/1 eaten/ });
-    await expect(daySummary).toBeVisible();
-    await daySummary.click();
+    // The day card only reads its initial collapsed state at mount (§10
+    // correction, ViewScheduleDayCard in schedule-shared.tsx) — checking
+    // the last remaining item eaten does not auto-collapse an
+    // already-expanded card, so the checkbox stays reachable directly.
     await expect(
       page.getByRole("checkbox", { name: "This planned meal was eaten" }),
     ).toBeChecked();
     await page.reload();
-    // A fresh load re-collapses the now-fully-eaten day by default — the
-    // persisted "1/1 eaten" summary is itself proof the toggle survived.
+    // A fresh load starts the now-fully-eaten day collapsed by default —
+    // the persisted "1/1 eaten" summary is itself proof the toggle
+    // survived.
     await expect(
       page.getByRole("button", { name: /1\/1 eaten/ }),
     ).toBeVisible();

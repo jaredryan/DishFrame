@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ChefHat, Printer } from "lucide-react";
+import { ChefHat, Pencil, Printer } from "lucide-react";
 import { notFound } from "next/navigation";
 import {
   getOwnedVersionDetailOrThrow,
@@ -9,6 +9,12 @@ import { NotFoundError } from "@/lib/errors";
 import { prisma } from "@/lib/db/prisma";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { VersionSectionsView } from "@/components/domain/dish/version-sections-view";
 import { VersionSelector } from "@/components/domain/dish/version-selector";
 import { PromoteVersionButton } from "@/components/domain/dish/promote-version-button";
@@ -37,12 +43,11 @@ import type { DishKindValue } from "@/lib/dishes/schema";
  * The Version History page's read-only presentation — shared by the
  * Recipe/Part route pages (`(app)/recipes/[dishId]/versions/[versionId]`,
  * `(app)/parts/[dishId]/versions/[versionId]`), which reduce to a thin
- * `kind`-parameterized wrapper. History-specific controls (searchable
- * Version picker, Cook/Edit/Promote/Compare/Print) render above; below that,
- * the same read-only cover-photo/chips/description/nutrition presentation
- * `DishDetailView` renders for the current Version (nav/details QA batch
- * item 7) — Edit/Favorite/the overflow action menu are never shown here,
- * since this is historical viewing, not management.
+ * `kind`-parameterized wrapper. The searchable Version picker renders above
+ * the two-column content; below that follows the same title/metadata/
+ * version-note/actions-left, cover-photo-right hierarchy as `DishDetailView`
+ * (nav/details QA batch item 7) — Favorite/the overflow action menu are
+ * never shown here, since this is historical viewing, not management.
  */
 export async function VersionHistoryView({
   ownerId,
@@ -164,10 +169,6 @@ export async function VersionHistoryView({
       />
 
       <div className="flex flex-col gap-4">
-        <h1 className="font-heading text-foreground text-2xl font-semibold">
-          {displayTitle}
-        </h1>
-
         <p className="text-muted-foreground text-sm">
           {isCurrent
             ? "This is the current version."
@@ -181,58 +182,39 @@ export async function VersionHistoryView({
           versions={versions}
           activeVersionId={version.id}
         />
-
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Cooking a historical Version never makes it current, changes
-              Stage, or restores it — just opens Cooking Setup pinned to this
-              exact Version (PRODUCT_SPEC.md §22.3). */}
-          <Button asChild>
-            <Link href={`${basePath}/${dish.id}/cook?versionId=${version.id}`}>
-              <ChefHat aria-hidden="true" />
-              {isCurrent ? "Cook" : "Cook this version"}
-            </Link>
-          </Button>
-          {/* Any saved Version may be an editing base or a promotion source —
-              not only a major line's latest minor. */}
-          <Button variant="outline" asChild>
-            <Link href={`${basePath}/${dish.id}/edit?versionId=${version.id}`}>
-              Edit this version
-            </Link>
-          </Button>
-          {!isCurrent && (
-            <PromoteVersionButton
-              kind={kind}
-              dishId={dish.id}
-              versionId={version.id}
-              newMajorLabel={formatVersionLabel(highestMajor + 1, 0)}
-            />
-          )}
-          <Button variant="outline" asChild>
-            <Link
-              href={`${basePath}/${dish.id}/compare?from=${version.id}&to=${
-                dish.currentVersionId ?? version.id
-              }`}
-            >
-              Compare versions
-            </Link>
-          </Button>
-          {/* Pinned to this exact Version via `?versionId=`, mirroring "Cook
-              this version" above — never the current Version, even from
-              here (PRODUCT_SPEC.md §87). */}
-          <Button variant="outline" asChild>
-            <Link href={`/print${basePath}/${dish.id}?versionId=${version.id}`}>
-              <Printer aria-hidden="true" />
-              Print
-            </Link>
-          </Button>
-        </div>
       </div>
 
       {/* Read-only presentation shared with the normal Details page (never
-          Edit/Favorite/the overflow action menu — historical viewing, not
-          management). */}
+          Favorite/the overflow action menu — historical viewing, not
+          management) — same left/right two-column hierarchy as
+          `DishDetailView`: title+edit-pencil, metadata, version-change note,
+          then the lower action row, with the cover photo as the right
+          column. */}
       <div className="flex flex-col gap-4 lg:flex-row lg:gap-6">
         <div className="flex min-w-0 flex-1 flex-col gap-3">
+          <div className="flex items-start justify-between gap-3">
+            <h1 className="font-heading text-foreground min-w-0 text-2xl font-semibold text-balance">
+              {displayTitle}
+            </h1>
+            {/* Reuses the same icon-only pencil pattern as the normal
+                Details page's primary Edit action (`DishDetailActions`),
+                retargeted to this exact Version. */}
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button asChild variant="outline" size="icon">
+                    <Link
+                      href={`${basePath}/${dish.id}/edit?versionId=${version.id}`}
+                      aria-label="Edit this version"
+                    >
+                      <Pencil aria-hidden="true" />
+                    </Link>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Edit this version</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
           <DishMetaChips
             stage={dish.stage}
             versionLabel={versionLabel}
@@ -250,6 +232,47 @@ export async function VersionHistoryView({
             versionNote={version.versionNote}
           />
           <NutritionSummary nutrition={toNutritionSummaryData(version)} />
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Cooking a historical Version never makes it current, changes
+                Stage, or restores it — just opens Cooking Setup pinned to
+                this exact Version (PRODUCT_SPEC.md §22.3). */}
+            <Button asChild>
+              <Link
+                href={`${basePath}/${dish.id}/cook?versionId=${version.id}`}
+              >
+                <ChefHat aria-hidden="true" />
+                {isCurrent ? "Cook" : "Cook this version"}
+              </Link>
+            </Button>
+            {!isCurrent && (
+              <PromoteVersionButton
+                kind={kind}
+                dishId={dish.id}
+                versionId={version.id}
+                newMajorLabel={formatVersionLabel(highestMajor + 1, 0)}
+              />
+            )}
+            <Button variant="outline" asChild>
+              <Link
+                href={`${basePath}/${dish.id}/compare?from=${version.id}&to=${
+                  dish.currentVersionId ?? version.id
+                }`}
+              >
+                Compare versions
+              </Link>
+            </Button>
+            {/* Pinned to this exact Version via `?versionId=`, mirroring
+                "Cook this version" above — never the current Version, even
+                from here (PRODUCT_SPEC.md §87). */}
+            <Button variant="outline" asChild>
+              <Link
+                href={`/print${basePath}/${dish.id}?versionId=${version.id}`}
+              >
+                <Printer aria-hidden="true" />
+                Print
+              </Link>
+            </Button>
+          </div>
         </div>
         <DishCoverImage imageAssetId={version.imageAssetId} />
       </div>

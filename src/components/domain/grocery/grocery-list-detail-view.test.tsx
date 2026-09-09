@@ -24,6 +24,7 @@ const {
   updateGroceryListSource,
   listGrocerySourceVersionOptions,
   addGroceryListSource,
+  combineGroceryItem,
 } = vi.hoisted(() => ({
   selectGroceryItemVariant: vi.fn(async () => ({ status: "success" })),
   acknowledgeGroceryItemSync: vi.fn(async () => ({ status: "success" })),
@@ -33,6 +34,7 @@ const {
     versions: [] as DishVersionYieldOption[],
   })),
   addGroceryListSource: vi.fn(async () => ({ status: "success" })),
+  combineGroceryItem: vi.fn(async () => ({ status: "success" })),
 }));
 
 vi.mock("@/lib/grocery/list-actions", () => ({
@@ -43,6 +45,7 @@ vi.mock("@/lib/grocery/list-actions", () => ({
   recategorizeGroceryItem: vi.fn(async () => ({ status: "success" })),
   reorderGroceryListItems: vi.fn(async () => ({ status: "success" })),
   uncombineGroceryItem: vi.fn(async () => ({ status: "success" })),
+  combineGroceryItem,
   selectGroceryItemVariant,
   updateGroceryListDetails: vi.fn(async () => ({ status: "success" })),
   completeGroceryList: vi.fn(async () => ({ status: "success" })),
@@ -649,6 +652,70 @@ describe("GroceryListDetailView — Meal-Plan-linked Meals section (§81.7)", ()
     resolveMutation!({ status: "success" });
   });
 
+  it("updates the checkbox immediately when checking an unselected meal, same as unchecking (§81.7 optimistic UI, symmetric)", async () => {
+    let resolveMutation: (value: { status: "success" }) => void;
+    setMealPlanGroceryListEntryIncluded.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveMutation = resolve;
+        }),
+    );
+    const user = userEvent.setup();
+    renderList([], {
+      id: "list-9",
+      ...linkedList([
+        {
+          id: "entry-1",
+          dishKind: "RECIPE",
+          title: "Chili Crisp Bowl",
+          versionLabel: "V1.0",
+          targetYieldQuantity: 4,
+          targetYieldUnit: "servings",
+          included: false,
+        },
+      ]),
+    });
+
+    const checkbox = screen.getByRole("checkbox", { name: /Chili Crisp Bowl/ });
+    expect(checkbox).not.toBeChecked();
+    await user.click(checkbox);
+
+    // Checked immediately — the mutation promise above is still pending.
+    expect(checkbox).toBeChecked();
+    resolveMutation!({ status: "success" });
+  });
+
+  it("keeps the checkbox interactive (never disabled) while its own mutation is in flight", async () => {
+    let resolveMutation: (value: { status: "success" }) => void;
+    setMealPlanGroceryListEntryIncluded.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveMutation = resolve;
+        }),
+    );
+    const user = userEvent.setup();
+    renderList([], {
+      id: "list-9",
+      ...linkedList([
+        {
+          id: "entry-1",
+          dishKind: "RECIPE",
+          title: "Chili Crisp Bowl",
+          versionLabel: "V1.0",
+          targetYieldQuantity: 4,
+          targetYieldUnit: "servings",
+          included: true,
+        },
+      ]),
+    });
+
+    const checkbox = screen.getByRole("checkbox", { name: /Chili Crisp Bowl/ });
+    await user.click(checkbox);
+
+    expect(checkbox).toBeEnabled();
+    resolveMutation!({ status: "success" });
+  });
+
   it("rolls the checkbox back and shows the error toast when the mutation fails (§81.7 rollback)", async () => {
     setMealPlanGroceryListEntryIncluded.mockImplementationOnce(async () => ({
       status: "error" as const,
@@ -823,6 +890,62 @@ describe("GroceryListDetailView — combined-item source breakdown (§61.3)", ()
     expect(screen.getByText(/Chili Crisp Bowl · 4 tbsp/)).toBeInTheDocument();
     expect(
       screen.getByText(/Vietnamese Nuoc Cham Bowl · 2 tbsp/),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("GroceryListDetailView — uncombined source identity and Combine", () => {
+  it("shows the source as a badge, offers Combine, and hides Show sources for a single-contribution sourced item", () => {
+    renderList([
+      item({
+        contributions: [contribution({ sourceTitle: "Chili Crisp Bowl" })],
+      }),
+    ]);
+
+    expect(screen.getByText("Chili Crisp Bowl")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Combine" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Show sources/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("calls combineGroceryItem when Combine is clicked", async () => {
+    const user = userEvent.setup();
+    renderList([
+      item({
+        contributions: [contribution({ sourceTitle: "Chili Crisp Bowl" })],
+      }),
+    ]);
+
+    await user.click(screen.getByRole("button", { name: "Combine" }));
+
+    expect(combineGroceryItem).toHaveBeenCalledWith({
+      listId: "list-1",
+      itemId: "item-1",
+    });
+  });
+
+  it("never shows the source badge or Combine for a manual item", () => {
+    renderList([item({ isManual: true, contributions: [] })]);
+    expect(
+      screen.queryByRole("button", { name: "Combine" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("never shows Combine for an already-combined (multi-contribution) item, keeping Show sources/Uncombine instead", () => {
+    renderList([
+      item({
+        contributions: [
+          contribution({ id: "c1", sourceTitle: "Chili Crisp Bowl" }),
+          contribution({ id: "c2", sourceTitle: "Vietnamese Nuoc Cham Bowl" }),
+        ],
+      }),
+    ]);
+    expect(
+      screen.queryByRole("button", { name: "Combine" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Show sources/ }),
     ).toBeInTheDocument();
   });
 });

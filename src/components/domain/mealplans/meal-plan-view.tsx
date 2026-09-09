@@ -851,8 +851,8 @@ function GenerateGroceryListDialog({
         <DialogHeader>
           <DialogTitle>Generate grocery list</DialogTitle>
           <DialogDescription>
-            Choose which meals to include. The list stays synced with this
-            plan while active.
+            Choose which meals to include. The list stays synced with this plan
+            while active.
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-3">

@@ -364,7 +364,7 @@ export function ViewScheduleDayCard({
         <button
           type="button"
           onClick={() => setCollapsed(false)}
-          className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg transition-colors hover:bg-muted/50 pointer-coarse:min-h-11"
+          className="hover:bg-muted/50 flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg transition-colors pointer-coarse:min-h-11"
           aria-expanded={false}
         >
           <span className="text-foreground text-sm font-semibold">
