@@ -22,12 +22,6 @@ test.describe("Home dashboard: navigation (empty account)", () => {
   test("loads with all four sections, correct empty states, and working navigation", async ({
     page,
   }) => {
-    // Generous timeout: this single test walks every section's navigation
-    // targets (~9 `page.goto` calls), several of them the first visit to
-    // that route in this file, each paying a one-time dev-mode compile cost
-    // (see the per-route comments in cooking-golden-path.spec.ts).
-    test.setTimeout(90_000);
-
     await page.goto("/home", { timeout: 15_000 });
     await expect(
       page.getByRole("heading", { name: "Home", level: 1 }),
@@ -161,8 +155,6 @@ test.describe("Home dashboard: populated data", () => {
   test("surfaces real Recipes, Parts, an active Cooking Session, a Meal Plan, and a Grocery List", async ({
     page,
   }) => {
-    test.setTimeout(90_000);
-
     const recipeTitle = `Home Dash Recipe ${Date.now()}`;
     const partTitle = `Home Dash Part ${Date.now()}`;
     const mealPlanTitle = `Home Dash Plan ${Date.now()}`;

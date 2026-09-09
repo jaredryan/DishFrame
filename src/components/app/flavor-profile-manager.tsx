@@ -10,11 +10,12 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { AlertCircle, CheckCircle2, Pencil, Trash2 } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DragHandle } from "@/components/ui/drag-handle";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useToast } from "@/components/ui/toast";
 import { usePendingAction } from "@/components/ui/use-pending-action";
 import { useReorderSensors } from "@/lib/dnd/sensors";
 import { createReorderAnnouncements } from "@/lib/dnd/announcements";
@@ -152,11 +153,7 @@ export function FlavorProfileManager({
     initialFlavorProfiles,
   );
   const [editingId, setEditingId] = React.useState<string | null>(null);
-  const [createError, setCreateError] = React.useState<string | null>(null);
-  const [feedback, setFeedback] = React.useState<{
-    kind: "success" | "error";
-    message: string;
-  } | null>(null);
+  const { showToast } = useToast();
   const { pendingAction, isPending, run } = usePendingAction<
     "create" | "rename" | "delete" | "reorder"
   >();
@@ -169,8 +166,6 @@ export function FlavorProfileManager({
     const name = String(formData.get("name") ?? "").trim();
     if (!name) return;
 
-    setCreateError(null);
-    setFeedback(null);
     run("create", async () => {
       const result = await createFlavorProfile(
         initialCreateFlavorProfileActionState,
@@ -179,9 +174,12 @@ export function FlavorProfileManager({
       if (result.status === "success" && result.flavorProfile) {
         setFlavorProfiles((prev) => [...prev, result.flavorProfile!]);
         createFormRef.current?.reset();
-        setFeedback({ kind: "success", message: result.message ?? "Added." });
+        showToast({ title: result.message ?? "Added.", variant: "success" });
       } else {
-        setCreateError(result.message ?? "Could not add Flavor profile.");
+        showToast({
+          title: result.message ?? "Could not add Flavor profile.",
+          variant: "error",
+        });
       }
     });
   }
@@ -194,19 +192,18 @@ export function FlavorProfileManager({
       ),
     );
     setEditingId(null);
-    setFeedback(null);
     run("rename", async () => {
       const formData = new FormData();
       formData.set("id", id);
       formData.set("name", name);
       const result = await renameFlavorProfile(initialActionState, formData);
       if (result.status === "success") {
-        setFeedback({ kind: "success", message: result.message ?? "Renamed." });
+        showToast({ title: result.message ?? "Renamed.", variant: "success" });
       } else {
         setFlavorProfiles(previous);
-        setFeedback({
-          kind: "error",
-          message: result.message ?? "Could not rename Flavor profile.",
+        showToast({
+          title: result.message ?? "Could not rename Flavor profile.",
+          variant: "error",
         });
       }
     });
@@ -215,18 +212,17 @@ export function FlavorProfileManager({
   function handleDelete(id: string) {
     const previous = flavorProfiles;
     setFlavorProfiles((prev) => prev.filter((value) => value.id !== id));
-    setFeedback(null);
     run("delete", async () => {
       const formData = new FormData();
       formData.set("id", id);
       const result = await deleteFlavorProfile(initialActionState, formData);
       if (result.status === "success") {
-        setFeedback({ kind: "success", message: result.message ?? "Deleted." });
+        showToast({ title: result.message ?? "Deleted.", variant: "success" });
       } else {
         setFlavorProfiles(previous);
-        setFeedback({
-          kind: "error",
-          message: result.message ?? "Could not delete Flavor profile.",
+        showToast({
+          title: result.message ?? "Could not delete Flavor profile.",
+          variant: "error",
         });
       }
     });
@@ -235,16 +231,15 @@ export function FlavorProfileManager({
   function persistOrder(next: FlavorProfileDto[]) {
     const previous = flavorProfiles;
     setFlavorProfiles(next);
-    setFeedback(null);
     run("reorder", async () => {
       const result = await reorderFlavorProfiles(next.map((value) => value.id));
       if (result.status !== "success") {
         setFlavorProfiles(previous);
-        setFeedback({
-          kind: "error",
-          message:
+        showToast({
+          title:
             result.message ??
             "Could not save the new order. Restored the previous order.",
+          variant: "error",
         });
       }
     });
@@ -333,32 +328,6 @@ export function FlavorProfileManager({
           Add
         </Button>
       </form>
-
-      <div aria-live="polite" className="min-h-0 empty:hidden">
-        {createError && (
-          <p role="alert" className="text-destructive-text text-sm">
-            {createError}
-          </p>
-        )}
-        {!isPending && feedback?.kind === "success" && (
-          <p
-            role="status"
-            className="border-brand-green/30 bg-brand-green/10 text-brand-green-text flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"
-          >
-            <CheckCircle2 className="size-4 shrink-0" aria-hidden="true" />
-            <span>{feedback.message}</span>
-          </p>
-        )}
-        {!isPending && feedback?.kind === "error" && (
-          <p
-            role="alert"
-            className="border-destructive/30 bg-destructive/10 text-destructive-text flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"
-          >
-            <AlertCircle className="size-4 shrink-0" aria-hidden="true" />
-            <span>{feedback.message}</span>
-          </p>
-        )}
-      </div>
     </div>
   );
 }

@@ -26,7 +26,7 @@ export function ReplayableGuideList() {
         return (
           <li
             key={guideKey}
-            className="border-border bg-card flex flex-col gap-3 rounded-xl border p-4 sm:flex-row sm:items-center sm:justify-between"
+            className="border-border bg-card flex flex-col gap-3 rounded-xl border p-4"
           >
             <div className="flex items-start gap-2.5">
               <Checkbox
@@ -50,29 +50,30 @@ export function ReplayableGuideList() {
                 </p>
               </div>
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="self-start sm:shrink-0 sm:self-auto"
-              aria-label={`${completed ? "Replay" : "Play"} ${info.title} guide`}
-              onClick={() => {
-                resetGuide(guideKey);
-                router.push(info.href);
-              }}
-            >
-              {completed ? (
-                <>
-                  <RotateCcw aria-hidden="true" />
-                  Replay
-                </>
-              ) : (
-                <>
-                  <Play aria-hidden="true" />
-                  Play
-                </>
-              )}
-            </Button>
+            <div className="flex justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                aria-label={`${completed ? "Replay" : "Play"} ${info.title} guide`}
+                onClick={() => {
+                  resetGuide(guideKey);
+                  router.push(info.href);
+                }}
+              >
+                {completed ? (
+                  <>
+                    <RotateCcw aria-hidden="true" />
+                    Replay
+                  </>
+                ) : (
+                  <>
+                    <Play aria-hidden="true" />
+                    Play
+                  </>
+                )}
+              </Button>
+            </div>
           </li>
         );
       })}

@@ -25,7 +25,37 @@ async function createRecipe(page: Page, title: string): Promise<void> {
   await sectionDialog.getByRole("button", { name: "Finish section" }).click();
 
   await page.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(page).toHaveURL(/\/recipes\/[^/]+$/, { timeout: 15_000 });
+  // Excludes "new": the bare pattern also matches the still-unsaved
+  // /recipes/new form, letting the test click "Grocery Lists" before the
+  // save redirect lands — the unsaved-changes guard on /recipes/new then
+  // swallows that click instead of navigating (see home-dashboard.spec.ts).
+  await expect(page).toHaveURL(/\/recipes\/(?!new$)[^/]+$/, {
+    timeout: 15_000,
+  });
+}
+
+/**
+ * Opens the "List actions" dropdown and clicks `itemName`, retrying the
+ * whole open+click once if the item detaches mid-click. A `router.refresh()`
+ * from the *previous* List-actions mutation (see `grocery-list-detail-view
+ * .tsx`'s `runAction`) can still be settling in the background even after
+ * its own DOM changes are visible, and if it lands while this dropdown is
+ * open, it can close/remount it out from under the click — reproduced via
+ * a captured Playwright trace showing the item detach ~60ms after opening,
+ * then never reappear.
+ */
+async function clickListAction(page: Page, itemName: string): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await page.getByRole("button", { name: "List actions" }).click();
+    const item = page.getByRole("menuitem", { name: itemName });
+    await expect(item).toBeVisible();
+    try {
+      await item.click({ timeout: 3_000 });
+      return;
+    } catch (error) {
+      if (attempt === 2) throw error;
+    }
+  }
 }
 
 test.describe("Grocery List UI", () => {
@@ -85,12 +115,7 @@ test.describe("Grocery List UI", () => {
     await expect(riceCheckbox).toBeEnabled();
 
     // --- Mark complete makes the list read-only ---
-    await page.getByRole("button", { name: "List actions" }).click();
-    const markCompleteItem = page.getByRole("menuitem", {
-      name: "Mark complete",
-    });
-    await expect(markCompleteItem).toBeVisible();
-    await waitForServerAction(page, () => markCompleteItem.click());
+    await clickListAction(page, "Mark complete");
     await expect(page.getByText("Completed", { exact: true })).toBeVisible();
     await expect(riceCheckbox).toBeDisabled();
     await expect(
@@ -98,10 +123,11 @@ test.describe("Grocery List UI", () => {
     ).not.toBeVisible();
 
     // --- Reopen restores normal editing ---
-    await page.getByRole("button", { name: "List actions" }).click();
-    const reopenItem = page.getByRole("menuitem", { name: "Reopen" });
-    await expect(reopenItem).toBeVisible();
-    await waitForServerAction(page, () => reopenItem.click());
+    // Not waitForServerAction: `isCompleted` is driven purely by the
+    // server-returned `list.completedAt` (no optimistic override), so the
+    // assertions below already prove the mutation landed via their own
+    // auto-retry.
+    await clickListAction(page, "Reopen");
     await expect(page.getByText("Active", { exact: true })).toBeVisible();
     await expect(riceCheckbox).toBeEnabled();
     await expect(page.getByRole("button", { name: "Add item" })).toBeVisible();

@@ -2,12 +2,12 @@
 
 import * as React from "react";
 import { useActionState } from "react";
-import { AlertCircle, CheckCircle2 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/components/ui/toast";
 import { submitContactForm } from "@/app/(marketing)/contact/actions";
 import {
   CONTACT_HONEYPOT_FIELD,
@@ -20,6 +20,7 @@ export function ContactForm() {
     submitContactForm,
     initialContactFormState,
   );
+  const { showToast } = useToast();
   const formRef = React.useRef<HTMLFormElement>(null);
   const startedAtRef = React.useRef<HTMLInputElement>(null);
 
@@ -38,8 +39,20 @@ export function ContactForm() {
   React.useEffect(() => {
     if (state.status === "success") {
       formRef.current?.reset();
+      showToast({
+        variant: "success",
+        title: state.message ?? "Message sent.",
+      });
+    } else if (state.status === "error" && !state.fieldErrors) {
+      showToast({
+        variant: "error",
+        title: state.message ?? "Your message could not be sent.",
+      });
     }
-  }, [state.status]);
+    // Fires only on state transitions from the form action, not on
+    // showToast identity changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
 
   return (
     <form
@@ -157,33 +170,6 @@ export function ContactForm() {
         </Link>
         .
       </p>
-
-      <div aria-live="polite" className="min-h-0">
-        {state.status === "success" && (
-          <p
-            role="status"
-            className="border-brand-green/30 bg-brand-green/10 text-brand-green-text flex items-start gap-2 rounded-lg border px-3 py-2.5 text-sm"
-          >
-            <CheckCircle2
-              className="mt-0.5 size-4 shrink-0"
-              aria-hidden="true"
-            />
-            <span>{state.message}</span>
-          </p>
-        )}
-        {state.status === "error" && (
-          <p
-            role="alert"
-            className="border-destructive/30 bg-destructive/10 text-destructive-text flex items-start gap-2 rounded-lg border px-3 py-2.5 text-sm"
-          >
-            <AlertCircle
-              className="mt-0.5 size-4 shrink-0"
-              aria-hidden="true"
-            />
-            <span>{state.message}</span>
-          </p>
-        )}
-      </div>
     </form>
   );
 }

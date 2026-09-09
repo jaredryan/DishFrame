@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { AlertCircle, CheckCircle2 } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -11,6 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useToast } from "@/components/ui/toast";
 import { updatePreferences } from "@/lib/preferences/actions";
 import {
   initialPreferencesFormState,
@@ -24,17 +24,28 @@ export function PreferencesForm({
 }) {
   const [values, setValues] =
     React.useState<PreferencesFormValues>(initialValues);
+  const { showToast } = useToast();
   // `updatePreferences` calls `revalidatePath("/settings")`, which bundles a
   // fresh render of this route into the same response the action returns.
   // A plain `useState` set from an awaited promise races that bundled
   // update and can be discarded before it ever paints — `useActionState`'s
   // returned state is instead applied as part of the same action-commit
   // React/Next already synchronize on, so it reliably survives it.
-  const [state, submitAction, isPending] = React.useActionState(
+  const [, submitAction] = React.useActionState(
     async (
       _prevState: typeof initialPreferencesFormState,
       next: PreferencesFormValues,
-    ) => updatePreferences(next),
+    ) => {
+      const result = await updatePreferences(next);
+      const succeeded = result.status === "success";
+      showToast({
+        title:
+          result.message ??
+          (succeeded ? "Preferences saved." : "Could not save preferences."),
+        variant: succeeded ? "success" : "error",
+      });
+      return result;
+    },
     initialPreferencesFormState,
   );
 
@@ -167,27 +178,6 @@ export function PreferencesForm({
           }
           aria-label="Review prompt"
         />
-      </div>
-
-      <div aria-live="polite" className="min-h-0 empty:hidden">
-        {!isPending && state.status === "success" && (
-          <p
-            role="status"
-            className="border-brand-green/30 bg-brand-green/10 text-brand-green-text flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"
-          >
-            <CheckCircle2 className="size-4 shrink-0" aria-hidden="true" />
-            <span>{state.message}</span>
-          </p>
-        )}
-        {!isPending && state.status === "error" && (
-          <p
-            role="alert"
-            className="border-destructive/30 bg-destructive/10 text-destructive-text flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"
-          >
-            <AlertCircle className="size-4 shrink-0" aria-hidden="true" />
-            <span>{state.message}</span>
-          </p>
-        )}
       </div>
     </div>
   );

@@ -86,7 +86,7 @@ export function EntityRowActions({
               <MoreVertical aria-hidden="true" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
+          <DropdownMenuContent align="end" className="w-fit">
             {actions.map((action) => (
               <DropdownMenuItem
                 key={action.key}

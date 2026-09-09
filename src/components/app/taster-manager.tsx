@@ -10,14 +10,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import {
-  AlertCircle,
-  Archive,
-  ArchiveRestore,
-  CheckCircle2,
-  Pencil,
-  Trash2,
-} from "lucide-react";
+import { Archive, ArchiveRestore, Pencil, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DragHandle } from "@/components/ui/drag-handle";
@@ -27,6 +20,7 @@ import {
   EntityRowActions,
   type EntityRowAction,
 } from "@/components/ui/entity-row-actions";
+import { useToast } from "@/components/ui/toast";
 import { usePendingAction } from "@/components/ui/use-pending-action";
 import { useReorderSensors } from "@/lib/dnd/sensors";
 import { createReorderAnnouncements } from "@/lib/dnd/announcements";
@@ -198,11 +192,7 @@ export function TasterManager({
 }) {
   const [tasters, setTasters] = React.useState(initialTasters);
   const [editingId, setEditingId] = React.useState<string | null>(null);
-  const [createError, setCreateError] = React.useState<string | null>(null);
-  const [feedback, setFeedback] = React.useState<{
-    kind: "success" | "error";
-    message: string;
-  } | null>(null);
+  const { showToast } = useToast();
   const { pendingAction, isPending, run } = usePendingAction<
     "create" | "rename" | "archive" | "delete" | "reorder"
   >();
@@ -215,8 +205,6 @@ export function TasterManager({
     const name = String(formData.get("name") ?? "").trim();
     if (!name) return;
 
-    setCreateError(null);
-    setFeedback(null);
     run("create", async () => {
       const result = await createTaster(
         initialCreateTasterActionState,
@@ -225,9 +213,12 @@ export function TasterManager({
       if (result.status === "success" && result.taster) {
         setTasters((prev) => [...prev, result.taster!]);
         createFormRef.current?.reset();
-        setFeedback({ kind: "success", message: result.message ?? "Added." });
+        showToast({ title: result.message ?? "Added.", variant: "success" });
       } else {
-        setCreateError(result.message ?? "Could not add taster.");
+        showToast({
+          title: result.message ?? "Could not add taster.",
+          variant: "error",
+        });
       }
     });
   }
@@ -238,19 +229,18 @@ export function TasterManager({
       prev.map((taster) => (taster.id === id ? { ...taster, name } : taster)),
     );
     setEditingId(null);
-    setFeedback(null);
     run("rename", async () => {
       const formData = new FormData();
       formData.set("id", id);
       formData.set("name", name);
       const result = await renameTaster(initialActionState, formData);
       if (result.status === "success") {
-        setFeedback({ kind: "success", message: result.message ?? "Renamed." });
+        showToast({ title: result.message ?? "Renamed.", variant: "success" });
       } else {
         setTasters(previous);
-        setFeedback({
-          kind: "error",
-          message: result.message ?? "Could not rename taster.",
+        showToast({
+          title: result.message ?? "Could not rename taster.",
+          variant: "error",
         });
       }
     });
@@ -266,7 +256,6 @@ export function TasterManager({
           : t,
       ),
     );
-    setFeedback(null);
     run("archive", async () => {
       const formData = new FormData();
       formData.set("id", taster.id);
@@ -275,19 +264,19 @@ export function TasterManager({
         formData,
       );
       if (result.status === "success") {
-        setFeedback({
-          kind: "success",
-          message: result.message ?? (archiving ? "Archived." : "Restored."),
+        showToast({
+          title: result.message ?? (archiving ? "Archived." : "Restored."),
+          variant: "success",
         });
       } else {
         setTasters(previous);
-        setFeedback({
-          kind: "error",
-          message:
+        showToast({
+          title:
             result.message ??
             (archiving
               ? "Could not archive taster."
               : "Could not restore taster."),
+          variant: "error",
         });
       }
     });
@@ -296,18 +285,17 @@ export function TasterManager({
   function handleDelete(id: string) {
     const previous = tasters;
     setTasters((prev) => prev.filter((t) => t.id !== id));
-    setFeedback(null);
     run("delete", async () => {
       const formData = new FormData();
       formData.set("id", id);
       const result = await deleteTaster(initialActionState, formData);
       if (result.status === "success") {
-        setFeedback({ kind: "success", message: result.message ?? "Deleted." });
+        showToast({ title: result.message ?? "Deleted.", variant: "success" });
       } else {
         setTasters(previous);
-        setFeedback({
-          kind: "error",
-          message: result.message ?? "Could not delete taster.",
+        showToast({
+          title: result.message ?? "Could not delete taster.",
+          variant: "error",
         });
       }
     });
@@ -316,16 +304,15 @@ export function TasterManager({
   function persistOrder(next: TasterDto[]) {
     const previous = tasters;
     setTasters(next);
-    setFeedback(null);
     run("reorder", async () => {
       const result = await reorderTasters(next.map((taster) => taster.id));
       if (result.status !== "success") {
         setTasters(previous);
-        setFeedback({
-          kind: "error",
-          message:
+        showToast({
+          title:
             result.message ??
             "Could not save the new order. Restored the previous order.",
+          variant: "error",
         });
       }
     });
@@ -413,32 +400,6 @@ export function TasterManager({
           Add
         </Button>
       </form>
-
-      <div aria-live="polite" className="min-h-0 empty:hidden">
-        {createError && (
-          <p role="alert" className="text-destructive-text text-sm">
-            {createError}
-          </p>
-        )}
-        {!isPending && feedback?.kind === "success" && (
-          <p
-            role="status"
-            className="border-brand-green/30 bg-brand-green/10 text-brand-green-text flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"
-          >
-            <CheckCircle2 className="size-4 shrink-0" aria-hidden="true" />
-            <span>{feedback.message}</span>
-          </p>
-        )}
-        {!isPending && feedback?.kind === "error" && (
-          <p
-            role="alert"
-            className="border-destructive/30 bg-destructive/10 text-destructive-text flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"
-          >
-            <AlertCircle className="size-4 shrink-0" aria-hidden="true" />
-            <span>{feedback.message}</span>
-          </p>
-        )}
-      </div>
     </div>
   );
 }

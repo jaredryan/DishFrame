@@ -1,3 +1,6 @@
+"use client";
+
+import * as React from "react";
 import { Button } from "@/components/ui/button";
 
 export type JumpToSectionLink = { label: string; href: string };
@@ -16,16 +19,36 @@ export function JumpToSection({
   links: JumpToSectionLink[];
   className?: string;
 }) {
+  function handleClick(
+    event: React.MouseEvent<HTMLAnchorElement>,
+    href: string,
+  ) {
+    const target = document.getElementById(href.slice(1));
+    if (!target) return;
+
+    event.preventDefault();
+    const prefersReducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    target.scrollIntoView({
+      behavior: prefersReducedMotion ? "auto" : "smooth",
+      block: "start",
+    });
+    window.history.pushState(null, "", href);
+  }
+
   return (
     <div className={className}>
       <h2 className="font-heading text-foreground text-lg font-semibold">
         Jump to
       </h2>
-      <ul className="mt-4 flex flex-wrap gap-2">
+      <ul className="border-border bg-card mt-4 flex flex-wrap gap-2 rounded-xl border p-3">
         {links.map(({ label, href }) => (
           <li key={href}>
-            <Button asChild variant="outline" size="sm">
-              <a href={href}>{label}</a>
+            <Button asChild variant="secondary" size="sm">
+              <a href={href} onClick={(event) => handleClick(event, href)}>
+                {label}
+              </a>
             </Button>
           </li>
         ))}

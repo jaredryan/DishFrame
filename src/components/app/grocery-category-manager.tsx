@@ -17,6 +17,7 @@ import { DragHandle } from "@/components/ui/drag-handle";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { DisabledActionHint } from "@/components/app/disabled-action-hint";
+import { useToast } from "@/components/ui/toast";
 import { usePendingAction } from "@/components/ui/use-pending-action";
 import { useReorderSensors } from "@/lib/dnd/sensors";
 import { createReorderAnnouncements } from "@/lib/dnd/announcements";
@@ -174,10 +175,8 @@ export function GroceryCategoryManager({
 }) {
   const [categories, setCategories] =
     React.useState<CategoryDto[]>(initialCategories);
-  const [createError, setCreateError] = React.useState<string | null>(null);
   const [editingId, setEditingId] = React.useState<string | null>(null);
-  const [renameError, setRenameError] = React.useState<string | null>(null);
-  const [deleteError, setDeleteError] = React.useState<string | null>(null);
+  const { showToast } = useToast();
   const { pendingAction, isPending, run } = usePendingAction<
     "create" | "rename" | "delete" | "reorder"
   >();
@@ -190,7 +189,6 @@ export function GroceryCategoryManager({
     const name = String(formData.get("name") ?? "").trim();
     if (!name) return;
 
-    setCreateError(null);
     run("create", async () => {
       const result = await createGroceryCategory(
         initialCreateCategoryActionState,
@@ -200,7 +198,10 @@ export function GroceryCategoryManager({
         setCategories((prev) => [...prev, result.category!]);
         formRef.current?.reset();
       } else {
-        setCreateError(result.message ?? "Could not add category.");
+        showToast({
+          title: result.message ?? "Could not add category.",
+          variant: "error",
+        });
       }
     });
   }
@@ -213,7 +214,6 @@ export function GroceryCategoryManager({
       ),
     );
     setEditingId(null);
-    setRenameError(null);
     run("rename", async () => {
       const formData = new FormData();
       formData.set("id", id);
@@ -221,14 +221,16 @@ export function GroceryCategoryManager({
       const result = await renameGroceryCategory(initialActionState, formData);
       if (result.status !== "success") {
         setCategories(previous);
-        setRenameError(result.message ?? "Could not rename category.");
+        showToast({
+          title: result.message ?? "Could not rename category.",
+          variant: "error",
+        });
       }
     });
   }
 
   function handleDelete(category: CategoryDto) {
     const previous = categories;
-    setDeleteError(null);
     setCategories((prev) => prev.filter((c) => c.id !== category.id));
     run("delete", async () => {
       const formData = new FormData();
@@ -236,7 +238,10 @@ export function GroceryCategoryManager({
       const result = await deleteGroceryCategory(initialActionState, formData);
       if (result.status !== "success") {
         setCategories(previous);
-        setDeleteError(result.message ?? "Could not delete category.");
+        showToast({
+          title: result.message ?? "Could not delete category.",
+          variant: "error",
+        });
       }
     });
   }
@@ -250,10 +255,12 @@ export function GroceryCategoryManager({
       );
       if (result.status !== "success") {
         setCategories(previous);
-        setDeleteError(
-          result.message ??
+        showToast({
+          title:
+            result.message ??
             "Could not save the new order. Restored the previous order.",
-        );
+          variant: "error",
+        });
       }
     });
   }
@@ -347,24 +354,6 @@ export function GroceryCategoryManager({
           Add
         </Button>
       </form>
-
-      <div aria-live="polite" className="min-h-0 empty:hidden">
-        {createError && (
-          <p role="alert" className="text-destructive-text text-sm">
-            {createError}
-          </p>
-        )}
-        {renameError && (
-          <p role="alert" className="text-destructive-text text-sm">
-            {renameError}
-          </p>
-        )}
-        {deleteError && (
-          <p role="alert" className="text-destructive-text text-sm">
-            {deleteError}
-          </p>
-        )}
-      </div>
     </div>
   );
 }
