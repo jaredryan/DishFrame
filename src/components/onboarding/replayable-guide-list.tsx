@@ -26,9 +26,9 @@ export function ReplayableGuideList() {
         return (
           <li
             key={guideKey}
-            className="border-border bg-card flex flex-col gap-3 rounded-xl border p-4"
+            className="border-border bg-card flex flex-wrap items-center gap-3 rounded-xl border p-4"
           >
-            <div className="flex items-start gap-2.5">
+            <div className="flex min-w-[200px] flex-1 items-start gap-2.5">
               <Checkbox
                 checked={completed}
                 onCheckedChange={(checked) => {
@@ -50,30 +50,29 @@ export function ReplayableGuideList() {
                 </p>
               </div>
             </div>
-            <div className="flex justify-end">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                aria-label={`${completed ? "Replay" : "Play"} ${info.title} guide`}
-                onClick={() => {
-                  resetGuide(guideKey);
-                  router.push(info.href);
-                }}
-              >
-                {completed ? (
-                  <>
-                    <RotateCcw aria-hidden="true" />
-                    Replay
-                  </>
-                ) : (
-                  <>
-                    <Play aria-hidden="true" />
-                    Play
-                  </>
-                )}
-              </Button>
-            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="ml-auto"
+              aria-label={`${completed ? "Replay" : "Play"} ${info.title} guide`}
+              onClick={() => {
+                resetGuide(guideKey);
+                router.push(info.href);
+              }}
+            >
+              {completed ? (
+                <>
+                  <RotateCcw aria-hidden="true" />
+                  Replay
+                </>
+              ) : (
+                <>
+                  <Play aria-hidden="true" />
+                  Play
+                </>
+              )}
+            </Button>
           </li>
         );
       })}
