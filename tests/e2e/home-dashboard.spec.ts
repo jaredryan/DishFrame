@@ -237,7 +237,9 @@ test.describe("Home dashboard: populated data", () => {
     // the create page's submit button below is a real <button>.
     await page.getByRole("link", { name: "Create meal plan" }).click();
     await expect(page).toHaveURL(/\/meal-plans\/new$/, { timeout: 15_000 });
+    // Mandatory first-pass Details modal (§3) — confirm via "Next".
     await page.getByLabel("Title").fill(mealPlanTitle);
+    await page.getByRole("button", { name: "Next" }).click();
     await page.getByRole("button", { name: "Create meal plan" }).click();
     await expect(page).toHaveURL(/\/meal-plans\/(?!new)[^/]+$/, {
       timeout: 15_000,

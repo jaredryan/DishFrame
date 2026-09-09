@@ -934,57 +934,6 @@ export async function setMealPlanGroceryListEntryIncluded(
   });
 }
 
-/**
- * §9 "Edit grocery list" — renames/re-dates a Meal-Plan-linked list and
- * replaces its whole included-entry selection in one save. Every entry is
- * explicitly set included or excluded (rather than diffed against the
- * list's current selection) so the result always matches exactly what the
- * form submitted; each toggle reuses the same `GroceryListMealPlanEntryExclusion`
- * bookkeeping §81.7's manual per-entry toggle already established, batched
- * into one transaction with a single resync at the end (F10 convention)
- * rather than one resync per toggled entry.
- */
-export async function updateMealPlanLinkedGroceryList(
-  ownerId: string,
-  mealPlanId: string,
-  listId: string,
-  input: { title: string; plannedDate: Date; entryIds: string[] },
-): Promise<void> {
-  const mealPlan = await getOwnedMealPlanOrThrow(ownerId, mealPlanId);
-  const list = await prisma.groceryList.findFirst({
-    where: { id: listId, ownerId, linkedMealPlanId: mealPlanId },
-    select: { id: true },
-  });
-  if (!list) throw new NotFoundError("Grocery list not found.");
-
-  const title = input.title.trim();
-  if (!title) throw new ValidationError("Enter a title for this grocery list.");
-  const selected = new Set(input.entryIds);
-
-  await prisma.$transaction(async (tx) => {
-    await tx.groceryList.update({
-      where: { id: listId },
-      data: { title, plannedDate: input.plannedDate },
-    });
-    for (const entry of mealPlan.entries) {
-      await setGroceryListMealPlanEntryExclusion(
-        tx,
-        ownerId,
-        listId,
-        mealPlanId,
-        entry.id,
-        !selected.has(entry.id),
-      );
-    }
-    await resyncLinkedLists(
-      tx,
-      ownerId,
-      mealPlanId,
-      mealPlan.entries.map(toContributionEntry),
-    );
-  });
-}
-
 // ---------------------------------------------------------------------------
 // Schedule eaten state (§6)
 // ---------------------------------------------------------------------------

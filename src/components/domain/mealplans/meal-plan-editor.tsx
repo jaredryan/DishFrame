@@ -334,13 +334,19 @@ export function MealPlanEditor(
   const [title, setTitle] = React.useState(initial.title);
   const [startDate, setStartDate] = React.useState(initial.start);
   const [endDate, setEndDate] = React.useState(initial.end);
-  // Create keeps the Details form expanded inline; Edit shows the compact
-  // summary and opens the same fields in an `Edit details` modal instead
-  // (§1 — a small interaction change, not a form redesign).
-  const [detailsExpanded, setDetailsExpanded] = React.useState(
+  // Create and Edit share the same modal-based Details pattern: a compact
+  // summary always shows on the page, and the same modal opens to change
+  // it. Create additionally opens that modal immediately on mount as a
+  // mandatory first step (heading "Create meal plan", primary action
+  // "Next") before the rest of the page is usable; `detailsConfirmed`
+  // tracks whether that first pass has completed (Edit's existing details
+  // count as already-confirmed).
+  const [detailsModalOpen, setDetailsModalOpen] = React.useState(
     props.mode === "create",
   );
-  const [detailsModalOpen, setDetailsModalOpen] = React.useState(false);
+  const [detailsConfirmed, setDetailsConfirmed] = React.useState(
+    props.mode === "edit",
+  );
   const [detailsError, setDetailsError] = React.useState<string | null>(null);
   const detailsSnapshotRef = React.useRef({ title, startDate, endDate });
 
@@ -497,20 +503,21 @@ export function MealPlanEditor(
   function openDetails() {
     detailsSnapshotRef.current = { title, startDate, endDate };
     setDetailsError(null);
-    if (props.mode === "edit") {
-      setDetailsModalOpen(true);
-    } else {
-      setDetailsExpanded(true);
-    }
+    setDetailsModalOpen(true);
   }
 
   function cancelDetails() {
+    // The mandatory first-pass gate (create mode, never yet confirmed) has
+    // no prior state to revert to — Cancel abandons creating the plan.
+    if (!detailsConfirmed) {
+      router.push(mealPlan ? `/meal-plans/${mealPlan.id}` : "/meal-plans");
+      return;
+    }
     const snapshot = detailsSnapshotRef.current;
     setTitle(snapshot.title);
     setStartDate(snapshot.startDate);
     setEndDate(snapshot.endDate);
     setDetailsError(null);
-    setDetailsExpanded(false);
     setDetailsModalOpen(false);
   }
 
@@ -524,8 +531,8 @@ export function MealPlanEditor(
       return;
     }
     setDetailsError(null);
-    setDetailsExpanded(false);
     setDetailsModalOpen(false);
+    setDetailsConfirmed(true);
   }
 
   function openAddMeal() {
@@ -666,12 +673,12 @@ export function MealPlanEditor(
     setServerError(null);
     if (!title.trim()) {
       setServerError("Enter a title for this Meal Plan.");
-      setDetailsExpanded(true);
+      setDetailsModalOpen(true);
       return;
     }
     if (endDate < startDate) {
       setServerError("The end date must be on or after the start date.");
-      setDetailsExpanded(true);
+      setDetailsModalOpen(true);
       return;
     }
     const yieldConflict = findScheduleYieldConflict(mealOptions, schedule);
@@ -929,8 +936,32 @@ export function MealPlanEditor(
 
       <div className="flex flex-col gap-4">
         <h2 className={SECTION_HEADING_CLASS}>Details</h2>
-        {props.mode === "create" && detailsExpanded ? (
-          <div className="border-border bg-card flex flex-col gap-4 rounded-xl border p-4">
+        <div className="border-border bg-card flex items-center justify-between gap-4 rounded-xl border p-4">
+          <div>
+            <p className="text-foreground text-sm font-medium">
+              {title || "Untitled Meal Plan"}
+            </p>
+            <p className="text-muted-foreground text-xs">
+              {formatDateOnly(startDate)} – {formatDateOnly(endDate)}
+            </p>
+          </div>
+          <TooltipIconButton
+            label="Edit details"
+            icon={Pencil}
+            onClick={openDetails}
+          />
+        </div>
+
+        <Dialog
+          open={detailsModalOpen}
+          onOpenChange={(next) => !next && cancelDetails()}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>
+                {props.mode === "create" ? "Create meal plan" : "Edit details"}
+              </DialogTitle>
+            </DialogHeader>
             <DetailsFormFields
               title={title}
               startDate={startDate}
@@ -940,67 +971,16 @@ export function MealPlanEditor(
               onEndDateChange={setEndDate}
             />
             <FieldError>{detailsError}</FieldError>
-            <div className="flex gap-2">
-              <Button type="button" size="sm" onClick={finishDetails}>
-                Finish details
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={cancelDetails}
-              >
+            <DialogFooter>
+              <Button variant="outline" onClick={cancelDetails}>
                 Cancel
               </Button>
-            </div>
-          </div>
-        ) : (
-          <div className="border-border bg-card flex items-center justify-between gap-4 rounded-xl border p-4">
-            <div>
-              <p className="text-foreground text-sm font-medium">
-                {title || "Untitled Meal Plan"}
-              </p>
-              <p className="text-muted-foreground text-xs">
-                {formatDateOnly(startDate)} – {formatDateOnly(endDate)}
-              </p>
-            </div>
-            <TooltipIconButton
-              label="Edit details"
-              icon={Pencil}
-              onClick={openDetails}
-            />
-          </div>
-        )}
-
-        {props.mode === "edit" && (
-          <Dialog
-            open={detailsModalOpen}
-            onOpenChange={(next) => !next && cancelDetails()}
-          >
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Edit details</DialogTitle>
-              </DialogHeader>
-              <DetailsFormFields
-                title={title}
-                startDate={startDate}
-                endDate={endDate}
-                onTitleChange={setTitle}
-                onStartDateChange={setStartDate}
-                onEndDateChange={setEndDate}
-              />
-              <FieldError>{detailsError}</FieldError>
-              <DialogFooter>
-                <Button variant="outline" onClick={cancelDetails}>
-                  Cancel
-                </Button>
-                <Button type="button" onClick={finishDetails}>
-                  Save
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        )}
+              <Button type="button" onClick={finishDetails}>
+                {props.mode === "create" ? "Next" : "Save"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
 
       <div className="flex flex-col gap-4">

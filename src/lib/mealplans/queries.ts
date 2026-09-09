@@ -40,6 +40,7 @@ function mealPlanDetailInclude() {
         completedAt: true,
         plannedDate: true,
         mealPlanEntryExclusions: { select: { mealPlanEntryId: true } },
+        _count: { select: { items: true } },
       },
     },
   };
@@ -101,6 +102,7 @@ export function toMealPlanDetailDto(
       mode: list.mode,
       completedAt: list.completedAt?.toISOString() ?? null,
       plannedDate: list.plannedDate.toISOString(),
+      itemCount: list._count.items,
       excludedEntryIds: list.mealPlanEntryExclusions.map(
         (exclusion) => exclusion.mealPlanEntryId,
       ),

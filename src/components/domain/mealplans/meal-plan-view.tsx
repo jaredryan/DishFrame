@@ -47,15 +47,13 @@ import {
 import { DisabledActionHint } from "@/components/app/disabled-action-hint";
 import { TooltipIconButton } from "@/components/domain/dish/reorder-buttons";
 import { SemanticChip } from "@/components/domain/dish/semantic-chip";
-import {
-  CLICKABLE_ROW_CLASS,
-  ClickableRowOverlay,
-} from "@/components/ui/clickable-row";
+import { CLICKABLE_ROW_CLASS } from "@/components/ui/clickable-row";
 import {
   ViewScheduleDayCard,
   groupScheduleByDate,
   type ScheduleViewItem,
 } from "@/components/domain/mealplans/schedule-shared";
+import { GroceryListCard } from "@/components/domain/grocery/grocery-list-rows";
 import {
   duplicateMealPlan,
   deleteMealPlan,
@@ -64,11 +62,9 @@ import {
   setMealPlanEntryStatus,
   startSessionFromEntry,
   generateGroceryListFromMealPlan,
-  updateMealPlanLinkedGroceryList,
   setPlannedMealEaten,
   markScheduleDayEaten,
 } from "@/lib/mealplans/actions";
-import { deleteGroceryList } from "@/lib/grocery/list-actions";
 import type {
   MealPlanDetailDto,
   MealPlanEntryDto,
@@ -109,12 +105,28 @@ export function MealPlanView({ mealPlan }: { mealPlan: MealPlanDetailDto }) {
   const { pendingAction, isPending, run } = usePendingAction<PendingKey>();
   const [deleteOpen, setDeleteOpen] = React.useState(false);
   const [generateOpen, setGenerateOpen] = React.useState(false);
-  const [editingListId, setEditingListId] = React.useState<string | null>(null);
-  const [deletingListId, setDeletingListId] = React.useState<string | null>(
-    null,
-  );
   const [reuseOpen, setReuseOpen] = React.useState(false);
   const { showToast } = useToast();
+
+  // §6 optimistic checkbox UI — local overrides for cooked/eaten state, the
+  // same pattern `GroceryListDetailView` already uses for its own checkbox
+  // toggles: the checkbox reflects the override immediately, the mutation
+  // persists in the background, and a failure rolls the override back and
+  // shows the shared error toast rather than leaving a false success
+  // displayed. Cleared once a successful mutation's `router.refresh()`
+  // brings a new `mealPlan` prop (detected below), never stale otherwise.
+  const [cookedOverrides, setCookedOverrides] = React.useState<
+    Map<string, boolean>
+  >(new Map());
+  const [eatenOverrides, setEatenOverrides] = React.useState<
+    Map<string, boolean>
+  >(new Map());
+  const [prevMealPlan, setPrevMealPlan] = React.useState(mealPlan);
+  if (prevMealPlan !== mealPlan) {
+    setPrevMealPlan(mealPlan);
+    setCookedOverrides(new Map());
+    setEatenOverrides(new Map());
+  }
 
   const isCompleted = mealPlan.completedAt != null;
 
@@ -155,34 +167,111 @@ export function MealPlanView({ mealPlan }: { mealPlan: MealPlanDetailDto }) {
   }
 
   function toggleCooked(entry: MealPlanEntryDto, checked: boolean) {
-    runAction(`cook-${entry.id}`, () =>
-      setMealPlanEntryStatus({
+    const previous = cookedOverrides.get(entry.id) ?? entry.status === "COOKED";
+    setCookedOverrides((prev) => new Map(prev).set(entry.id, checked));
+    run(`cook-${entry.id}`, async () => {
+      const result = await setMealPlanEntryStatus({
         mealPlanId: mealPlan.id,
         entryId: entry.id,
         status: checked ? "COOKED" : "PLANNED",
-      }),
-    );
+      });
+      if (result.status === "success") {
+        router.refresh();
+      } else {
+        setCookedOverrides((prev) => new Map(prev).set(entry.id, previous));
+        showToast({
+          variant: "error",
+          title: result.message ?? "Could not update this meal.",
+        });
+      }
+    });
   }
 
   function toggleEaten(plannedMealId: string, eaten: boolean) {
-    runAction(`eaten-${plannedMealId}`, () =>
-      setPlannedMealEaten({ mealPlanId: mealPlan.id, plannedMealId, eaten }),
-    );
+    const previous = eatenOverrides.get(plannedMealId);
+    setEatenOverrides((prev) => new Map(prev).set(plannedMealId, eaten));
+    run(`eaten-${plannedMealId}`, async () => {
+      const result = await setPlannedMealEaten({
+        mealPlanId: mealPlan.id,
+        plannedMealId,
+        eaten,
+      });
+      if (result.status === "success") {
+        router.refresh();
+      } else {
+        setEatenOverrides((prev) => {
+          const next = new Map(prev);
+          if (previous === undefined) next.delete(plannedMealId);
+          else next.set(plannedMealId, previous);
+          return next;
+        });
+        showToast({
+          variant: "error",
+          title: result.message ?? "Could not update this meal.",
+        });
+      }
+    });
   }
 
   function markDayEaten(dateIso: string) {
-    runAction(`mark-day-${dateIso}`, () =>
-      markScheduleDayEaten({ mealPlanId: mealPlan.id, date: dateIso }),
+    const group = scheduleDayGroups.find((g) => g.dateIso === dateIso);
+    const affectedIds = (group?.items ?? [])
+      .filter((item) => !item.eaten)
+      .map((item) => item.id);
+    const previousValues = new Map(
+      affectedIds.map((id) => [id, eatenOverrides.get(id)]),
     );
+    setEatenOverrides((prev) => {
+      const next = new Map(prev);
+      for (const id of affectedIds) next.set(id, true);
+      return next;
+    });
+    run(`mark-day-${dateIso}`, async () => {
+      const result = await markScheduleDayEaten({
+        mealPlanId: mealPlan.id,
+        date: dateIso,
+      });
+      if (result.status === "success") {
+        router.refresh();
+      } else {
+        setEatenOverrides((prev) => {
+          const next = new Map(prev);
+          for (const id of affectedIds) {
+            const prior = previousValues.get(id);
+            if (prior === undefined) next.delete(id);
+            else next.set(id, prior);
+          }
+          return next;
+        });
+        showToast({
+          variant: "error",
+          title: result.message ?? "Could not update this day.",
+        });
+      }
+    });
   }
+
+  // Optimistic overrides applied before grouping/sorting, so a just-toggled
+  // checkbox's day-card grouping, counts, and collapse state all react
+  // immediately too — not just the checkbox itself.
+  const displayEntries: MealPlanEntryDto[] = mealPlan.entries.map((entry) =>
+    cookedOverrides.has(entry.id)
+      ? {
+          ...entry,
+          status: cookedOverrides.get(entry.id)
+            ? ("COOKED" as const)
+            : ("PLANNED" as const),
+        }
+      : entry,
+  );
 
   // §7 — unfinished (not yet cooked) meals first, cooked meals moved to the
   // end and visually de-emphasized; no user-defined ordering to preserve
   // here, so each group simply sorts by cook date.
-  const unfinishedEntries = mealPlan.entries
+  const unfinishedEntries = displayEntries
     .filter((e) => e.status !== "COOKED")
     .sort((a, b) => a.cookDate.localeCompare(b.cookDate));
-  const cookedEntries = mealPlan.entries
+  const cookedEntries = displayEntries
     .filter((e) => e.status === "COOKED")
     .sort((a, b) => a.cookDate.localeCompare(b.cookDate));
   const orderedEntries = [...unfinishedEntries, ...cookedEntries];
@@ -195,7 +284,7 @@ export function MealPlanView({ mealPlan }: { mealPlan: MealPlanDetailDto }) {
           label: meal.label,
           mealTitle: `${entry.title} ${entry.versionLabel}`.trim(),
           servings: meal.servings,
-          eaten: meal.eaten,
+          eaten: eatenOverrides.get(meal.id) ?? meal.eaten,
           dateIso: isoDate(meal.date),
         }),
       ),
@@ -387,10 +476,16 @@ export function MealPlanView({ mealPlan }: { mealPlan: MealPlanDetailDto }) {
             {mealPlan.linkedGroceryLists.map((list) => (
               <GroceryListCard
                 key={list.id}
-                list={list}
-                disabled={isCompleted}
-                onEdit={() => setEditingListId(list.id)}
-                onDelete={() => setDeletingListId(list.id)}
+                showLifecycleBadge
+                list={{
+                  id: list.id,
+                  title: list.title,
+                  date: new Date(list.plannedDate),
+                  completedAt: list.completedAt
+                    ? new Date(list.completedAt)
+                    : null,
+                  itemCount: list.itemCount,
+                }}
               />
             ))}
           </ul>
@@ -424,61 +519,13 @@ export function MealPlanView({ mealPlan }: { mealPlan: MealPlanDetailDto }) {
       />
 
       {generateOpen && (
-        <GenerateOrEditGroceryListDialog
-          mode="generate"
+        <GenerateGroceryListDialog
           mealPlanId={mealPlan.id}
           entries={mealPlan.entries}
           onClose={() => setGenerateOpen(false)}
           onSaved={(listId) => router.push(`/grocery-lists/${listId}`)}
         />
       )}
-
-      {editingListId &&
-        (() => {
-          const list = mealPlan.linkedGroceryLists.find(
-            (l) => l.id === editingListId,
-          );
-          if (!list) return null;
-          return (
-            <GenerateOrEditGroceryListDialog
-              mode="edit"
-              mealPlanId={mealPlan.id}
-              entries={mealPlan.entries}
-              list={list}
-              onClose={() => setEditingListId(null)}
-              onSaved={() => {
-                setEditingListId(null);
-                router.refresh();
-              }}
-            />
-          );
-        })()}
-
-      <ConfirmDialog
-        open={deletingListId != null}
-        onOpenChangeAction={(open) => !open && setDeletingListId(null)}
-        title="Delete this grocery list?"
-        description="This can't be undone."
-        confirmLabel="Delete"
-        destructive
-        loading={pendingAction === "lifecycle"}
-        onConfirmAction={() => {
-          if (!deletingListId) return;
-          const listId = deletingListId;
-          setDeletingListId(null);
-          run("lifecycle", async () => {
-            const result = await deleteGroceryList({ listId });
-            if (result.status !== "success") {
-              showToast({
-                variant: "error",
-                title: result.message ?? "Could not delete this list.",
-              });
-            } else {
-              router.refresh();
-            }
-          });
-        }}
-      />
 
       {reuseOpen && (
         <ReuseMealPlanDialog
@@ -742,107 +789,36 @@ function MealsToCookCard({
   );
 }
 
-/** §9 — Grocery List card: title + date badge, `View → Edit → Delete`
- * actions, row click → View. */
-function GroceryListCard({
-  list,
-  disabled,
-  onEdit,
-  onDelete,
-}: {
-  list: MealPlanDetailDto["linkedGroceryLists"][number];
-  disabled: boolean;
-  onEdit: () => void;
-  onDelete: () => void;
-}) {
-  return (
-    <li
-      className={cn(
-        "border-border bg-card relative flex items-center justify-between gap-3 rounded-lg border p-3",
-        CLICKABLE_ROW_CLASS,
-      )}
-    >
-      <ClickableRowOverlay
-        href={`/grocery-lists/${list.id}`}
-        label={`View ${list.title}`}
-      />
-      <div className="flex min-w-0 items-center gap-2">
-        <span className="truncate text-sm font-medium">{list.title}</span>
-        <Badge variant="outline" className="shrink-0">
-          {formatDateOnly(list.plannedDate, {
-            month: "short",
-            day: "numeric",
-          })}
-        </Badge>
-        {list.completedAt && (
-          <Badge variant="secondary" className="shrink-0">
-            Completed
-          </Badge>
-        )}
-      </div>
-      <div className="relative z-10 flex shrink-0 items-center gap-1">
-        {disabled ? (
-          <DisabledActionHint explanation={CLOSED_PLAN_HINT}>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              disabled
-              aria-label="Edit (unavailable)"
-            >
-              <Pencil className="size-4" aria-hidden="true" />
-            </Button>
-          </DisabledActionHint>
-        ) : (
-          <TooltipIconButton label="Edit" icon={Pencil} onClick={onEdit} />
-        )}
-        <TooltipIconButton
-          label="Delete"
-          icon={Trash2}
-          onClick={onDelete}
-          className="text-destructive-text hover:bg-destructive/10 hover:text-destructive-text"
-        />
-      </div>
-    </li>
-  );
-}
-
 /**
- * §9 — the shared Generate/Edit grocery list form: Name, Date, Meals to
- * include, in that order, matching the ordinary Grocery List generation
- * flow's field order. "Edit" prepopulates from `list`/the plan's current
- * inclusion set and regenerates the list's contents on save; "Generate"
- * creates a new Meal-Plan-linked list.
+ * §9 — the Generate-grocery-list form: Name, Date, Meals to include, in
+ * that order, matching the ordinary Grocery List generation flow's field
+ * order. Creates a new Meal-Plan-linked list.
+ *
+ * A prior "Edit" mode (regenerating an existing linked list's title/date/
+ * included meals in place) was dropped from this dialog when the Meal Plan
+ * Details grocery-list card switched to the shared `GroceryListCard` (§9
+ * card-reuse) — that card's action set (View/Mark complete-or-Reopen/
+ * Delete) matches the Grocery Lists page and has no per-card Edit. The
+ * now-dead `updateMealPlanLinkedGroceryList` action/schema/service function
+ * and its integration test were removed with it.
  */
-function GenerateOrEditGroceryListDialog({
-  mode,
+function GenerateGroceryListDialog({
   mealPlanId,
   entries,
-  list,
   onClose,
   onSaved,
 }: {
-  mode: "generate" | "edit";
   mealPlanId: string;
   entries: MealPlanEntryDto[];
-  list?: MealPlanDetailDto["linkedGroceryLists"][number];
   onClose: () => void;
   onSaved: (listId: string) => void;
 }) {
-  const [title, setTitle] = React.useState(
-    mode === "edit" && list ? list.title : "Grocery list",
-  );
+  const [title, setTitle] = React.useState("Grocery list");
   const [plannedDate, setPlannedDate] = React.useState(() =>
-    mode === "edit" && list
-      ? isoDate(list.plannedDate)
-      : toIsoDateOnly(new Date()),
+    toIsoDateOnly(new Date()),
   );
   const [selectedIds, setSelectedIds] = React.useState<string[]>(() =>
-    mode === "edit" && list
-      ? entries
-          .filter((e) => !list.excludedEntryIds.includes(e.id))
-          .map((e) => e.id)
-      : entries.map((e) => e.id),
+    entries.map((e) => e.id),
   );
   const [error, setError] = React.useState<string | null>(null);
   const [isPending, startTransition] = React.useTransition();
@@ -855,21 +831,6 @@ function GenerateOrEditGroceryListDialog({
 
   function handleSave() {
     startTransition(async () => {
-      if (mode === "edit" && list) {
-        const result = await updateMealPlanLinkedGroceryList({
-          mealPlanId,
-          listId: list.id,
-          title,
-          plannedDate,
-          entryIds: selectedIds,
-        });
-        if (result.status === "success") {
-          onSaved(list.id);
-        } else {
-          setError(result.message ?? "Could not save this grocery list.");
-        }
-        return;
-      }
       const result = await generateGroceryListFromMealPlan({
         mealPlanId,
         title,
@@ -888,15 +849,11 @@ function GenerateOrEditGroceryListDialog({
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>
-            {mode === "edit" ? "Edit grocery list" : "Generate grocery list"}
-          </DialogTitle>
-          {mode === "generate" && (
-            <DialogDescription>
-              Choose which meals to include. The list stays synced with this
-              plan while active.
-            </DialogDescription>
-          )}
+          <DialogTitle>Generate grocery list</DialogTitle>
+          <DialogDescription>
+            Choose which meals to include. The list stays synced with this
+            plan while active.
+          </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-3">
           <Field>
@@ -949,7 +906,7 @@ function GenerateOrEditGroceryListDialog({
             loading={isPending}
             onClick={handleSave}
           >
-            {mode === "edit" ? "Save" : "Generate"}
+            Generate
           </Button>
         </DialogFooter>
       </DialogContent>

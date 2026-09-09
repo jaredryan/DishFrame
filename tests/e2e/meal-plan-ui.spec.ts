@@ -43,6 +43,9 @@ async function createMealPlanWithScheduledMeal(
   await page.goto("/meal-plans");
   await page.getByRole("link", { name: "Create meal plan" }).click();
   await expect(page).toHaveURL(/\/meal-plans\/new$/, { timeout: 15_000 });
+  // Mandatory first-pass Details modal (§3) — confirm its defaults.
+  await page.getByRole("button", { name: "Next" }).click();
+
   await page.getByRole("button", { name: "Add meal", exact: true }).click();
   const addMealDialog = page.getByRole("dialog", { name: "Add meal" });
   await addMealDialog.getByRole("button", { name: "Clear" }).click();
@@ -57,6 +60,9 @@ async function createMealPlanWithScheduledMeal(
 
   await page.getByRole("button", { name: "Add plan" }).click();
   const planDialog = page.getByRole("dialog", { name: "Add plan" });
+  // The Dish picker starts unselected (§2) — choose it explicitly.
+  await page.getByRole("combobox", { name: "Dish" }).click();
+  await page.getByRole("option", { name: new RegExp(recipeTitle) }).click();
   await planDialog.getByLabel("Meal name").fill("Dinner");
   await planDialog.getByLabel("Servings").fill("2");
   await planDialog
@@ -92,6 +98,8 @@ test.describe("Meal Plan UI", () => {
     await page.goto("/meal-plans");
     await page.getByRole("link", { name: "Create meal plan" }).click();
     await expect(page).toHaveURL(/\/meal-plans\/new$/, { timeout: 15_000 });
+    // Mandatory first-pass Details modal (§3) — check its defaults, then
+    // confirm via "Next".
     await expect(page.getByLabel("Title")).toHaveValue("This week");
     const startText = await page
       .getByLabel("Start date", { exact: true })
@@ -104,6 +112,7 @@ test.describe("Meal Plan UI", () => {
       (new Date(endText).getTime() - new Date(startText).getTime()) / dayMs,
     );
     expect(diffDays).toBe(6);
+    await page.getByRole("button", { name: "Next" }).click();
 
     await page.getByRole("button", { name: "Add meal", exact: true }).click();
     const addMealDialog = page.getByRole("dialog", { name: "Add meal" });
@@ -119,6 +128,9 @@ test.describe("Meal Plan UI", () => {
 
     await page.getByRole("button", { name: "Add plan" }).click();
     const planDialog = page.getByRole("dialog", { name: "Add plan" });
+    // The Dish picker starts unselected (§2) — choose it explicitly.
+    await page.getByRole("combobox", { name: "Dish" }).click();
+    await page.getByRole("option", { name: new RegExp(recipeTitle) }).click();
     await planDialog.getByLabel("Meal name").fill("Dinner");
     await planDialog.getByLabel("Servings").fill("2");
     await planDialog

@@ -144,11 +144,11 @@ function groceryList(
   return {
     id: "list-1",
     title: "Weekly groceries",
-    createdAt: new Date("2026-01-01"),
+    date: new Date("2026-01-01"),
     completedAt: null,
     linkedMealPlanId: null,
     linkedMealPlan: null,
-    _count: { items: 5 },
+    itemCount: 5,
     ...overrides,
   };
 }

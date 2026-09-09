@@ -144,7 +144,9 @@ test.describe("Grocery List UI", () => {
     await page.goto("/meal-plans");
     await page.getByRole("link", { name: "Create meal plan" }).click();
     await expect(page).toHaveURL(/\/meal-plans\/new$/, { timeout: 15_000 });
+    // Mandatory first-pass Details modal (§3) — confirm via "Next".
     await page.getByLabel("Title").fill(mealPlanTitle);
+    await page.getByRole("button", { name: "Next" }).click();
     await page.getByRole("button", { name: "Add meal", exact: true }).click();
     const addMealDialog = page.getByRole("dialog", { name: "Add meal" });
     await addMealDialog.getByRole("button", { name: "Clear" }).click();
@@ -201,13 +203,13 @@ test.describe("Grocery List UI", () => {
       }),
     ).not.toBeChecked();
 
-    // --- Index card: the "Linked to meal plan" link navigates to the Meal
-    // Plan without triggering the card's own View-details action ---
+    // --- Index card: the "Meal plan: ..." link navigates to the Meal Plan
+    // without triggering the card's own View-details action ---
     await page.goto("/grocery-lists");
     const card = page
       .locator("li")
-      .filter({ has: page.getByRole("link", { name: /Linked to meal plan/ }) });
-    await card.getByRole("link", { name: /Linked to meal plan/ }).click();
+      .filter({ has: page.getByRole("link", { name: /Meal plan:/ }) });
+    await card.getByRole("link", { name: /Meal plan:/ }).click();
     await expect(page).toHaveURL(new RegExp(`/meal-plans/${mealPlanId}$`), {
       timeout: 15_000,
     });

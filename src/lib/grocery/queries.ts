@@ -205,7 +205,7 @@ export type OwnedGroceryList = Awaited<
 // view exists for grocery lists (PRODUCT_SPEC.md §64: completed lists remain
 // historical, not hidden).
 export async function listGroceryListsForOwner(ownerId: string) {
-  const lists = await prisma.groceryList.findMany({
+  const rows = await prisma.groceryList.findMany({
     where: { ownerId },
     select: {
       id: true,
@@ -218,6 +218,18 @@ export async function listGroceryListsForOwner(ownerId: string) {
     },
     orderBy: [{ completedAt: "asc" }, { createdAt: "desc" }],
   });
+  // Reshaped to `GroceryListRowItem`'s generic `date`/`itemCount` fields —
+  // shared with Meal Plan Details' own linked-list cards, which source
+  // `date` from a different underlying column (plannedDate, not createdAt).
+  const lists = rows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    date: row.createdAt,
+    completedAt: row.completedAt,
+    linkedMealPlanId: row.linkedMealPlanId,
+    linkedMealPlan: row.linkedMealPlan,
+    itemCount: row._count.items,
+  }));
   return {
     active: lists.filter((l) => l.completedAt == null),
     completed: lists

@@ -18,7 +18,6 @@ import {
   generateGroceryListFromMealPlanSchema,
   resyncMealPlanGroceryListsSchema,
   setMealPlanGroceryListEntryIncludedSchema,
-  updateMealPlanLinkedGroceryListSchema,
   setPlannedMealEatenSchema,
   markScheduleDayEatenSchema,
   type ActionState,
@@ -445,31 +444,6 @@ export async function setMealPlanGroceryListEntryIncluded(values: {
       included,
     );
     revalidatePath(`${LISTS_PATH}/${listId}`);
-    return { status: "success" };
-  } catch (error) {
-    return { status: "error", message: toActionErrorMessage(error) };
-  }
-}
-
-export async function updateMealPlanLinkedGroceryList(values: {
-  mealPlanId: string;
-  listId: string;
-  title: string;
-  plannedDate: Date | string;
-  entryIds: string[];
-}): Promise<ActionState> {
-  try {
-    const userId = await requireUserId();
-    const { mealPlanId, listId, ...input } =
-      updateMealPlanLinkedGroceryListSchema.parse(values);
-    await mealPlanService.updateMealPlanLinkedGroceryList(
-      userId,
-      mealPlanId,
-      listId,
-      input,
-    );
-    revalidateMealPlan(mealPlanId);
-    revalidateGroceryList(listId);
     return { status: "success" };
   } catch (error) {
     return { status: "error", message: toActionErrorMessage(error) };

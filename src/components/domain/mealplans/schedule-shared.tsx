@@ -9,7 +9,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ChevronDown, Pencil, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DragHandle } from "@/components/ui/drag-handle";
@@ -336,7 +336,11 @@ export function ViewScheduleDayCard({
   onMarkAllEatenAction: () => void;
 }) {
   const allEaten = items.length > 0 && items.every((i) => i.eaten);
-  const [manuallyExpanded, setManuallyExpanded] = React.useState(false);
+  // Starts collapsed only for an already-fully-eaten day; the user can
+  // freely collapse/expand from there regardless of completion state (§10
+  // correction — a collapse control is always available on an expanded
+  // card, even a fully-eaten one with nothing left to mark).
+  const [collapsed, setCollapsed] = React.useState(allEaten);
   // A day that becomes incomplete again (an eaten meal unchecked, or a new
   // meal added elsewhere) always returns to the normal expanded
   // presentation — never stays collapsed waiting for a stale "expanded"
@@ -345,26 +349,26 @@ export function ViewScheduleDayCard({
   const [prevAllEaten, setPrevAllEaten] = React.useState(allEaten);
   if (allEaten !== prevAllEaten) {
     setPrevAllEaten(allEaten);
-    if (!allEaten) setManuallyExpanded(false);
+    if (!allEaten) setCollapsed(false);
   }
-  const expanded = !allEaten || manuallyExpanded;
   const eatenCount = items.filter((i) => i.eaten).length;
+  const dateLabel = formatDateOnly(dateIso, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
 
-  if (!expanded) {
+  if (collapsed) {
     return (
       <li className="border-border bg-card rounded-xl border p-3.5">
         <button
           type="button"
-          onClick={() => setManuallyExpanded(true)}
-          className="flex w-full items-center justify-between gap-2 pointer-coarse:min-h-11"
+          onClick={() => setCollapsed(false)}
+          className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg transition-colors hover:bg-muted/50 pointer-coarse:min-h-11"
           aria-expanded={false}
         >
           <span className="text-foreground text-sm font-semibold">
-            {formatDateOnly(dateIso, {
-              weekday: "short",
-              month: "short",
-              day: "numeric",
-            })}
+            {dateLabel}
           </span>
           <span className="flex items-center gap-1.5">
             <Badge variant="secondary">
@@ -397,13 +401,22 @@ export function ViewScheduleDayCard({
     <DayCardShell
       dateIso={dateIso}
       headerAction={
-        !markAllEatenButton ? null : disabled ? (
-          <DisabledActionHint explanation="This meal plan is closed. Reopen it to make changes.">
-            {markAllEatenButton}
-          </DisabledActionHint>
-        ) : (
-          markAllEatenButton
-        )
+        <div className="flex items-center gap-1">
+          {markAllEatenButton &&
+            (disabled ? (
+              <DisabledActionHint explanation="This meal plan is closed. Reopen it to make changes.">
+                {markAllEatenButton}
+              </DisabledActionHint>
+            ) : (
+              markAllEatenButton
+            ))}
+          <TooltipIconButton
+            label={`Collapse ${dateLabel}`}
+            tooltip="Collapse"
+            icon={ChevronUp}
+            onClick={() => setCollapsed(true)}
+          />
+        </div>
       }
     >
       {items.length === 0 ? (

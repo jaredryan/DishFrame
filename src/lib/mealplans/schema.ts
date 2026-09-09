@@ -170,20 +170,6 @@ export const setMealPlanGroceryListEntryIncludedSchema = entryIdSchema.extend({
   included: z.boolean(),
 });
 
-// §9 "Edit grocery list" — reuses the Generate form's fields in edit mode:
-// renames/re-dates the linked list and replaces its whole included-entry
-// selection in one save, regenerating the list to match.
-export const updateMealPlanLinkedGroceryListSchema = mealPlanIdSchema.extend({
-  listId: z.string().min(1),
-  title: z
-    .string()
-    .trim()
-    .min(1, "Enter a title for this grocery list.")
-    .max(120),
-  plannedDate: z.coerce.date(),
-  entryIds: z.array(z.string().min(1)),
-});
-
 // §6 — the Schedule section's per-meal "eaten" checkbox (Meal Plan Details
 // only), distinct from MealPlanEntry.status's cooked/preparation state.
 export const setPlannedMealEatenSchema = mealPlanIdSchema.extend({
@@ -239,6 +225,7 @@ export type LinkedGroceryListDto = {
   mode: "STANDALONE" | "MEAL_PLAN_LINKED";
   completedAt: string | null;
   plannedDate: string;
+  itemCount: number;
   /** Meal Plan entries currently excluded from this list's generated
    * contents — the complement of "included" (§9's Edit-grocery-list modal
    * prepopulates its meal checkboxes from this). */

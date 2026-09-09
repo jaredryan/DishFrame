@@ -30,11 +30,11 @@ function renderCard(overrides: Partial<GroceryListRowItem> = {}) {
   const list: GroceryListRowItem = {
     id: "list-1",
     title: "This week",
-    createdAt: new Date("2026-01-01"),
+    date: new Date("2026-01-01"),
     completedAt: null,
     linkedMealPlanId: null,
     linkedMealPlan: null,
-    _count: { items: 3 },
+    itemCount: 3,
     ...overrides,
   };
   return render(
@@ -78,7 +78,7 @@ describe("GroceryListCard", () => {
 
   it("shows no linked-plan indicator for a standalone list", () => {
     renderCard();
-    expect(screen.queryByText(/Linked to meal plan/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Meal plan:/)).not.toBeInTheDocument();
   });
 
   it("shows a primary-blue linked-plan indicator for a Meal-Plan-linked list, navigating to that plan", () => {
@@ -87,7 +87,7 @@ describe("GroceryListCard", () => {
       linkedMealPlan: { title: "Beach Week" },
     });
     const link = screen.getByRole("link", {
-      name: "Linked to meal plan: Beach Week",
+      name: "Meal plan: Beach Week",
     });
     expect(link).toHaveAttribute("href", "/meal-plans/plan-1");
     expect(link.className).toContain("text-primary");

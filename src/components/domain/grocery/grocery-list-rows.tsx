@@ -6,12 +6,14 @@ import { useRouter } from "next/navigation";
 import {
   CheckCircle2,
   Eye,
+  Link as LinkIcon,
   RotateCcw,
   ShoppingCart,
   Trash2,
 } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
+import { Badge } from "@/components/ui/badge";
 import {
   EntityRowActions,
   type EntityRowAction,
@@ -30,23 +32,39 @@ import {
 export type GroceryListRowItem = {
   id: string;
   title: string;
-  createdAt: Date;
+  /** Whichever date is contextually the right one to show — `createdAt` on
+   * the Grocery Lists/Home pages, a Meal Plan's linked list's own planned
+   * (shopping) date on Meal Plan Details. */
+  date: Date;
   completedAt: Date | null;
-  linkedMealPlanId: string | null;
-  linkedMealPlan: { title: string } | null;
-  _count: { items: number };
+  itemCount: number;
+  /** Omitted (or both undefined) when the parent context already shows the
+   * linked-Meal-Plan indicator itself — Meal Plan Details, per §9. */
+  linkedMealPlanId?: string | null;
+  linkedMealPlan?: { title: string } | null;
 };
 
 /**
  * Single Grocery List row, shared by the Grocery Lists index
- * (`GroceryListRows`) and the Home dashboard's "Grocery lists" section.
+ * (`GroceryListRows`), the Home dashboard's "Grocery lists" section, and
+ * Meal Plan Details' own Grocery lists section (§9 card-reuse — the one
+ * previously kept a separate, near-identical card design).
  * Follows the same settled entity-card rule `MealPlanCard` established:
  * `View details` is the card's primary action and default whole-row/card
  * click target; Mark complete/Reopen and Delete stay explicit secondary
  * icon controls, collapsing into `EntityRowActions`' shared overflow menu
  * at constrained card widths.
  */
-export function GroceryListCard({ list }: { list: GroceryListRowItem }) {
+export function GroceryListCard({
+  list,
+  showLifecycleBadge = false,
+}: {
+  list: GroceryListRowItem;
+  /** Meal Plan Details shows an explicit Active/Completed badge since its
+   * flat list (mixing both) isn't already split into Active/Completed
+   * columns the way the Grocery Lists/Home pages are. */
+  showLifecycleBadge?: boolean;
+}) {
   const router = useRouter();
   const [isPending, startTransition] = React.useTransition();
   const [deleteOpen, setDeleteOpen] = React.useState(false);
@@ -138,16 +156,22 @@ export function GroceryListCard({ list }: { list: GroceryListRowItem }) {
         </p>
         <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
           <p className="text-muted-foreground text-xs">
-            {list.createdAt.toLocaleDateString()} · {list._count.items} item
-            {list._count.items === 1 ? "" : "s"}
+            {list.date.toLocaleDateString()} · {list.itemCount} item
+            {list.itemCount === 1 ? "" : "s"}
           </p>
+          {showLifecycleBadge && (
+            <Badge variant={isCompleted ? "secondary" : "outline"}>
+              {isCompleted ? "Completed" : "Active"}
+            </Badge>
+          )}
           {list.linkedMealPlanId && (
             <Link
               href={`/meal-plans/${list.linkedMealPlanId}`}
               onClick={(e) => e.stopPropagation()}
-              className="text-primary relative z-10 flex items-center text-xs font-medium underline-offset-2 hover:underline pointer-coarse:min-h-11"
+              className="text-primary relative z-10 flex items-center gap-1 text-xs font-medium underline-offset-2 hover:underline pointer-coarse:min-h-11"
             >
-              Linked to meal plan
+              <LinkIcon className="size-3" aria-hidden="true" />
+              Meal plan
               {list.linkedMealPlan ? `: ${list.linkedMealPlan.title}` : ""}
             </Link>
           )}

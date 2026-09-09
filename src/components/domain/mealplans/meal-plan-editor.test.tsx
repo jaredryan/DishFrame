@@ -62,7 +62,7 @@ function candidate(
   };
 }
 
-function renderEditor(candidates: MealPlanEntryCandidate[]) {
+function renderEditorRaw(candidates: MealPlanEntryCandidate[]) {
   return render(
     <ToastProvider>
       <MealPlanEditor
@@ -75,6 +75,30 @@ function renderEditor(candidates: MealPlanEntryCandidate[]) {
       <Toaster />
     </ToastProvider>,
   );
+}
+
+/**
+ * Renders the editor and immediately clicks past the mandatory "Create meal
+ * plan" details gate (§3) via its default title/date range, since every test
+ * below except the Details-defaults one wants to interact with the rest of
+ * the page once Details are behind the compact summary.
+ */
+async function renderEditor(
+  candidates: MealPlanEntryCandidate[],
+  user: ReturnType<typeof userEvent.setup> = userEvent.setup(),
+) {
+  const utils = renderEditorRaw(candidates);
+  await user.click(screen.getByRole("button", { name: "Next" }));
+  return utils;
+}
+
+/** Selects a Dish in the currently-open Add/Edit Plan modal by title. */
+async function selectPlanDish(
+  user: ReturnType<typeof userEvent.setup>,
+  title: string | RegExp,
+) {
+  await user.click(screen.getByRole("combobox", { name: "Dish" }));
+  await user.click(await screen.findByRole("option", { name: title }));
 }
 
 beforeEach(() => {
@@ -119,7 +143,7 @@ beforeEach(() => {
 
 describe("MealPlanEditor Details defaults (§1)", () => {
   it("defaults Start date to today and End date to today + 6 days", () => {
-    renderEditor([candidate()]);
+    renderEditorRaw([candidate()]);
 
     const today = new Date();
     const end = new Date(today);
@@ -139,7 +163,7 @@ describe("MealPlanEditor Details defaults (§1)", () => {
 describe("MealPlanEditor Meals to cook cards (§3)", () => {
   it("does not show a meaningless Planned badge for a newly-added unsaved meal", async () => {
     const user = userEvent.setup();
-    renderEditor([candidate()]);
+    await renderEditor([candidate()], user);
     await addDefaultMeal(user);
 
     expect(screen.queryByText("Planned")).not.toBeInTheDocument();
@@ -147,7 +171,7 @@ describe("MealPlanEditor Meals to cook cards (§3)", () => {
 
   it("clicking the card row (not a nested action) opens Edit", async () => {
     const user = userEvent.setup();
-    renderEditor([candidate()]);
+    await renderEditor([candidate()], user);
     await addDefaultMeal(user);
 
     await user.click(screen.getByText("Weeknight Stir-Fry"));
@@ -176,7 +200,7 @@ describe("MealPlanEditor Add-meal picker", () => {
       title: "Active Part",
       kind: "PART",
     });
-    renderEditor([activeRecipe, ideaRecipe, activePart]);
+    await renderEditor([activeRecipe, ideaRecipe, activePart], user);
 
     await user.click(screen.getByRole("button", { name: "Add meal" }));
 
@@ -193,7 +217,7 @@ describe("MealPlanEditor Add-meal picker", () => {
       kind: "PART",
       stage: "IDEA",
     });
-    renderEditor([candidate(), ideaPart]);
+    await renderEditor([candidate(), ideaPart], user);
 
     await user.click(screen.getByRole("button", { name: "Add meal" }));
     expect(screen.queryByText("Idea Part")).not.toBeInTheDocument();
@@ -204,7 +228,7 @@ describe("MealPlanEditor Add-meal picker", () => {
 
   it("selecting a candidate collapses the list to its rich row with a deselect control", async () => {
     const user = userEvent.setup();
-    renderEditor([candidate()]);
+    await renderEditor([candidate()], user);
 
     await user.click(screen.getByRole("button", { name: "Add meal" }));
     await user.click(
@@ -225,7 +249,7 @@ describe("MealPlanEditor Add-meal picker", () => {
       isFavorite: true,
     });
     const nonFav = candidate({ dishId: "r2", title: "Other Dish" });
-    renderEditor([fav, nonFav]);
+    await renderEditor([fav, nonFav], user);
 
     await user.click(screen.getByRole("button", { name: "Add meal" }));
     expect(await screen.findByText("Other Dish")).toBeInTheDocument();
@@ -245,7 +269,7 @@ describe("MealPlanEditor Add-meal picker", () => {
 describe("MealPlanEditor Add-meal picker — Version selection and yield sync", () => {
   it("stages the selected Version on the draft entry, persisted on Save", async () => {
     const user = userEvent.setup();
-    renderEditor([candidate()]);
+    await renderEditor([candidate()], user);
 
     await user.click(screen.getByRole("button", { name: "Add meal" }));
     await user.click(
@@ -281,7 +305,7 @@ describe("MealPlanEditor Add-meal picker — Version selection and yield sync", 
 
   it("preserves a user-chosen target yield across a Version switch, recalculating the scale from the newly selected Version's own yield", async () => {
     const user = userEvent.setup();
-    renderEditor([candidate()]);
+    await renderEditor([candidate()], user);
 
     await user.click(screen.getByRole("button", { name: "Add meal" }));
     await user.click(
@@ -340,13 +364,13 @@ async function addDefaultMeal(
  * Schedule redesign (Meal Plan QA redesign, §4): a day-card view grouped by
  * calendar date, with one-plan-per-modal Add/Edit — replacing the former
  * inline `+ Planned meal` UI and, before that, the multi-plan-in-one-modal
- * "Plan meals" batch workflow. With exactly one Meal on the plan, the
- * modal's "Dish" picker defaults to it, so these tests don't need to drive
- * that Select directly.
+ * "Plan meals" batch workflow. The modal's "Dish" picker starts unselected
+ * (§2), so these tests drive it via `selectPlanDish` even with only one
+ * Meal on the plan.
  */
 describe("MealPlanEditor Schedule section", () => {
   it("starts empty, with Add plan disabled until a Meal exists", async () => {
-    renderEditor([candidate()]);
+    await renderEditor([candidate()]);
 
     expect(
       screen.getByText("There is no schedule for this meal plan."),
@@ -356,12 +380,13 @@ describe("MealPlanEditor Schedule section", () => {
 
   it("Add plan commits a scheduled meal, grouped under its date's day card", async () => {
     const user = userEvent.setup();
-    renderEditor([candidate()]);
+    await renderEditor([candidate()], user);
     await addDefaultMeal(user);
 
     expect(screen.getByRole("button", { name: "Add plan" })).not.toBeDisabled();
     await user.click(screen.getByRole("button", { name: "Add plan" }));
 
+    await selectPlanDish(user, /Weeknight Stir-Fry/);
     await user.type(await screen.findByLabelText("Meal name"), "Sunday dinner");
     await user.type(screen.getByLabelText("Servings"), "2");
     const submitButtons = screen.getAllByRole("button", { name: "Add plan" });
@@ -373,10 +398,11 @@ describe("MealPlanEditor Schedule section", () => {
 
   it("prevents scheduling more servings than the Meal's target yield across entries (§77.2)", async () => {
     const user = userEvent.setup();
-    renderEditor([candidate()]); // target yield 4 (candidate()'s yieldQuantity)
+    await renderEditor([candidate()], user); // target yield 4 (candidate()'s yieldQuantity)
     await addDefaultMeal(user);
 
     await user.click(screen.getByRole("button", { name: "Add plan" }));
+    await selectPlanDish(user, /Weeknight Stir-Fry/);
     await user.type(await screen.findByLabelText("Meal name"), "First");
     await user.type(screen.getByLabelText("Servings"), "3");
     const submitButtons = screen.getAllByRole("button", { name: "Add plan" });
@@ -384,6 +410,7 @@ describe("MealPlanEditor Schedule section", () => {
     expect(await screen.findByText("First")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Add plan" }));
+    await selectPlanDish(user, /Weeknight Stir-Fry/);
     await user.type(await screen.findByLabelText("Meal name"), "Second");
     expect(
       screen.getByText(/1 serving left for this Dish/),
@@ -401,9 +428,10 @@ describe("MealPlanEditor Schedule section", () => {
 
   it("removing the Meal a schedule entry belongs to clears that schedule entry too", async () => {
     const user = userEvent.setup();
-    renderEditor([candidate()]);
+    await renderEditor([candidate()], user);
     await addDefaultMeal(user);
     await user.click(screen.getByRole("button", { name: "Add plan" }));
+    await selectPlanDish(user, /Weeknight Stir-Fry/);
     await user.type(await screen.findByLabelText("Meal name"), "Sunday dinner");
     await user.type(screen.getByLabelText("Servings"), "2");
     const submitButtons = screen.getAllByRole("button", { name: "Add plan" });
@@ -420,9 +448,10 @@ describe("MealPlanEditor Schedule section", () => {
 
   it("Save sends the schedule as scheduleAssignments keyed to the new entry's localKey", async () => {
     const user = userEvent.setup();
-    renderEditor([candidate()]);
+    await renderEditor([candidate()], user);
     await addDefaultMeal(user);
     await user.click(screen.getByRole("button", { name: "Add plan" }));
+    await selectPlanDish(user, /Weeknight Stir-Fry/);
     await user.type(await screen.findByLabelText("Meal name"), "Sunday dinner");
     await user.type(screen.getByLabelText("Servings"), "2");
     const submitButtons = screen.getAllByRole("button", { name: "Add plan" });
@@ -448,10 +477,11 @@ describe("MealPlanEditor Schedule section", () => {
 
   it("blocks Save with a clear message when a Meal's target yield drops below its already-scheduled servings", async () => {
     const user = userEvent.setup();
-    renderEditor([candidate()]);
+    await renderEditor([candidate()], user);
     await addDefaultMeal(user); // target yield 4
 
     await user.click(screen.getByRole("button", { name: "Add plan" }));
+    await selectPlanDish(user, /Weeknight Stir-Fry/);
     await user.type(await screen.findByLabelText("Meal name"), "Sunday dinner");
     await user.type(screen.getByLabelText("Servings"), "3");
     const submitButtons = screen.getAllByRole("button", { name: "Add plan" });

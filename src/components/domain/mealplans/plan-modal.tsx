@@ -77,7 +77,7 @@ export function PlanModal({
 }) {
   const [label, setLabel] = React.useState(initialValues?.label ?? "");
   const [mealKey, setMealKey] = React.useState<string | null>(
-    initialValues?.mealKey ?? mealOptions[0]?.key ?? null,
+    initialValues?.mealKey ?? null,
   );
   const [date, setDate] = React.useState(
     initialValues?.date ?? initialDate ?? planStartDate,

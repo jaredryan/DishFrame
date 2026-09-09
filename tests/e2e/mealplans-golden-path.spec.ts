@@ -47,7 +47,9 @@ test.describe("Meal Plans: build, sync grocery list, edit, complete", () => {
     // the create page's submit button below is a real <button>.
     await page.getByRole("link", { name: "Create meal plan" }).click();
     await expect(page).toHaveURL(/\/meal-plans\/new$/, { timeout: 15_000 });
+    // Mandatory first-pass Details modal (§3) — confirm via "Next".
     await page.getByLabel("Title").fill("This week");
+    await page.getByRole("button", { name: "Next" }).click();
 
     // --- Add the Recipe as a Meal via the Add-meal modal (default target
     // yield — no scaling). The modal's default filters (Stage: Active) would

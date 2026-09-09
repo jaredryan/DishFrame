@@ -2811,67 +2811,6 @@ describe("mealplans service", () => {
     });
   });
 
-  describe("updateMealPlanLinkedGroceryList (§9 Edit grocery list)", () => {
-    it("renames, re-dates, and regenerates the list to match a changed meal selection", async () => {
-      const { mealPlanId } = await setupMealPlan();
-      const dishA = await dishService.createDish(userId!, "RECIPE", content());
-      const dishB = await dishService.createDish(
-        userId!,
-        "RECIPE",
-        content({ title: "Second Recipe" }),
-      );
-      const entryAId = await mealPlanService.addMealPlanEntry(
-        userId!,
-        mealPlanId,
-        { dishId: dishA, cookDate: new Date("2026-08-03T00:00:00.000Z") },
-      );
-      const entryBId = await mealPlanService.addMealPlanEntry(
-        userId!,
-        mealPlanId,
-        { dishId: dishB, cookDate: new Date("2026-08-04T00:00:00.000Z") },
-      );
-
-      const listId = await mealPlanService.generateGroceryListFromMealPlan(
-        userId!,
-        mealPlanId,
-        {
-          title: "Groceries",
-          plannedDate: new Date("2026-08-01T00:00:00.000Z"),
-          entryIds: [entryAId],
-        },
-      );
-
-      await mealPlanService.updateMealPlanLinkedGroceryList(
-        userId!,
-        mealPlanId,
-        listId,
-        {
-          title: "Updated groceries",
-          plannedDate: new Date("2026-08-02T00:00:00.000Z"),
-          entryIds: [entryBId],
-        },
-      );
-
-      const list = await prisma.groceryList.findUniqueOrThrow({
-        where: { id: listId },
-      });
-      expect(list.title).toBe("Updated groceries");
-      expect(list.plannedDate.toISOString().slice(0, 10)).toBe("2026-08-02");
-
-      const contributions = await prisma.groceryItemContribution.findMany({
-        where: { groceryListItem: { groceryListId: listId } },
-        select: { mealPlanEntryId: true, state: true },
-      });
-      const stateByEntryId = new Map(
-        contributions.map((c) => [c.mealPlanEntryId, c.state]),
-      );
-      // §81.4/§81.7 — an excluded entry's contribution is flagged REMOVED,
-      // never deleted outright, matching every other exclusion path.
-      expect(stateByEntryId.get(entryBId)).not.toBe("REMOVED");
-      expect(stateByEntryId.get(entryAId)).toBe("REMOVED");
-    });
-  });
-
   describe("generateGroceryListFromMealPlan plannedDate (§9)", () => {
     it("uses the caller-supplied plannedDate instead of the generation date", async () => {
       const { mealPlanId } = await setupMealPlan();
