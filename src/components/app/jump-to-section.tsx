@@ -42,10 +42,10 @@ export function JumpToSection({
       <h2 className="font-heading text-foreground text-lg font-semibold">
         Jump to
       </h2>
-      <ul className="border-border bg-card mt-4 flex flex-wrap gap-2 rounded-xl border p-3">
+      <ul className="mt-4 flex flex-wrap gap-2">
         {links.map(({ label, href }) => (
           <li key={href}>
-            <Button asChild variant="secondary" size="sm">
+            <Button asChild variant="outline" size="sm" className="bg-card">
               <a href={href} onClick={(event) => handleClick(event, href)}>
                 {label}
               </a>
