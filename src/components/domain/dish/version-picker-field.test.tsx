@@ -25,7 +25,7 @@ describe("RichVersionPickerField", () => {
         versions={versions}
         currentVersionId="v3"
         value="v2"
-        onChangeAction={() => {}}
+        onChange={() => {}}
       />,
     );
     expect(screen.getByRole("combobox")).toHaveTextContent("V1.1");
@@ -38,7 +38,7 @@ describe("RichVersionPickerField", () => {
         versions={versions}
         currentVersionId="v3"
         value="v2"
-        onChangeAction={() => {}}
+        onChange={() => {}}
       />,
     );
     await user.click(screen.getByRole("combobox"));
@@ -58,7 +58,7 @@ describe("RichVersionPickerField", () => {
         versions={versions}
         currentVersionId="v3"
         value="v2"
-        onChangeAction={() => {}}
+        onChange={() => {}}
       />,
     );
     await user.click(screen.getByRole("combobox"));
@@ -68,20 +68,20 @@ describe("RichVersionPickerField", () => {
     expect(options[0]).toHaveTextContent("V1.2");
   });
 
-  it("selecting a Version calls onChangeAction with its id and closes the list", async () => {
+  it("selecting a Version calls onChange with its id and closes the list", async () => {
     const user = userEvent.setup();
-    const onChangeAction = vi.fn();
+    const onChange = vi.fn();
     render(
       <RichVersionPickerField
         versions={versions}
         currentVersionId="v3"
         value="v2"
-        onChangeAction={onChangeAction}
+        onChange={onChange}
       />,
     );
     await user.click(screen.getByRole("combobox"));
     await user.click(await screen.findByRole("option", { name: "V2.0" }));
-    expect(onChangeAction).toHaveBeenCalledWith("v4");
+    expect(onChange).toHaveBeenCalledWith("v4");
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
   });
 });

@@ -33,7 +33,7 @@ export function VersionSelector({
       versions={versions}
       currentVersionId={currentVersionId}
       value={activeVersionId}
-      onChangeAction={(versionId) => router.push(`${basePath}/${versionId}`)}
+      onChange={(versionId) => router.push(`${basePath}/${versionId}`)}
     />
   );
 }

@@ -406,7 +406,7 @@ export function TagManager({ initialTags }: { initialTags: TagDto[] }) {
 
       <ConfirmDialog
         open={pendingRename != null}
-        onOpenChangeAction={(open) => !open && setPendingRename(null)}
+        onOpenChange={(open) => !open && setPendingRename(null)}
         title={<>Merge into &ldquo;{pendingRename?.destinationName}&rdquo;?</>}
         description={
           <>
@@ -418,7 +418,7 @@ export function TagManager({ initialTags }: { initialTags: TagDto[] }) {
         }
         confirmLabel="Merge"
         loading={pendingAction === "rename"}
-        onConfirmAction={() => {
+        onConfirm={() => {
           if (!pendingRename) return;
           submitRename(pendingRename.id, pendingRename.name);
           setPendingRename(null);
@@ -427,7 +427,7 @@ export function TagManager({ initialTags }: { initialTags: TagDto[] }) {
 
       <ConfirmDialog
         open={pendingDelete != null}
-        onOpenChangeAction={(open) => !open && setPendingDelete(null)}
+        onOpenChange={(open) => !open && setPendingDelete(null)}
         title={<>Delete &ldquo;{pendingDelete?.displayName}&rdquo;?</>}
         description={
           pendingDelete && pendingDelete.dishCount > 0
@@ -437,7 +437,7 @@ export function TagManager({ initialTags }: { initialTags: TagDto[] }) {
         confirmLabel="Delete"
         destructive
         loading={pendingAction === "delete"}
-        onConfirmAction={confirmDelete}
+        onConfirm={confirmDelete}
       />
     </div>
   );

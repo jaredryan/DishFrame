@@ -265,6 +265,117 @@ describe("mealplans service", () => {
       expect(names).toEqual(["Garlic", "Ginger"]);
     });
 
+    it("resolves the exact same Recipe/Version planned on two different dates once each, without cross-entry cache reuse dropping either occurrence (ingredient-gather bounded-cache regression)", async () => {
+      const { mealPlanId } = await setupMealPlan();
+      const dish = await dishService.createDish(
+        userId!,
+        "RECIPE",
+        content({
+          title: "Fried Rice",
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({ name: "Soy Sauce", quantity: 2, unit: "tbsp" }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      // Both entries reference the identical dishVersionId and are present
+      // before the single `generateGroceryListFromMealPlan` call below, so
+      // `collectMealPlanOccurrences`'s per-call cache resolves the shared
+      // Recipe content once and reuses it for the second entry — this
+      // asserts that reuse still yields two independent occurrences (one
+      // per `mealPlanEntryId`), not a single occurrence silently dropped.
+      await mealPlanService.addMealPlanEntry(userId!, mealPlanId, {
+        dishId: dish,
+        cookDate: new Date("2026-08-03T00:00:00.000Z"),
+      });
+      await mealPlanService.addMealPlanEntry(userId!, mealPlanId, {
+        dishId: dish,
+        cookDate: new Date("2026-08-04T00:00:00.000Z"),
+      });
+
+      const listId = await mealPlanService.generateGroceryListFromMealPlan(
+        userId!,
+        mealPlanId,
+        { title: "Shopping" },
+      );
+
+      const list = await prisma.groceryList.findUniqueOrThrow({
+        where: { id: listId },
+        include: { items: { include: { contributions: true } } },
+      });
+      expect(list.items).toHaveLength(1);
+      const soySauce = list.items[0];
+      expect(soySauce.contributions).toHaveLength(2);
+      expect(soySauce.quantityDecimal?.toNumber()).toBeCloseTo(4, 3);
+    });
+
+    it("keeps each entry's own target-yield scale factor isolated when the exact same Recipe/Version is planned twice with different target yields (ingredient-gather bounded-cache regression — topLevel cache reuse)", async () => {
+      const { mealPlanId } = await setupMealPlan();
+      const dish = await dishService.createDish(
+        userId!,
+        "RECIPE",
+        content({
+          title: "Fried Rice",
+          yieldQuantity: 4,
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({ name: "Soy Sauce", quantity: 2, unit: "tbsp" }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      // Both entries reference the identical dishVersionId but ask for
+      // different target yields (scale factor 1 and 2.5 against the
+      // Recipe's authored yield of 4), so `collectMealPlanOccurrences`'s
+      // `topLevel` cache resolves the shared unscaled slots once and
+      // `resolveIngredientOccurrences` scales that one shared reference
+      // twice — this asserts the two entries' scale factors never leak into
+      // each other.
+      await mealPlanService.addMealPlanEntry(userId!, mealPlanId, {
+        dishId: dish,
+        cookDate: new Date("2026-08-03T00:00:00.000Z"),
+        targetYieldQuantity: 4,
+      });
+      await mealPlanService.addMealPlanEntry(userId!, mealPlanId, {
+        dishId: dish,
+        cookDate: new Date("2026-08-04T00:00:00.000Z"),
+        targetYieldQuantity: 10,
+      });
+
+      const listId = await mealPlanService.generateGroceryListFromMealPlan(
+        userId!,
+        mealPlanId,
+        { title: "Shopping" },
+      );
+
+      const list = await prisma.groceryList.findUniqueOrThrow({
+        where: { id: listId },
+        include: { items: { include: { contributions: true } } },
+      });
+      expect(list.items).toHaveLength(1);
+      const soySauce = list.items[0];
+      expect(soySauce.quantityDecimal?.toNumber()).toBeCloseTo(7, 3); // 2 + 5 tbsp
+      const contributionQuantities = soySauce.contributions
+        .map((c) => c.quantityDecimal?.toNumber())
+        .sort((a, b) => (a ?? 0) - (b ?? 0));
+      expect(contributionQuantities).toEqual([2, 5]);
+    });
+
     it("fully combines every eligible ingredient when the exact same Recipe/Version is added as a second Meal Plan entry after the list already exists (grocery combine QA finding)", async () => {
       const { mealPlanId } = await setupMealPlan();
       const dish = await dishService.createDish(

@@ -31,14 +31,14 @@ export function VersionComparePicker({
       <VersionPicker
         versions={versions}
         value={fromId}
-        onChangeAction={(value) => navigate(value, toId)}
+        onChange={(value) => navigate(value, toId)}
         ariaLabel="Compare from version"
       />
       <span className="text-muted-foreground text-sm">vs.</span>
       <VersionPicker
         versions={versions}
         value={toId}
-        onChangeAction={(value) => navigate(fromId, value)}
+        onChange={(value) => navigate(fromId, value)}
         ariaLabel="Compare to version"
       />
     </div>

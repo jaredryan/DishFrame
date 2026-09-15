@@ -287,14 +287,14 @@ export function CookingPlanManager({
 
       <ConfirmDialog
         open={finalUnitGuard}
-        onOpenChangeAction={(nextOpen) => !nextOpen && setFinalUnitGuard(false)}
+        onOpenChange={(nextOpen) => !nextOpen && setFinalUnitGuard(false)}
         title="This is the last active unit"
         description="Removing it would leave this Cooking Session empty. Keep editing, or delete the whole session instead. Deleting removes any progress recorded in this session."
         cancelLabel="Keep editing"
         confirmLabel="Delete session"
         destructive
         loading={pendingAction === "delete-session"}
-        onConfirmAction={handleDeleteSession}
+        onConfirm={handleDeleteSession}
       />
     </>
   );

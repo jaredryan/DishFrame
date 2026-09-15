@@ -633,7 +633,7 @@ export function SessionReviewForm({
 
       <ConfirmDialog
         open={deleteOpen}
-        onOpenChangeAction={setDeleteOpen}
+        onOpenChange={setDeleteOpen}
         title="Delete this Review?"
         description={
           <>
@@ -646,7 +646,7 @@ export function SessionReviewForm({
         confirmLabel="Delete Review"
         destructive
         loading={isDeleting}
-        onConfirmAction={handleDelete}
+        onConfirm={handleDelete}
       />
     </div>
   );

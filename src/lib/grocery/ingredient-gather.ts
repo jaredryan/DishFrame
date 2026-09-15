@@ -51,6 +51,67 @@ export type IngredientSlot = {
 
 const MAX_PART_FLATTEN_DEPTH = 12;
 
+/**
+ * Bounded, per-operation memoization (accepted limitation review, TODO.md
+ * §1) — never persisted or shared across requests. `content` caches the raw
+ * (unscaled) DB fetch for a given (owner, target Dish, target Version) so a
+ * nested Part shared by several sources/entries in the same
+ * `generateGroceryList`/`collectMealPlanOccurrences` call is only fetched
+ * once; multiplier composition still runs fresh per occurrence, so
+ * quantities are unaffected. `topLevel` caches the fully-resolved slots for
+ * a given (owner, dishVersionId) at its own multiplier of 1, so an identical
+ * top-level source/entry (e.g. the same Recipe planned twice in one Meal
+ * Plan) is walked only once.
+ */
+export type IngredientGatherCache = {
+  content: Map<string, Promise<PartTargetContent | null>>;
+  topLevel: Map<string, Promise<IngredientSlot[]>>;
+};
+
+export function createIngredientGatherCache(): IngredientGatherCache {
+  return { content: new Map(), topLevel: new Map() };
+}
+
+type PartTargetContent = {
+  sections: VersionSectionRow[];
+  partLinks: VersionPartLinkRow[];
+};
+
+function fetchPartTargetContent(
+  ownerId: string,
+  targetDishId: string,
+  targetVersionId: string,
+  cache: IngredientGatherCache,
+): Promise<PartTargetContent | null> {
+  const key = `${ownerId}:${targetDishId}:${targetVersionId}`;
+  const cached = cache.content.get(key);
+  if (cached) return cached;
+
+  const promise = (async (): Promise<PartTargetContent | null> => {
+    const targetDish = await prisma.dish.findFirst({
+      where: { id: targetDishId, ownerId, kind: "PART" },
+      select: { id: true },
+    });
+    if (!targetDish) return null;
+
+    const targetVersion = await prisma.dishVersion.findFirst({
+      where: { id: targetVersionId, dishId: targetDishId },
+      include: {
+        sections: sectionContentInclude,
+        partLinks: partLinkContentInclude,
+      },
+    });
+    if (!targetVersion) return null;
+
+    return {
+      sections: targetVersion.sections,
+      partLinks: targetVersion.partLinks,
+    };
+  })();
+  cache.content.set(key, promise);
+  return promise;
+}
+
 // A structural subset of an Ingredient row — deliberately narrower than
 // `VersionSectionRow["ingredients"][number]` so it also accepts the nested
 // `.substitute` row, whose own Prisma payload type doesn't recursively
@@ -113,26 +174,20 @@ async function walkPartLink(
   accumulatedMultiplier: number,
   visited: Set<string>,
   depth: number,
+  cache: IngredientGatherCache,
 ): Promise<IngredientSlot[]> {
   if (!link.targetDishId || !link.targetDishVersionId) return [];
   if (depth >= MAX_PART_FLATTEN_DEPTH || visited.has(link.targetDishId)) {
     return [];
   }
 
-  const targetDish = await prisma.dish.findFirst({
-    where: { id: link.targetDishId, ownerId, kind: "PART" },
-    select: { id: true },
-  });
-  if (!targetDish) return [];
-
-  const targetVersion = await prisma.dishVersion.findFirst({
-    where: { id: link.targetDishVersionId, dishId: link.targetDishId },
-    include: {
-      sections: sectionContentInclude,
-      partLinks: partLinkContentInclude,
-    },
-  });
-  if (!targetVersion) return [];
+  const content = await fetchPartTargetContent(
+    ownerId,
+    link.targetDishId,
+    link.targetDishVersionId,
+    cache,
+  );
+  if (!content) return [];
 
   const multiplier =
     accumulatedMultiplier * (decimalToNumber(link.multiplier) ?? 1);
@@ -140,10 +195,10 @@ async function walkPartLink(
   nextVisited.add(link.targetDishId);
 
   const slots: IngredientSlot[] = [];
-  for (const section of targetVersion.sections) {
+  for (const section of content.sections) {
     slots.push(...sectionSlots(section, multiplier));
   }
-  for (const nestedLink of targetVersion.partLinks) {
+  for (const nestedLink of content.partLinks) {
     slots.push(
       ...(await walkPartLink(
         ownerId,
@@ -151,6 +206,7 @@ async function walkPartLink(
         multiplier,
         nextVisited,
         depth + 1,
+        cache,
       )),
     );
   }
@@ -171,23 +227,34 @@ async function walkPartLink(
 export async function gatherIngredientSlots(
   ownerId: string,
   dishVersionId: string,
+  cache: IngredientGatherCache = createIngredientGatherCache(),
 ): Promise<IngredientSlot[]> {
-  const version = await prisma.dishVersion.findFirstOrThrow({
-    where: { id: dishVersionId },
-    include: {
-      sections: sectionContentInclude,
-      partLinks: partLinkContentInclude,
-    },
-  });
+  const key = `${ownerId}:${dishVersionId}`;
+  const cached = cache.topLevel.get(key);
+  if (cached) return cached;
 
-  const slots: IngredientSlot[] = [];
-  for (const section of version.sections) {
-    slots.push(...sectionSlots(section, 1));
-  }
-  for (const link of version.partLinks) {
-    slots.push(...(await walkPartLink(ownerId, link, 1, new Set(), 0)));
-  }
-  return slots;
+  const promise = (async (): Promise<IngredientSlot[]> => {
+    const version = await prisma.dishVersion.findFirstOrThrow({
+      where: { id: dishVersionId },
+      include: {
+        sections: sectionContentInclude,
+        partLinks: partLinkContentInclude,
+      },
+    });
+
+    const slots: IngredientSlot[] = [];
+    for (const section of version.sections) {
+      slots.push(...sectionSlots(section, 1));
+    }
+    for (const link of version.partLinks) {
+      slots.push(
+        ...(await walkPartLink(ownerId, link, 1, new Set(), 0, cache)),
+      );
+    }
+    return slots;
+  })();
+  cache.topLevel.set(key, promise);
+  return promise;
 }
 
 /** A generation-time-scaled snapshot of a slot's saved substitute — the

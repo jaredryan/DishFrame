@@ -58,7 +58,7 @@ export function PromoteVersionButton({
       </Button>
       <ConfirmDialog
         open={open}
-        onOpenChangeAction={(next) => !isPending && setOpen(next)}
+        onOpenChange={(next) => !isPending && setOpen(next)}
         title="Make this direction current again?"
         description={
           <>
@@ -69,7 +69,7 @@ export function PromoteVersionButton({
         }
         confirmLabel="Promote"
         loading={isPending}
-        onConfirmAction={handlePromote}
+        onConfirm={handlePromote}
       />
     </>
   );

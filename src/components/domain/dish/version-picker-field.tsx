@@ -1,5 +1,3 @@
-"use client";
-
 import * as React from "react";
 import { Field, FieldLabel } from "@/components/ui/field";
 import {
@@ -22,7 +20,7 @@ export function RichVersionPickerField({
   versions,
   currentVersionId,
   value,
-  onChangeAction,
+  onChange,
   disabled,
   className,
 }: {
@@ -30,7 +28,7 @@ export function RichVersionPickerField({
   versions: VersionOption[];
   currentVersionId?: string | null;
   value: string | undefined;
-  onChangeAction: (versionId: string) => void;
+  onChange: (versionId: string) => void;
   disabled?: boolean;
   className?: string;
 }) {
@@ -42,7 +40,7 @@ export function RichVersionPickerField({
         versions={versions}
         currentVersionId={currentVersionId}
         value={value}
-        onChangeAction={onChangeAction}
+        onChange={onChange}
         disabled={disabled}
       />
     </Field>
@@ -62,7 +60,7 @@ function useDishVersionOptions(
   kind: DishKindValue,
   dishId: string,
   value: string | null,
-  onChangeAction: (versionId: string) => void,
+  onChange: (versionId: string) => void,
 ): LoadState {
   const [state, setState] = React.useState<LoadState>({ status: "loading" });
 
@@ -91,7 +89,7 @@ function useDishVersionOptions(
   // explicit user choice — necessarily an effect since it reacts to the
   // async fetch resolving, not to a render-time value.
   const notifyDefaultVersion = React.useEffectEvent((versionId: string) => {
-    onChangeAction(versionId);
+    onChange(versionId);
   });
   React.useEffect(() => {
     if (state.status === "ready" && value == null && state.currentVersionId) {
@@ -114,17 +112,17 @@ export function RichDishVersionPicker({
   kind,
   dishId,
   value,
-  onChangeAction,
+  onChange,
   className,
 }: {
   id?: string;
   kind: DishKindValue;
   dishId: string;
   value: string | null;
-  onChangeAction: (versionId: string) => void;
+  onChange: (versionId: string) => void;
   className?: string;
 }) {
-  const state = useDishVersionOptions(kind, dishId, value, onChangeAction);
+  const state = useDishVersionOptions(kind, dishId, value, onChange);
 
   if (state.status !== "ready") {
     return (
@@ -132,7 +130,7 @@ export function RichDishVersionPicker({
         id={id}
         versions={[]}
         value={undefined}
-        onChangeAction={() => {}}
+        onChange={() => {}}
         disabled
         className={className}
       />
@@ -145,7 +143,7 @@ export function RichDishVersionPicker({
       versions={state.versions}
       currentVersionId={state.currentVersionId}
       value={value ?? state.currentVersionId ?? undefined}
-      onChangeAction={onChangeAction}
+      onChange={onChange}
       className={className}
     />
   );

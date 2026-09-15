@@ -181,13 +181,13 @@ export function GroceryListCard({
 
       <ConfirmDialog
         open={deleteOpen}
-        onOpenChangeAction={setDeleteOpen}
+        onOpenChange={setDeleteOpen}
         title={<>Delete &ldquo;{list.title}&rdquo;?</>}
         description="This can't be undone."
         confirmLabel="Delete"
         destructive
         loading={isPending}
-        onConfirmAction={confirmDelete}
+        onConfirm={confirmDelete}
       />
     </li>
   );

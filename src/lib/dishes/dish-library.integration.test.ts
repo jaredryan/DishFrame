@@ -435,6 +435,52 @@ describe("queryDishLibrary (Slice 10)", () => {
     expect(result.map((d) => d.id)).toEqual([exactTitleId, cuisineOnlyId]);
   });
 
+  it("returns cuisineNames in position order for a Dish matched by cuisine name, consistent between the search match and the returned card (queries.ts cuisine dedupe regression)", async () => {
+    const user = await createTestUser();
+    userId = user.id;
+    const thai = await createCuisine(userId, "Thai");
+    const vietnamese = await createCuisine(userId, "Vietnamese");
+    // Explicit positions, assigned out of the cuisineIds' own array order —
+    // the returned `cuisineNames` must reflect Cuisine.position, not
+    // insertion order, and must agree whether or not a search is active.
+    await prisma.cuisine.update({
+      where: { id: thai.id },
+      data: { position: 1 },
+    });
+    await prisma.cuisine.update({
+      where: { id: vietnamese.id },
+      data: { position: 0 },
+    });
+    const dishId = await dishService.createDish(
+      userId,
+      "RECIPE",
+      content({
+        title: "Fusion Noodles",
+        cuisineIds: [thai.id, vietnamese.id],
+      }),
+    );
+
+    const searched = await queryDishLibrary(
+      userId,
+      "RECIPE",
+      defaultFilters({ search: "Thai" }),
+      "GROUP_AVERAGE",
+    );
+    expect(searched.map((d) => d.id)).toEqual([dishId]);
+    expect(searched[0].cuisineNames).toEqual(["Vietnamese", "Thai"]);
+
+    const unfiltered = await queryDishLibrary(
+      userId,
+      "RECIPE",
+      defaultFilters(),
+      "GROUP_AVERAGE",
+    );
+    expect(unfiltered.find((d) => d.id === dishId)?.cuisineNames).toEqual([
+      "Vietnamese",
+      "Thai",
+    ]);
+  });
+
   it("a cuisine edit is immediately reflected in search, with no explicit refresh step", async () => {
     const user = await createTestUser();
     userId = user.id;

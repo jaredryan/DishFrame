@@ -153,13 +153,13 @@ export function MealPlanCard({
 
       <ConfirmDialog
         open={deleteOpen}
-        onOpenChangeAction={setDeleteOpen}
+        onOpenChange={setDeleteOpen}
         title={<>Delete &ldquo;{plan.title}&rdquo;?</>}
         description="Linked grocery lists are kept as standalone lists rather than deleted. This can't be undone."
         confirmLabel="Delete"
         destructive
         loading={isPending}
-        onConfirmAction={confirmDelete}
+        onConfirm={confirmDelete}
       />
     </li>
   );

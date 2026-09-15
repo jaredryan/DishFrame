@@ -1,5 +1,3 @@
-"use client";
-
 import * as React from "react";
 import { DndContext, closestCenter, type DragEndEvent } from "@dnd-kit/core";
 import {
@@ -181,17 +179,17 @@ function SortableScheduleRow({
 export function EditableScheduleDayCard({
   dateIso,
   items,
-  onAddMealAction,
-  onEditItemAction,
-  onDeleteItemAction,
-  onReorderAction,
+  onAddMeal,
+  onEditItem,
+  onDeleteItem,
+  onReorder,
 }: {
   dateIso: string;
   items: ScheduleDisplayItem[];
-  onAddMealAction: () => void;
-  onEditItemAction: (id: string) => void;
-  onDeleteItemAction: (id: string) => void;
-  onReorderAction: (orderedIds: string[]) => void;
+  onAddMeal: () => void;
+  onEditItem: (id: string) => void;
+  onDeleteItem: (id: string) => void;
+  onReorder: (orderedIds: string[]) => void;
 }) {
   const sensors = useReorderSensors();
   const itemLabel = React.useCallback(
@@ -216,7 +214,7 @@ export function EditableScheduleDayCard({
     const oldIndex = items.findIndex((i) => i.id === active.id);
     const newIndex = items.findIndex((i) => i.id === over.id);
     if (oldIndex === -1 || newIndex === -1) return;
-    onReorderAction(arrayMove(items, oldIndex, newIndex).map((i) => i.id));
+    onReorder(arrayMove(items, oldIndex, newIndex).map((i) => i.id));
   }
 
   return (
@@ -228,7 +226,7 @@ export function EditableScheduleDayCard({
           variant="ghost"
           size="sm"
           className={DAY_CARD_HEADER_ACTION_CLASS}
-          onClick={onAddMealAction}
+          onClick={onAddMeal}
         >
           <Plus className="size-3.5" aria-hidden="true" /> Add meal
         </Button>
@@ -255,8 +253,8 @@ export function EditableScheduleDayCard({
                   item={item}
                   index={index}
                   total={items.length}
-                  onEdit={() => onEditItemAction(item.id)}
-                  onDelete={() => onDeleteItemAction(item.id)}
+                  onEdit={() => onEditItem(item.id)}
+                  onDelete={() => onDeleteItem(item.id)}
                 />
               ))}
             </ul>
@@ -326,14 +324,14 @@ export function ViewScheduleDayCard({
   dateIso,
   items,
   disabled,
-  onToggleEatenAction,
-  onMarkAllEatenAction,
+  onToggleEaten,
+  onMarkAllEaten,
 }: {
   dateIso: string;
   items: ScheduleViewItem[];
   disabled?: boolean;
-  onToggleEatenAction: (id: string, eaten: boolean) => void;
-  onMarkAllEatenAction: () => void;
+  onToggleEaten: (id: string, eaten: boolean) => void;
+  onMarkAllEaten: () => void;
 }) {
   const allEaten = items.length > 0 && items.every((i) => i.eaten);
   // Starts collapsed only for an already-fully-eaten day; the user can
@@ -391,7 +389,7 @@ export function ViewScheduleDayCard({
       size="sm"
       disabled={disabled}
       className={DAY_CARD_HEADER_ACTION_CLASS}
-      onClick={onMarkAllEatenAction}
+      onClick={onMarkAllEaten}
     >
       Mark all eaten
     </Button>
@@ -428,9 +426,7 @@ export function ViewScheduleDayCard({
               key={item.id}
               item={item}
               disabled={disabled}
-              onToggleEatenAction={(eaten) =>
-                onToggleEatenAction(item.id, eaten)
-              }
+              onToggleEatenAction={(eaten) => onToggleEaten(item.id, eaten)}
             />
           ))}
         </ul>

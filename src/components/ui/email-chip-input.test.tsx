@@ -10,7 +10,7 @@ function ControlledInput({ initial = [] as string[] }) {
     <EmailChipInput
       id="recipients"
       value={emails}
-      onChangeAction={setEmails}
+      onChange={setEmails}
       ariaLabel="Recipients"
     />
   );

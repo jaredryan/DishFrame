@@ -1,5 +1,3 @@
-"use client";
-
 import * as React from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -56,8 +54,8 @@ export function PlanModal({
   schedule,
   planStartDate,
   planEndDate,
-  onOpenChangeAction,
-  onSubmitAction,
+  onOpenChange,
+  onSubmit,
 }: {
   mode: "add" | "edit";
   /** Present in "edit" mode; also carries the schedule item's own `localId`
@@ -72,8 +70,8 @@ export function PlanModal({
   schedule: PlanScheduleItem[];
   planStartDate: string;
   planEndDate: string;
-  onOpenChangeAction: (open: boolean) => void;
-  onSubmitAction: (values: PlanFormValues) => void;
+  onOpenChange: (open: boolean) => void;
+  onSubmit: (values: PlanFormValues) => void;
 }) {
   const [label, setLabel] = React.useState(initialValues?.label ?? "");
   const [mealKey, setMealKey] = React.useState<string | null>(
@@ -99,7 +97,7 @@ export function PlanModal({
     : null;
 
   function close() {
-    onOpenChangeAction(false);
+    onOpenChange(false);
   }
 
   function handleSubmit() {
@@ -125,7 +123,7 @@ export function PlanModal({
       );
       return;
     }
-    onSubmitAction({ label: label.trim(), mealKey, date, servings });
+    onSubmit({ label: label.trim(), mealKey, date, servings });
   }
 
   return (

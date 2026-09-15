@@ -1063,13 +1063,13 @@ export function MealPlanEditor(
                 key={group.dateIso}
                 dateIso={group.dateIso}
                 items={group.items}
-                onAddMealAction={() => openAddPlan(group.dateIso)}
-                onEditItemAction={(id) => {
+                onAddMeal={() => openAddPlan(group.dateIso)}
+                onEditItem={(id) => {
                   const item = schedule.find((s) => s.localId === id);
                   if (item) openEditPlan(item);
                 }}
-                onDeleteItemAction={deletePlanItem}
-                onReorderAction={(orderedIds) =>
+                onDeleteItem={deletePlanItem}
+                onReorder={(orderedIds) =>
                   reorderScheduleDay(group.dateIso, orderedIds)
                 }
               />
@@ -1089,10 +1089,10 @@ export function MealPlanEditor(
             schedule={schedule}
             planStartDate={startDate}
             planEndDate={endDate}
-            onOpenChangeAction={(next) => {
+            onOpenChange={(next) => {
               if (!next) setPlanModal(null);
             }}
-            onSubmitAction={handlePlanSubmit}
+            onSubmit={handlePlanSubmit}
           />
         )}
       </div>
@@ -1126,13 +1126,13 @@ export function MealPlanEditor(
 
       <ConfirmDialog
         open={guard.isPromptOpen}
-        onOpenChangeAction={(open) => !open && guard.keepEditing()}
+        onOpenChange={(open) => !open && guard.keepEditing()}
         title="Discard unsaved changes?"
         description="You have unsaved changes to this Meal Plan. If you leave now, they will be lost."
         cancelLabel="Keep editing"
         confirmLabel="Discard changes"
         destructive
-        onConfirmAction={discardDraftAndLeave}
+        onConfirm={discardDraftAndLeave}
       />
     </div>
   );
@@ -1930,7 +1930,7 @@ function MealPickerModal({
                     versions={dishVersions ?? []}
                     currentVersionId={currentVersionId}
                     value={selectedVersionId ?? undefined}
-                    onChangeAction={selectVersion}
+                    onChange={selectVersion}
                     disabled={!dishVersions}
                   />
                 )}
@@ -1999,14 +1999,14 @@ function MealPickerModal({
                       label: STAGE_LABEL[stage],
                     }))}
                     selected={stageFilter}
-                    onToggleAction={toggleStage}
-                    onClearAction={() => setStageFilter(new Set())}
+                    onToggle={toggleStage}
+                    onClear={() => setStageFilter(new Set())}
                   />
                   <FilterPopover
                     label="Recipe / Part"
                     options={MEAL_PICKER_KINDS}
                     selected={kindFilter}
-                    onToggleAction={toggleKind}
+                    onToggle={toggleKind}
                   />
                   <FilterPopover
                     label="Tags"
@@ -2015,7 +2015,7 @@ function MealPickerModal({
                       label: tag.displayName,
                     }))}
                     selected={tagIdFilter}
-                    onToggleAction={toggleTag}
+                    onToggle={toggleTag}
                     emptyMessage="No tags yet."
                     specialOption={{
                       label: "Favorites",
@@ -2030,7 +2030,7 @@ function MealPickerModal({
                       label: cuisine.displayName,
                     }))}
                     selected={cuisineFilter}
-                    onToggleAction={toggleCuisine}
+                    onToggle={toggleCuisine}
                     emptyMessage="No Cuisines yet."
                   />
                   <FilterPopover
@@ -2040,7 +2040,7 @@ function MealPickerModal({
                       label: value.displayName,
                     }))}
                     selected={flavorProfileFilter}
-                    onToggleAction={toggleFlavorProfile}
+                    onToggle={toggleFlavorProfile}
                     emptyMessage="No Flavor profiles yet."
                   />
                   <RatingFilterPopover
@@ -2089,7 +2089,7 @@ function MealPickerModal({
                     property={sort.property}
                     direction={sort.direction}
                     options={MEAL_SORT_OPTIONS}
-                    onChangeAction={setSort}
+                    onChange={setSort}
                     triggerClassName="w-44"
                   />
                 </div>

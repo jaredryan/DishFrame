@@ -263,7 +263,7 @@ export function BulkPublishDialog({
                           kind={item.kind}
                           dishId={dishId}
                           value={versionByDishId[dishId] ?? null}
-                          onChangeAction={(versionId) =>
+                          onChange={(versionId) =>
                             setVersionByDishId((prev) => ({
                               ...prev,
                               [dishId]: versionId,

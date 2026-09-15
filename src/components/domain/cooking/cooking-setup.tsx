@@ -232,7 +232,7 @@ export function CookingSetup({
           versions={versions}
           currentVersionId={currentVersionId}
           value={dishVersionId}
-          onChangeAction={handleVersionChange}
+          onChange={handleVersionChange}
           triggerClassName="bg-card dark:bg-card"
         />
       </div>

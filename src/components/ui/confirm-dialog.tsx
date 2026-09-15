@@ -1,5 +1,3 @@
-"use client";
-
 import * as React from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,7 +21,7 @@ import {
  */
 export function ConfirmDialog({
   open,
-  onOpenChangeAction,
+  onOpenChange,
   title,
   description,
   confirmLabel = "Confirm",
@@ -31,10 +29,10 @@ export function ConfirmDialog({
   destructive = false,
   loading = false,
   error,
-  onConfirmAction,
+  onConfirm,
 }: {
   open: boolean;
-  onOpenChangeAction: (open: boolean) => void;
+  onOpenChange: (open: boolean) => void;
   title: React.ReactNode;
   description?: React.ReactNode;
   confirmLabel?: string;
@@ -44,10 +42,10 @@ export function ConfirmDialog({
   /** Rendered between the description and the footer — the common
    * "confirm failed, dialog stays open" case. */
   error?: React.ReactNode;
-  onConfirmAction: () => void;
+  onConfirm: () => void;
 }) {
   return (
-    <Dialog open={open} onOpenChange={onOpenChangeAction}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
@@ -61,14 +59,14 @@ export function ConfirmDialog({
         <DialogFooter>
           <Button
             variant="outline"
-            onClick={() => onOpenChangeAction(false)}
+            onClick={() => onOpenChange(false)}
             disabled={loading}
           >
             {cancelLabel}
           </Button>
           <Button
             variant={destructive ? "destructive" : "default"}
-            onClick={onConfirmAction}
+            onClick={onConfirm}
             loading={loading}
           >
             {confirmLabel}

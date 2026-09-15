@@ -373,7 +373,7 @@ export function DishDetailActions({
 
       <ConfirmDialog
         open={openDialog === "archive"}
-        onOpenChangeAction={(open) => !open && close()}
+        onOpenChange={(open) => !open && close()}
         title={<>Archive this {label}?</>}
         description={
           <>
@@ -384,7 +384,7 @@ export function DishDetailActions({
         }
         confirmLabel="Archive"
         loading={isPending}
-        onConfirmAction={handleArchive}
+        onConfirm={handleArchive}
       />
 
       <Dialog
@@ -428,7 +428,7 @@ export function DishDetailActions({
 
       <ConfirmDialog
         open={openDialog === "duplicate"}
-        onOpenChangeAction={(open) => !open && close()}
+        onOpenChange={(open) => !open && close()}
         title={<>Duplicate this {label}?</>}
         description={
           <>
@@ -439,7 +439,7 @@ export function DishDetailActions({
         }
         confirmLabel="Duplicate"
         loading={isPending}
-        onConfirmAction={handleDuplicate}
+        onConfirm={handleDuplicate}
       />
 
       <Dialog
@@ -481,7 +481,7 @@ export function DishDetailActions({
                 versions={versionOptions}
                 currentVersionId={currentVersionId}
                 value={exportVersionValue}
-                onChangeAction={setExportVersionValue}
+                onChange={setExportVersionValue}
                 disabled={versionsLoading && versionOptions.length === 0}
                 footer={
                   hasMoreVersions && (
@@ -580,7 +580,7 @@ export function DishDetailActions({
 
       <ConfirmDialog
         open={openDialog === "delete"}
-        onOpenChangeAction={(open) => !open && close()}
+        onOpenChange={(open) => !open && close()}
         title={<>Permanently delete this {label}?</>}
         description={
           <>
@@ -592,7 +592,7 @@ export function DishDetailActions({
         confirmLabel="Delete permanently"
         destructive
         loading={isPending}
-        onConfirmAction={handleDelete}
+        onConfirm={handleDelete}
       />
 
       {kind === "PART" && (

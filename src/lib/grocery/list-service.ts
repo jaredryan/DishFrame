@@ -17,6 +17,7 @@ import { getOwnedDishOrThrow } from "@/lib/dishes/queries";
 import {
   gatherIngredientSlots,
   resolveIngredientOccurrences,
+  createIngredientGatherCache,
   type ResolvedIngredientOccurrence,
   type ResolvedSubstituteSnapshot,
 } from "@/lib/grocery/ingredient-gather";
@@ -150,6 +151,10 @@ export async function generateGroceryList(
     throw new ValidationError("Select at least one Recipe or Part.");
   }
 
+  // One cache shared across every source in this generation call — a nested
+  // Part reused by several selected Recipes/Parts (or the same Recipe/Part
+  // selected twice) is only walked once (TODO.md §1).
+  const gatherCache = createIngredientGatherCache();
   const resolvedSources = await Promise.all(
     input.sources.map(async (source) => {
       if (!Number.isFinite(source.scaleFactor) || source.scaleFactor <= 0) {
@@ -169,7 +174,11 @@ export async function generateGroceryList(
         select: { id: true, majorVersion: true, minorVersion: true },
       });
       if (!version) throw new NotFoundError("Version not found.");
-      const slots = await gatherIngredientSlots(ownerId, version.id);
+      const slots = await gatherIngredientSlots(
+        ownerId,
+        version.id,
+        gatherCache,
+      );
       const occurrences = resolveIngredientOccurrences(
         slots,
         source.scaleFactor,
@@ -1575,6 +1584,10 @@ export async function collectMealPlanOccurrences(
   entries: MealPlanContributionEntry[],
 ): Promise<PendingMealPlanContribution[]> {
   const result: PendingMealPlanContribution[] = [];
+  // One cache shared across every entry in this mutation — a Recipe/Part
+  // planned on more than one day, or several entries sharing a nested Part,
+  // is only walked once instead of once per entry (TODO.md §1).
+  const gatherCache = createIngredientGatherCache();
   for (const entry of entries) {
     if (!entry.dishId || !entry.dishVersionId) continue;
     const version = await prisma.dishVersion.findFirst({
@@ -1586,7 +1599,11 @@ export async function collectMealPlanOccurrences(
       decimalToNumber(entry.targetYieldQuantity),
       decimalToNumber(version.yieldQuantity),
     );
-    const slots = await gatherIngredientSlots(ownerId, entry.dishVersionId);
+    const slots = await gatherIngredientSlots(
+      ownerId,
+      entry.dishVersionId,
+      gatherCache,
+    );
     for (const occurrence of resolveIngredientOccurrences(slots, scaleFactor)) {
       result.push({ mealPlanEntryId: entry.id, occurrence });
     }

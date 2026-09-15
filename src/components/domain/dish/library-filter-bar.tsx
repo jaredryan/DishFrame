@@ -305,7 +305,7 @@ export function LibraryFilterBar({
             label="Stage"
             options={STAGE_OPTIONS}
             selected={filters.stages}
-            onToggleAction={toggleStage}
+            onToggle={toggleStage}
           />
 
           <FilterPopover
@@ -315,7 +315,7 @@ export function LibraryFilterBar({
               label: tag.displayName,
             }))}
             selected={filters.tagIds}
-            onToggleAction={toggleTag}
+            onToggle={toggleTag}
             emptyMessage="No tags yet."
           />
 
@@ -326,7 +326,7 @@ export function LibraryFilterBar({
               label: cuisine.displayName,
             }))}
             selected={filters.cuisineIds}
-            onToggleAction={toggleCuisine}
+            onToggle={toggleCuisine}
             emptyMessage="No Cuisines yet."
           />
 
@@ -337,7 +337,7 @@ export function LibraryFilterBar({
               label: value.displayName,
             }))}
             selected={filters.flavorProfileValueIds}
-            onToggleAction={toggleFlavorProfile}
+            onToggle={toggleFlavorProfile}
             emptyMessage="No Flavor profiles yet."
           />
 
@@ -404,7 +404,7 @@ export function LibraryFilterBar({
           property={filters.sort}
           direction={filters.sortDirection}
           options={SORT_OPTIONS}
-          onChangeAction={setSort}
+          onChange={setSort}
           triggerClassName="w-44"
         />
       </div>

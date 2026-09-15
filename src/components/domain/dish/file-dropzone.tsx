@@ -1,5 +1,3 @@
-"use client";
-
 import * as React from "react";
 import { UploadCloud } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -17,14 +15,14 @@ import { cn } from "@/lib/utils";
 export function FileDropzone({
   id,
   accept,
-  onFileSelectedAction,
+  onFileSelected,
   label,
   helpText,
   disabled = false,
 }: {
   id: string;
   accept: string;
-  onFileSelectedAction: (file: File) => void;
+  onFileSelected: (file: File) => void;
   label: string;
   helpText: string;
   disabled?: boolean;
@@ -65,13 +63,13 @@ export function FileDropzone({
     setIsDragOver(false);
     if (disabled) return;
     const file = event.dataTransfer.files?.[0];
-    if (file) onFileSelectedAction(file);
+    if (file) onFileSelected(file);
   }
 
   function handleInputChange(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
-    if (file) onFileSelectedAction(file);
+    if (file) onFileSelected(file);
   }
 
   return (

@@ -172,13 +172,13 @@ function ShareLinkRow({ link }: { link: ShareLinkSummary }) {
 
       <ConfirmDialog
         open={disableOpen}
-        onOpenChangeAction={setDisableOpen}
+        onOpenChange={setDisableOpen}
         title="Disable this link?"
         description="Anyone who already has this link will no longer be able to view it. This can't be undone."
         confirmLabel="Disable link"
         destructive
         loading={pendingAction === "disable"}
-        onConfirmAction={handleDisable}
+        onConfirm={handleDisable}
       />
     </li>
   );

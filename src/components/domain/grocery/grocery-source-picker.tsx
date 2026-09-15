@@ -621,7 +621,7 @@ export function GrocerySourcePickerPanel({
                         id={`grocery-source-version-${dishId}`}
                         versions={versions}
                         value={selectedVersionByDishId[dishId]}
-                        onChangeAction={(versionId) =>
+                        onChange={(versionId) =>
                           setSelectedVersionByDishId((prev) => ({
                             ...prev,
                             [dishId]: versionId,

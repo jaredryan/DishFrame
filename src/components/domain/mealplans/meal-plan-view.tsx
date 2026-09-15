@@ -440,8 +440,8 @@ export function MealPlanView({ mealPlan }: { mealPlan: MealPlanDetailDto }) {
                 dateIso={group.dateIso}
                 items={group.items}
                 disabled={isCompleted}
-                onToggleEatenAction={toggleEaten}
-                onMarkAllEatenAction={() => markDayEaten(group.dateIso)}
+                onToggleEaten={toggleEaten}
+                onMarkAllEaten={() => markDayEaten(group.dateIso)}
               />
             ))}
           </ul>
@@ -494,13 +494,13 @@ export function MealPlanView({ mealPlan }: { mealPlan: MealPlanDetailDto }) {
 
       <ConfirmDialog
         open={deleteOpen}
-        onOpenChangeAction={setDeleteOpen}
+        onOpenChange={setDeleteOpen}
         title="Delete this meal plan?"
         description="Linked grocery lists are kept as standalone lists rather than deleted. This can't be undone."
         confirmLabel="Delete"
         destructive
         loading={pendingAction === "delete-plan"}
-        onConfirmAction={() =>
+        onConfirm={() =>
           run("delete-plan", async () => {
             const result = await deleteMealPlan({
               mealPlanId: mealPlan.id,

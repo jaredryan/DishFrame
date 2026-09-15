@@ -120,7 +120,7 @@ export function DirectShareSingleItemDialog({
             kind={dishKind}
             dishId={dishId}
             value={versionId}
-            onChangeAction={setVersionId}
+            onChange={setVersionId}
           />
 
           <Field>
@@ -130,7 +130,7 @@ export function DirectShareSingleItemDialog({
             <EmailChipInput
               id="single-share-recipients"
               value={recipients}
-              onChangeAction={setRecipients}
+              onChange={setRecipients}
               ariaLabel="Recipients"
               autoFocus
             />

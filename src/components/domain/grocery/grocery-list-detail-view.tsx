@@ -775,13 +775,13 @@ export function GroceryListDetailView({
 
       <ConfirmDialog
         open={deletingSourceId != null}
-        onOpenChangeAction={(open) => !open && setDeletingSourceId(null)}
+        onOpenChange={(open) => !open && setDeletingSourceId(null)}
         title="Remove this meal?"
         description="This removes its ingredients from the Groceries list below. This can't be undone."
         confirmLabel="Remove"
         destructive
         loading={pendingAction === "remove-source"}
-        onConfirmAction={() => {
+        onConfirm={() => {
           if (!deletingSourceId) return;
           const sourceId = deletingSourceId;
           setDeletingSourceId(null);
@@ -812,13 +812,13 @@ export function GroceryListDetailView({
 
       <ConfirmDialog
         open={deleteOpen}
-        onOpenChangeAction={setDeleteOpen}
+        onOpenChange={setDeleteOpen}
         title="Delete this grocery list?"
         description="This permanently deletes the list and every item on it. This can't be undone."
         confirmLabel="Delete"
         destructive
         loading={pendingAction === "delete-list"}
-        onConfirmAction={() =>
+        onConfirm={() =>
           run("delete-list", async () => {
             const result = await deleteGroceryList({ listId: list.id });
             if (result.status === "success") {
@@ -1111,7 +1111,7 @@ function AddMealDialog({
                 id={`add-meal-version-${selected.dishId}`}
                 versions={versions}
                 value={selectedVersionId ?? undefined}
-                onChangeAction={setSelectedVersionId}
+                onChange={setSelectedVersionId}
               />
             ) : (
               <p className="text-muted-foreground text-sm">Loading versions…</p>
@@ -1244,7 +1244,7 @@ function EditMealDialog({
               id="edit-meal-version"
               versions={versions}
               value={selectedVersionId}
-              onChangeAction={setSelectedVersionId}
+              onChange={setSelectedVersionId}
             />
           )}
           {selectedVersion && (

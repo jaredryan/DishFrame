@@ -10,12 +10,12 @@ describe("ConfirmDialog", () => {
     render(
       <ConfirmDialog
         open
-        onOpenChangeAction={() => {}}
+        onOpenChange={() => {}}
         title="Delete this?"
         description="This can't be undone."
         confirmLabel="Delete"
         destructive
-        onConfirmAction={onConfirm}
+        onConfirm={onConfirm}
       />,
     );
     expect(screen.getByText("Delete this?")).toBeInTheDocument();
@@ -31,9 +31,9 @@ describe("ConfirmDialog", () => {
     render(
       <ConfirmDialog
         open
-        onOpenChangeAction={onOpenChange}
+        onOpenChange={onOpenChange}
         title="Archive this?"
-        onConfirmAction={onConfirm}
+        onConfirm={onConfirm}
       />,
     );
     await user.click(screen.getByRole("button", { name: "Cancel" }));
@@ -45,11 +45,11 @@ describe("ConfirmDialog", () => {
     render(
       <ConfirmDialog
         open
-        onOpenChangeAction={() => {}}
+        onOpenChange={() => {}}
         title="Delete this?"
         confirmLabel="Delete"
         loading
-        onConfirmAction={() => {}}
+        onConfirm={() => {}}
       />,
     );
     expect(screen.getByRole("button", { name: "Delete" })).toBeDisabled();
@@ -60,10 +60,10 @@ describe("ConfirmDialog", () => {
     render(
       <ConfirmDialog
         open
-        onOpenChangeAction={() => {}}
+        onOpenChange={() => {}}
         title="Delete this?"
         error="Could not delete."
-        onConfirmAction={() => {}}
+        onConfirm={() => {}}
       />,
     );
     expect(screen.getByRole("alert")).toHaveTextContent("Could not delete.");

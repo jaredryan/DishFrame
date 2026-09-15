@@ -283,7 +283,7 @@ export function DirectShareCollectionDialog({
                         kind={item.kind}
                         dishId={dishId}
                         value={selectedVersionByDishId[dishId] ?? null}
-                        onChangeAction={(versionId) =>
+                        onChange={(versionId) =>
                           setSelectedVersionByDishId((prev) => ({
                             ...prev,
                             [dishId]: versionId,
@@ -314,7 +314,7 @@ export function DirectShareCollectionDialog({
                 <EmailChipInput
                   id="collection-share-recipients"
                   value={recipients}
-                  onChangeAction={setRecipients}
+                  onChange={setRecipients}
                   ariaLabel="Recipients"
                 />
                 <p className="text-muted-foreground text-sm">

@@ -1,5 +1,3 @@
-"use client";
-
 import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -24,8 +22,8 @@ export function FilterPopover({
   label,
   options,
   selected,
-  onToggleAction,
-  onClearAction,
+  onToggle,
+  onClear,
   emptyMessage,
   triggerClassName = "gap-1.5",
   specialOption,
@@ -33,8 +31,8 @@ export function FilterPopover({
   label: string;
   options: FilterPopoverOption[];
   selected: ReadonlySet<string> | readonly string[];
-  onToggleAction: (value: string) => void;
-  onClearAction?: () => void;
+  onToggle: (value: string) => void;
+  onClear?: () => void;
   emptyMessage?: string;
   triggerClassName?: string;
   /** An extra option rendered above the option list, set off by a divider —
@@ -94,19 +92,19 @@ export function FilterPopover({
               >
                 <Checkbox
                   checked={selectedSet.has(option.value)}
-                  onCheckedChange={() => onToggleAction(option.value)}
+                  onCheckedChange={() => onToggle(option.value)}
                   aria-label={option.label}
                 />
                 {option.label}
               </Label>
             ))}
-            {onClearAction && (
+            {onClear && (
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
                 className="mt-1 w-fit"
-                onClick={onClearAction}
+                onClick={onClear}
               >
                 Clear
               </Button>

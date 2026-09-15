@@ -124,12 +124,12 @@ export function ActiveCookSessionCard({
 
       <ConfirmDialog
         open={endOpen}
-        onOpenChangeAction={setEndOpen}
+        onOpenChange={setEndOpen}
         title={<>End &ldquo;{session.dishTitle}&rdquo;?</>}
         description="This marks the session Completed and moves it to your Completed history. Its checked-off progress and timers stay recorded — this can't be undone."
         confirmLabel="End session"
         loading={isPending}
-        onConfirmAction={confirmEnd}
+        onConfirm={confirmEnd}
       />
     </li>
   );

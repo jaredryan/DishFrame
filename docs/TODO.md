@@ -9,16 +9,131 @@ Production: https://dish-frame.vercel.app
 
 ## 1. Targeted engineering work
 
-- [ ] Review `ingredient-gather.ts` repeated traversal and implement a bounded
-  optimization where worthwhile. Prefer reuse within the relevant operation;
-  avoid introducing stale cross-request data or changing ingredient semantics.
-- [ ] Review `queryDishLibrary` fetching/ranking/sorting and implement practical
-  improvements while preserving search, ordering, filtering, and pagination.
-  If a change requires disproportionate complexity, explain the specific tradeoff.
-- [ ] Investigate the Next.js callback-prop serializability warnings and fix
-  incorrect client/server boundaries or declarations where possible. Preserve
-  legitimate client-to-client callbacks; do not disguise callbacks as server
-  actions or broadly suppress diagnostics merely to silence the warning.
+- [x] `ingredient-gather.ts` repeated traversal — added a bounded,
+  per-operation `IngredientGatherCache` (2026-09-15): `gatherIngredientSlots`
+  now takes an optional cache, memoizing (a) each top-level `dishVersionId`'s
+  fully-resolved slots and (b) each nested Part's raw (unscaled) DB content
+  by `(ownerId, targetDishId, targetVersionId)`, so a Part shared by several
+  selected Recipes/Parts, or the same Recipe/Part appearing twice, is fetched
+  once per call instead of once per occurrence. `generateGroceryList` and
+  `collectMealPlanOccurrences` now create and share one cache across their
+  own `sources`/`entries` loop; every other call site keeps its own
+  single-call cache (behavior-neutral). The cache is never persisted or
+  shared across requests, and multiplier composition is unchanged — only the
+  DB fetch and the top-level walk are reused. Regression coverage in
+  `grocery-list.integration.test.ts`/`mealplans.integration.test.ts`, each
+  asserting per-occurrence quantities and the final aggregate, not just that
+  fetching was deduplicated: a shared nested Part reached through two
+  Recipes with *different multipliers* (2x and 3x) in one
+  `generateGroceryList` call; the exact same Recipe/Version selected twice
+  with *different scale factors* (1x and 2.5x) in one `generateGroceryList`
+  call, isolating the `topLevel` slots-array cache specifically; the exact
+  same Recipe/Version planned on two dates with the same implicit scale
+  factor (no cross-entry drop); and the exact same Recipe/Version planned
+  twice with *different target yields* (scale factors 1x and 2.5x) in one
+  `generateGroceryListFromMealPlan` call, the `collectMealPlanOccurrences`
+  analogue of the scale-factor-isolation case. Follow-up review (2026-09-15)
+  re-inspected the cache for mutation/aliasing risk: the `content` cache
+  holds only raw, read-only Prisma rows that are never mutated (multiplier
+  application always produces new objects in `toVariant`/`sectionSlots`),
+  and the `topLevel` cache holds `IngredientSlot[]` that `resolveIngredientOccurrences`
+  only ever maps into new occurrence objects, never mutates in place — so
+  sharing either cached reference across different multipliers/scale
+  factors is safe by construction, confirmed by the tests above.
+- [x] `queryDishLibrary` fetching/ranking/sorting — reviewed
+  (2026-09-15). A prior audit (`docs/performance-architecture-audit.md`,
+  "Recipe library/list loading and filtering") already found this the
+  best-optimized flow in the app and explicitly accepted no DB-level
+  pagination at this app's personal-library scale. Pushing ranking/sorting
+  into SQL isn't practical without disproportionate complexity: relevance
+  tiering (`computeSearchTier`), the principal-rating computation, and the
+  last-cooked lookup are cross-cutting business rules that would have to be
+  duplicated (and kept in sync) in SQL, for no benefit at current library
+  sizes — left as an accepted tradeoff, matching the audit. Fixed the one
+  real, bounded inefficiency found: `cuisineNames` was sorted/mapped twice
+  per candidate during an active search (once for `computeSearchTier`, once
+  for the final shape) — now computed once into a `cuisineNamesById` map and
+  reused. Search/filter/sort/rating/pagination behavior is unchanged.
+  Regression coverage: a cuisine-name-consistency test added to
+  `dish-library.integration.test.ts` covering both the searched and
+  unfiltered paths.
+- [x] Next.js callback-prop serializability warnings — investigated
+  (2026-09-15). Root cause confirmed by reading the actual rule
+  (`node_modules/next/dist/server/typescript/rules/client-boundary.js`): the
+  warning fires only for a component exported directly from a file with its
+  own `"use client"` directive, on that file's own declared prop types —
+  regardless of whether any real caller is a Server Component. Several
+  purely client-to-client leaf components had a redundant `"use client"`
+  (never imported by a Server Component/page — every import site was itself
+  already client, so the directive did nothing per Next's own docs: a file
+  reached only through a client parent's module graph doesn't need its own
+  directive) and had their callback props renamed to a fake `...Action`
+  suffix specifically to dodge the warning. Removed the redundant directive
+  and reverted the disguised names, verifying every import site first:
+  `components/ui/confirm-dialog.tsx` (`onOpenChangeAction`→`onOpenChange`,
+  `onConfirmAction`→`onConfirm` — ~15 call sites, plus its test),
+  `components/domain/mealplans/schedule-shared.tsx` (`onAddMealAction`→
+  `onAddMeal`, `onEditItemAction`→`onEditItem`, `onDeleteItemAction`→
+  `onDeleteItem`, `onReorderAction`→`onReorder`, `onToggleEatenAction`→
+  `onToggleEaten`, `onMarkAllEatenAction`→`onMarkAllEaten`),
+  `components/domain/dish/filter-popover.tsx` (`onToggleAction`→`onToggle`,
+  `onClearAction`→`onClear`), `components/domain/dish/sort-select.tsx`
+  (`onChangeAction`→`onChange`), `components/domain/dish/file-dropzone.tsx`
+  (`onFileSelectedAction`→`onFileSelected`),
+  `components/domain/mealplans/plan-modal.tsx` (`onOpenChangeAction`→
+  `onOpenChange`, `onSubmitAction`→`onSubmit`). Genuine entry points reached
+  directly from a Server Component page (`dish-editor.tsx`,
+  `grocery-source-picker.tsx`, `grocery-list-detail-view.tsx`,
+  `meal-plan-editor.tsx`, `start-cooking-button.tsx`) were left untouched —
+  their own top-level exported props carry no function members, so they
+  don't trigger the warning and don't need a boundary change.
+  **Follow-up (2026-09-15): completed the deferred import-boundary
+  tracing.** Wrote a full upward-closure trace (every importer, recursively,
+  stopping at a confirmed `"use client"` ancestor or flagging a real
+  `src/app/**/page.tsx`/`layout.tsx` reach) for the five files this pass had
+  left unresolved — no barrel/index re-export files exist in this codebase,
+  so the trace is exact, not approximate:
+  - `email-chip-input.tsx`, `start-timer-dialog.tsx`, `version-picker.tsx`,
+    `version-picker-field.tsx` — every production import path resolves to an
+    already-`"use client"` ancestor; none is ever reached from a Server
+    Component. Directive removed and disguised props reverted to honest
+    names, verifying every call site:
+    - `components/ui/email-chip-input.tsx`: `onChangeAction`→`onChange`.
+    - `components/domain/cooking/start-timer-dialog.tsx`:
+      `onOpenChangeAction`→`onOpenChange`, `onCreatedAction`→`onCreated`
+      (3 call sites: `cooking-mode-desktop-layout.tsx`,
+      `cooking-mode-mobile-layout.tsx`, `cooking-mode-tablet-layout.tsx`).
+    - `components/domain/dish/version-picker.tsx`: `onChangeAction`→
+      `onChange`.
+    - `components/domain/dish/version-picker-field.tsx`
+      (`RichVersionPickerField`, `RichDishVersionPicker`, and the internal
+      `useDishVersionOptions` hook): `onChangeAction`→`onChange`. This one
+      prop name was shared by every remaining caller across the app
+      (`start-cooking-button.tsx`, `cooking-setup.tsx`,
+      `bulk-publish-dialog.tsx`, `direct-share-single-item-dialog.tsx`,
+      `direct-share-collection-dialog.tsx`, `share-dialog.tsx`,
+      `dish-detail-actions.tsx`, `part-link-picker-dialog.tsx`,
+      `version-compare-picker.tsx`, `version-selector.tsx`,
+      `grocery-source-picker.tsx`, `grocery-list-detail-view.tsx`,
+      `meal-plan-editor.tsx`), all updated; `dish-editor.tsx`'s own separate,
+      genuinely-required `onCreatedAction` prop (a different concept — an
+      optional post-create callback, not a version-picker `onChange`) was
+      left untouched, since `dish-editor.tsx` is one of the confirmed
+      genuine Server-reachable entry points from the original pass.
+  - `dish-detail-actions.tsx` — **has a real, load-bearing boundary and
+    keeps `"use client"`.** Traced to
+    `src/app/(app)/recipes/[dishId]/page.tsx` and
+    `src/app/(app)/parts/[dishId]/page.tsx`, both Server Components, via
+    `dish-detail-view.tsx` (no `"use client"` of its own — a genuine Server
+    Component that renders `<DishDetailActions>` directly). This is the
+    concrete boundary requiring the declaration. Its own exported
+    `DishDetailActions` props (`dishId`, `dishTitle`, `kind`, `stage`,
+    `currentVersionId`) carry no function members, so it was never actually
+    triggering the warning itself and needed no change — the `...Action`
+    names found nearby in this file are internal call sites of
+    `ConfirmDialog`/`VersionPicker`/`RichVersionPickerField` (already fixed
+    above), not a declaration of its own.
+  No remaining "not confidently traced" item from this section.
 
 ## 2. Security hardening for current use
 

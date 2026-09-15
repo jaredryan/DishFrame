@@ -270,6 +270,23 @@ export async function queryDishLibrary(
 
   const rows = await prisma.dish.findMany({ where, select: dishCardSelect });
 
+  // Computed once per row and reused for both the search-tier check below
+  // and the final shape at the end — `queryDishLibrary` fetches everything
+  // in one query and ranks/sorts in memory (a deliberate, already-audited
+  // tradeoff at this app's personal-library scale — see
+  // docs/performance-architecture-audit.md's "Recipe library/list loading
+  // and filtering" note), but re-sorting/mapping the same cuisine list
+  // twice per candidate was pure waste.
+  const cuisineNamesById = new Map(
+    rows.map((row) => [
+      row.id,
+      row.cuisines
+        .map((c) => c.cuisine)
+        .sort((a, b) => a.position - b.position)
+        .map((c) => c.displayName),
+    ]),
+  );
+
   let candidates = rows;
   const tierById = new Map<string, number>();
   if (searchActive) {
@@ -277,10 +294,7 @@ export async function queryDishLibrary(
       const tier = computeSearchTier(
         {
           currentTitle: row.currentTitle,
-          cuisineNames: row.cuisines
-            .map((c) => c.cuisine)
-            .sort((a, b) => a.position - b.position)
-            .map((c) => c.displayName),
+          cuisineNames: cuisineNamesById.get(row.id) ?? [],
           currentStructuralSearchText: row.currentStructuralSearchText,
           tagNames: row.tags.map((t) => t.tag.displayName),
           flavorProfileNames: row.flavorProfiles.map(
@@ -372,10 +386,7 @@ export async function queryDishLibrary(
     id: row.id,
     currentTitle: row.currentTitle,
     stage: row.stage,
-    cuisineNames: row.cuisines
-      .map((c) => c.cuisine)
-      .sort((a, b) => a.position - b.position)
-      .map((c) => c.displayName),
+    cuisineNames: cuisineNamesById.get(row.id) ?? [],
     updatedAt: row.updatedAt,
     imageAssetId: row.currentVersion?.imageAssetId ?? null,
     isFavorite: row.tags.some((t) => t.tag.isFavorite),

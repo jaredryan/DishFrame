@@ -198,11 +198,11 @@ export function DesktopCookingLayout({
       {isActive && (
         <StartTimerDialog
           open={timerModalOpen}
-          onOpenChangeAction={setTimerModalOpen}
+          onOpenChange={setTimerModalOpen}
           sessionId={sessionId}
           unitViewModels={unitViewModels}
           selectedDestination={selectedDestination}
-          onCreatedAction={onTimerCreated}
+          onCreated={onTimerCreated}
         />
       )}
     </div>

@@ -138,12 +138,12 @@ export function ActiveSessionCardShell({
 
       <ConfirmDialog
         open={endOpen}
-        onOpenChangeAction={setEndOpen}
+        onOpenChange={setEndOpen}
         title={<>End {dialogSubject}?</>}
         description="This marks the session Completed and moves it to your Completed history. Its checked-off progress and timers stay recorded — this can't be undone."
         confirmLabel="End session"
         loading={isPending}
-        onConfirmAction={confirmEnd}
+        onConfirm={confirmEnd}
       />
     </li>
   );
@@ -259,13 +259,13 @@ export function CompletedSessionCardShell({
 
       <ConfirmDialog
         open={deleteOpen}
-        onOpenChangeAction={setDeleteOpen}
+        onOpenChange={setDeleteOpen}
         title={<>Delete {dialogSubject}?</>}
         description="This permanently discards the session record, including its cooking history. This can't be undone."
         confirmLabel="Delete"
         destructive
         loading={isPending}
-        onConfirmAction={confirmDelete}
+        onConfirm={confirmDelete}
       />
     </li>
   );

@@ -137,7 +137,7 @@ export function ShareDialog({
               kind={kind}
               dishId={dishId}
               value={versionId}
-              onChangeAction={setVersionId}
+              onChange={setVersionId}
             />
           )}
 

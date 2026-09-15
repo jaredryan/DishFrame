@@ -196,6 +196,167 @@ describe("grocery list service", () => {
       expect(items).toHaveLength(4);
     });
 
+    it("composes a shared nested Part's ingredients with each source's own multiplier when the Part is reused across two selected Recipes in one generation (ingredient-gather bounded-cache regression)", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      await initializeNewUser(userId);
+
+      const partId = await dishService.createDish(
+        userId,
+        "PART",
+        content({
+          title: "Base Sauce",
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({ name: "Soy Sauce", quantity: 1, unit: "tbsp" }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      const partVersionId = await currentVersionId(partId);
+
+      const recipeA = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({
+          title: "Recipe A",
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({ name: "Rice", quantity: 1, unit: "cup" }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+          partLinks: [
+            {
+              targetDishId: partId,
+              targetDishVersionId: partVersionId,
+              position: 0,
+              multiplier: 2,
+            },
+          ],
+        }),
+      );
+      const recipeB = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({
+          title: "Recipe B",
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({ name: "Noodles", quantity: 1, unit: "cup" }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+          partLinks: [
+            {
+              targetDishId: partId,
+              targetDishVersionId: partVersionId,
+              position: 0,
+              multiplier: 3,
+            },
+          ],
+        }),
+      );
+
+      // Both sources are resolved in the same `generateGroceryList` call, so
+      // the shared Part's raw content is fetched from the bounded per-call
+      // cache on the second lookup — this asserts that reuse never lets one
+      // source's multiplier leak into the other's flattened quantity.
+      const listId = await listService.generateGroceryList(userId, {
+        title: "This week",
+        plannedDate: new Date(),
+        sources: [
+          { dishId: recipeA, scaleFactor: 1 },
+          { dishId: recipeB, scaleFactor: 1 },
+        ],
+      });
+
+      const list = await prisma.groceryList.findUniqueOrThrow({
+        where: { id: listId },
+        include: { items: { include: { contributions: true } } },
+      });
+      const soySauce = list.items.find((i) => i.name === "Soy Sauce");
+      expect(soySauce).toBeDefined();
+      expect(soySauce!.quantityDecimal?.toNumber()).toBeCloseTo(5, 3); // 2 + 3 tbsp
+      const contributionQuantities = soySauce!.contributions
+        .map((c) => c.quantityDecimal?.toNumber())
+        .sort((a, b) => (a ?? 0) - (b ?? 0));
+      expect(contributionQuantities).toEqual([2, 3]);
+    });
+
+    it("keeps each source's own scale factor isolated when the exact same Recipe/Version is selected twice with different amounts in one generation (ingredient-gather bounded-cache regression — topLevel cache reuse)", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+      await initializeNewUser(userId);
+
+      const recipe = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({
+          title: "Fried Rice",
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({ name: "Soy Sauce", quantity: 2, unit: "tbsp" }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+
+      // Both sources reference the identical dishId/Version, so
+      // `gatherIngredientSlots`'s bounded `topLevel` cache resolves it once
+      // and returns the same cached slots to both — this asserts that
+      // `resolveIngredientOccurrences` applying two different scale factors
+      // (1 and 2.5) against that one shared, cached `IngredientSlot[]`
+      // reference produces two independently correct quantities, not one
+      // scale factor leaking into (or overwriting) the other.
+      const listId = await listService.generateGroceryList(userId, {
+        title: "This week",
+        plannedDate: new Date(),
+        sources: [
+          { dishId: recipe, scaleFactor: 1 },
+          { dishId: recipe, scaleFactor: 2.5 },
+        ],
+      });
+
+      const list = await prisma.groceryList.findUniqueOrThrow({
+        where: { id: listId },
+        include: { items: { include: { contributions: true } } },
+      });
+      expect(list.items).toHaveLength(1);
+      const soySauce = list.items[0];
+      expect(soySauce.quantityDecimal?.toNumber()).toBeCloseTo(7, 3); // 2 + 5 tbsp
+      const contributionQuantities = soySauce.contributions
+        .map((c) => c.quantityDecimal?.toNumber())
+        .sort((a, b) => (a ?? 0) - (b ?? 0));
+      expect(contributionQuantities).toEqual([2, 5]);
+    });
+
     it("fully combines every eligible ingredient when the exact same Recipe/Version is included twice (grocery combine QA finding)", async () => {
       const user = await createTestUser();
       userId = user.id;

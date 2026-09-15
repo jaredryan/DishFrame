@@ -165,7 +165,7 @@ export function StartCookingButton({
                 kind={selected.kind}
                 dishId={selected.id}
                 value={chosenVersionId}
-                onChangeAction={setChosenVersionId}
+                onChange={setChosenVersionId}
               />
             </div>
           ) : (

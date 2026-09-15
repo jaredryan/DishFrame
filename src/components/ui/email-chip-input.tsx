@@ -1,5 +1,3 @@
-"use client";
-
 import * as React from "react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -22,7 +20,7 @@ export function isPlausibleEmail(value: string): boolean {
 export function EmailChipInput({
   id,
   value,
-  onChangeAction,
+  onChange,
   placeholder = "name@example.com",
   disabled,
   autoFocus,
@@ -31,7 +29,7 @@ export function EmailChipInput({
 }: {
   id?: string;
   value: string[];
-  onChangeAction: (emails: string[]) => void;
+  onChange: (emails: string[]) => void;
   placeholder?: string;
   disabled?: boolean;
   autoFocus?: boolean;
@@ -51,7 +49,7 @@ export function EmailChipInput({
       return false;
     }
     if (!value.includes(normalized)) {
-      onChangeAction([...value, normalized]);
+      onChange([...value, normalized]);
     }
     return true;
   }
@@ -65,7 +63,7 @@ export function EmailChipInput({
   }
 
   function removeAt(index: number) {
-    onChangeAction(value.filter((_, i) => i !== index));
+    onChange(value.filter((_, i) => i !== index));
     inputRef.current?.focus();
   }
 
@@ -104,7 +102,7 @@ export function EmailChipInput({
       }
       if (!next.includes(normalized)) next.push(normalized);
     }
-    onChangeAction(next);
+    onChange(next);
     setDraft("");
     setError(firstError);
   }

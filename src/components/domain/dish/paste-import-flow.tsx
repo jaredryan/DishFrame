@@ -2249,12 +2249,12 @@ export function PasteImportFlow({
 
         <ConfirmDialog
           open={discardConfirmOpen}
-          onOpenChangeAction={setDiscardConfirmOpen}
+          onOpenChange={setDiscardConfirmOpen}
           title="Discard this import?"
           description="You've reviewed or changed some of these recipes. Discarding throws away the whole pending import workspace — nothing has been saved — and returns you to the start of Import."
           confirmLabel="Discard import"
           destructive
-          onConfirmAction={performDiscardBatch}
+          onConfirm={performDiscardBatch}
         />
 
         {/* Task §8: renders on the same click that starts the import — see
@@ -2351,7 +2351,7 @@ export function PasteImportFlow({
           <FileDropzone
             id="file-import-input"
             accept={SUPPORTED_IMPORT_FILE_EXTENSIONS.join(",")}
-            onFileSelectedAction={handleFileSelectedFromDropzone}
+            onFileSelected={handleFileSelectedFromDropzone}
             disabled={isParsing}
             label={`Drop a ${kindLabel.toLowerCase()} file here, or click to choose`}
             helpText="Supports .md, .txt, .rga (Recipe Gallery export), and .json (DishFrame export) files."

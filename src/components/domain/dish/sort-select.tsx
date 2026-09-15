@@ -1,5 +1,3 @@
-"use client";
-
 import * as React from "react";
 import { ArrowDown, ArrowUp, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -39,7 +37,7 @@ export function SortSelect<P extends string>({
   property,
   direction,
   options,
-  onChangeAction,
+  onChange,
   triggerClassName,
 }: {
   id?: string;
@@ -47,10 +45,7 @@ export function SortSelect<P extends string>({
   property: P;
   direction: SortDirectionValue;
   options: SortSelectOption<P>[];
-  onChangeAction: (next: {
-    property: P;
-    direction: SortDirectionValue;
-  }) => void;
+  onChange: (next: { property: P; direction: SortDirectionValue }) => void;
   triggerClassName?: string;
 }) {
   const [open, setOpen] = React.useState(false);
@@ -59,12 +54,12 @@ export function SortSelect<P extends string>({
 
   function pick(option: SortSelectOption<P>) {
     if (option.value === property) {
-      onChangeAction({
+      onChange({
         property,
         direction: direction === "asc" ? "desc" : "asc",
       });
     } else {
-      onChangeAction({
+      onChange({
         property: option.value,
         direction: option.defaultDirection,
       });

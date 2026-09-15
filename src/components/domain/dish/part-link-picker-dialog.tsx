@@ -202,7 +202,7 @@ function PartLinkPickerDialogBody({
             kind="PART"
             dishId={selected.id}
             value={chosenVersionId}
-            onChangeAction={setChosenVersionId}
+            onChange={setChosenVersionId}
           />
           <DialogFooter>
             <Button variant="outline" onClick={() => setSelectedId(null)}>

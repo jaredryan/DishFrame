@@ -1,5 +1,3 @@
-"use client";
-
 import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,18 +23,18 @@ import type { UnitViewModel } from "@/components/domain/cooking/cooking-mode-typ
  */
 export function StartTimerDialog({
   open,
-  onOpenChangeAction,
+  onOpenChange,
   sessionId,
   unitViewModels,
   selectedDestination,
-  onCreatedAction,
+  onCreated,
 }: {
   open: boolean;
-  onOpenChangeAction: (open: boolean) => void;
+  onOpenChange: (open: boolean) => void;
   sessionId: string;
   unitViewModels: UnitViewModel[];
   selectedDestination: string | null;
-  onCreatedAction: () => void;
+  onCreated: () => void;
 }) {
   const selectedUnit = selectedDestination
     ? (unitViewModels.find((vm) => vm.unit.id === selectedDestination)?.unit ??
@@ -84,16 +82,13 @@ export function StartTimerDialog({
         setError(result.message);
         return;
       }
-      onOpenChangeAction(false);
-      onCreatedAction();
+      onOpenChange(false);
+      onCreated();
     });
   }
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => !next && onOpenChangeAction(false)}
-    >
+    <Dialog open={open} onOpenChange={(next) => !next && onOpenChange(false)}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Start a timer</DialogTitle>
@@ -129,7 +124,7 @@ export function StartTimerDialog({
         <DialogFooter>
           <Button
             variant="outline"
-            onClick={() => onOpenChangeAction(false)}
+            onClick={() => onOpenChange(false)}
             disabled={isPending}
           >
             Cancel

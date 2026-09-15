@@ -162,11 +162,11 @@ export function MobileCookingLayout(props: CookingLayoutProps) {
       {isActive && (
         <StartTimerDialog
           open={timerModalOpen}
-          onOpenChangeAction={setTimerModalOpen}
+          onOpenChange={setTimerModalOpen}
           sessionId={sessionId}
           unitViewModels={unitViewModels}
           selectedDestination={selectedDestination}
-          onCreatedAction={onTimerCreated}
+          onCreated={onTimerCreated}
         />
       )}
     </div>

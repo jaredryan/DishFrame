@@ -1,5 +1,3 @@
-"use client";
-
 import * as React from "react";
 import { Check, ChevronsUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -37,7 +35,7 @@ export function VersionPicker({
   versions,
   currentVersionId,
   value,
-  onChangeAction,
+  onChange,
   disabled,
   placeholder = "Select a Version",
   ariaLabel = "Select a Version",
@@ -50,7 +48,7 @@ export function VersionPicker({
   versions: VersionOption[];
   currentVersionId?: string | null;
   value: string | undefined;
-  onChangeAction: (versionId: string) => void;
+  onChange: (versionId: string) => void;
   disabled?: boolean;
   placeholder?: string;
   ariaLabel?: string;
@@ -75,7 +73,7 @@ export function VersionPicker({
   );
 
   function handleSelect(versionId: string) {
-    onChangeAction(versionId);
+    onChange(versionId);
     setOpen(false);
     setSearch("");
   }
