@@ -128,5 +128,19 @@ test.describe("Session Review: rate, edit, delete, evidence survives", () => {
     await expect(main.locator("textarea")).toHaveValue("Used a bigger knife.");
     await cookingNav.getByRole("button", { name: /Prep/ }).click();
     await expect(page.getByRole("checkbox")).toBeChecked();
+
+    // --- The Recipe's own Cooking history page (reached via More actions,
+    // never previously exercised by any spec) lists this ended Session
+    // under "Completed" rather than showing the empty state. ---
+    await page.goto(`/recipes/${dishId}`);
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Cooking history" }).click();
+    await expect(page).toHaveURL(new RegExp(`/recipes/${dishId}/history$`));
+    await expect(
+      page.getByRole("heading", { name: "Cooking history" }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("No completed Cooking Sessions yet."),
+    ).not.toBeVisible();
   });
 });

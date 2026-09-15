@@ -61,17 +61,12 @@ export function cleanup(userId: string): void {
  * sender/recipient pair) — it's what appears as "From {name}" in the
  * recipient's Received list.
  */
-export async function login(
+async function applyCookies(
   context: BrowserContext,
-  options: { withIntro?: boolean; name?: string } = {},
-): Promise<SeedResult> {
-  const args = ["login", options.withIntro ? "with-intro" : "no-intro"];
-  if (options.name) {
-    args.push(options.name);
-  }
-  const result = JSON.parse(seed(...args)) as SeedResult;
+  cookies: SeedCookie[],
+): Promise<void> {
   await context.addCookies(
-    result.cookies.map((cookie) => ({
+    cookies.map((cookie) => ({
       name: cookie.name,
       value: cookie.value,
       domain: cookie.domain,
@@ -81,7 +76,37 @@ export async function login(
       sameSite: cookie.sameSite,
     })),
   );
+}
+
+export async function login(
+  context: BrowserContext,
+  options: { withIntro?: boolean; name?: string } = {},
+): Promise<SeedResult> {
+  const args = ["login", options.withIntro ? "with-intro" : "no-intro"];
+  if (options.name) {
+    args.push(options.name);
+  }
+  const result = JSON.parse(seed(...args)) as SeedResult;
+  await applyCookies(context, result.cookies);
   return result;
+}
+
+/**
+ * Mints a genuine second (or further) Better Auth session for an
+ * already-seeded `userId` and loads its cookies into `context` — a
+ * distinct real session row, not the same session's cookies copied into a
+ * new context. Use a separate `BrowserContext` per call so each holds only
+ * its own session's cookies, matching a real second-device sign-in.
+ */
+export async function addAuthSession(
+  context: BrowserContext,
+  userId: string,
+): Promise<void> {
+  const result = JSON.parse(seed("add-session", userId)) as {
+    userId: string;
+    cookies: SeedCookie[];
+  };
+  await applyCookies(context, result.cookies);
 }
 
 /**

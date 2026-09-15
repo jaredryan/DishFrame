@@ -1,1 +1,1 @@
-DishFrame — A better framework for the way you cook.
+DishFrame — A better framework for the dishes you cook.

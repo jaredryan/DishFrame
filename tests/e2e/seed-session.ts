@@ -88,6 +88,20 @@ async function main() {
     process.stdout.write(JSON.stringify({ userId: saved.id, email, cookies }));
   }
 
+  // Mints a second (or third, ...) real Better Auth session row for an
+  // *existing* userId — unlike `login`, no new user is created. This is
+  // the primitive docs/E2E_FINAL_AUDIT.md flagged as missing for genuine
+  // multi-session coverage of /profile's AuthSessionManager: two browser
+  // contexts each holding cookies for one of these sessions are two
+  // distinct, independently revocable real sessions for the same account,
+  // not just one session's cookies copied into a second context.
+  async function addSession(userId: string) {
+    const ctx = await testAuth.$context;
+    const helpers = ctx.test;
+    const cookies = await helpers.getCookies({ userId });
+    process.stdout.write(JSON.stringify({ userId, cookies }));
+  }
+
   async function cleanup(userId: string) {
     await prisma.user.delete({ where: { id: userId } }).catch(() => {});
   }
@@ -97,13 +111,15 @@ async function main() {
   const run =
     command === "login"
       ? login(arg === "with-intro", nameArg)
-      : command === "cleanup" && arg
-        ? cleanup(arg)
-        : Promise.reject(
-            new Error(
-              `Usage: seed-session.ts login [with-intro] [name]|cleanup <userId>`,
-            ),
-          );
+      : command === "add-session" && arg
+        ? addSession(arg)
+        : command === "cleanup" && arg
+          ? cleanup(arg)
+          : Promise.reject(
+              new Error(
+                `Usage: seed-session.ts login [with-intro] [name]|add-session <userId>|cleanup <userId>`,
+              ),
+            );
 
   await run;
   await prisma.$disconnect();
