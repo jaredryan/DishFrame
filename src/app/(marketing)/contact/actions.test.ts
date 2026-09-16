@@ -22,6 +22,16 @@ vi.mock("@/lib/env/server", () => ({
   isContactFormConfigured: true,
 }));
 
+vi.mock("next/headers", () => ({
+  headers: async () => new Headers(),
+}));
+
+const consumeRateLimit = vi.fn();
+vi.mock("@/lib/rate-limit/limit", () => ({
+  getClientIp: () => "203.0.113.4",
+  consumeRateLimit: (...args: unknown[]) => consumeRateLimit(...args),
+}));
+
 const { submitContactForm } = await import("./actions");
 
 function buildFormData(overrides: Record<string, string> = {}) {
@@ -42,6 +52,8 @@ function buildFormData(overrides: Record<string, string> = {}) {
 
 beforeEach(() => {
   send.mockReset();
+  consumeRateLimit.mockReset();
+  consumeRateLimit.mockResolvedValue({ allowed: true });
 });
 
 describe("submitContactForm", () => {

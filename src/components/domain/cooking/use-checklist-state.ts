@@ -1,7 +1,28 @@
 "use client";
 
 import * as React from "react";
-import { toggleChecklistItem } from "@/lib/cooking/actions";
+import { runOrQueueMutation } from "@/lib/offline/mutate";
+import { generateClientId } from "@/lib/offline/ids";
+import type { CookingModeSessionProps } from "@/lib/cooking/session-view";
+
+/** Patches every occurrence of `itemId` across every unit's checklist in a
+ * `CookingModeSessionProps`-shaped local-replica doc — the offline optimistic
+ * write this hook makes before/instead of the network round trip. */
+function patchChecklistItem(doc: unknown, itemId: string, checked: boolean): unknown {
+  const props = doc as CookingModeSessionProps | undefined;
+  if (!props) return doc;
+  return {
+    ...props,
+    units: props.units.map((unit) => ({
+      ...unit,
+      checklistItems: unit.checklistItems.map((item) =>
+        item.id === itemId
+          ? { ...item, checkedAt: checked ? new Date().toISOString() : null }
+          : item,
+      ),
+    })),
+  };
+}
 
 /**
  * Cooking-mode checkbox interactions must never wait on a network round
@@ -77,12 +98,15 @@ export function useChecklistState(
     const loopPromise = (async () => {
       for (;;) {
         const checked = desired.current[itemId];
-        const result = await toggleChecklistItem({
-          sessionId,
-          itemId,
-          checked,
+        const result = await runOrQueueMutation({
+          op: "cooking.toggleChecklistItem",
+          entityType: "cookingSession",
+          entityId: sessionId,
+          payload: { sessionId, itemId, checked },
+          optimisticDoc: (current: unknown) => patchChecklistItem(current, itemId, checked),
+          mutationId: generateClientId(),
         });
-        if (result.status === "error") {
+        if (!result.ok) {
           clearOverride(itemId);
           onError(result.message);
           return;

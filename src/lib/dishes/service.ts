@@ -1127,6 +1127,14 @@ export async function createDishWithVersion(
   // `duplicateDish` already uses for `sourceKind: "DUPLICATE"`, not a
   // second, parallel creation path.
   source?: { title: string | null },
+  // docs/OFFLINE_IMPLEMENTATION_PLAN.md's client-generated-id strategy: set
+  // only by `/api/sync/dishes`'s "dish.create" handler, which replays a
+  // Dish/DishVersion created offline (a `crypto.randomUUID()` minted by the
+  // browser, usable as-is — every `id` column in this schema is a plain
+  // `String`, not an autoincrement int). Omitted, ids fall back to Prisma's
+  // own `@default(cuid())` exactly as before — every pre-existing caller is
+  // unaffected.
+  clientIds?: { dishId?: string; versionId?: string },
 ): Promise<{ dishId: string; versionId: string }> {
   const sections = sanitizedSectionsOrThrow(input);
   const nutrition = normalizeNutritionOrThrow(input);
@@ -1153,6 +1161,7 @@ export async function createDishWithVersion(
   return prisma.$transaction(async (tx) => {
     const dish = await tx.dish.create({
       data: {
+        ...(clientIds?.dishId ? { id: clientIds.dishId } : {}),
         ownerId,
         kind,
         stage: input.stage,
@@ -1170,6 +1179,7 @@ export async function createDishWithVersion(
 
     const version = await tx.dishVersion.create({
       data: {
+        ...(clientIds?.versionId ? { id: clientIds.versionId } : {}),
         dishId: dish.id,
         majorVersion: 1,
         minorVersion: 0,

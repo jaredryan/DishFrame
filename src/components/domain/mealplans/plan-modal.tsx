@@ -158,7 +158,11 @@ export function PlanModal({
             <Field>
               <FieldLabel htmlFor="plan-modal-dish">Dish</FieldLabel>
               <Select
-                value={mealKey ?? undefined}
+                // Radix only shows `placeholder` for `value === ""`, and
+                // React warns if `value` ever flips between undefined and a
+                // string across renders — "" satisfies both, unlike the
+                // previous `mealKey ?? undefined`.
+                value={mealKey ?? ""}
                 onValueChange={setMealKey}
                 disabled={mealOptions.length === 0}
               >

@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server";
 import { env } from "@/lib/env/server";
 import { cleanupAbandonedImageAssets } from "@/lib/images/service";
+import { cleanupExpiredRateLimitHits } from "@/lib/rate-limit/limit";
 
 /**
  * Vercel Cron endpoint (`vercel.json`, daily) — sweeps `ImageAsset` rows
  * abandoned mid-edit (see `cleanupAbandonedImageAssets`'s own doc comment
- * in `src/lib/images/service.ts` for the lifecycle gap this closes).
+ * in `src/lib/images/service.ts` for the lifecycle gap this closes). Also
+ * prunes expired `RateLimitHit` rows (`cleanupExpiredRateLimitHits`,
+ * `src/lib/rate-limit/limit.ts`) — piggybacked on this existing daily
+ * schedule rather than a second cron entry.
  *
  * Authorized the standard Vercel Cron way: Vercel sends `Authorization:
  * Bearer $CRON_SECRET` automatically on Cron-triggered requests once
@@ -28,5 +32,6 @@ export async function GET(request: Request) {
   }
 
   const result = await cleanupAbandonedImageAssets();
-  return NextResponse.json({ status: "ok", ...result });
+  const rateLimitCleanup = await cleanupExpiredRateLimitHits();
+  return NextResponse.json({ status: "ok", ...result, rateLimitCleanup });
 }

@@ -845,7 +845,6 @@ model GroceryList {
   // distinct from createdAt. Always required — callers must supply a value
   // (forms default it to today) rather than relying on a DB default.
   plannedDate      DateTime        @db.Date
-
   owner          User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   // Round-3 Correction 2: Restrict, not SetNull. SetNull would fire automatically the
   // instant a referenced MealPlan is deleted, nulling linkedMealPlanId WHILE mode is still
@@ -967,7 +966,6 @@ model GroceryListItem {
 
   syncFlag           GroceryItemSyncFlag @default(UNCHANGED)
   flagAcknowledgedAt DateTime?
-
   position Int
 
   groceryList   GroceryList               @relation(fields: [groceryListId], references: [id], onDelete: Cascade)
@@ -1038,7 +1036,6 @@ model MealPlan {
   // null = Active, set = Completed. Reactivating clears it back to null.
   completedAt  DateTime?
   createdAt    DateTime  @default(now())
-
   owner              User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   entries            MealPlanEntry[]
   linkedGroceryLists GroceryList[]
@@ -1301,4 +1298,55 @@ model DirectShareCollection {
   @@index([senderId])
   @@index([recipientId])
   @@index([recipientLookup])
+}
+
+// ============================================================================
+// Security hardening pass — durable rate limiting
+// ============================================================================
+
+/**
+ * Backs `src/lib/rate-limit/limit.ts`'s fixed-window counter. Postgres
+ * (Neon), not in-process memory, so a limit holds across every concurrent
+ * Vercel serverless instance — see that module's doc comment for the
+ * atomic upsert this table supports. `key` already encodes the scope (e.g.
+ * `contact:<ip>`, `auth:sign-in:<ip>`), so it alone is the primary key.
+ * Rows are self-expiring in application logic (a stale row is simply
+ * treated as a fresh window); `windowStart` is indexed so an optional
+ * periodic sweep can cheaply find rows to prune.
+ */
+model RateLimitHit {
+  key         String   @id
+  count       Int
+  windowStart DateTime
+
+  @@index([windowStart])
+}
+
+// ============================================================================
+// Offline sync — stable /api/sync/* surface (docs/OFFLINE_IMPLEMENTATION_PLAN.md)
+// ============================================================================
+
+/**
+ * One row per successfully-processed offline mutation, keyed by the
+ * client-generated idempotency key (a UUID minted once, at enqueue time, by
+ * the browser's sync queue — never regenerated on retry). `/api/sync/*`
+ * looks this up before doing any work: a hit returns the stored result
+ * unchanged instead of re-invoking the underlying service function, so a
+ * retried request after an ambiguous network failure (response lost, but
+ * the mutation already landed) can never double-apply — critical for
+ * non-idempotent operations like `dishes.edit` (each call allocates a new
+ * immutable DishVersion row; replaying it verbatim would silently create a
+ * duplicate version). `resultJson` mirrors whatever shape the original
+ * handler returned, so a replay is byte-for-byte indistinguishable from the
+ * first response.
+ */
+model SyncMutationReceipt {
+  id         String   @id
+  userId     String
+  op         String
+  status     String
+  resultJson Json
+  createdAt  DateTime @default(now())
+
+  @@index([userId, createdAt])
 }

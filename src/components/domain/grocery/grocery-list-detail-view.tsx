@@ -89,6 +89,7 @@ import {
 } from "@/lib/grocery/list-actions";
 import {
   resyncMealPlanGroceryLists,
+  previewMealPlanGroceryListSync,
   setMealPlanGroceryListEntryIncluded,
 } from "@/lib/mealplans/actions";
 import { previewMealPlanEntryInclusion } from "@/lib/grocery/meal-plan-inclusion-preview";
@@ -100,7 +101,10 @@ import type {
   GroceryCategoryOptionDto,
   GroceryListMealPlanEntryDto,
 } from "@/lib/grocery/list-schema";
-import type { GroceryListSourceRefreshPreview } from "@/lib/grocery/list-service";
+import type {
+  GroceryListSourceRefreshPreview,
+  GroceryListSyncReconciliationCandidate,
+} from "@/lib/grocery/list-service";
 import type {
   GrocerySourceCandidate,
   DishVersionYieldOption,
@@ -227,6 +231,8 @@ export function GroceryListDetailView({
   const [deletingSourceId, setDeletingSourceId] = React.useState<string | null>(
     null,
   );
+  const [syncReviewPreview, setSyncReviewPreview] =
+    React.useState<GroceryListSyncReconciliationCandidate | null>(null);
   const sensors = useReorderSensors();
 
   const [prevItems, setPrevItems] = React.useState(list.items);
@@ -351,43 +357,75 @@ export function GroceryListDetailView({
    * false "success"), and failure (error, list stays usable, retry by
    * clicking again).
    */
+  async function doResync(reconciliation?: {
+    discardManualItemIds?: string[];
+    discardRemovedContributionIds?: string[];
+  }) {
+    if (!list.linkedMealPlanId) return;
+    const result = await resyncMealPlanGroceryLists({
+      mealPlanId: list.linkedMealPlanId,
+      listId: list.id,
+      reconciliation,
+    });
+    if (result.status !== "success") {
+      showToast({
+        variant: "error",
+        title: result.message ?? "Couldn't sync with the Meal Plan.",
+      });
+      return;
+    }
+    const summary = result.summary;
+    const hasChanges =
+      summary != null &&
+      (summary.added > 0 || summary.removed > 0 || summary.changed > 0);
+    if (!hasChanges) {
+      showToast({
+        variant: "default",
+        title: "Already up to date",
+        description: "No changes from the Meal Plan since the last sync.",
+      });
+      return;
+    }
+    const parts: string[] = [];
+    if (summary.added > 0) parts.push(`${summary.added} added`);
+    if (summary.changed > 0) parts.push(`${summary.changed} updated`);
+    if (summary.removed > 0) parts.push(`${summary.removed} removed`);
+    showToast({
+      variant: "success",
+      title: "Grocery list synced",
+      description: `${parts.join(", ")} from the Meal Plan.`,
+    });
+    refresh();
+  }
+
+  /**
+   * Grocery-list resync reconciliation follow-up: a manual addition/deletion
+   * on this list is otherwise silently preserved as-is by every resync.
+   * Before applying, check whether there's anything to review — only then
+   * does "Sync now" pause for the Keep/Discard modal; with nothing to
+   * review it resyncs directly, unchanged from the prior behavior.
+   */
   function handleSyncNow() {
     if (!list.linkedMealPlanId) return;
     const mealPlanId = list.linkedMealPlanId;
     run("sync", async () => {
-      const result = await resyncMealPlanGroceryLists({
+      const previewResult = await previewMealPlanGroceryListSync({
         mealPlanId,
         listId: list.id,
       });
-      if (result.status !== "success") {
+      if (previewResult.status !== "success") {
         showToast({
           variant: "error",
-          title: result.message ?? "Couldn't sync with the Meal Plan.",
+          title: previewResult.message ?? "Couldn't sync with the Meal Plan.",
         });
         return;
       }
-      const summary = result.summary;
-      const hasChanges =
-        summary != null &&
-        (summary.added > 0 || summary.removed > 0 || summary.changed > 0);
-      if (!hasChanges) {
-        showToast({
-          variant: "default",
-          title: "Already up to date",
-          description: "No changes from the Meal Plan since the last sync.",
-        });
+      const { manualAdditions, manualDeletions } = previewResult.preview;
+      if (manualAdditions.length === 0 && manualDeletions.length === 0) {
+        await doResync();
         return;
       }
-      const parts: string[] = [];
-      if (summary.added > 0) parts.push(`${summary.added} added`);
-      if (summary.changed > 0) parts.push(`${summary.changed} updated`);
-      if (summary.removed > 0) parts.push(`${summary.removed} removed`);
-      showToast({
-        variant: "success",
-        title: "Grocery list synced",
-        description: `${parts.join(", ")} from the Meal Plan.`,
-      });
-      refresh();
+      setSyncReviewPreview(previewResult.preview);
     });
   }
 
@@ -840,6 +878,17 @@ export function GroceryListDetailView({
           sourceId={refreshSourceId}
           onClose={() => setRefreshSourceId(null)}
           onApplied={refresh}
+        />
+      )}
+
+      {syncReviewPreview && (
+        <SyncReconciliationDialog
+          preview={syncReviewPreview}
+          onCancel={() => setSyncReviewPreview(null)}
+          onConfirm={async (reconciliation) => {
+            await doResync(reconciliation);
+            setSyncReviewPreview(null);
+          }}
         />
       )}
     </div>
@@ -1940,6 +1989,156 @@ function RefreshSourceDialog({
             loading={isPending}
           >
             Apply refresh
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export type SyncReconciliationChoice = {
+  discardManualItemIds: string[];
+  discardRemovedContributionIds: string[];
+};
+
+/**
+ * Grocery-list resync reconciliation follow-up: "Sync now" pauses here only
+ * when the list has manual additions/deletions to review (the caller
+ * already checked before rendering this). Each row defaults to Keep, which
+ * matches the resync's prior always-preserve behavior exactly — nothing
+ * changes for a list where the user leaves every default in place.
+ */
+function SyncReconciliationDialog({
+  preview,
+  onCancel,
+  onConfirm,
+}: {
+  preview: GroceryListSyncReconciliationCandidate;
+  onCancel: () => void;
+  onConfirm: (choice: SyncReconciliationChoice) => Promise<void>;
+}) {
+  const [keptAdditionIds, setKeptAdditionIds] = React.useState(
+    () => new Set(preview.manualAdditions.map((a) => a.id)),
+  );
+  const [keptDeletionIds, setKeptDeletionIds] = React.useState(
+    () => new Set(preview.manualDeletions.map((d) => d.id)),
+  );
+  const [isPending, startTransition] = React.useTransition();
+
+  function toggle(
+    set: React.Dispatch<React.SetStateAction<Set<string>>>,
+    id: string,
+    keep: boolean,
+  ) {
+    set((prev) => {
+      const next = new Set(prev);
+      if (keep) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+
+  function handleConfirm() {
+    startTransition(async () => {
+      await onConfirm({
+        discardManualItemIds: preview.manualAdditions
+          .filter((a) => !keptAdditionIds.has(a.id))
+          .map((a) => a.id),
+        discardRemovedContributionIds: preview.manualDeletions
+          .filter((d) => !keptDeletionIds.has(d.id))
+          .map((d) => d.id),
+      });
+    });
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onCancel()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Review manual changes before syncing</DialogTitle>
+          <DialogDescription>
+            This list has items you added or removed by hand. Choose what to
+            keep before syncing with the Meal Plan.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex max-h-72 flex-col gap-4 overflow-y-auto text-sm">
+          {preview.manualAdditions.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <p className="font-medium">
+                Manually added — Keep to preserve, Discard to remove
+              </p>
+              {preview.manualAdditions.map((item) => (
+                <div
+                  key={item.id}
+                  className="flex items-center justify-between gap-2"
+                >
+                  <span className="text-muted-foreground">
+                    {item.name}
+                    {item.quantityText ? ` — ${item.quantityText}` : ""}
+                    {item.unit ? ` ${item.unit}` : ""}
+                  </span>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Label
+                      htmlFor={`keep-addition-${item.id}`}
+                      className="text-xs"
+                    >
+                      {keptAdditionIds.has(item.id) ? "Keep" : "Discard"}
+                    </Label>
+                    <Switch
+                      id={`keep-addition-${item.id}`}
+                      checked={keptAdditionIds.has(item.id)}
+                      onCheckedChange={(checked) =>
+                        toggle(setKeptAdditionIds, item.id, checked)
+                      }
+                      aria-label={`Keep manually added ${item.name}`}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {preview.manualDeletions.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <p className="font-medium">
+                Manually removed — Keep to stay removed, Discard to let it
+                return
+              </p>
+              {preview.manualDeletions.map((item) => (
+                <div
+                  key={item.id}
+                  className="flex items-center justify-between gap-2"
+                >
+                  <span className="text-muted-foreground">{item.name}</span>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Label
+                      htmlFor={`keep-deletion-${item.id}`}
+                      className="text-xs"
+                    >
+                      {keptDeletionIds.has(item.id) ? "Keep" : "Discard"}
+                    </Label>
+                    <Switch
+                      id={`keep-deletion-${item.id}`}
+                      checked={keptDeletionIds.has(item.id)}
+                      onCheckedChange={(checked) =>
+                        toggle(setKeptDeletionIds, item.id, checked)
+                      }
+                      aria-label={`Keep ${item.name} removed`}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onCancel} disabled={isPending}>
+            Cancel
+          </Button>
+          <Button onClick={handleConfirm} loading={isPending}>
+            Confirm and sync
           </Button>
         </DialogFooter>
       </DialogContent>

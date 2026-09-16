@@ -16,6 +16,7 @@ import {
 import { signOut } from "@/lib/auth/client";
 import { cn } from "@/lib/utils";
 import { initials } from "@/lib/format/initials";
+import { clearCurrentAccountData } from "@/lib/offline/account-scope";
 
 type AccountUser = {
   name: string;
@@ -42,6 +43,11 @@ export function AccountMenu({
 
   async function handleSignOut() {
     setSigningOut(true);
+    // Before the sign-out request itself: the tab may never reload before
+    // another account signs in on this same device, so local offline data
+    // has to go now, not just get reconciled on next boot (docs/
+    // OFFLINE_IMPLEMENTATION_PLAN.md §6.2).
+    await clearCurrentAccountData();
     await signOut();
     router.push("/");
     router.refresh();

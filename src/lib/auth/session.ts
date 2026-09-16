@@ -1,6 +1,7 @@
 import "server-only";
 import { cache } from "react";
 import { headers } from "next/headers";
+import { unstable_rethrow } from "next/navigation";
 import { auth } from "@/lib/auth/auth";
 import { AuthorizationError } from "@/lib/errors";
 
@@ -27,6 +28,15 @@ export const getServerSession = cache(async function getServerSession() {
       headers: await headers(),
     });
   } catch (error) {
+    // `headers()` itself throws Next's internal DYNAMIC_SERVER_USAGE signal
+    // during a static-rendering attempt (every route under (app)/layout.tsx
+    // is unconditionally dynamic — it always calls this — so that signal is
+    // expected, not a real failure). A bare `catch` here previously
+    // swallowed it before it could reach Next's own boundary, which is what
+    // that signal exists to reach; `unstable_rethrow` lets it (and
+    // redirect/notFound, if ever thrown from this path) continue past this
+    // catch untouched, leaving only genuine lookup failures below.
+    unstable_rethrow(error);
     console.error("[getServerSession] Session lookup failed:", error);
     return null;
   }

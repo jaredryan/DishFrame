@@ -38,7 +38,6 @@ import { useToast } from "@/components/ui/toast";
 import { DishEditor } from "@/components/domain/dish/dish-editor";
 import { FileDropzone } from "@/components/domain/dish/file-dropzone";
 import {
-  proposeImportFromPaste,
   proposeImportFromUrl,
   confirmImport,
   confirmImportBatch,
@@ -53,7 +52,8 @@ import {
   extractDishFromJsonFile,
   getImportFileKind,
 } from "@/lib/importExport/file-sources";
-import type { PasteParseResult } from "@/lib/importExport/paste-parser";
+import { parsePastedRecipe, type PasteParseResult } from "@/lib/importExport/paste-parser";
+import { saveDishOffline } from "@/lib/dishes/offline-save";
 import type { ArchiveImportDraft } from "@/lib/importExport/recipe-gallery-import";
 import { validateDishContentForPersistence } from "@/lib/dishes/validation-messages";
 import { createTag } from "@/lib/tags/actions";
@@ -67,6 +67,36 @@ import type {
   DishContentInput,
   DishKindValue,
 } from "@/lib/dishes/schema";
+
+/**
+ * Paste Text / File Upload parsing needs no network round trip at all —
+ * `parsePastedRecipe` is a pure function (docs/OFFLINE_IMPLEMENTATION_PLAN.md
+ * found `proposeImportFromPaste`'s Server Action wrapper does nothing but
+ * an auth check and this exact call). Calling it directly here, online or
+ * off, removes an unnecessary network dependency rather than adding a
+ * separate offline fallback for one — mirrors the same validation the
+ * removed Server Action applied (`proposeImportFromPasteSchema`) so error
+ * copy is unchanged.
+ */
+function parsePasteTextOffline(
+  rawText: string,
+): { status: "success"; result: PasteParseResult } | { status: "error"; message: string } {
+  const trimmed = rawText.trim();
+  if (trimmed.length === 0) {
+    return { status: "error", message: "Paste some recipe text first." };
+  }
+  if (trimmed.length > 20000) {
+    return { status: "error", message: "Too big: expected string to have <=20000 characters." };
+  }
+  try {
+    return { status: "success", result: parsePastedRecipe(trimmed) };
+  } catch (error) {
+    return {
+      status: "error",
+      message: error instanceof Error ? error.message : "Couldn't parse this text.",
+    };
+  }
+}
 
 const ARCHIVE_SOURCE_LABEL_MAX_LENGTH = 200;
 // Task §3: keeps each `confirmImportBatch` Server Action call's sequential
@@ -337,7 +367,7 @@ export function PasteImportFlow({
   async function handleParsePaste() {
     setError(null);
     setIsParsing(true);
-    const result = await proposeImportFromPaste(rawText);
+    const result = parsePasteTextOffline(rawText);
     setIsParsing(false);
     if (result.status === "success") {
       setParseResult(result.result);
@@ -368,7 +398,7 @@ export function PasteImportFlow({
       return;
     }
 
-    const result = await proposeImportFromPaste(extracted.text);
+    const result = parsePasteTextOffline(extracted.text);
     setIsParsing(false);
     if (result.status === "success") {
       setParseResult(result.result);
@@ -1239,6 +1269,14 @@ export function PasteImportFlow({
 
   async function handleParseWebsite() {
     setError(null);
+    // Website import intrinsically needs the network (fetching the remote
+    // page) — the plan's explicit exception to offline import support.
+    // Checked up front, before hitting the Server Action, for a clear
+    // message rather than a generic network-failure error.
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      setError("Importing from a website needs a connection — try again once you're back online.");
+      return;
+    }
     setIsParsing(true);
     const result = await proposeImportFromUrl(urlValue);
     setIsParsing(false);
@@ -1255,6 +1293,17 @@ export function PasteImportFlow({
     confirmKind: DishKindValue,
     values: DishContentInput,
   ) {
+    // Offline: `confirmImport`'s import-source attribution and guessed-
+    // Cuisine resolution both need a network round trip this device
+    // doesn't have — fall back to the same offline-capable create path
+    // `DishEditor` otherwise uses (docs/OFFLINE_IMPLEMENTATION_PLAN.md:
+    // "downstream review/save should use the same offline-capable recipe
+    // path where practical"). The Dish still saves correctly; it just
+    // won't show "Source: Import" or the guessed Cuisine until edited
+    // again later, online.
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      return saveDishOffline(confirmKind, null, values);
+    }
     return confirmImport(
       confirmKind,
       values,

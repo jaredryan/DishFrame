@@ -17,6 +17,7 @@ import { signOut } from "@/lib/auth/client";
 import { deleteAccountAction } from "@/lib/account/actions";
 import { ReauthenticatePrompt } from "@/components/app/reauthenticate-prompt";
 import { useToast } from "@/components/ui/toast";
+import { clearCurrentAccountData } from "@/lib/offline/account-scope";
 
 /**
  * PRODUCT_SPEC.md §91: explicit destructive confirmation (typing the exact
@@ -43,6 +44,10 @@ export function DeleteAccountDialog({ email }: { email: string }) {
     startTransition(async () => {
       const result = await deleteAccountAction({ confirmEmail });
       if (result.status === "success") {
+        // The account (and its data) is already gone server-side — this
+        // device's local replica/queue must go too, on this same device,
+        // right now (docs/OFFLINE_IMPLEMENTATION_PLAN.md §6.2).
+        await clearCurrentAccountData();
         await signOut();
         router.push("/");
         router.refresh();

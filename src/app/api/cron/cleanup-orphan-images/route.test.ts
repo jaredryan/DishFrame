@@ -6,6 +6,12 @@ vi.mock("@/lib/images/service", () => ({
     cleanupAbandonedImageAssets(...args),
 }));
 
+const cleanupExpiredRateLimitHits = vi.fn();
+vi.mock("@/lib/rate-limit/limit", () => ({
+  cleanupExpiredRateLimitHits: (...args: unknown[]) =>
+    cleanupExpiredRateLimitHits(...args),
+}));
+
 function request(headers?: Record<string, string>) {
   return new Request("http://localhost/api/cron/cleanup-orphan-images", {
     headers,
@@ -45,6 +51,7 @@ describe("GET /api/cron/cleanup-orphan-images", () => {
       deletedCount: 1,
       retainedForRetryCount: 1,
     });
+    cleanupExpiredRateLimitHits.mockResolvedValueOnce({ deletedCount: 3 });
     const { GET } = await import("./route");
 
     const response = await GET(request({ authorization: "Bearer secret" }));
@@ -56,6 +63,7 @@ describe("GET /api/cron/cleanup-orphan-images", () => {
       candidateCount: 2,
       deletedCount: 1,
       retainedForRetryCount: 1,
+      rateLimitCleanup: { deletedCount: 3 },
     });
   });
 });

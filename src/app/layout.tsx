@@ -4,6 +4,7 @@ import { SpeedInsights } from "@vercel/speed-insights/next";
 import { ThemeProvider } from "@/components/theme/theme-provider";
 import { ToastProvider, Toaster } from "@/components/ui/toast";
 import { SITE_DESCRIPTION, SITE_NAME, SITE_TITLE, SITE_URL } from "@/lib/site";
+import { ServiceWorkerRegister } from "@/components/offline/sw-register";
 import "./globals.css";
 
 const manrope = Manrope({
@@ -65,6 +66,18 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Deliberately no `getServerSession()` call here: this layout wraps
+  // every route including statically-generated marketing pages, and
+  // `getServerSession()` calls `headers()`, which would force the whole
+  // site dynamic just to support an edge case. Account-isolation
+  // reconciliation (`OfflineAccountBoot`) instead runs from
+  // `(app)/layout.tsx` (already dynamic, already holds the session) for
+  // the authenticated case, and from the sign-in page for the
+  // unauthenticated case — reaching sign-in always means "not
+  // authenticated," whether freshly arrived or redirected here by
+  // `(app)/layout.tsx`'s own session check, so that's the one place an
+  // unauthenticated boot is guaranteed to pass through (docs/
+  // OFFLINE_IMPLEMENTATION_PLAN.md §6.2).
   return (
     <html
       lang="en"
@@ -79,6 +92,7 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <ToastProvider>
+            <ServiceWorkerRegister />
             {children}
             <Toaster />
           </ToastProvider>

@@ -92,10 +92,10 @@ import {
 import { NEEDS_REVIEW_SECTION_NAME } from "@/lib/importExport/paste-parser";
 import {
   createDish,
-  editDish,
   updateVersionNote,
   setDefaultScale,
 } from "@/lib/dishes/actions";
+import { saveDishOffline } from "@/lib/dishes/offline-save";
 import {
   removeEmptySections,
   hasMinimumContent,
@@ -611,15 +611,14 @@ export function DishEditor({
 
     setIsSubmitting(true);
     try {
-      const result = dish
-        ? await editDish(
-            kind,
-            dish.id,
-            dish.baseVersionId,
+      const result = onCreate && !dish
+        ? await onCreate(saveKind, cleaned)
+        : await saveDishOffline(
+            saveKind,
+            dish ? { id: dish.id, baseVersionId: dish.baseVersionId } : null,
             cleaned,
             versionChoice,
-          )
-        : await (onCreate ?? createDish)(saveKind, cleaned);
+          );
 
       if (result.status === "success" && result.dishId) {
         await applyEditorExtras(extras);
@@ -1219,7 +1218,7 @@ export function DishEditor({
           </div>
 
           <SectionEditorDialog
-            key={newSectionSession}
+            key={`new-section-${newSectionSession}`}
             open={newSectionOpen}
             initialValues={blankSectionDraft()}
             sectionNumber={
@@ -1240,7 +1239,7 @@ export function DishEditor({
           />
 
           <TopLevelReorderDialog
-            key={reorderSession}
+            key={`reorder-${reorderSession}`}
             open={reorderOpen}
             onOpenChange={setReorderOpen}
             kindLabel={kindLabel}

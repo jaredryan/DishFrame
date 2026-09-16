@@ -12,7 +12,10 @@ import type {
   DishVersionYieldOption,
   GrocerySourceCandidate,
 } from "@/lib/grocery/queries";
-import type { ResyncMealPlanGroceryListsActionState } from "@/lib/mealplans/actions";
+import type {
+  ResyncMealPlanGroceryListsActionState,
+  PreviewMealPlanGroceryListSyncActionState,
+} from "@/lib/mealplans/actions";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
@@ -72,25 +75,38 @@ vi.mock("@/lib/grocery/list-actions", () => ({
   generateGroceryList: vi.fn(async () => ({ status: "success", listId: "l" })),
 }));
 
-const { resyncMealPlanGroceryLists, setMealPlanGroceryListEntryIncluded } =
-  vi.hoisted(() => ({
-    resyncMealPlanGroceryLists: vi.fn(
-      async (): Promise<ResyncMealPlanGroceryListsActionState> => ({
-        status: "success",
-        summary: null,
-      }),
-    ),
-    setMealPlanGroceryListEntryIncluded: vi.fn(
-      async (): Promise<
-        { status: "success" } | { status: "error"; message: string }
-      > => ({
-        status: "success",
-      }),
-    ),
-  }));
+const {
+  resyncMealPlanGroceryLists,
+  previewMealPlanGroceryListSync,
+  setMealPlanGroceryListEntryIncluded,
+} = vi.hoisted(() => ({
+  resyncMealPlanGroceryLists: vi.fn(
+    async (): Promise<ResyncMealPlanGroceryListsActionState> => ({
+      status: "success",
+      summary: null,
+    }),
+  ),
+  // Empty by default — every existing "Sync now" test expects the direct
+  // resync path (no review modal). Tests for the reconciliation modal itself
+  // override this with a non-empty preview.
+  previewMealPlanGroceryListSync: vi.fn(
+    async (): Promise<PreviewMealPlanGroceryListSyncActionState> => ({
+      status: "success",
+      preview: { manualAdditions: [], manualDeletions: [] },
+    }),
+  ),
+  setMealPlanGroceryListEntryIncluded: vi.fn(
+    async (): Promise<
+      { status: "success" } | { status: "error"; message: string }
+    > => ({
+      status: "success",
+    }),
+  ),
+}));
 
 vi.mock("@/lib/mealplans/actions", () => ({
   resyncMealPlanGroceryLists,
+  previewMealPlanGroceryListSync,
   setMealPlanGroceryListEntryIncluded,
 }));
 
@@ -858,6 +874,102 @@ describe("GroceryListDetailView — Sync now feedback (§81.2 UX correction)", (
       await screen.findByText("Could not reach the Meal Plan."),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Sync now/ })).toBeEnabled();
+  });
+});
+
+describe("GroceryListDetailView — Sync now manual reconciliation review (grocery-list resync reconciliation follow-up)", () => {
+  function syncableList(): Partial<GroceryListDetailDto> {
+    return {
+      mode: "MEAL_PLAN_LINKED",
+      linkedMealPlanId: "plan-1",
+      sources: [],
+      mealPlanEntries: [],
+    };
+  }
+
+  it("shows a review modal defaulting to Keep, and Cancel applies no resync", async () => {
+    previewMealPlanGroceryListSync.mockResolvedValueOnce({
+      status: "success",
+      preview: {
+        manualAdditions: [
+          {
+            id: "manual-1",
+            name: "Paper towels",
+            quantityText: "1",
+            unit: "roll",
+          },
+        ],
+        manualDeletions: [{ id: "tombstone-1", name: "Garlic" }],
+      },
+    });
+    resyncMealPlanGroceryLists.mockClear();
+    const user = userEvent.setup();
+    renderList([], syncableList());
+
+    await user.click(screen.getByRole("button", { name: /Sync now/ }));
+
+    expect(
+      await screen.findByText("Review manual changes before syncing"),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Paper towels/)).toBeInTheDocument();
+    expect(screen.getByText("Garlic")).toBeInTheDocument();
+    expect(
+      screen.getByRole("switch", { name: /Keep manually added Paper towels/ }),
+    ).toBeChecked();
+    expect(
+      screen.getByRole("switch", { name: /Keep Garlic removed/ }),
+    ).toBeChecked();
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(
+      screen.queryByText("Review manual changes before syncing"),
+    ).not.toBeInTheDocument();
+    expect(resyncMealPlanGroceryLists).not.toHaveBeenCalled();
+  });
+
+  it("Confirm applies the resync with discard ids for switches toggled off", async () => {
+    previewMealPlanGroceryListSync.mockResolvedValueOnce({
+      status: "success",
+      preview: {
+        manualAdditions: [
+          {
+            id: "manual-1",
+            name: "Paper towels",
+            quantityText: null,
+            unit: null,
+          },
+        ],
+        manualDeletions: [{ id: "tombstone-1", name: "Garlic" }],
+      },
+    });
+    resyncMealPlanGroceryLists.mockClear();
+    resyncMealPlanGroceryLists.mockResolvedValueOnce({
+      status: "success",
+      summary: { added: 1, removed: 0, changed: 0 },
+    });
+    const user = userEvent.setup();
+    renderList([], syncableList());
+
+    await user.click(screen.getByRole("button", { name: /Sync now/ }));
+    await screen.findByText("Review manual changes before syncing");
+
+    await user.click(
+      screen.getByRole("switch", { name: /Keep manually added Paper towels/ }),
+    );
+    await user.click(
+      screen.getByRole("switch", { name: /Keep Garlic removed/ }),
+    );
+    await user.click(screen.getByRole("button", { name: /Confirm and sync/ }));
+
+    expect(resyncMealPlanGroceryLists).toHaveBeenCalledWith({
+      mealPlanId: "plan-1",
+      listId: "list-1",
+      reconciliation: {
+        discardManualItemIds: ["manual-1"],
+        discardRemovedContributionIds: ["tombstone-1"],
+      },
+    });
   });
 });
 

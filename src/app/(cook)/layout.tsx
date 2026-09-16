@@ -3,6 +3,8 @@ import { getServerSession } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 import { OnboardingProvider } from "@/components/onboarding/onboarding-provider";
 import type { OnboardingState } from "@/lib/preferences/onboarding-guides";
+import { OfflineAccountBoot } from "@/components/offline/account-boot";
+import { ConflictResolutionDialog } from "@/components/offline/conflict-resolution-dialog";
 
 export const metadata: Metadata = {
   robots: {
@@ -39,6 +41,8 @@ export default async function CookOnboardingLayout({
 
   return (
     <OnboardingProvider initialState={onboardingState}>
+      <OfflineAccountBoot authenticatedUserId={session?.user.id ?? null} />
+      <ConflictResolutionDialog />
       {children}
     </OnboardingProvider>
   );

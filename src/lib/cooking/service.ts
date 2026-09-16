@@ -8,18 +8,17 @@ import {
   FinalUnitGuardError,
 } from "@/lib/errors";
 import { decimalToNumber } from "@/lib/dishes/format";
+import { scaleQuantity } from "@/lib/units/scaling";
 import {
-  scaleQuantity,
-  scaleIngredientQuantity,
-  formatCalculatedQuantity,
-} from "@/lib/units/scaling";
+  formatScaledQuantity,
+  renderChecklistDisplay,
+} from "@/lib/cooking/checklist-render";
 import {
   getOwnedDishVersionOrThrow,
   getOwnedSessionOrThrow,
   findActiveSessionForDish,
   buildCookableUnits,
   sessionUnitKey,
-  type CookableChecklistRaw,
   type CookableUnit,
   type OwnedCookingSession,
 } from "@/lib/cooking/queries";
@@ -46,104 +45,6 @@ function assertActive(session: OwnedCookingSession): void {
   if (session.state !== "IN_PROGRESS") {
     throw new ValidationError("This Cooking Session has already ended.");
   }
-}
-
-/**
- * Formats a structured quantity at `multiplier`, matching the same authored-
- * vs-calculated formatting split `scaled-display.ts` already established
- * for the Recipe/Part detail view's own temporary-scaling control
- * (PRODUCT_SPEC.md §52.6/§52.7): unscaled (`multiplier === 1`) renders in
- * plain authored style, any real scaling renders in kitchen-fraction/
- * decimal calculated style. Shared by checklist-row creation (below) and
- * mid-session scale recalculation (`computeChecklistDisplayUpdates`), both of
- * which must produce byte-identical formatting for the same inputs.
- */
-function formatScaledQuantity(
-  quantity: number,
-  quantityEnd: number | null,
-  isApproximate: boolean,
-  multiplier: number,
-): string {
-  const scaled = scaleIngredientQuantity(
-    { quantity, quantityEnd, isApproximate, displayText: null },
-    multiplier,
-  );
-  const formatFn = multiplier === 1 ? String : formatCalculatedQuantity;
-  const approxPrefix = isApproximate ? "about " : "";
-  const rangeText =
-    scaled.quantityEnd != null ? `–${formatFn(scaled.quantityEnd)}` : "";
-  return `${approxPrefix}${formatFn(scaled.quantity!)}${rangeText}`;
-}
-
-/**
- * Renders one checklist row's self-contained display fields (Correction 3)
- * at the effective multiplier for its unit, plus the structured `base*`
- * fields (Slice 8 correction) mid-session scaling recalculates from later —
- * never re-parses `displayQuantity`'s formatted string. `baseQuantity`/
- * `baseQuantityEnd` stay null for free-text or quantity-less rows, matching
- * `displayQuantity`'s own nullability so a later rescale leaves them alone.
- */
-function renderChecklistDisplay(
-  raw: CookableChecklistRaw,
-  multiplier: number,
-): {
-  displayText: string;
-  displayQuantity: string | null;
-  displayUnit: string | null;
-  baseQuantity: number | null;
-  baseQuantityEnd: number | null;
-  isApproximate: boolean;
-} {
-  if (raw.kind === "INSTRUCTION") {
-    return {
-      displayText: raw.text,
-      displayQuantity: null,
-      displayUnit: null,
-      baseQuantity: null,
-      baseQuantityEnd: null,
-      isApproximate: false,
-    };
-  }
-
-  const name = raw.name?.trim() || "Untitled ingredient";
-  const displayText = raw.preparationNote
-    ? `${name}, ${raw.preparationNote}`
-    : name;
-
-  if (raw.freeText) {
-    return {
-      displayText,
-      displayQuantity: raw.freeText,
-      displayUnit: null,
-      baseQuantity: null,
-      baseQuantityEnd: null,
-      isApproximate: false,
-    };
-  }
-  if (raw.quantity == null) {
-    return {
-      displayText,
-      displayQuantity: null,
-      displayUnit: null,
-      baseQuantity: null,
-      baseQuantityEnd: null,
-      isApproximate: false,
-    };
-  }
-
-  return {
-    displayText,
-    displayQuantity: formatScaledQuantity(
-      raw.quantity,
-      raw.quantityEnd,
-      raw.isApproximate,
-      multiplier,
-    ),
-    displayUnit: raw.unit,
-    baseQuantity: raw.quantity,
-    baseQuantityEnd: raw.quantityEnd,
-    isApproximate: raw.isApproximate,
-  };
 }
 
 /**
@@ -194,9 +95,34 @@ async function createPartUsageRows(
  * a duplicate "Start cooking" surfaces as `ActiveSessionConflictError`
  * (§26.2), never a raw constraint error.
  */
+/**
+ * docs/OFFLINE_IMPLEMENTATION_PLAN.md's client-generated-id strategy, applied
+ * three levels deep: the session itself, plus (best-effort) its units and
+ * their checklist rows. Only the session's own id matters for the "no
+ * temporary-id remapping" guarantee (a session started offline needs a
+ * stable id immediately, so a checklist-toggle mutation queued moments
+ * later can reference it before the start-session mutation has synced) —
+ * unit/checklist ids are accepted purely so a client that *also* knows
+ * them in advance (from its own replicated "cookable units" template, the
+ * same data `buildCookableUnits` below produces) doesn't have its optimistic
+ * local rows silently diverge from the eventually-synced ones. If a unit's
+ * `checklistItemIds` array doesn't line up 1:1 with what `buildCookableUnits`
+ * re-derives for it here (e.g. the Version changed between the client's
+ * last template refresh and this sync), those ids are silently ignored for
+ * that unit and Prisma's own defaults take over — never a hard failure over
+ * a cosmetic id mismatch, since checklist *content* is always authoritatively
+ * re-derived server-side regardless (§22.4, see this function's own doc
+ * comment above) and was never trusted from the client to begin with.
+ */
+export type StartCookingSessionClientIds = {
+  sessionId?: string;
+  units?: Record<string, { unitId?: string; checklistItemIds?: string[] }>;
+};
+
 export async function startCookingSession(
   ownerId: string,
   input: StartCookingSessionInput,
+  clientIds?: StartCookingSessionClientIds,
 ) {
   const { dish, version } = await getOwnedDishVersionOrThrow(
     ownerId,
@@ -232,6 +158,7 @@ export async function startCookingSession(
     return await prisma.$transaction(async (tx) => {
       const session = await tx.cookingSession.create({
         data: {
+          ...(clientIds?.sessionId ? { id: clientIds.sessionId } : {}),
           ownerId,
           dishId: input.dishId,
           dishVersionId: input.dishVersionId,
@@ -242,8 +169,10 @@ export async function startCookingSession(
 
       for (const [index, { unit, scaleFactor }] of selected.entries()) {
         const effectiveMultiplier = (sessionScale ?? 1) * (scaleFactor ?? 1);
+        const unitClientIds = clientIds?.units?.[unit.unitKey];
         const unitRow = await tx.cookingSessionUnit.create({
           data: {
+            ...(unitClientIds?.unitId ? { id: unitClientIds.unitId } : {}),
             sessionId: session.id,
             position: index,
             scaleFactor,
@@ -256,10 +185,19 @@ export async function startCookingSession(
           },
         });
 
-        for (const raw of unit.checklist) {
+        // Best-effort positional zip against the client's own cached
+        // template — only trusted when the count matches (see this
+        // function's doc comment above).
+        const checklistIds =
+          unitClientIds?.checklistItemIds?.length === unit.checklist.length
+            ? unitClientIds.checklistItemIds
+            : null;
+
+        for (const [itemIndex, raw] of unit.checklist.entries()) {
           const display = renderChecklistDisplay(raw, effectiveMultiplier);
           await tx.cookingSessionChecklistItem.create({
             data: {
+              ...(checklistIds ? { id: checklistIds[itemIndex] } : {}),
               unitId: unitRow.id,
               kind: raw.kind,
               displayText: display.displayText,
@@ -299,6 +237,9 @@ export async function addSessionUnits(
   ownerId: string,
   sessionId: string,
   unitKeys: string[],
+  // See `StartCookingSessionClientIds`'s doc comment — same best-effort,
+  // positional, count-must-match contract, keyed by unitKey here too.
+  clientIds?: Record<string, { unitId?: string; checklistItemIds?: string[] }>,
 ) {
   const session = await getOwnedSessionOrThrow(ownerId, sessionId);
   assertActive(session);
@@ -326,8 +267,10 @@ export async function addSessionUnits(
   await prisma.$transaction(async (tx) => {
     for (const [offset, key] of toAdd.entries()) {
       const unit = byKey.get(key)!;
+      const unitClientIds = clientIds?.[key];
       const unitRow = await tx.cookingSessionUnit.create({
         data: {
+          ...(unitClientIds?.unitId ? { id: unitClientIds.unitId } : {}),
           sessionId,
           position: maxPosition + 1 + offset,
           label: unit.label,
@@ -337,10 +280,15 @@ export async function addSessionUnits(
           sourcePartLinkLineageId: unit.sourcePartLinkLineageId,
         },
       });
-      for (const raw of unit.checklist) {
+      const checklistIds =
+        unitClientIds?.checklistItemIds?.length === unit.checklist.length
+          ? unitClientIds.checklistItemIds
+          : null;
+      for (const [itemIndex, raw] of unit.checklist.entries()) {
         const display = renderChecklistDisplay(raw, sessionScale);
         await tx.cookingSessionChecklistItem.create({
           data: {
+            ...(checklistIds ? { id: checklistIds[itemIndex] } : {}),
             unitId: unitRow.id,
             kind: raw.kind,
             displayText: display.displayText,

@@ -11,6 +11,9 @@ import { InitialIntro } from "@/components/onboarding/initial-intro";
 import { ReceivedShareNotifier } from "@/components/domain/sharing/received-share-notifier";
 import { countNewReceivedShares } from "@/lib/sharing/collections";
 import type { OnboardingState } from "@/lib/preferences/onboarding-guides";
+import { OfflineAccountBoot } from "@/components/offline/account-boot";
+import { OfflineStatusBanner } from "@/components/offline/offline-status-banner";
+import { ConflictResolutionDialog } from "@/components/offline/conflict-resolution-dialog";
 
 export const metadata: Metadata = {
   robots: {
@@ -63,6 +66,8 @@ export default async function AppLayout({
 
   return (
     <OnboardingProvider initialState={onboardingState}>
+      <OfflineAccountBoot authenticatedUserId={session.user.id} />
+      <ConflictResolutionDialog />
       <ReceivedShareNotifier newShareCount={newShareCount} />
       <div className="flex min-h-screen">
         <SidebarNav user={accountUser} />
@@ -70,6 +75,7 @@ export default async function AppLayout({
           <MobileTopbar>
             <AccountMenu user={accountUser} />
           </MobileTopbar>
+          <OfflineStatusBanner />
           <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">
             {children}
           </main>

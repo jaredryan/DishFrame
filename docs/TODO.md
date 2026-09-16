@@ -137,17 +137,155 @@ Production: https://dish-frame.vercel.app
 
 ## 2. Security hardening for current use
 
-- [ ] Evaluate and, where appropriate, configure report-only CSP, accounting
-  for current authentication, assets, and third-party integrations before enforcement.
-- [ ] Review dependency vulnerabilities and address actionable findings;
-  establish a practical recurring dependency-review mechanism.
-- [ ] Review existing endpoint protections and implement appropriate durable
-  rate limiting for exposed API routes and the contact form where missing.
-  Preserve legitimate imports, sharing, authentication, and normal family use.
+- [x] Report-only CSP added (2026-09-15, `next.config.ts`) — `default-src
+  'self'` plus per-directive allowances for this app's actual surface
+  (self-hosted `next/font`, same-origin Blob image proxy, same-origin
+  Vercel Speed Insights beacon at `/_vercel/speed-insights/*`, no external
+  script/style/font/image hosts anywhere in the app). `script-src`/
+  `style-src` both still carry `'unsafe-inline'` — next.config.ts's own doc
+  comment on `cspReportOnly` lists exactly what's needed before dropping it
+  (a nonce-issuing middleware threaded into next-themes' bootstrap
+  script/style and the JSON-LD script; Radix/@dnd-kit inline `style`
+  attributes need `'unsafe-inline'` regardless, via `style-src-attr`).
+  Reports post to `/api/csp-report` (new route — rate-limited, logs via
+  `console.warn`, nothing persisted); a `Report-To` header pairs with it
+  for browsers using the modern Reporting API. Also fixed a live bug found
+  while touching this header block: `Permissions-Policy`'s `camera=()`
+  was blocking the in-app barcode scanner's `getUserMedia` call outright —
+  now `camera=(self)`. Added `X-Frame-Options: DENY` and CSP
+  `frame-ancestors 'none'` (this app is never meant to be iframed).
+  **Watch `/api/csp-report` output for a while before enforcing.**
+- [x] Dependency vulnerabilities reviewed (2026-09-15, `pnpm audit`) — was 2
+  critical / 21 high / 22 moderate / 1 low. Fixed: `next` 16.2.11→16.3.5
+  (the 2 criticals — unauthenticated RCE on Windows hosts and in AVIF image
+  optimization — plus most of the postcss/nanoid chain bundled inside
+  Next's own build pipeline), `sharp` ^0.34.5→^0.35.4 (libvips CVEs),
+  `eslint-config-next` bumped to match, `vitest` ^4.1.10→^4.1.11. Added
+  `pnpm.overrides` (see `package.json`) pinning `postcss`, `nanoid`,
+  `undici`, `ip-address`, `qs`, `js-yaml`, `fast-uri`, `hono`,
+  `@hono/node-server`, `find-my-way`, `valibot`, `mysql2` to their patched
+  versions — all patch/minor bumps within their existing major, all
+  transitive through dev-only tooling (`eslint`, `shadcn`'s CLI, `prisma`'s
+  own dev/config tooling), never shipped to production or reachable by an
+  end user. Result: 0 critical / 1 high / 0 moderate / 0 low.
+  **Remaining, accepted:** `deepmerge-ts` (high, stack-exhaustion DoS)
+  nested under `prisma`'s own internal `@prisma/config` dev tooling —
+  fixed version is a major bump (7→8) of a package we don't depend on
+  directly; forcing it via override risks breaking Prisma's own CLI for a
+  path that's dev-only and never network-exposed. Revisit when `prisma`
+  itself bumps it upstream.
+  **Ongoing review:** re-run `pnpm audit` periodically (e.g. monthly, or
+  before each `release:production`) and apply the same
+  patch/minor-only-unless-directly-affected-and-necessary policy; a major
+  bump on a directly-depended package (e.g. Prisma 7→8, seen as available
+  during this pass) is a separate, deliberate upgrade decision, not a
+  vulnerability fix.
+- [x] Durable, cross-instance rate limiting added (2026-09-15) — a Postgres-
+  backed fixed-window counter (`RateLimitHit` table,
+  `src/lib/rate-limit/limit.ts`, atomic single-statement upsert), not an
+  in-memory counter, so the limit holds across every concurrent Vercel
+  serverless instance. New migration `add_rate_limit_hit`
+  (not yet applied — run `pnpm db:migrate:local` locally, then deploy the
+  usual way; no new env vars). Wired into: the contact form (5/15min per
+  IP, `src/app/(marketing)/contact/actions.ts`), image upload (30/10min
+  per user), account/dish export (20/10min per user, shared bucket), the
+  new `/api/csp-report` sink (60/min per IP), and Better Auth's
+  credential/account-creation paths — `sign-in/social` (the only one this
+  app actually uses today; email/password isn't configured in `auth.ts`),
+  `sign-in/email`, `sign-up/email`, `reset-password` (20/5min per IP,
+  `src/app/api/auth/[...all]/route.ts`) — deliberately **not** `get-session`
+  or other high-frequency paths, which would throttle ordinary usage.
+  Left alone: `GET /api/images/[assetId]` (every image render — high
+  legitimate frequency) and the cron endpoint (already gated by
+  `CRON_SECRET`). Better Auth's own built-in rate limiter (enabled by
+  default in production) is still in-memory/per-instance by default; its
+  Prisma "database" storage mode expects an internally-shaped `rateLimit`
+  table that isn't part of Better Auth's own CLI schema generator for this
+  version, so wiring it in blind was judged too risky for the auth path —
+  the custom route-level limiter above covers the same paths durably
+  instead.
+  **Follow-up (2026-09-15), three items checked, two fixed:**
+  - *Storage cleanup* — rows were never deleted, so a distinct key
+    (mostly IPs) that stops recurring left its row behind forever. Added
+    `cleanupExpiredRateLimitHits()` (deletes rows with `windowStart` older
+    than 24h, well past every window this app uses), called from the
+    existing daily `/api/cron/cleanup-orphan-images` cron rather than a
+    second schedule.
+  - *Identity/keying* — anonymous keys now prefer `x-vercel-forwarded-for`,
+    falling back to `x-forwarded-for`/`x-real-ip`
+    (`src/lib/rate-limit/limit.ts`'s `getClientIp`). Confirmed against
+    Vercel's own docs: on Vercel's standard infrastructure (no
+    customer-added proxy in front, which this deployment doesn't have)
+    these are Vercel-set and not client-spoofable — "we currently
+    overwrite the X-Forwarded-For header and do not forward external
+    IPs." Authenticated routes (image upload, export) already keyed by
+    `userId`, not IP, so unrelated users behind the same NAT were never
+    sharing those quotas — confirmed, no change needed there.
+  - *CSP report endpoint* — hardened against attacker-controlled input:
+    a `Content-Length` pre-check plus a post-read byte-length check (413
+    if either exceeds 16KB — real reports are under 1KB), a cap on how
+    many report entries one request can make it log (20) and how many
+    fields one report object can contribute (40), and sanitized logging
+    (query strings/fragments stripped from URL-shaped fields — `url`,
+    `document-uri`/`documentURL`, `blocked-uri`/`blockedURL`, `referrer`,
+    `source-file`/`sourceFile` — and every logged string truncated to
+    300 chars).
+  While checking the above, found and fixed two regressions from this
+  pass, unrelated to the three checks themselves:
+  - The `pnpm.overrides` added for the dependency-vulnerability fixes used
+    unbounded `>=` ranges for several packages, which let pnpm resolve to
+    a newer **major** than intended (`nanoid` 3→6, `js-yaml` 4→5,
+    `fast-uri` 3→4, `@hono/node-server` 1→2, `undici` 7→8) — exactly the
+    major-version churn this pass was supposed to avoid, and the `undici`
+    jump broke `jsdom`'s internal `require('undici/lib/handler/...')`
+    path, failing every frontend Vitest test at startup. Every override in
+    `package.json` now has an explicit upper bound (`>=X <nextMajor.0.0`);
+    reinstalled and confirmed each resolves within its original major and
+    `pnpm audit` is still clean (only the accepted `deepmerge-ts` residual
+    remains).
+  - `src/lib/auth/session.ts`'s `getServerSession` caught Next's internal
+    `DYNAMIC_SERVER_USAGE` control-flow signal (thrown by `headers()`
+    during a static-rendering attempt — every route under
+    `(app)/layout.tsx` is unconditionally dynamic, since it always calls
+    this) in its bare `catch`, before that signal could reach Next's own
+    boundary, logging it as a spurious "Session lookup failed" error on
+    every route under `(app)`. Likely dormant before this pass and
+    surfaced by the `next` version bump changing which routes attempt
+    static rendering first. Fixed by calling `unstable_rethrow(error)` at
+    the top of the catch block (Next's documented API for exactly this:
+    "rethrow internal Next.js errors so they can be handled by the
+    framework"), so only genuine lookup failures are still caught/logged.
+- [x] Session policy reviewed (2026-09-15) — no changes made. 365-day
+  rolling session, `freshAge` gate for sensitive actions (account
+  deletion), multiple concurrent sessions per user by default: all as
+  intended for personal/family use per existing product decisions. No
+  cookie/session misconfiguration found (Better Auth's own https-based
+  secure-cookie defaults apply; confirm `BETTER_AUTH_URL` is set to the
+  `https://` production URL in Vercel's env vars — see deployment notes
+  below).
 
 The current personal/family session policy is **365 days**, not 30 days.
 Reconsider duration/device limits for public launch, not as an unsolicited
 change in this hardening pass.
+
+### Deployment notes from this pass
+
+- No new required env vars. `NEXT_PUBLIC_APP_URL` (already required) is
+  now also read directly by `next.config.ts` to build the CSP report
+  endpoint's absolute URL — confirm it's set to the real `https://`
+  production origin in Vercel, not left at the `http://localhost:3000`
+  fallback.
+- New migration `prisma/migrations/.../add_rate_limit_hit` must be applied
+  (`pnpm db:deploy`/`db:deploy:production` as usual) before deploying the
+  rate-limiting code — every limited route calls `consumeRateLimit`
+  unconditionally, so a missing table would surface as a 500 on those
+  routes, not a silent no-op.
+- `/api/csp-report` needs no configuration; it just logs. If report volume
+  ends up worth tracking longer-term, that's a future decision (e.g. a
+  small table or an external ingestion service), not something this pass
+  added.
+- Nothing here requires a new external service (no Redis/Upstash/KV) —
+  rate limiting rides on the existing Neon Postgres connection.
 
 ## 3. Meal Plans / Grocery Lists
 

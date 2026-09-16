@@ -16,8 +16,11 @@ import {
   resyncGroceryListFromMealPlan,
   collectMealPlanOccurrences,
   setGroceryListMealPlanEntryExclusion,
+  getGroceryListSyncReconciliationCandidates,
   type MealPlanContributionEntry,
   type GroceryListResyncSummary,
+  type GroceryListResyncReconciliation,
+  type GroceryListSyncReconciliationCandidate,
 } from "@/lib/grocery/list-service";
 import {
   getOwnedMealPlanOrThrow,
@@ -67,6 +70,14 @@ async function resyncLinkedLists(
   ownerId: string,
   mealPlanId: string,
   freshEntries: MealPlanContributionEntry[],
+  /** A caller-approved reconciliation applies only to `focusListId` — the
+   * one list the user actually reviewed in the Sync-now modal. Every
+   * sibling list this same Meal Plan feeds keeps the default
+   * preserve-everything behavior regardless. */
+  options?: {
+    focusListId?: string;
+    reconciliation?: GroceryListResyncReconciliation;
+  },
 ): Promise<Map<string, GroceryListResyncSummary>> {
   const summaries = new Map<string, GroceryListResyncSummary>();
   const lists = await tx.groceryList.findMany({
@@ -86,6 +97,7 @@ async function resyncLinkedLists(
       ownerId,
       list.id,
       fresh,
+      list.id === options?.focusListId ? options?.reconciliation : undefined,
     );
     summaries.set(list.id, summary);
   }
@@ -129,6 +141,10 @@ export type CreateMealPlanInput = {
 export async function createMealPlan(
   ownerId: string,
   input: CreateMealPlanInput,
+  // docs/OFFLINE_IMPLEMENTATION_PLAN.md client-generated-id strategy — set
+  // only by `/api/sync/mealplans`'s "mealplan.create" handler. Omitted,
+  // Prisma's own `@default(cuid())` applies exactly as before.
+  clientMealPlanId?: string,
 ): Promise<string> {
   if (input.endDate < input.startDate) {
     throw new ValidationError(
@@ -137,6 +153,7 @@ export async function createMealPlan(
   }
   const mealPlan = await prisma.mealPlan.create({
     data: {
+      ...(clientMealPlanId ? { id: clientMealPlanId } : {}),
       ownerId,
       title: input.title.trim(),
       startDate: input.startDate,
@@ -334,6 +351,7 @@ export async function addMealPlanEntry(
   ownerId: string,
   mealPlanId: string,
   input: AddMealPlanEntryInput,
+  clientEntryId?: string,
 ): Promise<string> {
   const mealPlan = await getOwnedMealPlanOrThrow(ownerId, mealPlanId);
   const dish = await getOwnedDishOrThrow(ownerId, input.dishId);
@@ -352,6 +370,7 @@ export async function addMealPlanEntry(
   return prisma.$transaction(async (tx) => {
     const entry = await tx.mealPlanEntry.create({
       data: {
+        ...(clientEntryId ? { id: clientEntryId } : {}),
         mealPlanId,
         dishId: dish.id,
         dishVersionId: version.id,
@@ -886,6 +905,11 @@ export async function resyncMealPlanGroceryLists(
   ownerId: string,
   mealPlanId: string,
   focusListId?: string,
+  /** Caller-approved manual-additions/deletions reconciliation from the
+   * Sync-now review modal (`previewMealPlanGroceryListSync`), applied only
+   * to `focusListId`. Omitted for every automatic resync and for a manual
+   * Sync-now with nothing to review. */
+  reconciliation?: GroceryListResyncReconciliation,
 ): Promise<GroceryListResyncSummary | null> {
   const mealPlan = await getOwnedMealPlanOrThrow(ownerId, mealPlanId);
   // Same P2028 timeout risk as `setMealPlanGroceryListEntryIncluded` (see its
@@ -897,11 +921,33 @@ export async function resyncMealPlanGroceryLists(
         ownerId,
         mealPlanId,
         mealPlan.entries.map(toContributionEntry),
+        { focusListId, reconciliation },
       );
       return focusListId ? (summaries.get(focusListId) ?? null) : null;
     },
     { timeout: 15000 },
   );
+}
+
+/**
+ * Read-only Sync-now review-modal data (grocery-list resync reconciliation
+ * follow-up): the manual additions/deletions on `listId` this resync would
+ * otherwise silently preserve as-is, so the caller can offer a per-item
+ * Keep/Discard choice before actually applying `resyncMealPlanGroceryLists`.
+ * An empty result means the button should resync directly — nothing to
+ * review.
+ */
+export async function previewMealPlanGroceryListSync(
+  ownerId: string,
+  mealPlanId: string,
+  listId: string,
+): Promise<GroceryListSyncReconciliationCandidate> {
+  const mealPlan = await getOwnedMealPlanOrThrow(ownerId, mealPlanId);
+  const fresh = await collectMealPlanOccurrences(
+    ownerId,
+    mealPlan.entries.map(toContributionEntry),
+  );
+  return getGroceryListSyncReconciliationCandidates(ownerId, listId, fresh);
 }
 
 /**

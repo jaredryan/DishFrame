@@ -556,13 +556,13 @@ describe("DishEditor Ingredients", () => {
       await screen.findByRole("option", { name: "Single amount" }),
     );
 
-    expect(screen.getByLabelText("Quantity")).toHaveValue("1");
+    expect(await screen.findByLabelText("Quantity")).toHaveValue("1");
 
     // Switch to Range again — the earlier "To" value must not silently
     // reappear; it was cleared, not just hidden.
     await user.click(screen.getByLabelText("Amount"));
     await user.click(await screen.findByRole("option", { name: "Range" }));
-    expect(screen.getByLabelText("To")).toHaveValue("");
+    expect(await screen.findByLabelText("To")).toHaveValue("");
   });
 
   it("To taste and As needed modes show no amount inputs", async () => {

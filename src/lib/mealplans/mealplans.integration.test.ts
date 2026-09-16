@@ -1897,6 +1897,286 @@ describe("mealplans service", () => {
     });
   });
 
+  describe("Sync now manual reconciliation review (grocery-list resync reconciliation follow-up)", () => {
+    async function setupListWithManualAdditionAndDeletion() {
+      const { mealPlanId } = await setupMealPlan();
+      const dishId = await dishService.createDish(
+        userId!,
+        "RECIPE",
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [ingredient({ name: "Garlic", quantity: 1 })],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      const entryId = await mealPlanService.addMealPlanEntry(
+        userId!,
+        mealPlanId,
+        { dishId, cookDate: new Date("2026-08-03T00:00:00.000Z") },
+      );
+      const listId = await mealPlanService.generateGroceryListFromMealPlan(
+        userId!,
+        mealPlanId,
+        { title: "Shopping" },
+      );
+
+      const generatedItem = await prisma.groceryListItem.findFirstOrThrow({
+        where: { groceryListId: listId, name: "Garlic" },
+      });
+      await listService.removeGroceryItem(userId!, listId, generatedItem.id);
+      const manualItem = await listService.addManualGroceryItem(
+        userId!,
+        listId,
+        { name: "Paper towels", quantityText: "1", unit: "roll" },
+      );
+      const tombstone =
+        await prisma.groceryListRemovedContribution.findFirstOrThrow({
+          where: { groceryListId: listId },
+        });
+
+      return { mealPlanId, dishId, entryId, listId, manualItem, tombstone };
+    }
+
+    it("previews the live manual addition and deletion", async () => {
+      const { mealPlanId, listId, manualItem, tombstone } =
+        await setupListWithManualAdditionAndDeletion();
+
+      const preview = await mealPlanService.previewMealPlanGroceryListSync(
+        userId!,
+        mealPlanId,
+        listId,
+      );
+      expect(preview.manualAdditions).toEqual([
+        {
+          id: manualItem.id,
+          name: "Paper towels",
+          quantityText: "1",
+          unit: "roll",
+        },
+      ]);
+      expect(preview.manualDeletions).toEqual([
+        { id: tombstone.id, name: "Garlic" },
+      ]);
+    });
+
+    it("is empty for a freshly generated list with no manual edits — Sync now should resync directly, no modal", async () => {
+      const { mealPlanId } = await setupMealPlan();
+      const dishId = await dishService.createDish(
+        userId!,
+        "RECIPE",
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [ingredient({ name: "Garlic", quantity: 1 })],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      await mealPlanService.addMealPlanEntry(userId!, mealPlanId, {
+        dishId,
+        cookDate: new Date("2026-08-03T00:00:00.000Z"),
+      });
+      const listId = await mealPlanService.generateGroceryListFromMealPlan(
+        userId!,
+        mealPlanId,
+        { title: "Shopping" },
+      );
+      const preview = await mealPlanService.previewMealPlanGroceryListSync(
+        userId!,
+        mealPlanId,
+        listId,
+      );
+      expect(preview).toEqual({ manualAdditions: [], manualDeletions: [] });
+    });
+
+    it("keeping every default preserves both across repeated Sync-now calls, with the deletion staying suppressed and no duplicate tombstone", async () => {
+      const { mealPlanId, listId } =
+        await setupListWithManualAdditionAndDeletion();
+
+      for (let i = 0; i < 2; i++) {
+        await mealPlanService.resyncMealPlanGroceryLists(
+          userId!,
+          mealPlanId,
+          listId,
+        );
+      }
+
+      const items = await prisma.groceryListItem.findMany({
+        where: { groceryListId: listId },
+      });
+      expect(items.map((i) => i.name)).toEqual(["Paper towels"]);
+
+      const tombstones = await prisma.groceryListRemovedContribution.findMany({
+        where: { groceryListId: listId },
+      });
+      expect(tombstones).toHaveLength(1);
+    });
+
+    it("discarding the addition removes it, and discarding the deletion lets the generated item return, in the same Sync now", async () => {
+      const { mealPlanId, listId, manualItem, tombstone } =
+        await setupListWithManualAdditionAndDeletion();
+
+      const summary = await mealPlanService.resyncMealPlanGroceryLists(
+        userId!,
+        mealPlanId,
+        listId,
+        {
+          discardManualItemIds: [manualItem.id],
+          discardRemovedContributionIds: [tombstone.id],
+        },
+      );
+      expect(summary?.added).toBe(1);
+
+      const items = await prisma.groceryListItem.findMany({
+        where: { groceryListId: listId },
+      });
+      expect(items.map((i) => i.name)).toEqual(["Garlic"]);
+
+      const tombstones = await prisma.groceryListRemovedContribution.findMany({
+        where: { groceryListId: listId },
+      });
+      expect(tombstones).toHaveLength(0);
+    });
+
+    it("applies reconciliation only to the reviewed list, leaving a sibling list generated from the same Meal Plan untouched", async () => {
+      const { mealPlanId, listId, manualItem } =
+        await setupListWithManualAdditionAndDeletion();
+      const siblingListId =
+        await mealPlanService.generateGroceryListFromMealPlan(
+          userId!,
+          mealPlanId,
+          { title: "Sibling" },
+        );
+      const siblingManualItem = await listService.addManualGroceryItem(
+        userId!,
+        siblingListId,
+        { name: "Foil" },
+      );
+
+      await mealPlanService.resyncMealPlanGroceryLists(
+        userId!,
+        mealPlanId,
+        listId,
+        { discardManualItemIds: [manualItem.id] },
+      );
+
+      const reviewedItems = await prisma.groceryListItem.findMany({
+        where: { groceryListId: listId },
+      });
+      expect(reviewedItems.some((i) => i.id === manualItem.id)).toBe(false);
+
+      const siblingItems = await prisma.groceryListItem.findMany({
+        where: { groceryListId: siblingListId },
+      });
+      expect(siblingItems.some((i) => i.id === siblingManualItem.id)).toBe(
+        true,
+      );
+    });
+
+    it("has nothing left to review once a required-transition (§81.4) has already invalidated the tombstone via the entry's own automatic resync", async () => {
+      const { mealPlanId } = await setupMealPlan();
+      const dishId = await dishService.createDish(
+        userId!,
+        "RECIPE",
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({
+                  name: "Cilantro",
+                  quantity: 1,
+                  unit: null,
+                  isOptional: true,
+                }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      const entryId = await mealPlanService.addMealPlanEntry(
+        userId!,
+        mealPlanId,
+        { dishId, cookDate: new Date("2026-08-03T00:00:00.000Z") },
+      );
+      const listId = await mealPlanService.generateGroceryListFromMealPlan(
+        userId!,
+        mealPlanId,
+        { title: "Shopping" },
+      );
+      const item = await prisma.groceryListItem.findFirstOrThrow({
+        where: { groceryListId: listId },
+      });
+      const lineage = await primaryIngredientLineage(dishId);
+      await listService.removeGroceryItem(userId!, listId, item.id);
+
+      await dishService.editDish(
+        userId!,
+        dishId,
+        await currentVersionId(dishId),
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                ingredient({
+                  lineageId: lineage.lineageId,
+                  name: "Cilantro",
+                  quantity: 1,
+                  unit: null,
+                  isOptional: false,
+                }),
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+        "MINOR",
+      );
+      // Adopting the new required-Cilantro Version runs its own automatic
+      // resync, which already invalidates the tombstone and re-adds the now
+      // -required contribution (§81.4) — before the user ever opens a
+      // Sync-now preview.
+      await mealPlanService.adoptNewerVersionInEntry(
+        userId!,
+        mealPlanId,
+        entryId,
+        await currentVersionId(dishId),
+      );
+      const tombstoneAfterAdoption =
+        await prisma.groceryListRemovedContribution.findFirst({
+          where: { groceryListId: listId },
+        });
+      expect(tombstoneAfterAdoption).toBeNull();
+
+      const preview = await mealPlanService.previewMealPlanGroceryListSync(
+        userId!,
+        mealPlanId,
+        listId,
+      );
+      expect(preview.manualDeletions).toEqual([]);
+    });
+  });
+
   describe("sticky unacknowledged CHANGED contributions (post-Slice-15 seed-review correction)", () => {
     it("stays CHANGED with checkoff and the original previous-value snapshot preserved through an unrelated resync, until acknowledged — then a later ordinary resync settles back to ACTIVE/UNCHANGED unless something changes again", async () => {
       const { mealPlanId } = await setupMealPlan();

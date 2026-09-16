@@ -1,6 +1,7 @@
 import { requireUserId } from "@/lib/auth/session";
 import { toActionErrorMessage } from "@/lib/errors";
 import { uploadAndNormalizeImage } from "@/lib/images/service";
+import { consumeRateLimit } from "@/lib/rate-limit/limit";
 
 /**
  * Slice 6A: the receiving end of the image-upload flow — the browser posts
@@ -19,6 +20,22 @@ import { uploadAndNormalizeImage } from "@/lib/images/service";
 export async function POST(request: Request) {
   try {
     const userId = await requireUserId();
+
+    // Per-user, not per-IP: an authenticated upload storm is a storage/Blob
+    // cost concern regardless of which network it comes from.
+    const rateLimit = await consumeRateLimit(`image-upload:${userId}`, {
+      max: 30,
+      windowSeconds: 10 * 60,
+    });
+    if (!rateLimit.allowed) {
+      return Response.json(
+        { message: "Too many uploads. Please try again shortly." },
+        {
+          status: 429,
+          headers: { "Retry-After": String(rateLimit.retryAfterSeconds) },
+        },
+      );
+    }
 
     const formData = await request.formData();
     const file = formData.get("file");

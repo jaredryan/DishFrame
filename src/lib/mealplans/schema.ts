@@ -161,8 +161,18 @@ export const generateGroceryListFromMealPlanSchema = mealPlanIdSchema.extend({
   entryIds: z.array(z.string().min(1)).optional(),
 });
 
+const groceryListSyncReconciliationSchema = z.object({
+  discardManualItemIds: z.array(z.string().min(1)).optional(),
+  discardRemovedContributionIds: z.array(z.string().min(1)).optional(),
+});
+
 export const resyncMealPlanGroceryListsSchema = mealPlanIdSchema.extend({
   listId: z.string().min(1).optional(),
+  reconciliation: groceryListSyncReconciliationSchema.optional(),
+});
+
+export const previewMealPlanGroceryListSyncSchema = mealPlanIdSchema.extend({
+  listId: z.string().min(1),
 });
 
 export const setMealPlanGroceryListEntryIncludedSchema = entryIdSchema.extend({

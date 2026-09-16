@@ -3,7 +3,9 @@
 import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { updateCookingNotes } from "@/lib/reviews/actions";
+import { runOrQueueMutation } from "@/lib/offline/mutate";
+import { generateClientId } from "@/lib/offline/ids";
+import type { CookingModeSessionProps } from "@/lib/cooking/session-view";
 
 /**
  * PRODUCT_SPEC.md §31.3: one freeform field per Cooking Session, editable
@@ -28,11 +30,19 @@ export function CookingNotesField({
     setError(null);
     setSaved(false);
     startTransition(async () => {
-      const result = await updateCookingNotes({
-        sessionId,
-        cookingNotes: value.trim() || null,
+      const cookingNotes = value.trim() || null;
+      const result = await runOrQueueMutation({
+        op: "cooking.updateNotes",
+        entityType: "cookingSession",
+        entityId: sessionId,
+        payload: { sessionId, cookingNotes },
+        optimisticDoc: (current: unknown) => {
+          const props = current as CookingModeSessionProps | undefined;
+          return props ? { ...props, cookingNotes } : current;
+        },
+        mutationId: generateClientId(),
       });
-      if (result.status === "error") {
+      if (!result.ok) {
         setError(result.message);
         return;
       }

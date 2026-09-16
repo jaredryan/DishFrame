@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth/session";
 import { isGoogleAuthConfigured } from "@/lib/env/server";
 import { SignInCard } from "@/components/auth/sign-in-card";
+import { OfflineAccountBoot } from "@/components/offline/account-boot";
 
 export const metadata: Metadata = {
   title: "Sign in",
@@ -52,10 +53,17 @@ export default async function SignInPage({
     : undefined;
 
   return (
-    <SignInCard
-      googleConfigured={isGoogleAuthConfigured}
-      initialError={initialError}
-      callbackURL={redirectTo}
-    />
+    <>
+      {/* Reaching this render always means "not authenticated" — the
+       * check above already redirected any signed-in session away — so
+       * this is the one guaranteed place an unauthenticated boot passes
+       * through (docs/OFFLINE_IMPLEMENTATION_PLAN.md §6.2). */}
+      <OfflineAccountBoot authenticatedUserId={null} />
+      <SignInCard
+        googleConfigured={isGoogleAuthConfigured}
+        initialError={initialError}
+        callbackURL={redirectTo}
+      />
+    </>
   );
 }

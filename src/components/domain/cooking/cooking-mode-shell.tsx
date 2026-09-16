@@ -34,13 +34,11 @@ import {
 } from "@/components/domain/cooking/use-live-timers";
 import { useChecklistState } from "@/components/domain/cooking/use-checklist-state";
 import { useTimerActions } from "@/components/domain/cooking/use-timer-actions";
+import { useWakeLock } from "@/components/domain/cooking/use-wake-lock";
 import { playTimerDing } from "@/lib/cooking/timer-sound";
-import {
-  setUnitCompletion,
-  updateSessionScale,
-  updateUnitScale,
-  endCookingSession,
-} from "@/lib/cooking/actions";
+import { runOrQueueMutation } from "@/lib/offline/mutate";
+import { generateClientId } from "@/lib/offline/ids";
+import type { CookingModeSessionProps } from "@/lib/cooking/session-view";
 import type { DishKindValue } from "@/lib/dishes/schema";
 import type {
   CookingModeChecklistItem,
@@ -204,6 +202,7 @@ export function CookingModeShell({
     void timer;
   });
   const hasRunningTimer = allTimers.some((t) => t.state === "RUNNING");
+  useWakeLock(isActive && hasRunningTimer);
 
   // Refinement pass item 1: an explicit End-cooking outcome (Leave & resume
   // later / End early / Finish session) already asked the user what they
@@ -230,11 +229,36 @@ export function CookingModeShell({
     (u) => u.completedAt != null,
   ).length;
 
+  function patchUnit(
+    doc: unknown,
+    unitId: string,
+    patch: Partial<CookingModeUnit>,
+  ): unknown {
+    const props = doc as CookingModeSessionProps | undefined;
+    if (!props) return doc;
+    return {
+      ...props,
+      units: props.units.map((unit) =>
+        unit.id === unitId ? { ...unit, ...patch } : unit,
+      ),
+    };
+  }
+
   function handleSetUnitCompletion(unitId: string, completed: boolean) {
     setError(null);
     startTransition(async () => {
-      const result = await setUnitCompletion({ sessionId, unitId, completed });
-      if (result.status === "error") {
+      const result = await runOrQueueMutation({
+        op: "cooking.setUnitCompletion",
+        entityType: "cookingSession",
+        entityId: sessionId,
+        payload: { sessionId, unitId, completed },
+        optimisticDoc: (current: unknown) =>
+          patchUnit(current, unitId, {
+            completedAt: completed ? new Date().toISOString() : null,
+          }),
+        mutationId: generateClientId(),
+      });
+      if (!result.ok) {
         setError(result.message);
         return;
       }
@@ -248,11 +272,20 @@ export function CookingModeShell({
   function handleSaveSessionScale() {
     setError(null);
     startTransition(async () => {
-      const result = await updateSessionScale({
-        sessionId,
-        scaleFactor: pendingSessionScale,
+      const result = await runOrQueueMutation({
+        op: "cooking.updateSessionScale",
+        entityType: "cookingSession",
+        entityId: sessionId,
+        payload: { sessionId, scaleFactor: pendingSessionScale },
+        optimisticDoc: (current: unknown) => {
+          const props = current as CookingModeSessionProps | undefined;
+          return props
+            ? { ...props, sessionScaleFactor: pendingSessionScale ?? 1 }
+            : current;
+        },
+        mutationId: generateClientId(),
       });
-      if (result.status === "error") {
+      if (!result.ok) {
         setError(result.message);
         return;
       }
@@ -265,12 +298,16 @@ export function CookingModeShell({
     if (!scalingUnitId) return;
     setError(null);
     startTransition(async () => {
-      const result = await updateUnitScale({
-        sessionId,
-        unitId: scalingUnitId,
-        scaleFactor: pendingUnitScale,
+      const result = await runOrQueueMutation({
+        op: "cooking.updateUnitScale",
+        entityType: "cookingSession",
+        entityId: sessionId,
+        payload: { sessionId, unitId: scalingUnitId, scaleFactor: pendingUnitScale },
+        optimisticDoc: (current: unknown) =>
+          patchUnit(current, scalingUnitId, { scaleFactor: pendingUnitScale ?? 1 }),
+        mutationId: generateClientId(),
       });
-      if (result.status === "error") {
+      if (!result.ok) {
         setError(result.message);
         return;
       }
@@ -287,14 +324,28 @@ export function CookingModeShell({
       // inactive session, so ending first would silently drop a check made
       // just before "End cooking".
       await checklistState.flush();
-      const result = await endCookingSession({ sessionId, outcome });
+      const result = await runOrQueueMutation({
+        op: "cooking.endSession",
+        entityType: "cookingSession",
+        entityId: sessionId,
+        payload: { sessionId, outcome },
+        optimisticDoc: (current: unknown) => {
+          const props = current as CookingModeSessionProps | undefined;
+          return props ? { ...props, state: outcome, isActive: false } : current;
+        },
+        mutationId: generateClientId(),
+      });
       setConfirmingEnd(false);
-      if (result.status === "error") {
+      if (!result.ok) {
         setError(result.message);
       } else {
         // PRODUCT_SPEC.md §33.1/§42 "Ending": both outcomes offer an
         // optional Review — the Review page's own "Not now" is what
         // actually satisfies "creates no empty Review," not this redirect.
+        // Reachable offline too — the Review page itself is a separate
+        // route this pass doesn't precache, so opening it offline shows
+        // the standard offline-unavailable message; the end-session
+        // mutation above is still safely queued regardless.
         skipLeaveWarningRef.current = true;
         router.push(`/cook/${sessionId}/review`);
       }

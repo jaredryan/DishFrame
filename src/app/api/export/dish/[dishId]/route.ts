@@ -10,6 +10,7 @@ import {
   type VersionModeValue,
 } from "@/lib/importExport/export-dto";
 import { dishKindValues, type DishKindValue } from "@/lib/dishes/schema";
+import { consumeRateLimit } from "@/lib/rate-limit/limit";
 
 /**
  * PRODUCT_SPEC.md §55.2-§55.6: one Recipe or Part, at the requested privacy
@@ -31,6 +32,20 @@ export async function GET(
   const session = await getServerSession();
   if (!session) {
     return Response.json({ message: "Sign in required." }, { status: 401 });
+  }
+
+  const rateLimit = await consumeRateLimit(`export:${session.user.id}`, {
+    max: 20,
+    windowSeconds: 10 * 60,
+  });
+  if (!rateLimit.allowed) {
+    return Response.json(
+      { message: "Too many exports. Please try again shortly." },
+      {
+        status: 429,
+        headers: { "Retry-After": String(rateLimit.retryAfterSeconds) },
+      },
+    );
   }
 
   const { dishId } = await params;

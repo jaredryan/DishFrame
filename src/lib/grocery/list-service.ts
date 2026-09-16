@@ -144,6 +144,7 @@ type PendingContribution = {
 export async function generateGroceryList(
   ownerId: string,
   input: GenerateGroceryListInput,
+  clientListId?: string,
 ): Promise<string> {
   const title = input.title.trim();
   if (!title) throw new ValidationError("Enter a title for this grocery list.");
@@ -197,7 +198,12 @@ export async function generateGroceryList(
 
   return prisma.$transaction(async (tx) => {
     const list = await tx.groceryList.create({
-      data: { ownerId, title, plannedDate: input.plannedDate },
+      data: {
+        ...(clientListId ? { id: clientListId } : {}),
+        ownerId,
+        title,
+        plannedDate: input.plannedDate,
+      },
     });
 
     const pending: PendingContribution[] = [];
@@ -577,6 +583,7 @@ export async function addManualGroceryItem(
   ownerId: string,
   listId: string,
   input: AddManualItemInput,
+  clientItemId?: string,
 ) {
   const name = input.name.trim();
   if (!name) throw new ValidationError("Enter an item name.");
@@ -605,6 +612,7 @@ export async function addManualGroceryItem(
 
   return prisma.groceryListItem.create({
     data: {
+      ...(clientItemId ? { id: clientItemId } : {}),
       groceryListId: listId,
       categoryId,
       name,
@@ -1886,6 +1894,107 @@ const NO_RESYNC_CHANGES: GroceryListResyncSummary = {
   changed: 0,
 };
 
+/**
+ * Grocery-list resync reconciliation (manual-additions/deletions review
+ * modal) — a caller-approved set of this list's own manual items/removal
+ * tombstones to discard as part of *this* resync, rather than the default
+ * "preserve everything" behavior. Applied only to the one list the user
+ * actually reviewed (see `mealplans/service.ts#resyncLinkedLists`'s
+ * `focusListId` handling) — every other list a Meal Plan mutation resyncs
+ * keeps the unconditional-preserve default untouched.
+ */
+export type GroceryListResyncReconciliation = {
+  discardManualItemIds?: string[];
+  discardRemovedContributionIds?: string[];
+};
+
+export type GroceryListSyncReconciliationCandidate = {
+  manualAdditions: {
+    id: string;
+    name: string;
+    quantityText: string | null;
+    unit: string | null;
+  }[];
+  manualDeletions: { id: string; name: string }[];
+};
+
+const NO_RECONCILIATION_CANDIDATES: GroceryListSyncReconciliationCandidate = {
+  manualAdditions: [],
+  manualDeletions: [],
+};
+
+/**
+ * Read-only preview for the Sync-now review modal — the manually added
+ * items and manually removed (tombstoned) generated items this resync would
+ * otherwise silently preserve as-is. Only a tombstone whose lineage still
+ * produces a fresh occurrence is included: one whose source has since
+ * disappeared has nothing at stake this resync regardless of Keep/Discard.
+ * A tombstone whose lineage has transitioned optional→required is also
+ * excluded — §81.4's required-transition correction already overrides that
+ * suppression unconditionally, so surfacing a Keep/Discard choice for it
+ * would be misleading (Keep would not actually hold).
+ */
+export async function getGroceryListSyncReconciliationCandidates(
+  ownerId: string,
+  groceryListId: string,
+  fresh: PendingMealPlanContribution[],
+): Promise<GroceryListSyncReconciliationCandidate> {
+  const list = await prisma.groceryList.findFirst({
+    where: { id: groceryListId, ownerId, mode: "MEAL_PLAN_LINKED" },
+  });
+  if (!list) throw new NotFoundError("Grocery list not found.");
+  if (list.completedAt != null) return NO_RECONCILIATION_CANDIDATES;
+
+  const manualItems = await prisma.groceryListItem.findMany({
+    where: { groceryListId, isManual: true },
+    orderBy: { position: "asc" },
+    select: { id: true, name: true, quantityText: true, unit: true },
+  });
+
+  const exclusions = await prisma.groceryListMealPlanEntryExclusion.findMany({
+    where: { groceryListId },
+    select: { mealPlanEntryId: true },
+  });
+  const excludedEntryIds = new Set(exclusions.map((e) => e.mealPlanEntryId));
+  const includedFresh = fresh.filter(
+    (f) => !excludedEntryIds.has(f.mealPlanEntryId),
+  );
+  const freshByKey = new Map(
+    includedFresh
+      .filter((f) => f.occurrence.ingredientLineageId)
+      .map((f) => [
+        mealPlanContributionKey(
+          f.mealPlanEntryId,
+          f.occurrence.ingredientLineageId!,
+        ),
+        f,
+      ]),
+  );
+
+  const tombstones = await prisma.groceryListRemovedContribution.findMany({
+    where: { groceryListId },
+  });
+  const manualDeletions: { id: string; name: string }[] = [];
+  for (const tombstone of tombstones) {
+    const freshEntry = freshByKey.get(
+      mealPlanContributionKey(
+        tombstone.mealPlanEntryId,
+        tombstone.ingredientLineageId,
+      ),
+    );
+    if (!freshEntry) continue;
+    const becameRequired =
+      tombstone.wasOptional && !freshEntry.occurrence.isOptional;
+    if (becameRequired) continue;
+    manualDeletions.push({
+      id: tombstone.id,
+      name: freshEntry.occurrence.originalName,
+    });
+  }
+
+  return { manualAdditions: manualItems, manualDeletions };
+}
+
 export async function resyncGroceryListFromMealPlan(
   tx: Prisma.TransactionClient,
   ownerId: string,
@@ -1895,11 +2004,38 @@ export async function resyncGroceryListFromMealPlan(
    * caller and pass the same result to each list, rather than re-walking
    * identical entries per list. */
   fresh: PendingMealPlanContribution[],
+  /** Caller-approved discards from the Sync-now review modal — see
+   * `GroceryListResyncReconciliation`. Omitted (the common case: every
+   * automatic resync, and a manual Sync-now with nothing to review) keeps
+   * the unconditional "preserve every manual addition/deletion" default. */
+  reconciliation?: GroceryListResyncReconciliation,
 ): Promise<GroceryListResyncSummary> {
   const list = await tx.groceryList.findFirst({
     where: { id: groceryListId, ownerId, mode: "MEAL_PLAN_LINKED" },
   });
   if (!list || list.completedAt != null) return NO_RESYNC_CHANGES;
+
+  if (reconciliation?.discardManualItemIds?.length) {
+    await tx.groceryListItem.deleteMany({
+      where: {
+        id: { in: reconciliation.discardManualItemIds },
+        groceryListId,
+        isManual: true,
+      },
+    });
+  }
+  if (reconciliation?.discardRemovedContributionIds?.length) {
+    // Deleting the tombstone before the diff below runs is what lets a
+    // discarded deletion's generated item return in this same resync — the
+    // "Added" loop finds no tombstone for the key and treats it as a fresh
+    // occurrence, same as if it had never been removed.
+    await tx.groceryListRemovedContribution.deleteMany({
+      where: {
+        id: { in: reconciliation.discardRemovedContributionIds },
+        groceryListId,
+      },
+    });
+  }
 
   // §81.7 — an entry the user has toggled off for this list is treated
   // exactly like it disappeared from the plan for this list alone: filtered

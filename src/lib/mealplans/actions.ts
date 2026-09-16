@@ -17,12 +17,16 @@ import {
   saveMealPlanEntryChangesSchema,
   generateGroceryListFromMealPlanSchema,
   resyncMealPlanGroceryListsSchema,
+  previewMealPlanGroceryListSyncSchema,
   setMealPlanGroceryListEntryIncludedSchema,
   setPlannedMealEatenSchema,
   markScheduleDayEatenSchema,
   type ActionState,
 } from "@/lib/mealplans/schema";
-import type { GroceryListResyncSummary } from "@/lib/grocery/list-service";
+import type {
+  GroceryListResyncSummary,
+  GroceryListSyncReconciliationCandidate,
+} from "@/lib/grocery/list-service";
 
 const PLANS_PATH = "/meal-plans";
 const LISTS_PATH = "/grocery-lists";
@@ -408,19 +412,49 @@ export async function resyncMealPlanGroceryLists(values: {
    * rather than an aggregate across every sibling list this Meal Plan
    * feeds (every active linked list still resyncs regardless). */
   listId?: string;
+  /** The user's Keep/Discard choices from the Sync-now review modal
+   * (`previewMealPlanGroceryListSync`), applied only to `listId`. */
+  reconciliation?: {
+    discardManualItemIds?: string[];
+    discardRemovedContributionIds?: string[];
+  };
 }): Promise<ResyncMealPlanGroceryListsActionState> {
   try {
     const userId = await requireUserId();
-    const { mealPlanId, listId } =
+    const { mealPlanId, listId, reconciliation } =
       resyncMealPlanGroceryListsSchema.parse(values);
     const summary = await mealPlanService.resyncMealPlanGroceryLists(
       userId,
       mealPlanId,
       listId,
+      reconciliation,
     );
     revalidateMealPlan(mealPlanId);
     revalidatePath(LISTS_PATH);
     return { status: "success", summary };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export type PreviewMealPlanGroceryListSyncActionState =
+  | { status: "success"; preview: GroceryListSyncReconciliationCandidate }
+  | { status: "error"; message: string };
+
+export async function previewMealPlanGroceryListSync(values: {
+  mealPlanId: string;
+  listId: string;
+}): Promise<PreviewMealPlanGroceryListSyncActionState> {
+  try {
+    const userId = await requireUserId();
+    const { mealPlanId, listId } =
+      previewMealPlanGroceryListSyncSchema.parse(values);
+    const preview = await mealPlanService.previewMealPlanGroceryListSync(
+      userId,
+      mealPlanId,
+      listId,
+    );
+    return { status: "success", preview };
   } catch (error) {
     return { status: "error", message: toActionErrorMessage(error) };
   }
