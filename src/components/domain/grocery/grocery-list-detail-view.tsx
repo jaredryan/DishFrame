@@ -65,6 +65,12 @@ import { useReorderSensors } from "@/lib/dnd/sensors";
 import { createReorderAnnouncements } from "@/lib/dnd/announcements";
 import { toIsoDateOnly, formatDateOnly } from "@/lib/date";
 import {
+  previewGroceryListSourceRefresh,
+  listGrocerySourceVersionOptions,
+} from "@/lib/grocery/list-actions";
+import { previewGroceryListSourceRefreshOffline } from "@/lib/grocery/offline-source-refresh";
+import { listDishVersionOptionsOffline } from "@/lib/dishes/offline-version-history";
+import {
   toggleGroceryItem,
   addManualGroceryItem,
   editGroceryItem,
@@ -79,19 +85,14 @@ import {
   reopenGroceryList,
   duplicateGroceryList,
   deleteGroceryList,
-  previewGroceryListSourceRefresh,
-  applyGroceryListSourceRefresh,
   acknowledgeGroceryItemSync,
   addGroceryListSource,
   removeGroceryListSource,
   updateGroceryListSource,
-  listGrocerySourceVersionOptions,
-} from "@/lib/grocery/list-actions";
-import {
   resyncMealPlanGroceryLists,
   previewMealPlanGroceryListSync,
   setMealPlanGroceryListEntryIncluded,
-} from "@/lib/mealplans/actions";
+} from "@/components/domain/grocery/grocery-offline-actions";
 import { previewMealPlanEntryInclusion } from "@/lib/grocery/meal-plan-inclusion-preview";
 import Link from "next/link";
 import type {
@@ -876,6 +877,9 @@ export function GroceryListDetailView({
         <RefreshSourceDialog
           listId={list.id}
           sourceId={refreshSourceId}
+          currentScaleFactor={
+            list.sources.find((s) => s.id === refreshSourceId)?.scaleFactor ?? 1
+          }
           onClose={() => setRefreshSourceId(null)}
           onApplied={refresh}
         />
@@ -1079,23 +1083,25 @@ function AddMealDialog({
   React.useEffect(() => {
     if (!selectedDishId) return;
     let cancelled = false;
-    listGrocerySourceVersionOptions({ dishId: selectedDishId }).then(
-      (result) => {
-        if (cancelled) return;
-        if (result.status !== "success") {
-          setVersionLoadError(result.message);
-          return;
-        }
-        setVersions(result.versions);
-        const candidate = candidates.find((c) => c.dishId === selectedDishId);
-        const current = result.versions.find(
-          (v) =>
-            `V${v.majorVersion}.${v.minorVersion}` === candidate?.versionLabel,
-        );
-        const chosen = current ?? result.versions[result.versions.length - 1];
-        if (chosen) setSelectedVersionId(chosen.id);
-      },
-    );
+    const load =
+      typeof navigator !== "undefined" && navigator.onLine === false
+        ? listDishVersionOptionsOffline(selectedDishId)
+        : listGrocerySourceVersionOptions({ dishId: selectedDishId });
+    load.then((result) => {
+      if (cancelled) return;
+      if (result.status !== "success") {
+        setVersionLoadError(result.message);
+        return;
+      }
+      setVersions(result.versions);
+      const candidate = candidates.find((c) => c.dishId === selectedDishId);
+      const current = result.versions.find(
+        (v) =>
+          `V${v.majorVersion}.${v.minorVersion}` === candidate?.versionLabel,
+      );
+      const chosen = current ?? result.versions[result.versions.length - 1];
+      if (chosen) setSelectedVersionId(chosen.id);
+    });
     return () => {
       cancelled = true;
     };
@@ -1235,16 +1241,18 @@ function EditMealDialog({
   React.useEffect(() => {
     if (!source.dishId) return;
     let cancelled = false;
-    listGrocerySourceVersionOptions({ dishId: source.dishId }).then(
-      (result) => {
-        if (cancelled) return;
-        if (result.status === "success") {
-          setVersions(result.versions);
-        } else {
-          setLoadError(result.message);
-        }
-      },
-    );
+    const load =
+      typeof navigator !== "undefined" && navigator.onLine === false
+        ? listDishVersionOptionsOffline(source.dishId)
+        : listGrocerySourceVersionOptions({ dishId: source.dishId });
+    load.then((result) => {
+      if (cancelled) return;
+      if (result.status === "success") {
+        setVersions(result.versions);
+      } else {
+        setLoadError(result.message);
+      }
+    });
     return () => {
       cancelled = true;
     };
@@ -1868,11 +1876,13 @@ function EditGroceryListDialog({
 function RefreshSourceDialog({
   listId,
   sourceId,
+  currentScaleFactor,
   onClose,
   onApplied,
 }: {
   listId: string;
   sourceId: string;
+  currentScaleFactor: number;
   onClose: () => void;
   onApplied: () => void;
 }) {
@@ -1884,6 +1894,21 @@ function RefreshSourceDialog({
 
   React.useEffect(() => {
     startTransition(async () => {
+      // Offline: the same shared diff logic
+      // (`ingredient-gather-core.ts#diffOccurrences`), sourced from the
+      // replica instead of a Server Action round trip.
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        const result = await previewGroceryListSourceRefreshOffline(
+          listId,
+          sourceId,
+        );
+        if ("error" in result) {
+          setLoadError(result.error);
+        } else {
+          setPreview(result);
+        }
+        return;
+      }
       const result = await previewGroceryListSourceRefresh({
         listId,
         sourceId,
@@ -1897,8 +1922,19 @@ function RefreshSourceDialog({
   }, [listId, sourceId]);
 
   function handleApply() {
+    if (!preview) return;
     startTransition(async () => {
-      const result = await applyGroceryListSourceRefresh({ listId, sourceId });
+      // `applyGroceryListSourceRefresh`'s Server Action has no offline
+      // fallback of its own, but `grocery.updateSource`'s sync op already
+      // calls the exact same service function — reused directly here
+      // (unchanged scale, since "Sync" never changes it) so applying a
+      // refresh is queueable offline too, once the diff above is known.
+      const result = await updateGroceryListSource({
+        listId,
+        sourceId,
+        targetVersionId: preview.targetVersionId,
+        scaleFactor: currentScaleFactor,
+      });
       if (result.status === "success") {
         onApplied();
         onClose();

@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { GroceryListDetailView } from "@/components/domain/grocery/grocery-list-detail-view";
 import { ToastProvider, Toaster } from "@/components/ui/toast";
@@ -110,12 +110,55 @@ vi.mock("@/lib/mealplans/actions", () => ({
   setMealPlanGroceryListEntryIncluded,
 }));
 
+// Most grocery mutations (toggle/select-variant/acknowledge/add-remove-
+// source/etc.) and the Meal-Plan resync/inclusion ops now route through
+// `grocery-offline-actions.ts` → `runOrQueueMutation` →
+// fetch("/api/sync/grocery" | "/api/sync/mealplans", ...) instead of
+// calling a Server Action directly — the mocks above are dead for those
+// (only `previewMealPlanGroceryListSync`'s online path still calls through
+// to the real `@/lib/mealplans/actions` import). This fetch stub, plus
+// `syncPayloads()`, replaces those dead mocks for assertions.
+let fetchMock: ReturnType<typeof vi.fn>;
+
+function syncResponse(body: Record<string, unknown> = {}) {
+  return new Response(
+    JSON.stringify({
+      status: "applied",
+      entityId: "list-1",
+      serverRevision: null,
+      ...body,
+    }),
+    { status: 200 },
+  );
+}
+
+function syncPayloads() {
+  return fetchMock.mock.calls.map(([, init]) => {
+    const body = JSON.parse((init as RequestInit).body as string) as {
+      op: string;
+      entityId: string;
+      payload: unknown;
+    };
+    return { op: body.op, entityId: body.entityId, payload: body.payload };
+  });
+}
+
+beforeEach(() => {
+  fetchMock = vi.fn(async () => syncResponse());
+  vi.stubGlobal("fetch", fetchMock);
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 function contribution(
   overrides: Partial<GroceryContributionDto> = {},
 ): GroceryContributionDto {
   return {
     id: "contribution-1",
     groceryListSourceId: "source-1",
+    ingredientLineageId: null,
     originalName: "Butter",
     quantityText: "1 cup",
     quantityDecimal: 1,
@@ -127,6 +170,15 @@ function contribution(
     previousQuantityText: null,
     sourceTitle: null,
     mealPlanEntryId: null,
+    rawOriginalName: "Butter",
+    rawQuantityDecimal: 1,
+    rawQuantityText: "1 cup",
+    rawUnit: "cup",
+    substituteOriginalName: null,
+    substituteQuantityDecimal: null,
+    substituteQuantityText: null,
+    substituteUnit: null,
+    acknowledgedAt: null,
     ...overrides,
   };
 }
@@ -145,6 +197,7 @@ function item(overrides: Partial<GroceryListItemDto> = {}): GroceryListItemDto {
     contributions: [contribution()],
     syncFlag: "UNCHANGED",
     flagAcknowledgedAt: null,
+    updatedAt: new Date().toISOString(),
     ...overrides,
   };
 }
@@ -165,6 +218,8 @@ function renderList(
     sources: [],
     items,
     mealPlanEntries: [],
+    removedContributions: [],
+    updatedAt: new Date().toISOString(),
     ...listOverrides,
   };
   return render(
@@ -196,11 +251,13 @@ describe("GroceryListDetailView — reversible substitute selection (Slice 12 co
     ).not.toBeInTheDocument();
 
     await user.click(button);
-    expect(selectGroceryItemVariant).toHaveBeenCalledWith({
-      listId: "list-1",
-      itemId: "item-1",
-      variant: "SUBSTITUTE",
-    });
+    await waitFor(() =>
+      expect(syncPayloads()).toContainEqual({
+        op: "grocery.selectItemVariant",
+        entityId: "list-1",
+        payload: { listId: "list-1", itemId: "item-1", variant: "SUBSTITUTE" },
+      }),
+    );
   });
 
   it("shows 'Use original' when the substitute is selected and invokes selection with PRIMARY", async () => {
@@ -219,11 +276,13 @@ describe("GroceryListDetailView — reversible substitute selection (Slice 12 co
     ).not.toBeInTheDocument();
 
     await user.click(button);
-    expect(selectGroceryItemVariant).toHaveBeenCalledWith({
-      listId: "list-1",
-      itemId: "item-1",
-      variant: "PRIMARY",
-    });
+    await waitFor(() =>
+      expect(syncPayloads()).toContainEqual({
+        op: "grocery.selectItemVariant",
+        entityId: "list-1",
+        payload: { listId: "list-1", itemId: "item-1", variant: "PRIMARY" },
+      }),
+    );
   });
 
   it("hides both actions when no substitute snapshot exists", () => {
@@ -370,10 +429,13 @@ describe("GroceryListDetailView — Meal-Plan sync flags (Slice 15, §81.4)", ()
     expect(screen.getByText(/Butter/)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Acknowledge" }));
-    expect(acknowledgeGroceryItemSync).toHaveBeenCalledWith({
-      listId: "list-1",
-      itemId: "item-1",
-    });
+    await waitFor(() =>
+      expect(syncPayloads()).toContainEqual({
+        op: "grocery.acknowledgeItemSync",
+        entityId: "list-1",
+        payload: { listId: "list-1", itemId: "item-1" },
+      }),
+    );
   });
 
   it("flags a checked-off item whose contribution disappeared, preserving its checkmark and name (round-2 Correction 5)", async () => {
@@ -437,9 +499,6 @@ describe("GroceryListDetailView — Edit meal Version/yield recalculation", () =
         },
       ],
     });
-    updateGroceryListSource.mockReset();
-    updateGroceryListSource.mockResolvedValue({ status: "success" });
-
     const user = userEvent.setup();
     renderList([], {
       sources: [
@@ -476,12 +535,17 @@ describe("GroceryListDetailView — Edit meal Version/yield recalculation", () =
 
     await user.click(screen.getByRole("button", { name: "Save changes" }));
 
-    expect(updateGroceryListSource).toHaveBeenCalledWith(
-      expect.objectContaining({
-        sourceId: "source-1",
-        targetVersionId: "v2",
-        scaleFactor: 0.75,
-      }),
+    await waitFor(() =>
+      expect(syncPayloads()).toContainEqual(
+        expect.objectContaining({
+          op: "grocery.updateSource",
+          payload: expect.objectContaining({
+            sourceId: "source-1",
+            targetVersionId: "v2",
+            scaleFactor: 0.75,
+          }),
+        }),
+      ),
     );
   });
 });
@@ -508,9 +572,6 @@ describe("GroceryListDetailView — Add meal Version selection", () => {
         },
       ],
     });
-    addGroceryListSource.mockReset();
-    addGroceryListSource.mockResolvedValue({ status: "success" });
-
     const user = userEvent.setup();
     renderList([], {}, [
       {
@@ -551,12 +612,17 @@ describe("GroceryListDetailView — Add meal Version selection", () => {
     const dialog = screen.getByRole("dialog", { name: "Add meal" });
     await user.click(within(dialog).getByRole("button", { name: "Add meal" }));
 
-    expect(addGroceryListSource).toHaveBeenCalledWith(
-      expect.objectContaining({
-        dishId: "dish-1",
-        dishVersionId: "v1",
-        scaleFactor: 2,
-      }),
+    await waitFor(() =>
+      expect(syncPayloads()).toContainEqual(
+        expect.objectContaining({
+          op: "grocery.addSource",
+          payload: expect.objectContaining({
+            dishId: "dish-1",
+            dishVersionId: "v1",
+            scaleFactor: 2,
+          }),
+        }),
+      ),
     );
   });
 });
@@ -606,7 +672,6 @@ describe("GroceryListDetailView — Meal-Plan-linked Meals section (§81.7)", ()
   });
 
   it("toggling an entry's checkbox calls setMealPlanGroceryListEntryIncluded, distinct from the plan's own entry list", async () => {
-    setMealPlanGroceryListEntryIncluded.mockClear();
     const user = userEvent.setup();
     renderList([], {
       id: "list-9",
@@ -627,20 +692,26 @@ describe("GroceryListDetailView — Meal-Plan-linked Meals section (§81.7)", ()
       screen.getByRole("checkbox", { name: /Chili Crisp Bowl/ }),
     );
 
-    expect(setMealPlanGroceryListEntryIncluded).toHaveBeenCalledWith({
-      mealPlanId: "plan-1",
-      listId: "list-9",
-      entryId: "entry-1",
-      included: false,
-    });
+    await waitFor(() =>
+      expect(syncPayloads()).toContainEqual({
+        op: "grocery.setMealPlanEntryIncluded",
+        entityId: "list-9",
+        payload: {
+          mealPlanId: "plan-1",
+          listId: "list-9",
+          entryId: "entry-1",
+          included: false,
+        },
+      }),
+    );
   });
 
   it("updates the checkbox immediately, before the server mutation resolves (§81.7 optimistic UI)", async () => {
-    let resolveMutation: (value: { status: "success" }) => void;
-    setMealPlanGroceryListEntryIncluded.mockImplementationOnce(
+    let resolveMutation: () => void;
+    fetchMock.mockImplementationOnce(
       () =>
         new Promise((resolve) => {
-          resolveMutation = resolve;
+          resolveMutation = () => resolve(syncResponse());
         }),
     );
     const user = userEvent.setup();
@@ -665,15 +736,18 @@ describe("GroceryListDetailView — Meal-Plan-linked Meals section (§81.7)", ()
 
     // Unchecked immediately — the mutation promise above is still pending.
     expect(checkbox).not.toBeChecked();
-    resolveMutation!({ status: "success" });
+    // The mutation fires behind an optimistic IndexedDB write
+    // (`runOrQueueMutation`), so it isn't necessarily posted yet.
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    resolveMutation!();
   });
 
   it("updates the checkbox immediately when checking an unselected meal, same as unchecking (§81.7 optimistic UI, symmetric)", async () => {
-    let resolveMutation: (value: { status: "success" }) => void;
-    setMealPlanGroceryListEntryIncluded.mockImplementationOnce(
+    let resolveMutation: () => void;
+    fetchMock.mockImplementationOnce(
       () =>
         new Promise((resolve) => {
-          resolveMutation = resolve;
+          resolveMutation = () => resolve(syncResponse());
         }),
     );
     const user = userEvent.setup();
@@ -698,15 +772,16 @@ describe("GroceryListDetailView — Meal-Plan-linked Meals section (§81.7)", ()
 
     // Checked immediately — the mutation promise above is still pending.
     expect(checkbox).toBeChecked();
-    resolveMutation!({ status: "success" });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    resolveMutation!();
   });
 
   it("keeps the checkbox interactive (never disabled) while its own mutation is in flight", async () => {
-    let resolveMutation: (value: { status: "success" }) => void;
-    setMealPlanGroceryListEntryIncluded.mockImplementationOnce(
+    let resolveMutation: () => void;
+    fetchMock.mockImplementationOnce(
       () =>
         new Promise((resolve) => {
-          resolveMutation = resolve;
+          resolveMutation = () => resolve(syncResponse());
         }),
     );
     const user = userEvent.setup();
@@ -729,14 +804,17 @@ describe("GroceryListDetailView — Meal-Plan-linked Meals section (§81.7)", ()
     await user.click(checkbox);
 
     expect(checkbox).toBeEnabled();
-    resolveMutation!({ status: "success" });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    resolveMutation!();
   });
 
   it("rolls the checkbox back and shows the error toast when the mutation fails (§81.7 rollback)", async () => {
-    setMealPlanGroceryListEntryIncluded.mockImplementationOnce(async () => ({
-      status: "error" as const,
-      message: "Could not update this meal's inclusion.",
-    }));
+    fetchMock.mockResolvedValueOnce(
+      syncResponse({
+        status: "error",
+        message: "Could not update this meal's inclusion.",
+      }),
+    );
     const user = userEvent.setup();
     renderList([], {
       id: "list-9",
@@ -757,17 +835,21 @@ describe("GroceryListDetailView — Meal-Plan-linked Meals section (§81.7)", ()
     await user.click(checkbox);
 
     expect(
-      await screen.findByText("Could not update this meal's inclusion."),
+      await screen.findByText(
+        "Could not update this meal's inclusion.",
+        {},
+        { timeout: 3000 },
+      ),
     ).toBeInTheDocument();
     expect(checkbox).toBeChecked();
   });
 
   it("locally recomputes an item's contents when a Meal Plan entry is unchecked, hiding an item that entry solely contributed to", async () => {
-    let resolveMutation: (value: { status: "success" }) => void;
-    setMealPlanGroceryListEntryIncluded.mockImplementationOnce(
+    let resolveMutation: () => void;
+    fetchMock.mockImplementationOnce(
       () =>
         new Promise((resolve) => {
-          resolveMutation = resolve;
+          resolveMutation = () => resolve(syncResponse());
         }),
     );
     const user = userEvent.setup();
@@ -806,7 +888,8 @@ describe("GroceryListDetailView — Meal-Plan-linked Meals section (§81.7)", ()
       screen.getByRole("checkbox", { name: /Chili Crisp Bowl/ }),
     );
     expect(screen.queryByText(/Cilantro/)).not.toBeInTheDocument();
-    resolveMutation!({ status: "success" });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    resolveMutation!();
   });
 
   it("standalone lists keep Add meal and never show Update meal plan", () => {
@@ -831,26 +914,34 @@ describe("GroceryListDetailView — Sync now feedback (§81.2 UX correction)", (
   }
 
   it("shows a success toast naming what changed when the sync applies changes", async () => {
-    resyncMealPlanGroceryLists.mockResolvedValueOnce({
-      status: "success",
-      summary: { added: 2, removed: 0, changed: 1 },
-    });
+    fetchMock.mockResolvedValueOnce(
+      syncResponse({
+        entityId: "plan-1",
+        meta: { added: 2, removed: 0, changed: 1 },
+      }),
+    );
     const user = userEvent.setup();
     renderList([], syncableList());
 
     await user.click(screen.getByRole("button", { name: /Sync now/ }));
 
-    expect(await screen.findByText("Grocery list synced")).toBeInTheDocument();
+    // The resync mutation fires behind an optimistic IndexedDB write
+    // (`runOrQueueMutation`), so give the toast extra time to appear.
+    expect(
+      await screen.findByText("Grocery list synced", {}, { timeout: 3000 }),
+    ).toBeInTheDocument();
     expect(
       screen.getByText(/2 added, 1 updated from the Meal Plan\./),
     ).toBeInTheDocument();
   });
 
   it("shows a neutral toast, not a success one, when nothing changed", async () => {
-    resyncMealPlanGroceryLists.mockResolvedValueOnce({
-      status: "success",
-      summary: { added: 0, removed: 0, changed: 0 },
-    });
+    fetchMock.mockResolvedValueOnce(
+      syncResponse({
+        entityId: "plan-1",
+        meta: { added: 0, removed: 0, changed: 0 },
+      }),
+    );
     const user = userEvent.setup();
     renderList([], syncableList());
 
@@ -861,10 +952,12 @@ describe("GroceryListDetailView — Sync now feedback (§81.2 UX correction)", (
   });
 
   it("shows an error toast and leaves the list usable on failure", async () => {
-    resyncMealPlanGroceryLists.mockResolvedValueOnce({
-      status: "error",
-      message: "Could not reach the Meal Plan.",
-    });
+    fetchMock.mockResolvedValueOnce(
+      syncResponse({
+        status: "error",
+        message: "Could not reach the Meal Plan.",
+      }),
+    );
     const user = userEvent.setup();
     renderList([], syncableList());
 
@@ -902,7 +995,6 @@ describe("GroceryListDetailView — Sync now manual reconciliation review (groce
         manualDeletions: [{ id: "tombstone-1", name: "Garlic" }],
       },
     });
-    resyncMealPlanGroceryLists.mockClear();
     const user = userEvent.setup();
     renderList([], syncableList());
 
@@ -925,7 +1017,9 @@ describe("GroceryListDetailView — Sync now manual reconciliation review (groce
     expect(
       screen.queryByText("Review manual changes before syncing"),
     ).not.toBeInTheDocument();
-    expect(resyncMealPlanGroceryLists).not.toHaveBeenCalled();
+    expect(
+      syncPayloads().some((p) => p.op === "mealplan.resyncGroceryLists"),
+    ).toBe(false);
   });
 
   it("Confirm applies the resync with discard ids for switches toggled off", async () => {
@@ -943,11 +1037,12 @@ describe("GroceryListDetailView — Sync now manual reconciliation review (groce
         manualDeletions: [{ id: "tombstone-1", name: "Garlic" }],
       },
     });
-    resyncMealPlanGroceryLists.mockClear();
-    resyncMealPlanGroceryLists.mockResolvedValueOnce({
-      status: "success",
-      summary: { added: 1, removed: 0, changed: 0 },
-    });
+    fetchMock.mockResolvedValueOnce(
+      syncResponse({
+        entityId: "plan-1",
+        meta: { added: 1, removed: 0, changed: 0 },
+      }),
+    );
     const user = userEvent.setup();
     renderList([], syncableList());
 
@@ -962,14 +1057,20 @@ describe("GroceryListDetailView — Sync now manual reconciliation review (groce
     );
     await user.click(screen.getByRole("button", { name: /Confirm and sync/ }));
 
-    expect(resyncMealPlanGroceryLists).toHaveBeenCalledWith({
-      mealPlanId: "plan-1",
-      listId: "list-1",
-      reconciliation: {
-        discardManualItemIds: ["manual-1"],
-        discardRemovedContributionIds: ["tombstone-1"],
-      },
-    });
+    await waitFor(() =>
+      expect(syncPayloads()).toContainEqual({
+        op: "mealplan.resyncGroceryLists",
+        entityId: "plan-1",
+        payload: {
+          mealPlanId: "plan-1",
+          listId: "list-1",
+          reconciliation: {
+            discardManualItemIds: ["manual-1"],
+            discardRemovedContributionIds: ["tombstone-1"],
+          },
+        },
+      }),
+    );
   });
 });
 
@@ -1031,10 +1132,13 @@ describe("GroceryListDetailView — uncombined source identity and Combine", () 
 
     await user.click(screen.getByRole("button", { name: "Combine" }));
 
-    expect(combineGroceryItem).toHaveBeenCalledWith({
-      listId: "list-1",
-      itemId: "item-1",
-    });
+    await waitFor(() =>
+      expect(syncPayloads()).toContainEqual({
+        op: "grocery.combineItem",
+        entityId: "list-1",
+        payload: { listId: "list-1", itemId: "item-1" },
+      }),
+    );
   });
 
   it("never shows the source badge or Combine for a manual item", () => {

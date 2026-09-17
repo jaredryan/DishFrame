@@ -34,7 +34,13 @@ describe("sign-in page redirectTo handling", () => {
     params: Record<string, string | string[] | undefined>,
   ) {
     const { default: SignInPage } = await import("./page");
-    return SignInPage({ searchParams: Promise.resolve(params) });
+    const element = await SignInPage({ searchParams: Promise.resolve(params) });
+    // The page renders a Fragment (OfflineAccountBoot + SignInCard) — the
+    // SignInCard is the fragment's second child.
+    const children = element.props.children as {
+      props: { callbackURL: string };
+    }[];
+    return children[1];
   }
 
   it("passes a legitimate relative redirectTo through to SignInCard", async () => {

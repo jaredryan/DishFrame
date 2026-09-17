@@ -91,7 +91,12 @@ export function useTimerActions(
     }));
   }
 
-  async function mutate(op: string, timerId: string, payload: unknown, patch: TimerOverride) {
+  async function mutate(
+    op: string,
+    timerId: string,
+    payload: unknown,
+    patch: TimerOverride,
+  ) {
     const result = await runOrQueueMutation({
       op,
       entityType: "cookingSession",
@@ -109,7 +114,11 @@ export function useTimerActions(
   function start(timer: CookingModeTimer, currentRemaining: number) {
     const remaining = Math.max(0, Math.round(currentRemaining));
     const targetEndAt = new Date(Date.now() + remaining * 1000).toISOString();
-    setOverride(timer.id, { state: "RUNNING", targetEndAt, remainingSeconds: null });
+    setOverride(timer.id, {
+      state: "RUNNING",
+      targetEndAt,
+      remainingSeconds: null,
+    });
     void mutate(
       "cooking.startTimer",
       timer.id,
@@ -120,7 +129,11 @@ export function useTimerActions(
 
   function pause(timer: CookingModeTimer, currentRemaining: number) {
     const remainingSeconds = Math.max(0, Math.round(currentRemaining));
-    setOverride(timer.id, { state: "PAUSED", remainingSeconds, targetEndAt: null });
+    setOverride(timer.id, {
+      state: "PAUSED",
+      remainingSeconds,
+      targetEndAt: null,
+    });
     void mutate(
       "cooking.pauseTimer",
       timer.id,
@@ -131,7 +144,11 @@ export function useTimerActions(
 
   function reset(timer: CookingModeTimer) {
     const duration = effective(timer).durationSeconds;
-    setOverride(timer.id, { state: "PAUSED", remainingSeconds: duration, targetEndAt: null });
+    setOverride(timer.id, {
+      state: "PAUSED",
+      remainingSeconds: duration,
+      targetEndAt: null,
+    });
     void mutate(
       "cooking.resetTimer",
       timer.id,
@@ -168,7 +185,10 @@ export function useTimerActions(
     } else {
       patch = {
         durationSeconds: nextDuration,
-        remainingSeconds: Math.max(0, Math.round(currentRemaining) + deltaSeconds),
+        remainingSeconds: Math.max(
+          0,
+          Math.round(currentRemaining) + deltaSeconds,
+        ),
       };
     }
     setOverride(timer.id, patch);

@@ -8,7 +8,11 @@ import type { CookingModeSessionProps } from "@/lib/cooking/session-view";
 /** Patches every occurrence of `itemId` across every unit's checklist in a
  * `CookingModeSessionProps`-shaped local-replica doc — the offline optimistic
  * write this hook makes before/instead of the network round trip. */
-function patchChecklistItem(doc: unknown, itemId: string, checked: boolean): unknown {
+function patchChecklistItem(
+  doc: unknown,
+  itemId: string,
+  checked: boolean,
+): unknown {
   const props = doc as CookingModeSessionProps | undefined;
   if (!props) return doc;
   return {
@@ -103,7 +107,8 @@ export function useChecklistState(
           entityType: "cookingSession",
           entityId: sessionId,
           payload: { sessionId, itemId, checked },
-          optimisticDoc: (current: unknown) => patchChecklistItem(current, itemId, checked),
+          optimisticDoc: (current: unknown) =>
+            patchChecklistItem(current, itemId, checked),
           mutationId: generateClientId(),
         });
         if (!result.ok) {

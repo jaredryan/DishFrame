@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { promoteHistoricalVersion } from "@/lib/dishes/actions";
+import { promoteHistoricalVersionOffline } from "@/lib/dishes/offline-version-history";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
 import type { DishKindValue } from "@/lib/dishes/schema";
 
@@ -34,10 +35,11 @@ export function PromoteVersionButton({
 
   function handlePromote() {
     startTransition(async () => {
-      const result = await promoteHistoricalVersion(kind, {
-        dishId,
-        versionId,
-      });
+      const values = { dishId, versionId };
+      const result =
+        typeof navigator !== "undefined" && navigator.onLine === false
+          ? await promoteHistoricalVersionOffline(kind, values)
+          : await promoteHistoricalVersion(kind, values);
       if (result.status === "success") {
         setOpen(false);
         router.push(`${dishBasePath(kind)}/${dishId}`);

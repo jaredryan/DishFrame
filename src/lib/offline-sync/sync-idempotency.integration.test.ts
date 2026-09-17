@@ -97,7 +97,12 @@ describe("api/sync idempotency", () => {
       mutationId,
       op: "dish.create",
       entityId: clientDishId,
-      payload: { clientDishId, clientVersionId, kind: "RECIPE", content: content() },
+      payload: {
+        clientDishId,
+        clientVersionId,
+        kind: "RECIPE",
+        content: content(),
+      },
     };
 
     const first = await handleSyncPush(pushRequest(body), dishSyncOps);
@@ -113,7 +118,9 @@ describe("api/sync idempotency", () => {
     const dishCount = await prisma.dish.count({ where: { id: clientDishId } });
     expect(dishCount).toBe(1);
 
-    const receipt = await prisma.syncMutationReceipt.findUnique({ where: { id: mutationId } });
+    const receipt = await prisma.syncMutationReceipt.findUnique({
+      where: { id: mutationId },
+    });
     expect(receipt?.status).toBe("200");
   });
 
@@ -123,10 +130,20 @@ describe("api/sync idempotency", () => {
 
     const clientDishId = crypto.randomUUID();
     const clientVersionId = crypto.randomUUID();
-    const payload = { clientDishId, clientVersionId, kind: "RECIPE", content: content() };
+    const payload = {
+      clientDishId,
+      clientVersionId,
+      kind: "RECIPE",
+      content: content(),
+    };
 
     const first = await handleSyncPush(
-      pushRequest({ mutationId: crypto.randomUUID(), op: "dish.create", entityId: clientDishId, payload }),
+      pushRequest({
+        mutationId: crypto.randomUUID(),
+        op: "dish.create",
+        entityId: clientDishId,
+        payload,
+      }),
       dishSyncOps,
     );
     expect(first.status).toBe(200);
@@ -135,7 +152,12 @@ describe("api/sync idempotency", () => {
     // dish id (not a retried request — a real bug scenario) must fail
     // loudly rather than silently duplicate/overwrite.
     const second = await handleSyncPush(
-      pushRequest({ mutationId: crypto.randomUUID(), op: "dish.create", entityId: clientDishId, payload }),
+      pushRequest({
+        mutationId: crypto.randomUUID(),
+        op: "dish.create",
+        entityId: clientDishId,
+        payload,
+      }),
       dishSyncOps,
     );
     expect(second.status).toBeGreaterThanOrEqual(400);

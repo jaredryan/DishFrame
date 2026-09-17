@@ -47,11 +47,7 @@ export type ConflictInfo = {
 };
 
 export type MutationStatus =
-  | "pending"
-  | "syncing"
-  | "failed"
-  | "conflict"
-  | "done";
+  "pending" | "syncing" | "failed" | "conflict" | "done";
 
 /**
  * One queued offline mutation. `mutationId` is client-generated and doubles
@@ -90,6 +86,10 @@ export type SyncApplyResult =
        * rather than trying to merge a partial result. */
       snapshot?: unknown;
       serverRevision: string | null;
+      /** Op-specific extra data outside the replicated snapshot — e.g.
+       * `mealplan.resyncGroceryLists`' added/removed/changed counts. Most
+       * callers ignore it. */
+      meta?: unknown;
     }
   | { status: "conflict"; message: string; serverDoc?: unknown }
   | { status: "error"; message: string; terminal: boolean };

@@ -97,16 +97,30 @@ correctly.
   when the count still matches at sync time) purely so the offline
   preview's rows keep the same identity after sync, never as a content
   override.
-- **Not wired**: the multi-screen "Start cooking" entry flow
-  (`StartCookingButton`'s picker → per-dish Setup page → session create)
-  is still built from several Server Components; only the underlying
-  mutation (`cooking.startSession`) and its data (`cookableUnits`) are
-  offline-ready. Actually *reaching* Setup for a Dish that was never
-  visited online first still needs a network round trip once, same as any
-  first visit to a dynamic route this pass doesn't precache. The Review
-  page (`/cook/[sessionId]/review`) is similarly not wired with an offline
-  boundary yet, though `cooking.saveReview`/`cooking.updateNotes` are both
-  in the sync registry and queue correctly if invoked.
+- **Setup and Review are now wired.** `CookingSetupOfflineBoundary`
+  (mirroring `CookingModeOfflineBoundary`) reads the replicated
+  `cookableUnits` when the entity is dirty or the browser is offline and
+  the screen is showing the Dish's *current* Version (the only one
+  replicated); `handleStart` calls `startCookingSessionOffline`
+  (`lib/cooking/offline-start.ts`) instead of the raw Server Action only
+  when `navigator.onLine === false`, so the online path keeps its full
+  `status: "conflict"` (already-active-session) detection — going through
+  `/api/sync/cooking` instead loses that distinction (a plain HTTP 409
+  with only a message, `offline-sync/http.ts`'s uniform error shape), so a
+  conflict hit this way surfaces as a generic failed mutation, not the
+  "end existing session" dialog. `SessionReviewOfflineBoundary` +
+  `saveSessionReviewOffline` cover Review the same way, reading/writing a
+  new `reviewProps` field added to the `cookingSession` snapshot
+  (`lib/reviews/session-review-view.ts`) — only useful for a session
+  already in the replica (bootstrap still ships `IN_PROGRESS` sessions
+  only, per this file's own scope decision below), so it covers the
+  realistic "just ended this session on this device, now reviewing it"
+  flow, not browsing an older completed session after a fresh bootstrap.
+  **Still not wired**: the multi-screen "Start cooking" *entry* picker
+  (`StartCookingButton`'s `listCookablePickerItems` dialog, used from Home/
+  the Cook list rather than a specific Dish's page) still calls its Server
+  Action unconditionally — a distinct, broader "which Dish to cook" query
+  this pass didn't replicate.
 
 ## 2. Recipes/Parts
 
@@ -122,19 +136,25 @@ correctly.
   `confirmImport`'s import-source-attribution/guessed-Cuisine metadata for
   that specific save (documented tradeoff, not a silent gap — see the
   Imports section).
-- **Library/view data is replicated**, not yet rendered offline.
-  `offline-sync/dishes.ts`'s `DishSnapshotDoc` ships, per Dish: the exact
-  editor content (`dishToFormValues`'s shape, for editing), the exact
-  detail-view shape (`getOwnedDishDetailOrThrow`'s result, for viewing),
-  tags/cuisines/flavor-profile selections, and `cookableUnits`. **What's
-  missing**: `<DishDetailView>` is an `async` Server Component (confirmed
-  during this pass) — it cannot be reused client-side at all, so there is
-  no `DishOfflineBoundary` equivalent to `CookingModeOfflineBoundary` yet.
-  Viewing a Recipe/Part offline today falls back to whatever the service
-  worker's `dishframe-documents` cache has (correct at the time it was
-  cached, not reactive to offline edits made elsewhere) rather than a
-  live IndexedDB-driven render. Building a client-safe detail renderer
-  from the already-replicated `detail` field is the natural next slice.
+- **Detail rendering and library/search are now wired.**
+  `<DishDetailView>`'s async data assembly (ratings, PartLink resolution,
+  tag/cuisine/flavor option lists, nutrition, etc.) was extracted into
+  `lib/dishes/detail-view.ts#buildDishDetailViewProps` — same "one shared
+  prop-assembly function" pattern as `session-view.ts` — leaving
+  `<DishDetailView>` a plain synchronous Client Component. `offline-sync/
+  dishes.ts`'s `DishSnapshotDoc.detail` now ships this exact shape (was
+  previously the raw, unprocessed Prisma payload); `DishOfflineBoundary`
+  mirrors `CookingModeOfflineBoundary` for it. Library/search
+  (`DishLibraryOfflineBoundary` + `lib/dishes/offline-library.ts`) reuses
+  `library-filters.ts`'s pure filter/rank/sort functions directly against
+  the replicated `dish` entities plus a new `dishLibraryOptions`
+  `referenceData` entity (tag/cuisine/flavor-profile id→name/isFavorite
+  maps, same pattern as `mealPlanEditorOptions`) — recomputed from the
+  replica only when a `dish` entity is dirty or the browser is offline,
+  otherwise the server-rendered list is trusted as before. One accepted
+  fidelity gap: offline search can't match a Dish's precomputed
+  `currentStructuralSearchText` (ingredient/instruction text isn't
+  replicated) — title/cuisine/tag/Flavor-profile matching still works.
 - **Explicitly out of scope** (same "requires connection" boundary as the
   original plan, now confirmed rather than assumed): two-phase Part
   deletion, `propagatePartUpdate`/`resolvePartUsageOccurrence`,
@@ -154,16 +174,20 @@ recategorize/reorder, and (queued, not reimplemented client-side —
 15-second-timeout transactions per the domain's own service-layer
 comments) grocery generation/resync from a Meal Plan.
 
-**Client wiring is not done.** No component in `components/domain/
-mealplans/` or `components/domain/grocery/` was changed to call
-`runOrQueueMutation` instead of its existing Server Action. Bootstrap/pull
-replication of Meal Plan and Grocery List data works (verified by the sync
-routes' own logic, not yet by a UI reading it). This is the single largest
-remaining gap against the owner's brief ("offline viewing and editing of
-Meal Plans... Grocery Lists") — the data layer is ready; the ~15-20
-existing call sites across both domains' detail views still need the same
-mechanical rewiring `use-checklist-state.ts`/`cooking-mode-shell.tsx`
-already demonstrate the pattern for.
+**Client wiring is done.** `MealPlanOfflineBoundary`/
+`MealPlanEditorOfflineBoundary`/`GroceryListOfflineBoundary` mirror
+`CookingModeOfflineBoundary`; `mealplan-offline-actions.ts`/`grocery-
+offline-actions.ts` are drop-in `runOrQueueMutation`-backed replacements
+for the two domains' Server Actions, imported by `meal-plan-view.tsx`/
+`meal-plan-editor.tsx`/`grocery-list-detail-view.tsx` and also by the
+list-page-level components (`meal-plan-list-view.tsx`'s delete/complete/
+reactivate, `grocery-list-rows.tsx`'s delete/complete/reopen,
+`grocery-source-picker.tsx`'s list-generation actions — these were the
+`docs/OFFLINE_SESSION_HANDOFF.md` remnants, since fixed). Deliberately
+left online-only, same "requires a live server-computed diff" boundary as
+elsewhere: `previewGroceryListSourceRefresh`/`applyGroceryListSourceRefresh`/
+`listGrocerySourceVersionOptions`/`previewMealPlanGroceryListSync`/
+`listMealPlanEntriesForGrocerySelection`/`listDishVersionOptions`.
 
 `MealPlan`/`GroceryList`/`GroceryListItem`/`MealPlanEntry` have no
 `updatedAt` column in this schema as of this pass (a pre-existing,
@@ -188,9 +212,17 @@ detection. Revisit once that column exists.
   a connection..." immediately when offline, rather than surfacing a
   generic fetch failure.
 - **Review/save reuses the offline-capable Dish path** when offline (see
-  §2) — the batch-import review flow (`handleBatchItemReviewSave`) was not
-  rewired this pass and still calls its Server Action unconditionally;
-  only the single-item review path falls back correctly.
+  §2), for both the single-item (`handleConfirmCreate`) and batch/archive
+  (`runChunkedConfirm`, via a new `runOfflineConfirm`) flows. Batch save
+  offline loops `saveDishOffline` per item directly instead of replicating
+  `confirmImportBatch`'s chunked-Server-Action structure (no serverless
+  execution-time ceiling applies to local IndexedDB writes); each item
+  loses import-source attribution, guessed-Cuisine, and mapped Tag/Flavor-
+  profile/Cuisine attachment (all need `confirmImport`'s network round
+  trip), surfaced per item as a `metadataWarnings` entry.
+  (`handleBatchItemReviewSave`, the per-item "Finish review" step *within*
+  the batch review screen, never called the server at all — it only edits
+  the in-memory draft — so it needed no change.)
 
 ## 5. Account isolation
 
@@ -253,15 +285,16 @@ detection. Revisit once that column exists.
   test above was written and reviewed carefully but has not executed even
   once. Run `pnpm test:frontend` and `pnpm test:integration` (after `pnpm
   db:docker:up`) before trusting them.
-- **Not covered**: Meal Plan/Grocery Lists offline mutations (no client
-  wiring exists yet to test), offline Paste/File import (the parsing
-  change is a pure-function call and low-risk, but has no dedicated test
-  added this pass), Dish detail-view offline rendering (doesn't exist
-  yet), and the service worker's own cache-routing logic (a `public/sw.js`
-  script isn't reachable from Vitest's jsdom environment without
-  significant harness work — would need a real browser/Playwright
-  context, which this pass's policy explicitly excludes from a
-  self-initiated run).
+- **Not covered**: this pass's Meal Plan/Grocery Lists/Dish-detail/library/
+  Cooking Setup/Session Review/batch-import client wiring (all UI-level
+  offline boundaries and drop-in action wrappers — no new automated tests
+  added, matching this project's "detailed coverage for actively-evolving
+  UI is deferred" test-value policy), offline Paste/File import (the
+  parsing change is a pure-function call and low-risk), and the service
+  worker's own cache-routing logic (a `public/sw.js` script isn't
+  reachable from Vitest's jsdom environment without significant harness
+  work — would need a real browser/Playwright context, which this pass's
+  policy explicitly excludes from a self-initiated run).
 
 ## 8. A process note on this pass
 
@@ -281,19 +314,23 @@ the day relative to when this pass started.
 
 ## 9. Suggested next slices, in priority order
 
-1. Wire Meal Plans/Grocery Lists detail-view components to
-   `runOrQueueMutation` — the mechanical pattern already exists twice
-   over (Cooking, Dishes); this is the biggest gap against the original
-   ask.
-2. Build a client-safe Dish detail renderer from the already-replicated
-   `detail` snapshot field, paired with a `DishOfflineBoundary` mirroring
-   `CookingModeOfflineBoundary`.
-3. Extend the offline document bootstrap to the Cooking Setup and Session
-   Review pages, and to the batch-import review flow.
-4. Once the pending (pre-existing, unrelated) `updatedAt` migration for
+As of this pass, every domain in the owner's original brief (Recipes/
+Parts including library/search, Cooking Mode, Cooking Setup, Session
+Review, Meal Plans, Grocery Lists, Imports including batch) has offline
+create/edit/view wiring. Remaining gaps, in priority order:
+
+1. Once the pending (pre-existing, unrelated) `updatedAt` migration for
    `MealPlan`/`GroceryList` lands, switch those two domains' conflict
    detection from last-write-wins to the same timestamp check Dishes
    already gets via `baseVersionId`.
-5. A real-device validation pass (wake lock, suspend/resume, Background
+2. The "Start cooking" entry picker (`StartCookingButton`'s
+   `listCookablePickerItems` dialog) still requires a connection to open —
+   a distinct, unreplicated "which Dish to cook" query (see §1).
+3. Favorite-toggle/tag-cuisine-flavor-profile editing from the Dish detail
+   page (`FavoriteToggle`, `DishTagFlavorEditor`) still call their raw
+   Server Actions directly — the sync ops (`dish.toggleFavorite`,
+   `dish.setTags`, etc.) already exist and are unused, same shape gap as
+   Meal Plans/Grocery Lists had before this pass.
+4. A real-device validation pass (wake lock, suspend/resume, Background
    Sync while fully closed, PWA install/update) — none of this is
    meaningfully testable from a desktop dev environment.

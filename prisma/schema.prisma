@@ -845,6 +845,9 @@ model GroceryList {
   // distinct from createdAt. Always required — callers must supply a value
   // (forms default it to today) rather than relying on a DB default.
   plannedDate      DateTime        @db.Date
+  // Offline conflict detection (docs/OFFLINE_IMPLEMENTATION_PLAN.md §3):
+  // lets the sync snapshot expose a real revision instead of last-write-wins.
+  updatedAt        DateTime        @default(now()) @updatedAt
   owner          User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   // Round-3 Correction 2: Restrict, not SetNull. SetNull would fire automatically the
   // instant a referenced MealPlan is deleted, nulling linkedMealPlanId WHILE mode is still
@@ -967,6 +970,8 @@ model GroceryListItem {
   syncFlag           GroceryItemSyncFlag @default(UNCHANGED)
   flagAcknowledgedAt DateTime?
   position Int
+  // Offline conflict detection (docs/OFFLINE_IMPLEMENTATION_PLAN.md §3).
+  updatedAt DateTime @default(now()) @updatedAt
 
   groceryList   GroceryList               @relation(fields: [groceryListId], references: [id], onDelete: Cascade)
   category      GroceryCategory?          @relation(fields: [categoryId], references: [id], onDelete: SetNull)
@@ -1036,6 +1041,8 @@ model MealPlan {
   // null = Active, set = Completed. Reactivating clears it back to null.
   completedAt  DateTime?
   createdAt    DateTime  @default(now())
+  // Offline conflict detection (docs/OFFLINE_IMPLEMENTATION_PLAN.md §3).
+  updatedAt    DateTime  @default(now()) @updatedAt
   owner              User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   entries            MealPlanEntry[]
   linkedGroceryLists GroceryList[]
@@ -1058,6 +1065,8 @@ model MealPlanEntry {
   sourceDishTitleSnapshot        String
   sourceDishKindSnapshot         DishKind
   sourceDishVersionLabelSnapshot String
+  // Offline conflict detection (docs/OFFLINE_IMPLEMENTATION_PLAN.md §3).
+  updatedAt DateTime @default(now()) @updatedAt
 
   mealPlan             MealPlan                  @relation(fields: [mealPlanId], references: [id], onDelete: Cascade)
   dishVersion          DishVersion?              @relation(fields: [dishId, dishVersionId], references: [dishId, id], onDelete: SetNull)

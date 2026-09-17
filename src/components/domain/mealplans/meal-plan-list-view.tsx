@@ -21,7 +21,7 @@ import {
   deleteMealPlan,
   completeMealPlan,
   reactivateMealPlan,
-} from "@/lib/mealplans/actions";
+} from "@/components/domain/mealplans/mealplan-offline-actions";
 import { formatDateOnly } from "@/lib/date";
 
 export type MealPlanRowData = {

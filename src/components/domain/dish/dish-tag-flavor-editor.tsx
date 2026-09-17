@@ -12,10 +12,10 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import {
-  setDishFlavorProfiles,
-  setDishTags,
-  setDishCuisines,
-} from "@/lib/dishes/actions";
+  setDishFlavorProfilesOffline as setDishFlavorProfiles,
+  setDishTagsOffline as setDishTags,
+  setDishCuisinesOffline as setDishCuisines,
+} from "@/lib/dishes/offline-metadata";
 import {
   CuisineSelector,
   type CuisineOption,

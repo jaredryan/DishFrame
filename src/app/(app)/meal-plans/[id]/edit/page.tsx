@@ -7,7 +7,8 @@ import {
   toMealPlanDetailDto,
 } from "@/lib/mealplans/queries";
 import { NotFoundError } from "@/lib/errors";
-import { MealPlanEditor } from "@/components/domain/mealplans/meal-plan-editor";
+import { MealPlanEditorOfflineBoundary } from "@/components/domain/mealplans/meal-plan-editor-offline-boundary";
+import { OFFLINE_SHELL_SENTINEL } from "@/lib/offline/shell-sentinel";
 
 export async function generateMetadata({
   params,
@@ -30,10 +31,26 @@ export default async function EditMealPlanPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const { id } = await params;
+
+  if (id === OFFLINE_SHELL_SENTINEL) {
+    return (
+      <MealPlanEditorOfflineBoundary
+        mode="edit"
+        mealPlanId={id}
+        serverMealPlan={null}
+        serverOptions={{
+          candidates: [],
+          tagOptions: [],
+          cuisineOptions: [],
+          flavorProfileOptions: [],
+        }}
+      />
+    );
+  }
+
   const session = await getServerSession();
   if (!session) redirect("/sign-in");
-
-  const { id } = await params;
 
   let mealPlan;
   try {
@@ -47,13 +64,16 @@ export default async function EditMealPlanPage({
     await loadMealPlanEditorOptions(session.user.id);
 
   return (
-    <MealPlanEditor
+    <MealPlanEditorOfflineBoundary
       mode="edit"
-      mealPlan={toMealPlanDetailDto(mealPlan)}
-      candidates={candidates}
-      tagOptions={tagOptions}
-      cuisineOptions={cuisineOptions}
-      flavorProfileOptions={flavorProfileOptions}
+      mealPlanId={id}
+      serverMealPlan={toMealPlanDetailDto(mealPlan)}
+      serverOptions={{
+        candidates,
+        tagOptions,
+        cuisineOptions,
+        flavorProfileOptions,
+      }}
     />
   );
 }

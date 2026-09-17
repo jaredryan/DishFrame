@@ -30,7 +30,8 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { StarRatingInput } from "@/components/domain/cooking/star-rating-input";
 import { CoachMark } from "@/components/onboarding/coach-mark";
-import { saveSessionReview, deleteSessionReview } from "@/lib/reviews/actions";
+import { deleteSessionReview } from "@/lib/reviews/actions";
+import { saveSessionReviewOffline } from "@/lib/reviews/offline-save-review";
 import { createTaster } from "@/lib/tasters/actions";
 import { initialCreateTasterActionState } from "@/lib/tasters/schema";
 import { updateDishStage } from "@/lib/dishes/actions";
@@ -235,7 +236,7 @@ export function SessionReviewForm({
     const minutes = adjustedMinutes.trim() ? Number(adjustedMinutes) : null;
 
     startTransition(async () => {
-      const result = await saveSessionReview({
+      const result = await saveSessionReviewOffline({
         sessionId,
         whatWentWell: whatWentWell.trim() || null,
         whatDidNotGoWell: whatDidNotGoWell.trim() || null,

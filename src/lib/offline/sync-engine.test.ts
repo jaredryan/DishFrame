@@ -1,6 +1,11 @@
 import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { deleteDb, getEntity, listMutations, putEntity } from "@/lib/offline/db";
+import {
+  deleteDb,
+  getEntity,
+  listMutations,
+  putEntity,
+} from "@/lib/offline/db";
 import { enqueueMutation } from "@/lib/offline/queue";
 import { drainQueue, runBootstrapSync } from "@/lib/offline/sync-engine";
 
@@ -70,9 +75,12 @@ describe("offline/sync-engine drainQueue", () => {
     });
 
     vi.mocked(fetch).mockResolvedValueOnce(
-      new Response(JSON.stringify({ message: "Someone else changed this first." }), {
-        status: 409,
-      }),
+      new Response(
+        JSON.stringify({ message: "Someone else changed this first." }),
+        {
+          status: 409,
+        },
+      ),
     );
 
     await drainQueue();
@@ -96,9 +104,12 @@ describe("offline/sync-engine drainQueue", () => {
     });
 
     vi.mocked(fetch).mockResolvedValueOnce(
-      new Response(JSON.stringify({ message: "This session no longer exists." }), {
-        status: 404,
-      }),
+      new Response(
+        JSON.stringify({ message: "This session no longer exists." }),
+        {
+          status: 404,
+        },
+      ),
     );
 
     await drainQueue();
@@ -146,9 +157,12 @@ describe("offline/sync-engine drainQueue", () => {
     });
 
     vi.mocked(fetch).mockResolvedValueOnce(
-      new Response(JSON.stringify({ message: "This session ended elsewhere." }), {
-        status: 409,
-      }),
+      new Response(
+        JSON.stringify({ message: "This session ended elsewhere." }),
+        {
+          status: 409,
+        },
+      ),
     );
 
     await drainQueue();
@@ -156,8 +170,12 @@ describe("offline/sync-engine drainQueue", () => {
     // Only the first mutation's request should have been attempted this pass.
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
     const mutations = await listMutations();
-    expect(mutations.find((m) => m.mutationId === "mut-1")?.status).toBe("conflict");
-    expect(mutations.find((m) => m.mutationId === "mut-2")?.status).toBe("pending");
+    expect(mutations.find((m) => m.mutationId === "mut-1")?.status).toBe(
+      "conflict",
+    );
+    expect(mutations.find((m) => m.mutationId === "mut-2")?.status).toBe(
+      "pending",
+    );
   });
 });
 
@@ -217,9 +235,12 @@ describe("offline/sync-engine bootstrap", () => {
     });
 
     vi.mocked(fetch).mockResolvedValueOnce(
-      new Response(JSON.stringify({ syncedAt: "2026-01-01T00:00:00.000Z", entities: [] }), {
-        status: 200,
-      }),
+      new Response(
+        JSON.stringify({ syncedAt: "2026-01-01T00:00:00.000Z", entities: [] }),
+        {
+          status: 200,
+        },
+      ),
     );
 
     await runBootstrapSync();

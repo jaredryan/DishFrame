@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db/prisma";
 import * as cookingService from "@/lib/cooking/service";
 import * as reviewService from "@/lib/reviews/service";
 import { buildCookingModeSessionProps } from "@/lib/cooking/session-view";
+import { buildSessionReviewProps } from "@/lib/reviews/session-review-view";
 import {
   startCookingSessionSchema,
   removeSessionUnitSchema,
@@ -18,15 +19,29 @@ import {
   timerIdSchema,
   adjustTimerSchema,
 } from "@/lib/cooking/schema";
-import { updateCookingNotesSchema, saveSessionReviewSchema } from "@/lib/reviews/schema";
+import {
+  updateCookingNotesSchema,
+  saveSessionReviewSchema,
+} from "@/lib/reviews/schema";
 import type { SyncOpRegistry } from "@/lib/offline-sync/http";
 
-async function snapshotResult(userId: string, sessionId: string) {
-  const props = await buildCookingModeSessionProps(userId, sessionId);
+/** Exported so other domains' sync ops that transitively create/affect a
+ * CookingSession (e.g. `mealplan.startSessionFromEntry`) can report it as
+ * their own response snapshot. */
+export async function snapshotResult(userId: string, sessionId: string) {
+  const [props, reviewProps] = await Promise.all([
+    buildCookingModeSessionProps(userId, sessionId),
+    // Computed alongside the active-session props (same "one combined
+    // per-entity doc" tradeoff as Dish's `content`/`detail`/`cookableUnits`
+    // living side by side) so a session's replica entry keeps working for
+    // Review once it's ended — see `session-review-view.ts`'s doc comment
+    // for the "already-in-the-replica only" scope this covers.
+    buildSessionReviewProps(userId, sessionId),
+  ]);
   return {
     entityType: "cookingSession",
     entityId: sessionId,
-    snapshot: props,
+    snapshot: { ...props, reviewProps },
     // CookingSession doesn't carry a client-visible revision string of its
     // own beyond "the current props" — every mutation here is naturally
     // idempotent (set-state style) or guarded by the receipt ledger, so a
@@ -92,7 +107,8 @@ export const cookingSyncOps: SyncOpRegistry = {
   },
 
   "cooking.reorderSessionUnits": async (userId, _entityId, rawPayload) => {
-    const { sessionId, orderedUnitIds } = reorderSessionUnitsSchema.parse(rawPayload);
+    const { sessionId, orderedUnitIds } =
+      reorderSessionUnitsSchema.parse(rawPayload);
     await cookingService.reorderSessionUnits(userId, sessionId, orderedUnitIds);
     return snapshotResult(userId, sessionId);
   },
@@ -104,32 +120,58 @@ export const cookingSyncOps: SyncOpRegistry = {
   },
 
   "cooking.toggleChecklistItem": async (userId, _entityId, rawPayload) => {
-    const { sessionId, itemId, checked } = toggleChecklistItemSchema.parse(rawPayload);
-    await cookingService.toggleChecklistItem(userId, sessionId, itemId, checked);
+    const { sessionId, itemId, checked } =
+      toggleChecklistItemSchema.parse(rawPayload);
+    await cookingService.toggleChecklistItem(
+      userId,
+      sessionId,
+      itemId,
+      checked,
+    );
     return snapshotResult(userId, sessionId);
   },
 
   "cooking.setUnitCompletion": async (userId, _entityId, rawPayload) => {
-    const { sessionId, unitId, completed } = setUnitCompletionSchema.parse(rawPayload);
-    await cookingService.setUnitCompletion(userId, sessionId, unitId, completed);
+    const { sessionId, unitId, completed } =
+      setUnitCompletionSchema.parse(rawPayload);
+    await cookingService.setUnitCompletion(
+      userId,
+      sessionId,
+      unitId,
+      completed,
+    );
     return snapshotResult(userId, sessionId);
   },
 
   "cooking.updateSessionScale": async (userId, _entityId, rawPayload) => {
-    const { sessionId, scaleFactor } = updateSessionScaleSchema.parse(rawPayload);
+    const { sessionId, scaleFactor } =
+      updateSessionScaleSchema.parse(rawPayload);
     await cookingService.updateSessionScale(userId, sessionId, scaleFactor);
     return snapshotResult(userId, sessionId);
   },
 
   "cooking.updateUnitScale": async (userId, _entityId, rawPayload) => {
-    const { sessionId, unitId, scaleFactor } = updateUnitScaleSchema.parse(rawPayload);
-    await cookingService.updateUnitScale(userId, sessionId, unitId, scaleFactor);
+    const { sessionId, unitId, scaleFactor } =
+      updateUnitScaleSchema.parse(rawPayload);
+    await cookingService.updateUnitScale(
+      userId,
+      sessionId,
+      unitId,
+      scaleFactor,
+    );
     return snapshotResult(userId, sessionId);
   },
 
   "cooking.createTimer": async (userId, _entityId, rawPayload) => {
-    const { sessionId, unitId, name, durationSeconds } = createTimerSchema.parse(rawPayload);
-    await cookingService.createTimer(userId, sessionId, unitId, name, durationSeconds);
+    const { sessionId, unitId, name, durationSeconds } =
+      createTimerSchema.parse(rawPayload);
+    await cookingService.createTimer(
+      userId,
+      sessionId,
+      unitId,
+      name,
+      durationSeconds,
+    );
     return snapshotResult(userId, sessionId);
   },
 
@@ -158,7 +200,8 @@ export const cookingSyncOps: SyncOpRegistry = {
   },
 
   "cooking.adjustTimer": async (userId, _entityId, rawPayload) => {
-    const { sessionId, timerId, deltaSeconds } = adjustTimerSchema.parse(rawPayload);
+    const { sessionId, timerId, deltaSeconds } =
+      adjustTimerSchema.parse(rawPayload);
     await cookingService.adjustTimer(userId, sessionId, timerId, deltaSeconds);
     return snapshotResult(userId, sessionId);
   },
@@ -170,7 +213,8 @@ export const cookingSyncOps: SyncOpRegistry = {
   },
 
   "cooking.updateNotes": async (userId, _entityId, rawPayload) => {
-    const { sessionId, cookingNotes } = updateCookingNotesSchema.parse(rawPayload);
+    const { sessionId, cookingNotes } =
+      updateCookingNotesSchema.parse(rawPayload);
     await reviewService.updateCookingNotes(userId, sessionId, cookingNotes);
     return snapshotResult(userId, sessionId);
   },

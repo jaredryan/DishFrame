@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
 import { requireUserId } from "@/lib/auth/session";
-import { listChangedDishSnapshots } from "@/lib/offline-sync/dishes";
+import {
+  listChangedDishSnapshots,
+  buildDishLibraryOptionsSnapshot,
+} from "@/lib/offline-sync/dishes";
 import { listAllCookingSessionSnapshots } from "@/lib/offline-sync/cooking";
-import { listAllMealPlanSnapshots } from "@/lib/offline-sync/mealplans";
+import {
+  listAllMealPlanSnapshots,
+  buildMealPlanEditorOptionsSnapshot,
+} from "@/lib/offline-sync/mealplans";
 import { listAllGroceryListSnapshots } from "@/lib/offline-sync/grocery";
 import type { SyncEntitySnapshot } from "@/lib/offline/types";
 
@@ -29,11 +35,20 @@ export async function GET(request: Request): Promise<Response> {
   const since = searchParams.get("since");
   const sinceDate = since ? new Date(since) : new Date(0);
 
-  const [dishes, sessions, mealPlans, groceryLists] = await Promise.all([
+  const [
+    dishes,
+    sessions,
+    mealPlans,
+    groceryLists,
+    mealPlanEditorOptions,
+    dishLibraryOptions,
+  ] = await Promise.all([
     listChangedDishSnapshots(userId, sinceDate),
     listAllCookingSessionSnapshots(userId),
     listAllMealPlanSnapshots(userId),
     listAllGroceryListSnapshots(userId),
+    buildMealPlanEditorOptionsSnapshot(userId),
+    buildDishLibraryOptionsSnapshot(userId),
   ]);
 
   const entities: SyncEntitySnapshot[] = [
@@ -57,10 +72,22 @@ export async function GET(request: Request): Promise<Response> {
     })),
     ...groceryLists.map((g) => ({
       entityType: "groceryList" as const,
-      id: (g.doc as { id: string }).id,
+      id: (g.doc as { list: { id: string } }).list.id,
       doc: g.doc,
       serverRevision: g.serverRevision,
     })),
+    {
+      entityType: "referenceData" as const,
+      id: "mealPlanEditorOptions",
+      doc: mealPlanEditorOptions.doc,
+      serverRevision: mealPlanEditorOptions.serverRevision,
+    },
+    {
+      entityType: "referenceData" as const,
+      id: "dishLibraryOptions",
+      doc: dishLibraryOptions.doc,
+      serverRevision: dishLibraryOptions.serverRevision,
+    },
   ];
 
   return NextResponse.json({ syncedAt: new Date().toISOString(), entities });

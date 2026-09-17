@@ -1,10 +1,14 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth/session";
-import { getOwnedSessionOrThrow, getSessionSourceSummary } from "@/lib/cooking/queries";
+import {
+  getOwnedSessionOrThrow,
+  getSessionSourceSummary,
+} from "@/lib/cooking/queries";
 import { buildCookingModeSessionProps } from "@/lib/cooking/session-view";
 import { NotFoundError } from "@/lib/errors";
 import { CookingModeOfflineBoundary } from "@/components/domain/cooking/cooking-mode-offline-boundary";
+import { OFFLINE_SHELL_SENTINEL } from "@/lib/offline/shell-sentinel";
 
 export async function generateMetadata({
   params,
@@ -38,10 +42,20 @@ export default async function CookingModePage({
   params: Promise<{ sessionId: string }>;
   searchParams: Promise<{ unit?: string }>;
 }) {
+  const { sessionId } = await params;
+
+  if (sessionId === OFFLINE_SHELL_SENTINEL) {
+    return (
+      <CookingModeOfflineBoundary
+        serverProps={null}
+        initialFocusedUnitId={null}
+      />
+    );
+  }
+
   const session = await getServerSession();
   if (!session) redirect("/sign-in");
 
-  const { sessionId } = await params;
   const { unit: focusedUnitIdParam } = await searchParams;
 
   let props;

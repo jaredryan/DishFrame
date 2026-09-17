@@ -1,4 +1,4 @@
-import { DishLibraryDisplay } from "@/components/domain/dish/dish-library-display";
+import { DishLibraryOfflineBoundary } from "@/components/domain/dish/dish-library-offline-boundary";
 import { queryDishLibrary } from "@/lib/dishes/queries";
 import { listTags } from "@/lib/tags/queries";
 import { listFlavorProfileValues } from "@/lib/flavor-profiles/queries";
@@ -39,7 +39,7 @@ export async function DishLibraryView({
   const label = kind === "PART" ? "part" : "recipe";
 
   return (
-    <DishLibraryDisplay
+    <DishLibraryOfflineBoundary
       dishes={dishes}
       kind={kind}
       label={label}

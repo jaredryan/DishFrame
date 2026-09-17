@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth/session";
 import { loadMealPlanEditorOptions } from "@/lib/mealplans/queries";
-import { MealPlanEditor } from "@/components/domain/mealplans/meal-plan-editor";
+import { MealPlanEditorOfflineBoundary } from "@/components/domain/mealplans/meal-plan-editor-offline-boundary";
 
 export const metadata: Metadata = { title: "Create meal plan" };
 
@@ -14,12 +14,14 @@ export default async function NewMealPlanPage() {
     await loadMealPlanEditorOptions(session.user.id);
 
   return (
-    <MealPlanEditor
+    <MealPlanEditorOfflineBoundary
       mode="create"
-      candidates={candidates}
-      tagOptions={tagOptions}
-      cuisineOptions={cuisineOptions}
-      flavorProfileOptions={flavorProfileOptions}
+      serverOptions={{
+        candidates,
+        tagOptions,
+        cuisineOptions,
+        flavorProfileOptions,
+      }}
     />
   );
 }

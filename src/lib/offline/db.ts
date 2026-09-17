@@ -1,7 +1,12 @@
 "use client";
 
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
-import { ENTITY_TYPES, type EntityRecord, type EntityType, type QueuedMutation } from "@/lib/offline/types";
+import {
+  ENTITY_TYPES,
+  type EntityRecord,
+  type EntityType,
+  type QueuedMutation,
+} from "@/lib/offline/types";
 
 /**
  * The local structured-data replica + mutation queue, in one IndexedDB
@@ -105,12 +110,17 @@ export async function getEntity<TDoc>(
   >;
 }
 
-export async function putEntity<TDoc>(record: EntityRecord<TDoc>): Promise<void> {
+export async function putEntity<TDoc>(
+  record: EntityRecord<TDoc>,
+): Promise<void> {
   const db = await openDb();
   await db.put(ENTITIES_STORE, record as EntityRecord);
 }
 
-export async function deleteEntity(entityType: EntityType, id: string): Promise<void> {
+export async function deleteEntity(
+  entityType: EntityType,
+  id: string,
+): Promise<void> {
   const db = await openDb();
   await db.delete(ENTITIES_STORE, [entityType, id]);
 }
@@ -119,9 +129,11 @@ export async function listEntities<TDoc>(
   entityType: EntityType,
 ): Promise<EntityRecord<TDoc>[]> {
   const db = await openDb();
-  return db.getAllFromIndex(ENTITIES_STORE, "byEntityType", entityType) as Promise<
-    EntityRecord<TDoc>[]
-  >;
+  return db.getAllFromIndex(
+    ENTITIES_STORE,
+    "byEntityType",
+    entityType,
+  ) as Promise<EntityRecord<TDoc>[]>;
 }
 
 /** Removes every locally-replicated entity of the given type not present in
@@ -130,13 +142,25 @@ export async function listEntities<TDoc>(
  * bootstrap, not on an incremental pull — see `sync-engine.ts`). Never
  * removes an entity with a dirty/unsynced local mutation still pending, so
  * an offline edit is never silently dropped just because the server didn't
- * know about it yet at bootstrap time. */
+ * know about it yet at bootstrap time.
+ *
+ * `requestedBefore`, when given, additionally protects any entity whose
+ * `localUpdatedAt` is at or after that cutoff — a bootstrap's `keepIds`
+ * reflects the server's state as of when its request was *issued*, so an
+ * entity created or confirmed locally after that moment (e.g. a dish
+ * created while an earlier, slower bootstrap fetch is still in flight) is
+ * genuinely newer than this snapshot, not a server-side deletion this
+ * snapshot is entitled to reconcile. Without this guard such an entity —
+ * already synced and no longer `dirty` — would be wrongly deleted the
+ * instant the stale snapshot resolves. */
 export async function pruneEntitiesNotIn(
   entityType: EntityType,
   keepIds: Set<string>,
+  requestedBefore?: string,
 ): Promise<void> {
   const all = await listEntities(entityType);
   for (const record of all) {
+    if (requestedBefore && record.localUpdatedAt >= requestedBefore) continue;
     if (!keepIds.has(record.id) && !record.dirty) {
       await deleteEntity(entityType, record.id);
     }
@@ -174,7 +198,9 @@ export async function listMutationsByEntity(
   entityId: string,
 ): Promise<QueuedMutation[]> {
   const all = await listMutations();
-  return all.filter((m) => m.entityType === entityType && m.entityId === entityId);
+  return all.filter(
+    (m) => m.entityType === entityType && m.entityId === entityId,
+  );
 }
 
 // --- Meta store -----------------------------------------------------------

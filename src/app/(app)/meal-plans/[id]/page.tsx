@@ -6,7 +6,8 @@ import {
   toMealPlanDetailDto,
 } from "@/lib/mealplans/queries";
 import { NotFoundError } from "@/lib/errors";
-import { MealPlanView } from "@/components/domain/mealplans/meal-plan-view";
+import { MealPlanOfflineBoundary } from "@/components/domain/mealplans/meal-plan-offline-boundary";
+import { OFFLINE_SHELL_SENTINEL } from "@/lib/offline/shell-sentinel";
 
 export async function generateMetadata({
   params,
@@ -29,10 +30,14 @@ export default async function MealPlanViewPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const { id } = await params;
+
+  if (id === OFFLINE_SHELL_SENTINEL) {
+    return <MealPlanOfflineBoundary serverMealPlan={null} />;
+  }
+
   const session = await getServerSession();
   if (!session) redirect("/sign-in");
-
-  const { id } = await params;
 
   let mealPlan;
   try {
@@ -42,5 +47,7 @@ export default async function MealPlanViewPage({
     throw error;
   }
 
-  return <MealPlanView mealPlan={toMealPlanDetailDto(mealPlan)} />;
+  return (
+    <MealPlanOfflineBoundary serverMealPlan={toMealPlanDetailDto(mealPlan)} />
+  );
 }

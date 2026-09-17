@@ -1,11 +1,10 @@
 import type { ReactElement } from "react";
-import { describe, expect, it, vi } from "vitest";
-import { render as rtlRender, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { render as rtlRender, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SessionReviewForm } from "@/components/domain/cooking/session-review-form";
 import { OnboardingProvider } from "@/components/onboarding/onboarding-provider";
 import { ToastProvider, Toaster } from "@/components/ui/toast";
-import { saveSessionReview } from "@/lib/reviews/actions";
 import { updateDishStage } from "@/lib/dishes/actions";
 
 // SessionReviewForm renders CoachMark, which requires an ancestor
@@ -29,8 +28,10 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push }),
 }));
 
+// Saving a review now routes through saveSessionReviewOffline →
+// runOrQueueMutation → fetch("/api/sync/cooking", ...) instead of calling
+// `saveSessionReview` directly — the fetch stub below replaces that mock.
 vi.mock("@/lib/reviews/actions", () => ({
-  saveSessionReview: vi.fn(async () => ({ status: "success", deleted: false })),
   deleteSessionReview: vi.fn(async () => ({ status: "success" })),
 }));
 
@@ -38,8 +39,37 @@ vi.mock("@/lib/dishes/actions", () => ({
   updateDishStage: vi.fn(async () => ({ status: "success" })),
 }));
 
-const mockedSave = vi.mocked(saveSessionReview);
 const mockedUpdateDishStage = vi.mocked(updateDishStage);
+
+let fetchMock: ReturnType<typeof vi.fn>;
+
+function syncResponse(body: Record<string, unknown> = {}) {
+  return new Response(
+    JSON.stringify({
+      status: "applied",
+      entityId: "session-1",
+      serverRevision: null,
+      ...body,
+    }),
+    { status: 200 },
+  );
+}
+
+function saveReviewPayloads() {
+  return fetchMock.mock.calls
+    .map(([, init]) => JSON.parse((init as RequestInit).body as string))
+    .filter((body) => body.op === "cooking.saveReview")
+    .map((body) => body.payload);
+}
+
+beforeEach(() => {
+  fetchMock = vi.fn(async () => syncResponse());
+  vi.stubGlobal("fetch", fetchMock);
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 const baseProps = {
   sessionId: "session-1",
@@ -62,7 +92,6 @@ const baseProps = {
  */
 describe("SessionReviewForm — feedback-assisted editing entry", () => {
   it("links Edit recipe to the exact cooked Version and this session, after saving", async () => {
-    mockedSave.mockClear();
     const user = userEvent.setup();
     render(<SessionReviewForm {...baseProps} />);
 
@@ -90,7 +119,6 @@ describe("SessionReviewForm — 'This session included' checkboxes", () => {
   ];
 
   it("defaults checked state from the session's own recorded completion, and lets the reviewer override it", async () => {
-    mockedSave.mockClear();
     const user = userEvent.setup();
     render(<SessionReviewForm {...baseProps} contextUnits={contextUnits} />);
 
@@ -106,8 +134,10 @@ describe("SessionReviewForm — 'This session included' checkboxes", () => {
     await user.click(searCheckbox);
     await user.click(screen.getByRole("button", { name: /Save review/ }));
 
-    expect(mockedSave).toHaveBeenCalledWith(
-      expect.objectContaining({ includedUnitIds: ["unit-open"] }),
+    await waitFor(() =>
+      expect(saveReviewPayloads()).toContainEqual(
+        expect.objectContaining({ includedUnitIds: ["unit-open"] }),
+      ),
     );
   });
 
@@ -144,7 +174,6 @@ describe("SessionReviewForm — 'This session included' checkboxes", () => {
  */
 describe("SessionReviewForm — post-review success screen", () => {
   it("orders actions Change recipe stage / View recipe+Edit recipe / Done, with sentence-style copy, and Done goes to this Recipe's Cooking history", async () => {
-    mockedSave.mockClear();
     const user = userEvent.setup();
     const { container } = render(
       <SessionReviewForm {...baseProps} currentStage="PROVEN" />,
@@ -179,7 +208,6 @@ describe("SessionReviewForm — post-review success screen", () => {
   });
 
   it("uses Part copy and routes when reviewing a Part", async () => {
-    mockedSave.mockClear();
     const user = userEvent.setup();
     render(
       <SessionReviewForm
@@ -208,7 +236,6 @@ describe("SessionReviewForm — post-review success screen", () => {
   });
 
   it("Cancel discards the open Stage editor without saving; Save persists it, collapses back, and shows a success toast for the actually-saved value", async () => {
-    mockedSave.mockClear();
     mockedUpdateDishStage.mockClear();
     const user = userEvent.setup();
     render(<SessionReviewForm {...baseProps} currentStage="PROVEN" />);
@@ -247,7 +274,6 @@ describe("SessionReviewForm — post-review success screen", () => {
   });
 
   it("changing the draft dropdown after a save never rewrites the already-shown success toast (save-state bug fix)", async () => {
-    mockedSave.mockClear();
     mockedUpdateDishStage.mockClear();
     const user = userEvent.setup();
     render(<SessionReviewForm {...baseProps} currentStage="PROVEN" />);

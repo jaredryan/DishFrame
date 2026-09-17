@@ -5,6 +5,7 @@ import {
   type VersionOption,
 } from "@/components/domain/dish/version-picker";
 import { listDishVersionOptions } from "@/lib/dishes/actions";
+import { listDishVersionOptionsOffline } from "@/lib/dishes/offline-version-history";
 import type { DishKindValue } from "@/lib/dishes/schema";
 
 export type { VersionOption };
@@ -68,7 +69,15 @@ function useDishVersionOptions(
     let cancelled = false;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- resets to loading when kind/dishId changes, before the async fetch resolves
     setState({ status: "loading" });
-    listDishVersionOptions(kind, dishId).then((result) => {
+    // Every field this needs (id/majorVersion/minorVersion/yield) is
+    // replicated on `DishSnapshotDoc.versions`
+    // (docs/OFFLINE_IMPLEMENTATION_PLAN.md §2/§5) — read it back offline
+    // instead of the Server Action.
+    const load =
+      typeof navigator !== "undefined" && navigator.onLine === false
+        ? listDishVersionOptionsOffline(dishId)
+        : listDishVersionOptions(kind, dishId);
+    load.then((result) => {
       if (cancelled) return;
       setState(
         result.status === "success"

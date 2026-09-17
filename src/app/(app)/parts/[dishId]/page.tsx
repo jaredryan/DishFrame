@@ -2,8 +2,10 @@ import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth/session";
 import { getOwnedDishDetailOrThrow } from "@/lib/dishes/queries";
+import { buildDishDetailViewProps } from "@/lib/dishes/detail-view";
 import { NotFoundError } from "@/lib/errors";
-import { DishDetailView } from "@/components/domain/dish/dish-detail-view";
+import { DishOfflineBoundary } from "@/components/domain/dish/dish-offline-boundary";
+import { OFFLINE_SHELL_SENTINEL } from "@/lib/offline/shell-sentinel";
 
 export async function generateMetadata({
   params,
@@ -30,16 +32,20 @@ export default async function PartDetailPage({
 }: {
   params: Promise<{ dishId: string }>;
 }) {
+  const { dishId } = await params;
+
+  if (dishId === OFFLINE_SHELL_SENTINEL) {
+    return <DishOfflineBoundary serverProps={null} />;
+  }
+
   const session = await getServerSession();
   if (!session) {
     redirect("/sign-in");
   }
 
-  const { dishId } = await params;
-
-  let dish;
+  let props;
   try {
-    dish = await getOwnedDishDetailOrThrow(session.user.id, dishId, "PART");
+    props = await buildDishDetailViewProps(session.user.id, dishId, "PART");
   } catch (error) {
     if (error instanceof NotFoundError) {
       notFound();
@@ -47,5 +53,5 @@ export default async function PartDetailPage({
     throw error;
   }
 
-  return <DishDetailView dish={dish} kind="PART" />;
+  return <DishOfflineBoundary serverProps={props} />;
 }

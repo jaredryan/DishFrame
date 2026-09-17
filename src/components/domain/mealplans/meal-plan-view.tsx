@@ -64,7 +64,7 @@ import {
   generateGroceryListFromMealPlan,
   setPlannedMealEaten,
   markScheduleDayEaten,
-} from "@/lib/mealplans/actions";
+} from "@/components/domain/mealplans/mealplan-offline-actions";
 import type {
   MealPlanDetailDto,
   MealPlanEntryDto,

@@ -176,11 +176,16 @@ function isRecognizedAllocationConflict(error: unknown): boolean {
   if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false;
   // P2002: the `@@unique([dishId, majorVersion, minorVersion])` backstop
   // fired — two concurrent saves computed the same next number. P2034: a
-  // serializable-isolation write conflict inside the interactive
-  // transaction itself. Both are exactly the "someone else allocated a
+  // serializable-isolation write conflict Prisma detects itself inside the
+  // interactive transaction. P2010 with meta.code "40001": the same
+  // Postgres serialization failure, but surfaced by a raw query
+  // ($executeRaw/$queryRaw, e.g. refreshStructuralSearchTextForPartUsages)
+  // instead of Prisma's own conflict detection — Postgres reports it under
+  // SQLSTATE 40001 either way. All three are the "someone else allocated a
   // version number at the same time" case a retry can resolve; nothing
   // else is.
-  return error.code === "P2002" || error.code === "P2034";
+  if (error.code === "P2002" || error.code === "P2034") return true;
+  return error.code === "P2010" && error.meta?.code === "40001";
 }
 
 /**
@@ -1792,6 +1797,11 @@ export async function promoteHistoricalVersion(
   dishId: string,
   versionId: string,
   kind?: DishKindValue,
+  // docs/OFFLINE_IMPLEMENTATION_PLAN.md client-generated-id strategy — set
+  // only by `/api/sync/dishes`'s "dish.promoteVersion" handler, mirroring
+  // `createDishWithVersion`'s `clientIds` param. Omitted, Prisma's own
+  // `@default(cuid())` applies exactly as before.
+  clientVersionId?: string,
 ): Promise<string> {
   const dish = await getOwnedDishOrThrow(ownerId, dishId, kind);
   const base = await getDishScopedVersionContentForReuseOrThrow(
@@ -1819,6 +1829,7 @@ export async function promoteHistoricalVersion(
 
     const version = await tx.dishVersion.create({
       data: {
+        ...(clientVersionId ? { id: clientVersionId } : {}),
         dishId: dish.id,
         majorVersion,
         minorVersion: 0,
@@ -1885,6 +1896,12 @@ export type PropagationSelection = {
   // occurrence to target, identified by its stable `lineageId`. This is no
   // longer a list: there is nothing to select among within one parent.
   lineageId: string;
+  // docs/OFFLINE_IMPLEMENTATION_PLAN.md client-generated-id strategy — set
+  // only by `/api/sync/dishes`'s "dish.propagatePartUpdate" handler, one
+  // per selected container, mirroring `createDishWithVersion`'s
+  // `clientIds`. Omitted, Prisma's own `@default(cuid())` applies exactly
+  // as before.
+  clientVersionId?: string;
 };
 
 export type PropagationOutcome =
@@ -2015,6 +2032,9 @@ async function propagateToOneContainer(
 
       const version = await tx.dishVersion.create({
         data: {
+          ...(selection.clientVersionId
+            ? { id: selection.clientVersionId }
+            : {}),
           dishId: container.id,
           majorVersion,
           minorVersion,

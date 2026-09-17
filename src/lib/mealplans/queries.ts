@@ -74,6 +74,7 @@ export function toMealPlanDetailDto(
     endDate: mealPlan.endDate.toISOString(),
     notes: mealPlan.notes,
     completedAt: mealPlan.completedAt?.toISOString() ?? null,
+    updatedAt: mealPlan.updatedAt.toISOString(),
     entries: mealPlan.entries.map((entry) => ({
       id: entry.id,
       dishId: entry.dishId,
@@ -87,6 +88,7 @@ export function toMealPlanDetailDto(
       note: entry.note,
       status: entry.status,
       linkedSessionId: entry.linkedSessionId,
+      updatedAt: entry.updatedAt.toISOString(),
       plannedMeals: entry.plannedMeals.map((meal) => ({
         id: meal.id,
         label: meal.label,

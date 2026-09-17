@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { toggleFavorite } from "@/lib/dishes/actions";
+import { toggleFavoriteOffline as toggleFavorite } from "@/lib/dishes/offline-metadata";
 import type { DishKindValue } from "@/lib/dishes/schema";
 
 /**

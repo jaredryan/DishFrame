@@ -1,23 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { VersionSectionsView } from "@/components/domain/dish/version-sections-view";
-import type { Prisma } from "@/generated/prisma/client";
+import {
+  VersionSectionsView,
+  type VersionSectionRow,
+} from "@/components/domain/dish/version-sections-view";
 import type { PartLinkTree } from "@/lib/sections/service";
-
-type VersionSectionRow = Prisma.SectionGetPayload<{
-  include: {
-    ingredients: { include: { substitute: true } };
-    instructions: true;
-  };
-}>;
 
 function makeSection(
   overrides: Partial<VersionSectionRow> = {},
 ): VersionSectionRow {
   return {
     id: "section-id",
-    lineageId: "section-lineage",
-    dishVersionId: "version-1",
     name: null,
     guidanceNote: null,
     position: 0,
@@ -56,13 +49,11 @@ describe("VersionSectionsView", () => {
         sections={[
           makeSection({
             id: "section-b",
-            lineageId: "b",
             position: 2,
             name: "Second section",
           }),
           makeSection({
             id: "section-a",
-            lineageId: "a",
             position: 0,
             name: "First section",
           }),
@@ -89,13 +80,11 @@ describe("VersionSectionsView", () => {
         sections={[
           makeSection({
             id: "section-b",
-            lineageId: "b",
             position: 1,
             name: "Second section",
           }),
           makeSection({
             id: "section-a",
-            lineageId: "a",
             position: 0,
             name: "First section",
           }),

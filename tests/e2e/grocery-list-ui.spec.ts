@@ -36,24 +36,32 @@ async function createRecipe(page: Page, title: string): Promise<void> {
 
 /**
  * Opens the "List actions" dropdown and clicks `itemName`, retrying the
- * whole open+click once if the item detaches mid-click. A `router.refresh()`
- * from the *previous* List-actions mutation (see `grocery-list-detail-view
- * .tsx`'s `runAction`) can still be settling in the background even after
- * its own DOM changes are visible, and if it lands while this dropdown is
- * open, it can close/remount it out from under the click — reproduced via
- * a captured Playwright trace showing the item detach ~60ms after opening,
- * then never reappear.
+ * whole open+wait+click if the menu never opens, or the item detaches
+ * mid-click. A `router.refresh()` from the *previous* List-actions
+ * mutation (see `grocery-list-detail-view.tsx`'s `runAction`) can still be
+ * settling in the background even after its own DOM changes are visible,
+ * and if it lands while this dropdown is open, it can close/remount it out
+ * from under the click, or before the item ever becomes visible —
+ * reproduced via a captured Playwright trace showing the item detach
+ * ~60ms after opening, then never reappear. The visibility wait itself
+ * must be inside the retry (a short per-attempt timeout, not the default
+ * 5s) so an attempt that catches the menu mid-remount doesn't burn the
+ * whole budget before a later attempt gets a chance.
  */
 async function clickListAction(page: Page, itemName: string): Promise<void> {
   for (let attempt = 0; attempt < 3; attempt++) {
-    await page.getByRole("button", { name: "List actions" }).click();
-    const item = page.getByRole("menuitem", { name: itemName });
-    await expect(item).toBeVisible();
     try {
+      await page.getByRole("button", { name: "List actions" }).click();
+      const item = page.getByRole("menuitem", { name: itemName });
+      await expect(item).toBeVisible({ timeout: 3_000 });
       await item.click({ timeout: 3_000 });
       return;
     } catch (error) {
       if (attempt === 2) throw error;
+      // The dropdown may still be open (just showing stale content) after
+      // a failed attempt — close it before the next attempt reopens it,
+      // so that click unambiguously starts a fresh open.
+      await page.keyboard.press("Escape").catch(() => {});
     }
   }
 }

@@ -227,6 +227,9 @@ export type MealPlanEntryDto = {
   status: EntryStatusValue | "IN_PROGRESS";
   linkedSessionId: string | null;
   plannedMeals: PlannedMealDto[];
+  // Offline conflict detection (docs/OFFLINE_IMPLEMENTATION_PLAN.md §3) —
+  // the base revision an offline entry-scoped mutation is checked against.
+  updatedAt: string;
 };
 
 export type LinkedGroceryListDto = {
@@ -253,6 +256,8 @@ export type MealPlanDetailDto = {
   completedAt: string | null;
   entries: MealPlanEntryDto[];
   linkedGroceryLists: LinkedGroceryListDto[];
+  // Offline conflict detection (docs/OFFLINE_IMPLEMENTATION_PLAN.md §3).
+  updatedAt: string;
 };
 
 export type MealPlanSummaryDto = {

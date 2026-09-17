@@ -106,6 +106,10 @@ export type GroceryCategoryOptionDto = {
 export type GroceryContributionDto = {
   id: string;
   groceryListSourceId: string | null;
+  // Offline grocery source-refresh preview (docs/OFFLINE_IMPLEMENTATION_PLAN.md
+  // §4) — matches a fresh gathering pass's occurrences to this one, the
+  // same way `list-service.ts`'s own `diffOccurrences` does online.
+  ingredientLineageId: string | null;
   originalName: string;
   quantityText: string | null;
   /** Raw numeric quantity backing `quantityText`, in `unit` — lets the
@@ -133,6 +137,28 @@ export type GroceryContributionDto = {
    * displayed aggregate the instant a Meal Plan entry's inclusion checkbox
    * is toggled, without waiting on the server (§81.7 optimistic UI). */
   mealPlanEntryId: string | null;
+  /** Which selected `SUBSTITUTE`/`PRIMARY` variant is currently effective —
+   * `originalName`/`quantityText`/`quantityDecimal`/`unit` above already
+   * reflect it. Offline Meal-Plan resync (`mealplan-resync-core.ts`) needs
+   * the RAW primary snapshot regardless of selection, so it's replicated
+   * separately below rather than only as the already-folded "effective"
+   * value every other reader of this DTO uses. */
+  rawOriginalName: string;
+  rawQuantityDecimal: number | null;
+  rawQuantityText: string | null;
+  rawUnit: string | null;
+  /** Raw substitute snapshot — `hasSubstitute` above is enough for display,
+   * but a resync diff needs the actual values, same reasoning as `raw*`. */
+  substituteOriginalName: string | null;
+  substituteQuantityDecimal: number | null;
+  substituteQuantityText: string | null;
+  substituteUnit: string | null;
+  /** This contribution's own sync-flag acknowledgment timestamp (distinct
+   * from the owning item's `flagAcknowledgedAt`) — needed offline to
+   * reproduce the "a currently-unacknowledged CHANGED contribution stays
+   * sticky through an unrelated resync" rule (`resyncGroceryListFromMealPlan`'s
+   * doc comment) exactly as online. */
+  acknowledgedAt: string | null;
 };
 
 export type GroceryListItemDto = {
@@ -151,6 +177,8 @@ export type GroceryListItemDto = {
    * contributions (§81.4). */
   syncFlag: "UNCHANGED" | "CHANGED" | "REMOVED";
   flagAcknowledgedAt: string | null;
+  // Offline conflict detection (docs/OFFLINE_IMPLEMENTATION_PLAN.md §3).
+  updatedAt: string;
 };
 
 export type GroceryListSourceDto = {
@@ -190,4 +218,17 @@ export type GroceryListDetailDto = {
   items: GroceryListItemDto[];
   /** Populated only for a `MEAL_PLAN_LINKED` list. */
   mealPlanEntries: GroceryListMealPlanEntryDto[];
+  /** Populated only for a `MEAL_PLAN_LINKED` list — every manual-deletion
+   * tombstone (`GroceryListRemovedContribution`), replicated so offline
+   * resync can reproduce "a manually removed contribution never comes back
+   * merely because its source still produces it" (§81.4) without a live
+   * Prisma read. */
+  removedContributions: {
+    id: string;
+    mealPlanEntryId: string;
+    ingredientLineageId: string;
+    wasOptional: boolean;
+  }[];
+  // Offline conflict detection (docs/OFFLINE_IMPLEMENTATION_PLAN.md §3).
+  updatedAt: string;
 };

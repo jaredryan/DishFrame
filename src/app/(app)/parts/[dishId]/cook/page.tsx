@@ -8,12 +8,11 @@ import {
   listDishVersionSummaries,
 } from "@/lib/dishes/queries";
 import { NotFoundError } from "@/lib/errors";
-import {
-  CookingSetup,
-  type SetupUnit,
-} from "@/components/domain/cooking/cooking-setup";
+import { toSetupUnits } from "@/lib/cooking/setup-units";
+import { CookingSetupOfflineBoundary } from "@/components/domain/cooking/cooking-setup-offline-boundary";
 import { versionLabel } from "@/lib/dishes/version-note";
 import { decimalToNumber } from "@/lib/dishes/format";
+import { OFFLINE_SHELL_SENTINEL } from "@/lib/offline/shell-sentinel";
 
 export async function generateMetadata({
   params,
@@ -38,10 +37,15 @@ export default async function PartCookingSetupPage({
   params: Promise<{ dishId: string }>;
   searchParams: Promise<{ versionId?: string; from?: string }>;
 }) {
+  const { dishId } = await params;
+
+  if (dishId === OFFLINE_SHELL_SENTINEL) {
+    return <CookingSetupOfflineBoundary serverProps={null} />;
+  }
+
   const session = await getServerSession();
   if (!session) redirect("/sign-in");
 
-  const { dishId } = await params;
   const { versionId, from } = await searchParams;
   const cancelHref =
     from === "home" ? "/home" : from === "cook" ? "/cook" : `/parts/${dishId}`;
@@ -63,38 +67,23 @@ export default async function PartCookingSetupPage({
     buildCookableUnits(session.user.id, dish, version),
     listDishVersionSummaries(dishId),
   ]);
-  const units: SetupUnit[] = cookableUnits.map((unit) => ({
-    unitKey: unit.unitKey,
-    kind: unit.kind,
-    label: unit.label,
-    estimatedDurationMinutes: unit.estimatedDurationMinutes,
-    ingredientCount: unit.checklist.filter((i) => i.kind === "INGREDIENT")
-      .length,
-    instructionCount: unit.checklist.filter((i) => i.kind === "INSTRUCTION")
-      .length,
-    outputQuantity: unit.outputQuantity,
-    outputUnit: unit.outputUnit,
-    parentPartLabel: unit.partViaTitleSnapshot,
-  }));
 
   return (
-    <CookingSetup
-      // Remounts (and so resets local plan/scale state) whenever the
-      // selected Version changes — the units/yield below are already
-      // re-derived server-side for the new Version.
-      key={version.id}
-      dishId={dish.id}
-      dishKind="PART"
-      dishVersionId={version.id}
-      dishTitle={dish.currentTitle || "Untitled"}
-      versionLabel={versionLabel(version.majorVersion, version.minorVersion)}
-      isCurrent={version.id === dish.currentVersionId}
-      currentVersionId={dish.currentVersionId}
-      versions={versions}
-      units={units}
-      sourceOutputQuantity={decimalToNumber(version.yieldQuantity)}
-      sourceOutputUnit={version.yieldUnit}
-      cancelHref={cancelHref}
+    <CookingSetupOfflineBoundary
+      serverProps={{
+        dishId: dish.id,
+        dishKind: "PART",
+        dishVersionId: version.id,
+        dishTitle: dish.currentTitle || "Untitled",
+        versionLabel: versionLabel(version.majorVersion, version.minorVersion),
+        isCurrent: version.id === dish.currentVersionId,
+        currentVersionId: dish.currentVersionId,
+        versions,
+        units: toSetupUnits(cookableUnits),
+        sourceOutputQuantity: decimalToNumber(version.yieldQuantity),
+        sourceOutputUnit: version.yieldUnit,
+        cancelHref,
+      }}
     />
   );
 }

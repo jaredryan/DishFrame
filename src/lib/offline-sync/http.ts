@@ -31,6 +31,10 @@ export type SyncMutationHandler = (
   entityId: string;
   snapshot: unknown;
   serverRevision: string | null;
+  /** Op-specific extra data that isn't part of the replicated entity
+   * snapshot — e.g. `mealplan.resyncGroceryLists`' added/removed/changed
+   * counts. Unused by nearly every handler; passed through verbatim. */
+  meta?: unknown;
 }>;
 
 export type SyncOpRegistry = Record<string, SyncMutationHandler>;
@@ -75,7 +79,10 @@ export async function handleSyncPush(
     where: { id: mutationId },
   });
   if (existingReceipt && existingReceipt.userId === userId) {
-    return jsonWithStatus(existingReceipt.resultJson, Number(existingReceipt.status));
+    return jsonWithStatus(
+      existingReceipt.resultJson,
+      Number(existingReceipt.status),
+    );
   }
 
   const handler = registry[op];
@@ -90,6 +97,7 @@ export async function handleSyncPush(
       entityId: result.entityId,
       snapshot: result.snapshot,
       serverRevision: result.serverRevision,
+      meta: result.meta,
     };
     await prisma.syncMutationReceipt.create({
       data: {

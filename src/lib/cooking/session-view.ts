@@ -52,7 +52,10 @@ export async function buildCookingModeSessionProps(
   const cookingSession = await getOwnedSessionOrThrow(userId, sessionId);
 
   const [sourceSummary, preference, review] = await Promise.all([
-    getSessionSourceSummary(cookingSession.dishId, cookingSession.dishVersionId),
+    getSessionSourceSummary(
+      cookingSession.dishId,
+      cookingSession.dishVersionId,
+    ),
     prisma.userPreference.findUnique({
       where: { userId },
       select: { timerSoundEnabled: true },
@@ -146,7 +149,9 @@ export async function buildCookingModeSessionProps(
     state: cookingSession.state,
     isActive,
     startedAt: cookingSession.startedAt.toISOString(),
-    endedAt: cookingSession.endedAt ? cookingSession.endedAt.toISOString() : null,
+    endedAt: cookingSession.endedAt
+      ? cookingSession.endedAt.toISOString()
+      : null,
     dishId: cookingSession.dishId,
     dishTitle: sourceSummary.dishTitle,
     dishKind: sourceSummary.dishKind,

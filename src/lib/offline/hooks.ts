@@ -18,14 +18,20 @@ import type {
   SyncStatusSummary,
 } from "@/lib/offline/types";
 
-const EMPTY_SUMMARY: SyncStatusSummary = { pending: 0, syncing: 0, failed: 0, conflict: 0 };
+const EMPTY_SUMMARY: SyncStatusSummary = {
+  pending: 0,
+  syncing: 0,
+  failed: 0,
+  conflict: 0,
+};
 
 /** Live sync-queue status for the small status indicator (offline plan
  * §5.5) — re-reads on every queue mutation via `onSyncActivity`, and kicks
  * a drain attempt on mount so a page opened after reconnecting doesn't
  * just sit on a stale "pending" count. */
 export function useSyncStatus(): SyncStatusSummary {
-  const [summary, setSummary] = React.useState<SyncStatusSummary>(EMPTY_SUMMARY);
+  const [summary, setSummary] =
+    React.useState<SyncStatusSummary>(EMPTY_SUMMARY);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -125,11 +131,17 @@ export function useLocalEntity<TDoc>(
   entityType: EntityType,
   id: string | null,
 ): EntityRecord<TDoc> | undefined {
-  const [record, setRecord] = React.useState<EntityRecord<TDoc> | undefined>(undefined);
+  const [record, setRecord] = React.useState<EntityRecord<TDoc> | undefined>(
+    undefined,
+  );
+  const [recordForId, setRecordForId] = React.useState(id);
+  if (id !== recordForId) {
+    setRecordForId(id);
+    setRecord(undefined);
+  }
 
   React.useEffect(() => {
     if (!id) {
-      setRecord(undefined);
       return;
     }
     let cancelled = false;

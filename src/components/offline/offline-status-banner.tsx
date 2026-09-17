@@ -15,7 +15,12 @@ export function OfflineStatusBanner() {
   const isOffline = useOffline();
   const status = useSyncStatus();
 
-  if (!isOffline && status.pending === 0 && status.syncing === 0 && status.failed === 0) {
+  if (
+    !isOffline &&
+    status.pending === 0 &&
+    status.syncing === 0 &&
+    status.failed === 0
+  ) {
     return null;
   }
 

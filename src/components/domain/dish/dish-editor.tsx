@@ -611,14 +611,15 @@ export function DishEditor({
 
     setIsSubmitting(true);
     try {
-      const result = onCreate && !dish
-        ? await onCreate(saveKind, cleaned)
-        : await saveDishOffline(
-            saveKind,
-            dish ? { id: dish.id, baseVersionId: dish.baseVersionId } : null,
-            cleaned,
-            versionChoice,
-          );
+      const result =
+        onCreate && !dish
+          ? await onCreate(saveKind, cleaned)
+          : await saveDishOffline(
+              saveKind,
+              dish ? { id: dish.id, baseVersionId: dish.baseVersionId } : null,
+              cleaned,
+              versionChoice,
+            );
 
       if (result.status === "success" && result.dishId) {
         await applyEditorExtras(extras);

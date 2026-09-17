@@ -22,6 +22,19 @@ export async function saveDishOffline(
   existing: { id: string; baseVersionId: string } | null,
   content: DishFormValues,
   versionChoice?: VersionChoiceValue,
+  // Import metadata (docs/OFFLINE_IMPLEMENTATION_PLAN.md §7) — only ever
+  // set by `paste-import-flow.tsx`'s offline fallback, applied server-side
+  // once this queued `dish.create` mutation actually reaches the sync API
+  // (`offline-sync/dishes.ts`), the same way `confirmImport`/
+  // `confirmImportBatch` apply it online. Ignored for an edit (`existing`
+  // set) — import attribution only ever applies to a brand-new Dish.
+  importMetadata?: {
+    sourceTitle?: string;
+    cuisineGuessName?: string | null;
+    tagIds?: string[];
+    flavorProfileIds?: string[];
+    cuisineIds?: string[];
+  },
 ): Promise<DishActionState> {
   if (!existing) {
     const clientDishId = generateClientId();
@@ -30,27 +43,54 @@ export async function saveDishOffline(
       id: clientDishId,
       kind,
       stage: content.stage,
-      archivedAt: content.stage === "ARCHIVED" ? new Date().toISOString() : null,
+      archivedAt:
+        content.stage === "ARCHIVED" ? new Date().toISOString() : null,
       currentVersionId: clientVersionId,
       defaultScale: null,
+      createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      tagIds: [],
-      cuisineIds: content.cuisineIds,
-      flavorProfileValueIds: [],
+      currentStructuralSearchText: null,
+      // Best-effort local preview — the guessed Cuisine name isn't
+      // resolved to an id until this mutation syncs (see `dish.create`'s
+      // sync-op handler), so it can't be reflected here yet; already-
+      // resolved batch-mapped ids are shown immediately.
+      tagIds: importMetadata?.tagIds ?? [],
+      cuisineIds: [
+        ...new Set([
+          ...content.cuisineIds,
+          ...(importMetadata?.cuisineIds ?? []),
+        ]),
+      ],
+      flavorProfileValueIds: importMetadata?.flavorProfileIds ?? [],
       content,
       detail: null,
       cookableUnits: [],
+      versions: [],
     };
     const result = await runOrQueueMutation({
       op: "dish.create",
       entityType: "dish",
       entityId: clientDishId,
-      payload: { clientDishId, clientVersionId, kind, content },
+      payload: {
+        clientDishId,
+        clientVersionId,
+        kind,
+        content,
+        importSourceTitle: importMetadata?.sourceTitle,
+        importCuisineGuessName: importMetadata?.cuisineGuessName,
+        importTagIds: importMetadata?.tagIds,
+        importFlavorProfileIds: importMetadata?.flavorProfileIds,
+        importCuisineIds: importMetadata?.cuisineIds,
+      },
       optimisticDoc,
       mutationId: clientDishId,
     });
     if (!result.ok) return { status: "error", message: result.message };
-    return { status: "success", dishId: clientDishId, versionId: clientVersionId };
+    return {
+      status: "success",
+      dishId: clientDishId,
+      versionId: clientVersionId,
+    };
   }
 
   // Coalesce multiple offline edits to the same Dish into one queued
@@ -71,13 +111,16 @@ export async function saveDishOffline(
         archivedAt: null,
         currentVersionId: existing.baseVersionId,
         defaultScale: null,
+        createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+        currentStructuralSearchText: null,
         tagIds: [],
         cuisineIds: content.cuisineIds,
         flavorProfileValueIds: [],
         content,
         detail: null,
         cookableUnits: [],
+        versions: [],
       };
 
   const result = await runOrQueueMutation({

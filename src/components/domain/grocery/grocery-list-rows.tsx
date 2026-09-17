@@ -27,7 +27,7 @@ import {
   deleteGroceryList,
   completeGroceryList,
   reopenGroceryList,
-} from "@/lib/grocery/list-actions";
+} from "@/components/domain/grocery/grocery-offline-actions";
 
 export type GroceryListRowItem = {
   id: string;

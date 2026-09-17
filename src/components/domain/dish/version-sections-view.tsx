@@ -1,19 +1,44 @@
-import { Prisma } from "@/generated/prisma/client";
 import {
   ContentCard,
   CONTENT_CARD_TITLE_CLASS,
 } from "@/components/domain/dish/content-card";
-import { formatIngredientLine, decimalToNumber } from "@/lib/dishes/format";
+import { formatIngredientLine } from "@/lib/dishes/format";
 import { PartLinkTreeView } from "@/components/domain/dish/part-link-tree-view";
 import type { PartLinkTree } from "@/lib/sections/service";
 import { orderSectionsAndTopLevelPartLinks } from "@/lib/dishes/display-order";
 
-type VersionSectionRow = Prisma.SectionGetPayload<{
-  include: {
-    ingredients: { include: { substitute: true } };
-    instructions: true;
-  };
-}>;
+// Plain, Decimal-free shape (rather than a `Prisma.SectionGetPayload`
+// type) so this component stays safely importable from a Client
+// Component's module graph — callers convert Decimal quantities to plain
+// numbers once, at the data-assembly boundary (server-side), not here.
+export type VersionSectionRow = {
+  id: string;
+  name: string | null;
+  guidanceNote: string | null;
+  position: number;
+  ingredients: {
+    id: string;
+    name: string;
+    quantity: number | null;
+    quantityEnd: number | null;
+    isApproximate: boolean;
+    unit: string | null;
+    displayText: string | null;
+    preparationNote: string | null;
+    isOptional: boolean;
+    substituteForIngredientId: string | null;
+    substitute: {
+      name: string;
+      quantity: number | null;
+      quantityEnd: number | null;
+      isApproximate: boolean;
+      unit: string | null;
+      displayText: string | null;
+      preparationNote: string | null;
+    } | null;
+  }[];
+  instructions: { id: string; text: string; position: number }[];
+};
 
 /**
  * Renders one Version's Sections/Ingredients/Instructions content — shared
@@ -82,11 +107,7 @@ export function VersionSectionsView({
                   .filter((i) => i.substituteForIngredientId === null)
                   .map((ingredient) => (
                     <li key={ingredient.id} className="text-sm">
-                      {formatIngredientLine({
-                        ...ingredient,
-                        quantity: decimalToNumber(ingredient.quantity),
-                        quantityEnd: decimalToNumber(ingredient.quantityEnd),
-                      })}
+                      {formatIngredientLine(ingredient)}
                       {ingredient.isOptional && (
                         <span className="text-muted-foreground">
                           {" "}
@@ -96,15 +117,7 @@ export function VersionSectionsView({
                       {ingredient.substitute && (
                         <span className="text-muted-foreground block pl-4 text-xs">
                           Substitute:{" "}
-                          {formatIngredientLine({
-                            ...ingredient.substitute,
-                            quantity: decimalToNumber(
-                              ingredient.substitute.quantity,
-                            ),
-                            quantityEnd: decimalToNumber(
-                              ingredient.substitute.quantityEnd,
-                            ),
-                          })}
+                          {formatIngredientLine(ingredient.substitute)}
                         </span>
                       )}
                     </li>

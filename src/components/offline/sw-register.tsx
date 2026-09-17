@@ -2,7 +2,10 @@
 
 import * as React from "react";
 import { useToast } from "@/components/ui/toast";
-import { registerSyncTriggers, runIncrementalPull } from "@/lib/offline/sync-engine";
+import {
+  registerSyncTriggers,
+  runIncrementalPull,
+} from "@/lib/offline/sync-engine";
 
 /**
  * Registers the service worker and wires the update lifecycle
@@ -46,10 +49,12 @@ export function ServiceWorkerRegister() {
 
     let reloading = false;
     navigator.serviceWorker.addEventListener("controllerchange", () => {
-      // A `SKIP_WAITING` postMessage (from the toast's Reload action) is
-      // the only thing that ever triggers this — no other code path calls
-      // `skipWaiting()` — so a fresh controller here always means "the
-      // user asked for the update," never an unrequested mid-session swap.
+      // `controllerchange` also fires on a page's first-ever activation
+      // (uncontrolled → controlled via the SW's own `clients.claim()`),
+      // not just after a user-requested `SKIP_WAITING`. Gate on
+      // `promptedRef` — set only once we've actually shown the "Update
+      // available" toast — so an ordinary first load never reloads.
+      if (!promptedRef.current) return;
       if (reloading) return;
       reloading = true;
       window.location.reload();
@@ -65,7 +70,10 @@ export function ServiceWorkerRegister() {
           const installing = registration.installing;
           if (!installing) return;
           installing.addEventListener("statechange", () => {
-            if (installing.state === "installed" && navigator.serviceWorker.controller) {
+            if (
+              installing.state === "installed" &&
+              navigator.serviceWorker.controller
+            ) {
               promptForReload(registration);
             }
           });

@@ -1,6 +1,11 @@
 import type { ReactElement } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render as rtlRender, screen, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  render as rtlRender,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DishEditor } from "@/components/domain/dish/dish-editor";
 import { OnboardingProvider } from "@/components/onboarding/onboarding-provider";
@@ -140,6 +145,50 @@ const mockedSetDefaultScale = vi.mocked(setDefaultScale);
 const mockedListAttachablePartVersions = vi.mocked(listAttachablePartVersions);
 const mockedListAttachableParts = vi.mocked(listAttachableParts);
 const mockedValidatePartAttachment = vi.mocked(validatePartAttachment);
+
+// The ordinary Save path (no `onCreate` override, which none of these
+// tests pass) no longer calls `createDish`/`editDish` directly — it goes
+// through `saveDishOffline` → runOrQueueMutation →
+// fetch("/api/sync/dishes", ...) instead (docs/OFFLINE_IMPLEMENTATION_
+// PLAN.md's stable sync API). `createDish`/`editDish` stay real, mocked
+// Server Actions only for the still-direct "Convert/Replace Section with
+// Part" flows below. This stub + helper replace the dead mock-call
+// assertions on the ordinary Save path.
+let fetchMock: ReturnType<typeof vi.fn>;
+
+function syncResponse(body: Record<string, unknown> = {}) {
+  return new Response(
+    JSON.stringify({
+      status: "applied",
+      entityId: "dish-1",
+      serverRevision: null,
+      ...body,
+    }),
+    { status: 200 },
+  );
+}
+
+function dishSyncPayloads(op: "dish.create" | "dish.edit") {
+  return fetchMock.mock.calls
+    .map(
+      ([, init]) =>
+        JSON.parse((init as RequestInit).body as string) as {
+          op: string;
+          payload: { content: DishFormValues; versionChoice?: string };
+        },
+    )
+    .filter((body) => body.op === op)
+    .map((body) => body.payload);
+}
+
+beforeEach(() => {
+  fetchMock = vi.fn(async () => syncResponse());
+  vi.stubGlobal("fetch", fetchMock);
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 const existingDish: {
   id: string;
@@ -685,8 +734,10 @@ describe("DishEditor substitute handling", () => {
     await user.click(screen.getByRole("button", { name: "Finish section" }));
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(mockedCreateDish).toHaveBeenCalledTimes(1);
-    const [, submitted] = mockedCreateDish.mock.calls[0];
+    await waitFor(() =>
+      expect(dishSyncPayloads("dish.create")).toHaveLength(1),
+    );
+    const submitted = dishSyncPayloads("dish.create")[0].content;
     expect(submitted.sections[0].ingredients[0].substitute).toBeNull();
   });
 
@@ -714,8 +765,10 @@ describe("DishEditor substitute handling", () => {
     await user.click(screen.getByRole("button", { name: "Finish section" }));
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(mockedCreateDish).toHaveBeenCalledTimes(1);
-    const [, submitted] = mockedCreateDish.mock.calls[0];
+    await waitFor(() =>
+      expect(dishSyncPayloads("dish.create")).toHaveLength(1),
+    );
+    const submitted = dishSyncPayloads("dish.create")[0].content;
     expect(submitted.cuisineIds).toEqual(["cuisine-vietnamese"]);
   });
 
@@ -737,8 +790,10 @@ describe("DishEditor substitute handling", () => {
     await user.click(screen.getByRole("button", { name: "Finish section" }));
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(mockedCreateDish).toHaveBeenCalledTimes(1);
-    const [, submitted] = mockedCreateDish.mock.calls[0];
+    await waitFor(() =>
+      expect(dishSyncPayloads("dish.create")).toHaveLength(1),
+    );
+    const submitted = dishSyncPayloads("dish.create")[0].content;
     expect(submitted.cuisineIds).toEqual([]);
   });
 
@@ -769,8 +824,8 @@ describe("DishEditor substitute handling", () => {
     await user.click(screen.getByLabelText("Thai"));
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(mockedEditDish).toHaveBeenCalledTimes(1);
-    const submitted = mockedEditDish.mock.calls[0][3];
+    await waitFor(() => expect(dishSyncPayloads("dish.edit")).toHaveLength(1));
+    const submitted = dishSyncPayloads("dish.edit")[0].content;
     expect(submitted.cuisineIds?.sort()).toEqual(
       ["cuisine-thai", "cuisine-vietnamese"].sort(),
     );
@@ -790,8 +845,10 @@ describe("DishEditor substitute handling", () => {
 
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(mockedCreateDish).toHaveBeenCalledTimes(1);
-    const [, submitted] = mockedCreateDish.mock.calls[0];
+    await waitFor(() =>
+      expect(dishSyncPayloads("dish.create")).toHaveLength(1),
+    );
+    const submitted = dishSyncPayloads("dish.create")[0].content;
     expect(submitted.sections[0].ingredients[0].substitute).toMatchObject({
       name: "Honey",
     });
@@ -838,8 +895,10 @@ describe("DishEditor substitute handling", () => {
 
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(mockedCreateDish).toHaveBeenCalledTimes(1);
-    const [, submitted] = mockedCreateDish.mock.calls[0];
+    await waitFor(() =>
+      expect(dishSyncPayloads("dish.create")).toHaveLength(1),
+    );
+    const submitted = dishSyncPayloads("dish.create")[0].content;
     expect(submitted.sections[0].ingredients[0].substitute).toMatchObject({
       name: "Honey",
     });
@@ -908,8 +967,8 @@ describe("DishEditor minor/major version choice", () => {
     expect(
       screen.queryByText("How should this change be saved?"),
     ).not.toBeInTheDocument();
-    expect(mockedEditDish).toHaveBeenCalledTimes(1);
-    expect(mockedEditDish.mock.calls[0][4]).toBeUndefined();
+    await waitFor(() => expect(dishSyncPayloads("dish.edit")).toHaveLength(1));
+    expect(dishSyncPayloads("dish.edit")[0].versionChoice).toBeUndefined();
   });
 
   it("shows the choice dialog when an Ingredient changed, and saves as a refinement on that choice", async () => {
@@ -934,7 +993,7 @@ describe("DishEditor minor/major version choice", () => {
     expect(
       await screen.findByText("How should this change be saved?"),
     ).toBeInTheDocument();
-    expect(mockedEditDish).not.toHaveBeenCalled();
+    expect(dishSyncPayloads("dish.edit")).toHaveLength(0);
 
     const refinementButton = screen.getByRole("button", {
       name: /Save as a refinement/,
@@ -942,8 +1001,8 @@ describe("DishEditor minor/major version choice", () => {
     expect(refinementButton).toHaveTextContent("Saves as V1.1");
     await user.click(refinementButton);
 
-    expect(mockedEditDish).toHaveBeenCalledTimes(1);
-    expect(mockedEditDish.mock.calls[0][4]).toBe("MINOR");
+    await waitFor(() => expect(dishSyncPayloads("dish.edit")).toHaveLength(1));
+    expect(dishSyncPayloads("dish.edit")[0].versionChoice).toBe("MINOR");
   });
 
   it("saves as a new major version when that choice is made", async () => {
@@ -967,8 +1026,8 @@ describe("DishEditor minor/major version choice", () => {
     expect(newVersionButton).toHaveTextContent("Starts V2.0");
     await user.click(newVersionButton);
 
-    expect(mockedEditDish).toHaveBeenCalledTimes(1);
-    expect(mockedEditDish.mock.calls[0][4]).toBe("MAJOR");
+    await waitFor(() => expect(dishSyncPayloads("dish.edit")).toHaveLength(1));
+    expect(dishSyncPayloads("dish.edit")[0].versionChoice).toBe("MAJOR");
   });
 });
 
@@ -998,7 +1057,7 @@ describe("DishEditor consolidated note and default scale", () => {
       screen.queryByText("How should this change be saved?"),
     ).not.toBeInTheDocument();
     await vi.waitFor(() => expect(mockedUpdateVersionNote).toHaveBeenCalled());
-    expect(mockedEditDish).toHaveBeenCalledTimes(1);
+    expect(dishSyncPayloads("dish.edit")).toHaveLength(1);
     expect(mockedUpdateVersionNote).toHaveBeenCalledWith("RECIPE", {
       dishId: "dish-1",
       versionId: "version-1",
@@ -1013,7 +1072,7 @@ describe("DishEditor consolidated note and default scale", () => {
 
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(mockedEditDish).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(dishSyncPayloads("dish.edit")).toHaveLength(1));
     expect(mockedUpdateVersionNote).not.toHaveBeenCalled();
     expect(mockedSetDefaultScale).not.toHaveBeenCalled();
   });
@@ -1105,7 +1164,9 @@ describe("DishEditor consolidated note and default scale", () => {
     await user.type(scaleInput, "1");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    await vi.waitFor(() => expect(mockedEditDish).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() =>
+      expect(dishSyncPayloads("dish.edit")).toHaveLength(1),
+    );
     expect(mockedSetDefaultScale).not.toHaveBeenCalled();
   });
 

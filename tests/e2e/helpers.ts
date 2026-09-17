@@ -110,26 +110,32 @@ export async function addAuthSession(
 }
 
 /**
- * GroceryCategoryManager, TasterManager, and other Server-Action-backed
- * mutations apply local state optimistically before their fetch resolves —
- * so a client-side visibility assertion right after a click can pass before
- * the mutation has actually reached the database. That's invisible
- * normally, but a subsequent `page.reload()` (or navigation away and back)
- * re-fetches server truth, so it must wait for the real round trip, not
- * just the optimistic render.
+ * GroceryCategoryManager, TasterManager, and other Server-Action- or
+ * `/api/sync/*`-backed mutations (see `src/lib/offline/mutate.ts`'s
+ * `runOrQueueMutation` — offline-capable domain actions now POST there
+ * directly instead of invoking their Server Action, even while online)
+ * apply local state optimistically before their fetch resolves — so a
+ * client-side visibility assertion right after a click can pass before the
+ * mutation has actually reached the database. That's invisible normally,
+ * but a subsequent `page.reload()` (or navigation away and back) re-fetches
+ * server truth, so it must wait for the real round trip, not just the
+ * optimistic render.
  *
- * The predicate is scoped to same-origin responses carrying a `next-action`
- * header, not just any POST: `<SpeedInsights />` (mounted app-wide in
- * `src/app/layout.tsx`) injects an external debug-script beacon in dev mode
- * that also POSTs shortly after page load. An unscoped `method() === "POST"`
- * predicate can resolve on that beacon instead of the Server Action's own
- * response, intermittently racing ahead of the real mutation.
+ * The predicate is scoped to same-origin responses that are either a
+ * genuine Server Action (carrying a `next-action` header) or an
+ * `/api/sync/*` mutation, not just any POST: `<SpeedInsights />` (mounted
+ * app-wide in `src/app/layout.tsx`) injects an external debug-script beacon
+ * in dev mode that also POSTs shortly after page load. An unscoped
+ * `method() === "POST"` predicate can resolve on that beacon instead of the
+ * real mutation's own response, intermittently racing ahead of it.
  */
 export function isSameOriginPost(page: Page, response: Response): boolean {
+  if (response.request().method() !== "POST") return false;
+  const url = new URL(response.url());
+  if (url.origin !== new URL(page.url()).origin) return false;
   return (
-    response.request().method() === "POST" &&
-    new URL(response.url()).origin === new URL(page.url()).origin &&
-    Boolean(response.request().headers()["next-action"])
+    Boolean(response.request().headers()["next-action"]) ||
+    url.pathname.startsWith("/api/sync/")
   );
 }
 

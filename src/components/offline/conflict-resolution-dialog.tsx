@@ -48,13 +48,22 @@ export function ConflictResolutionDialog() {
         </DialogHeader>
         <div className="divide-border flex flex-col divide-y">
           {conflicts.map((record) => (
-            <div key={`${record.entityType}:${record.id}`} className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0">
+            <div
+              key={`${record.entityType}:${record.id}`}
+              className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0"
+            >
               <p className="text-sm font-medium">
                 {ENTITY_LABELS[record.entityType] ?? record.entityType}
               </p>
-              <p className="text-muted-foreground text-sm">{record.conflict?.message}</p>
+              <p className="text-muted-foreground text-sm">
+                {record.conflict?.message}
+              </p>
               <div className="flex gap-2">
-                <Button size="sm" variant="outline" onClick={() => discardMine(record)}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => discardMine(record)}
+                >
                   Use server&apos;s version
                 </Button>
                 <Button size="sm" onClick={() => keepMine(record)}>

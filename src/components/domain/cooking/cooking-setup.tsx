@@ -28,6 +28,7 @@ import { useReorderSensors } from "@/lib/dnd/sensors";
 import { createReorderAnnouncements } from "@/lib/dnd/announcements";
 import { cn } from "@/lib/utils";
 import { startCookingSession, endCookingSession } from "@/lib/cooking/actions";
+import { startCookingSessionOffline } from "@/lib/cooking/offline-start";
 import {
   TargetScaleField,
   computeOutputBasis,
@@ -36,21 +37,30 @@ import {
   VersionPicker,
   type VersionOption,
 } from "@/components/domain/dish/version-picker";
+import type { SetupUnit } from "@/lib/cooking/setup-units";
 
-export type SetupUnit = {
-  unitKey: string;
-  kind: "SECTION" | "PART";
-  label: string;
-  estimatedDurationMinutes: number | null;
-  ingredientCount: number;
-  instructionCount: number;
-  outputQuantity: number | null;
-  outputUnit: string | null;
-  // SLICE_9.md refinement pass — set only for a Part reached by linking
-  // through another Part (never a top-level or Section-nested Part), so the
-  // list can show it's a nested, independently selectable unit rather than a
-  // sibling of the thing that links to it (PRODUCT_SPEC.md §23.4).
-  parentPartLabel: string | null;
+export type { SetupUnit } from "@/lib/cooking/setup-units";
+
+export type CookingSetupProps = {
+  dishId: string;
+  dishKind: "RECIPE" | "PART";
+  dishVersionId: string;
+  dishTitle: string;
+  versionLabel: string;
+  isCurrent: boolean;
+  // The Recipe/Part's actual current Version id, for the picker's
+  // "(current)" suffix — distinct from `dishVersionId`, the Version this
+  // setup screen is showing, whenever a historical Version is selected.
+  currentVersionId: string | null;
+  // Every saved Version, for the Version picker — switching navigates to
+  // this same setup screen for the chosen Version's own content.
+  versions: VersionOption[];
+  units: SetupUnit[];
+  sourceOutputQuantity: number | null;
+  sourceOutputUnit: string | null;
+  // Where Cancel returns to: the page this setup was opened from (Home, the
+  // Cook sessions list, or — the default — the item's own detail page).
+  cancelHref: string;
 };
 
 const SECTION_HEADING_CLASS = "font-heading text-lg font-medium";
@@ -89,27 +99,7 @@ export function CookingSetup({
   sourceOutputQuantity,
   sourceOutputUnit,
   cancelHref,
-}: {
-  dishId: string;
-  dishKind: "RECIPE" | "PART";
-  dishVersionId: string;
-  dishTitle: string;
-  versionLabel: string;
-  isCurrent: boolean;
-  // The Recipe/Part's actual current Version id, for the picker's
-  // "(current)" suffix — distinct from `dishVersionId`, the Version this
-  // setup screen is showing, whenever a historical Version is selected.
-  currentVersionId: string | null;
-  // Every saved Version, for the Version picker — switching navigates to
-  // this same setup screen for the chosen Version's own content.
-  versions: VersionOption[];
-  units: SetupUnit[];
-  sourceOutputQuantity: number | null;
-  sourceOutputUnit: string | null;
-  // Where Cancel returns to: the page this setup was opened from (Home, the
-  // Cook sessions list, or — the default — the item's own detail page).
-  cancelHref: string;
-}) {
+}: CookingSetupProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -178,7 +168,7 @@ export function CookingSetup({
 
   function handleStart() {
     startTransition(async () => {
-      const result = await startCookingSession({
+      const input = {
         dishId,
         dishVersionId,
         scaleFactor: sessionMultiplier,
@@ -186,7 +176,11 @@ export function CookingSetup({
           unitKey,
           scaleFactor: unitMultipliers[unitKey] ?? null,
         })),
-      });
+      };
+      const result =
+        typeof navigator !== "undefined" && navigator.onLine === false
+          ? await startCookingSessionOffline(input)
+          : await startCookingSession(input);
 
       if (result.status === "success") {
         router.push(`/cook/${result.sessionId}`);

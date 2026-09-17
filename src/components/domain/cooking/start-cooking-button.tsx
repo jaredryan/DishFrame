@@ -20,6 +20,7 @@ import {
 import { RichDishVersionPicker } from "@/components/domain/dish/version-picker-field";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
 import { listCookablePickerItems } from "@/lib/cooking/actions";
+import { listCookablePickerItemsOffline } from "@/lib/dishes/offline-library";
 import type { CookablePickerItem } from "@/lib/dishes/queries";
 
 function toSelectionItem(item: CookablePickerItem): DishSelectionItem {
@@ -77,7 +78,19 @@ export function StartCookingButton({
   React.useEffect(() => {
     if (requestKey === null) return;
     let cancelled = false;
-    listCookablePickerItems().then((result) => {
+    // Offline: read the same candidate set from the local replica instead
+    // of the Server Action (docs/OFFLINE_IMPLEMENTATION_PLAN.md §5) — this
+    // dialog is the general Home/Cook entry point, so it must work without
+    // a connection the same as reaching it from a specific Dish's own page
+    // already does.
+    const load =
+      typeof navigator !== "undefined" && navigator.onLine === false
+        ? listCookablePickerItemsOffline().then((items) => ({
+            status: "success" as const,
+            items,
+          }))
+        : listCookablePickerItems();
+    load.then((result) => {
       if (cancelled) return;
       setLoadedKey(requestKey);
       if (result.status === "success") {

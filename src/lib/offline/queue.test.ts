@@ -81,8 +81,18 @@ describe("offline/queue", () => {
   });
 
   it("getSyncStatusSummary counts by status, excluding terminal failures from the failed count", async () => {
-    const a = await enqueueMutation({ entityType: "dish", entityId: "a", op: "dish.edit", payload: {} });
-    const b = await enqueueMutation({ entityType: "dish", entityId: "b", op: "dish.edit", payload: {} });
+    const a = await enqueueMutation({
+      entityType: "dish",
+      entityId: "a",
+      op: "dish.edit",
+      payload: {},
+    });
+    const b = await enqueueMutation({
+      entityType: "dish",
+      entityId: "b",
+      op: "dish.edit",
+      payload: {},
+    });
     await markMutationStatus(a.mutationId, "syncing");
     await markMutationStatus(b.mutationId, "failed", { terminal: true });
 

@@ -1,6 +1,7 @@
+"use client";
+
 import { ChefHat } from "lucide-react";
 import Link from "next/link";
-import { Prisma } from "@/generated/prisma/client";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { Button } from "@/components/ui/button";
 import { DishDetailActions } from "@/components/domain/dish/dish-detail-actions";
@@ -11,338 +12,117 @@ import {
   DishMetaChips,
   DishDescriptionNote,
 } from "@/components/domain/dish/dish-read-only-presentation";
-import {
-  ScaledVersionView,
-  type ScaledSectionRow,
-} from "@/components/domain/dish/scaled-version-view";
+import { ScaledVersionView } from "@/components/domain/dish/scaled-version-view";
 import { PartUsagePanel } from "@/components/domain/dish/part-usage-panel";
-import {
-  NutritionSummary,
-  toNutritionSummaryData,
-} from "@/components/domain/dish/nutrition-summary";
+import { NutritionSummary } from "@/components/domain/dish/nutrition-summary";
 import { FavoriteToggle } from "@/components/domain/dish/favorite-toggle";
 import { DishTagFlavorEditor } from "@/components/domain/dish/dish-tag-flavor-editor";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
-import type { DishKindValue } from "@/lib/dishes/schema";
-import {
-  listCurrentPartUsages,
-  type dishDetailInclude,
-  type sectionContentInclude,
-} from "@/lib/dishes/queries";
-import { decimalToNumber } from "@/lib/dishes/format";
-import { versionContentToInput } from "@/lib/dishes/mappers";
-import { versionLabel as formatVersionLabel } from "@/lib/dishes/version-note";
-import {
-  resolvePartLinkTrees,
-  type PartLinkTree,
-} from "@/lib/sections/service";
-import { getLastCookedAt } from "@/lib/cooking/queries";
-import {
-  getRatingSummary,
-  computePrincipalRating,
-} from "@/lib/reviews/queries";
-import { listTags } from "@/lib/tags/queries";
-import { listFlavorProfileValues } from "@/lib/flavor-profiles/queries";
-import { listCuisines } from "@/lib/cuisines/queries";
-import { prisma } from "@/lib/db/prisma";
-
-type DishDetail = Prisma.DishGetPayload<{ include: typeof dishDetailInclude }>;
-export type VersionSectionRow = Prisma.SectionGetPayload<{
-  include: typeof sectionContentInclude.include;
-}>;
+import type { DishDetailViewProps } from "@/lib/dishes/detail-view";
 
 /**
- * `ScaledVersionView` is a Client Component, so its `sections` prop must
- * be plain, serializable data — a raw `Prisma.Decimal` cannot cross the
- * Server→Client boundary (it arrives as a non-functional plain object,
- * not a real `Decimal` instance). This Server Component does the
- * Decimal→number conversion once, here, before handing sections down.
- * Exported for reuse by `VersionHistoryView`, which prepares the same shape
- * for an arbitrary historical Version instead of only the current one.
+ * Pure render of an already-assembled `DishDetailViewProps` — the async
+ * data assembly (ratings, PartLink resolution, tag/cuisine/flavor option
+ * lists, etc.) lives in `lib/dishes/detail-view.ts#buildDishDetailViewProps`,
+ * shared with the offline snapshot builder (`offline-sync/dishes.ts`) the
+ * same way `lib/cooking/session-view.ts` is shared with Cooking Mode's
+ * offline boundary. A Client Component (not async) so it can be rendered
+ * directly by `DishOfflineBoundary`.
  */
-export function toDisplaySections(
-  sections: VersionSectionRow[],
-  sectionPartLinkTreeLists: PartLinkTree[][],
-): ScaledSectionRow[] {
-  return sections.map((section, index) => ({
-    id: section.id,
-    position: section.position,
-    name: section.name,
-    guidanceNote: section.guidanceNote,
-    partLinks: sectionPartLinkTreeLists[index] ?? [],
-    ingredients: section.ingredients.map((ingredient) => ({
-      id: ingredient.id,
-      lineageId: ingredient.lineageId,
-      name: ingredient.name,
-      quantity: decimalToNumber(ingredient.quantity),
-      quantityEnd: decimalToNumber(ingredient.quantityEnd),
-      isApproximate: ingredient.isApproximate,
-      unit: ingredient.unit,
-      displayText: ingredient.displayText,
-      preparationNote: ingredient.preparationNote,
-      isOptional: ingredient.isOptional,
-      substituteForIngredientId: ingredient.substituteForIngredientId,
-      substitute: ingredient.substitute
-        ? {
-            name: ingredient.substitute.name,
-            quantity: decimalToNumber(ingredient.substitute.quantity),
-            quantityEnd: decimalToNumber(ingredient.substitute.quantityEnd),
-            isApproximate: ingredient.substitute.isApproximate,
-            unit: ingredient.substitute.unit,
-            displayText: ingredient.substitute.displayText,
-            preparationNote: ingredient.substitute.preparationNote,
-          }
-        : null,
-    })),
-    instructions: section.instructions.map((instruction) => ({
-      id: instruction.id,
-      text: instruction.text,
-      position: instruction.position,
-    })),
-  }));
-}
+export function DishDetailView(props: DishDetailViewProps) {
+  const { kind, label, collectionLabel, displayTitle, dishId } = props;
 
-export async function DishDetailView({
-  dish,
-  kind,
-}: {
-  dish: DishDetail;
-  kind: DishKindValue;
-}) {
-  const version = dish.currentVersion;
-  const label = kind === "PART" ? "Part" : "Recipe";
-  // PRODUCT_SPEC.md §71: only meaningful for a Part — a Recipe is never a
-  // PartLink target, so it can never have "usages" of its own.
-  const usages =
-    kind === "PART" ? await listCurrentPartUsages(dish.ownerId, dish.id) : null;
-
-  // Slice 9: principal rating (§36.4/§49.1-49.3), Last cooked (§41), and the
-  // "Starting point" inherited-context block for a duplicate (§19.4) — all
-  // read-time aggregates, never cached.
-  const [
-    preference,
-    ratingSummary,
-    lastCookedAt,
-    tagOptions,
-    flavorProfileOptions,
-    cuisineOptions,
-  ] = await Promise.all([
-    prisma.userPreference.findUnique({
-      where: { userId: dish.ownerId },
-      select: { primaryRatingDisplay: true },
-    }),
-    getRatingSummary(dish.id, dish.currentVersionId),
-    getLastCookedAt(dish.ownerId, dish.id, kind),
-    listTags(dish.ownerId),
-    listFlavorProfileValues(dish.ownerId),
-    listCuisines(dish.ownerId),
-  ]);
-  const selectedTagIds = dish.tags.map((t) => t.tagId);
-  const selectedFlavorProfileValueIds = dish.flavorProfiles.map(
-    (f) => f.flavorProfileValueId,
-  );
-  const selectedCuisineIds = dish.cuisines.map((c) => c.cuisineId);
-  const isFavorite = dish.tags.some((t) => t.tag.isFavorite);
-  const nonFavoriteTagNames = dish.tags
-    .filter((t) => !t.tag.isFavorite)
-    .map((t) => t.tag.displayName);
-  const flavorProfileNames = dish.flavorProfiles.map(
-    (f) => f.flavorProfileValue.displayName,
-  );
-  const cuisineNames = dish.cuisines
-    .map((c) => c.cuisine)
-    .sort((a, b) => a.position - b.position)
-    .map((c) => c.displayName);
-  const principalRating = computePrincipalRating(
-    ratingSummary,
-    dish.currentVersionId,
-    preference?.primaryRatingDisplay ?? "GROUP_AVERAGE",
-    {
-      sourceKind: dish.sourceKind,
-      sourceAggregateRating: decimalToNumber(dish.sourceAggregateRating),
-      sourceRatingCount: dish.sourceRatingCount,
-      sourceTitle: dish.sourceTitle,
-      sourceDishVersionLabel: dish.sourceDishVersionLabel,
-    },
-  );
-  const startingPoint =
-    dish.sourceKind === "DUPLICATE" && dish.sourceTitle
-      ? {
-          title: dish.sourceTitle,
-          versionLabel: dish.sourceDishVersionLabel ?? "—",
-          aggregateRating: decimalToNumber(dish.sourceAggregateRating),
-          ratingCount: dish.sourceRatingCount,
-          sessionCount: dish.sourceSessionCount,
-        }
-      : null;
-
-  if (!version) {
+  if (!props.hasVersion) {
     return (
-      <p className="text-muted-foreground">
-        This {label.toLowerCase()} has no saved content yet.
-      </p>
+      <div className="mx-auto flex max-w-4xl flex-col gap-6">
+        <Breadcrumbs
+          items={[
+            { label: collectionLabel, href: dishBasePath(kind) },
+            { label: displayTitle || label },
+          ]}
+        />
+        <p className="text-muted-foreground">
+          This {label.toLowerCase()} has no saved content yet.
+        </p>
+      </div>
     );
   }
 
-  // Slice 6 post-gate, §67.4: linked Parts (top-level and Section-nested)
-  // render their full pinned content inline on the detail page — resolved
-  // server-side here, once, rather than as client-side fetches.
-  const { sections: sectionPartLinkInputs, partLinks: topLevelPartLinkInputs } =
-    versionContentToInput(version.sections, version.partLinks);
-  const [topLevelPartLinkTrees, ...sectionPartLinkTreeLists] =
-    await Promise.all([
-      resolvePartLinkTrees(dish.ownerId, topLevelPartLinkInputs),
-      ...sectionPartLinkInputs.map((section) =>
-        resolvePartLinkTrees(dish.ownerId, section.partLinks),
-      ),
-    ]);
-
-  // Sections and top-level PartLinks share one interleaved persisted
-  // ordering sequence (schema.prisma's `Section.position` comment) —
-  // `resolvePartLinkTrees` can drop an unresolvable edge, so positions are
-  // matched back onto the resolved trees by target identity rather than
-  // index, matching `mergeLiveAndMaterializedTrees`'s existing pattern.
-  const topLevelPartLinkPositionByTarget = new Map(
-    topLevelPartLinkInputs.map((input) => [
-      `${input.targetDishId}:${input.targetDishVersionId}`,
-      input.position,
-    ]),
-  );
-  const displayTopLevelPartLinks = topLevelPartLinkTrees.map((tree) => ({
-    position:
-      topLevelPartLinkPositionByTarget.get(
-        `${tree.targetDishId}:${tree.targetDishVersionId}`,
-      ) ?? 0,
-    tree,
-  }));
-
-  const versionLabel = formatVersionLabel(
-    version.majorVersion,
-    version.minorVersion,
-  );
-  const collectionLabel = kind === "PART" ? "Parts" : "Recipes";
-  // Version-trigger correction pass: title is stable Dish identity
-  // (PRODUCT_SPEC.md §7.1), not Version content — `dish.currentTitle` is
-  // the source of truth, not the current Version's own `title` column
-  // (an inert historical mirror since title can now change independently).
-  const displayTitle = dish.currentTitle || version.title;
-
-  // Slice 6A: the saved default scale is a plain multiplier applied to the
-  // authored yield — replaces the retired defaultBatchQuantity/Unit pair.
-  // `ScaledVersionView` derives the identical scale factor from the same
-  // field, so the ingredient quantities rendered below always match what
-  // this chip says.
-  const yieldQuantity = decimalToNumber(version.yieldQuantity);
-  const defaultScale = decimalToNumber(dish.defaultScale);
-  const effectiveScale =
-    defaultScale != null && defaultScale > 0 ? defaultScale : 1;
-  const effectiveYieldQuantity =
-    yieldQuantity != null ? yieldQuantity * effectiveScale : null;
-
-  // Slice 6A browser-review correction pass: title and actions always
-  // share one ordinary flex row, at every breakpoint — never a separate
-  // grid column/row, never pushed below the chips on mobile.
   const titleRowEl = (
     <div className="flex items-start justify-between gap-3">
       <h1 className="font-heading text-foreground min-w-0 text-2xl font-semibold text-balance">
         {displayTitle}
       </h1>
       <div className="flex shrink-0 items-center gap-2">
-        <FavoriteToggle dishId={dish.id} kind={kind} isFavorite={isFavorite} />
+        <FavoriteToggle
+          dishId={dishId}
+          kind={kind}
+          isFavorite={props.isFavorite}
+        />
         <DishDetailActions
-          dishId={dish.id}
+          dishId={dishId}
           dishTitle={displayTitle}
           kind={kind}
-          stage={dish.stage}
-          currentVersionId={version.id}
+          stage={props.stage}
+          currentVersionId={props.currentVersionId}
         />
       </div>
     </div>
   );
 
-  // Mobile-responsiveness correction pass: the lifecycle/identity chips
-  // (Stage, Version, Rating, Cuisine, tags/Flavor profiles) and the
-  // secondary cooking-related chips (Last cooked, Makes, Prep, Cook,
-  // Difficulty) render as one chip list instead of two visually split
-  // rows — the cooking-related ones stay last, in their existing order, and
-  // get a restrained orange highlight so they read as a distinguishable
-  // sub-group within the single list rather than blending into the neutral
-  // outline chips ahead of them. View ratings/Tags & Flavors moved out of
-  // this list into the primary action row with Cook (`cookRowEl`) — they're
-  // actions, not descriptive metadata. Shared with Version History
-  // (nav/details QA batch item 7) via `DishMetaChips`.
   const chipsEl = (
     <DishMetaChips
-      stage={dish.stage}
-      versionLabel={versionLabel}
-      cuisineNames={cuisineNames}
-      flavorProfileNames={flavorProfileNames}
-      tagNames={nonFavoriteTagNames}
-      rating={principalRating}
-      lastCookedAt={lastCookedAt}
-      yieldQuantity={effectiveYieldQuantity}
-      yieldUnit={version.yieldUnit}
-      prepTimeMinutes={version.prepTimeMinutes}
-      cookTimeMinutes={version.cookTimeMinutes}
-      difficulty={version.difficulty}
+      stage={props.stage}
+      versionLabel={props.versionLabel}
+      cuisineNames={props.cuisineNames}
+      flavorProfileNames={props.flavorProfileNames}
+      tagNames={props.tagNames}
+      rating={props.principalRating}
+      lastCookedAt={props.lastCookedAt ? new Date(props.lastCookedAt) : null}
+      yieldQuantity={props.yieldQuantity}
+      yieldUnit={props.yieldUnit}
+      prepTimeMinutes={props.prepTimeMinutes}
+      cookTimeMinutes={props.cookTimeMinutes}
+      difficulty={props.difficulty}
     />
   );
 
   const descriptionEl = (
     <DishDescriptionNote
-      description={version.description}
-      versionNote={version.versionNote}
+      description={props.description}
+      versionNote={props.versionNote}
     />
   );
 
-  // Slice 13 correction pass, PRODUCT_SPEC.md §54: the current Version's
-  // own saved nutrition — never re-derived, never aggregated from
-  // Ingredients/Parts.
-  const nutritionEl = (
-    <NutritionSummary nutrition={toNutritionSummaryData(version)} />
-  );
+  const nutritionEl = <NutritionSummary nutrition={props.nutrition} />;
 
-  // Separated from the recipe-management action cluster (Edit/overflow
-  // menu, `DishDetailActions`) — Cook is the action for *using* the
-  // Recipe/Part, not for modifying it, so it renders as its own row at the
-  // bottom of the details column instead of grouped with those controls.
-  // One element placed once: the left column below is a plain `flex-col`
-  // at every breakpoint (only the outer shell switches to `lg:flex-row`),
-  // so this same row naturally lands at the bottom of the left column on
-  // desktop and directly below the details/tags — above the narrow image
-  // and the Section/Ingredient content that follows — on a single column.
-  // Mobile-responsiveness correction pass: View ratings and Tags & Flavors
-  // join this same primary action row (Cook, View ratings, Tags & Flavors)
-  // instead of sitting inline among the metadata chips above.
   const cookRowEl = (
     <div className="flex flex-wrap items-center gap-2">
       <Button asChild>
-        <Link href={`${dishBasePath(kind)}/${dish.id}/cook`}>
+        <Link href={`${dishBasePath(kind)}/${dishId}/cook`}>
           <ChefHat aria-hidden="true" />
           Cook
         </Link>
       </Button>
       <RatingDetailDialog
         kindLabel={label as "Recipe" | "Part"}
-        summary={ratingSummary}
-        startingPoint={startingPoint}
+        summary={props.ratingSummary}
+        startingPoint={props.startingPoint}
       />
       <DishTagFlavorEditor
-        dishId={dish.id}
+        dishId={dishId}
         kind={kind}
-        tagOptions={tagOptions}
-        flavorProfileOptions={flavorProfileOptions}
-        cuisineOptions={cuisineOptions}
-        selectedTagIds={selectedTagIds}
-        selectedFlavorProfileValueIds={selectedFlavorProfileValueIds}
-        selectedCuisineIds={selectedCuisineIds}
+        tagOptions={props.tagOptions}
+        flavorProfileOptions={props.flavorProfileOptions}
+        cuisineOptions={props.cuisineOptions}
+        selectedTagIds={props.selectedTagIds}
+        selectedFlavorProfileValueIds={props.selectedFlavorProfileValueIds}
+        selectedCuisineIds={props.selectedCuisineIds}
       />
     </div>
   );
 
-  // Shared wide/narrow responsive cover-photo treatment (nav/details QA
-  // batch item 7) — reused as-is by Version History.
-  const coverImageEl = <DishCoverImage imageAssetId={version.imageAssetId} />;
+  const coverImageEl = <DishCoverImage imageAssetId={props.imageAssetId} />;
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6">
@@ -353,16 +133,6 @@ export async function DishDetailView({
         ]}
       />
 
-      {/* Slice 6A browser-review correction pass: an ordinary two-column
-          flex shell — left column is a plain `flex-col` content flow
-          (title+actions row, then chips/description/note/metadata),
-          right column is the image, stretched to the left column's
-          resulting height via `items-stretch` (the default). Narrow
-          collapses to one column via `flex-col`, with its own compact
-          capped-height image last in the flow, right before the
-          authored content below. Replaces the previous `.dish-hero-grid`
-          grid-template-areas scheme, which over-used grid placement and
-          split Edit/overflow into their own column/row. */}
       <div className="flex flex-col gap-4 lg:flex-row lg:gap-6">
         <div className="flex min-w-0 flex-1 flex-col gap-3">
           {titleRowEl}
@@ -374,13 +144,11 @@ export async function DishDetailView({
         {coverImageEl}
       </div>
 
-      {/* Hierarchy: Details/metadata → Recipes using this part (Part only)
-          → Recipe (nav/details QA batch item 13). */}
       {kind === "PART" && (
         <PartUsagePanel
-          usages={usages ?? []}
-          currentVersionId={dish.currentVersionId}
-          partDishId={dish.id}
+          usages={props.usages ?? []}
+          currentVersionId={props.currentVersionId}
+          partDishId={dishId}
         />
       )}
 
@@ -388,14 +156,11 @@ export async function DishDetailView({
         <DetailSectionHeading>Recipe</DetailSectionHeading>
         <ScaledVersionView
           kind={kind}
-          dishId={dish.id}
-          sections={toDisplaySections(
-            version.sections,
-            sectionPartLinkTreeLists,
-          )}
-          topLevelPartLinks={displayTopLevelPartLinks}
-          defaultScale={defaultScale}
-          preferredUnitOverrides={dish.preferredUnitOverrides}
+          dishId={dishId}
+          sections={props.sections}
+          topLevelPartLinks={props.topLevelPartLinks}
+          defaultScale={props.defaultScale}
+          preferredUnitOverrides={props.preferredUnitOverrides}
         />
       </div>
     </div>

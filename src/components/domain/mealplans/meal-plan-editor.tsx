@@ -74,7 +74,7 @@ import {
   createMealPlan,
   updateMealPlan,
   saveMealPlanEntryChanges,
-} from "@/lib/mealplans/actions";
+} from "@/components/domain/mealplans/mealplan-offline-actions";
 import { formatDateOnly, toIsoDateOnly } from "@/lib/date";
 import { cn } from "@/lib/utils";
 import { useUnsavedChangesGuard } from "@/components/domain/dish/use-unsaved-changes-guard";

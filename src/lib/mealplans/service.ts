@@ -209,6 +209,7 @@ export async function duplicateMealPlan(
   ownerId: string,
   mealPlanId: string,
   input: { title: string; startDate: Date; endDate: Date },
+  clientMealPlanId?: string,
 ): Promise<string> {
   const source = await getOwnedMealPlanOrThrow(ownerId, mealPlanId);
   if (input.endDate < input.startDate) {
@@ -221,6 +222,7 @@ export async function duplicateMealPlan(
   return prisma.$transaction(async (tx) => {
     const copy = await tx.mealPlan.create({
       data: {
+        ...(clientMealPlanId ? { id: clientMealPlanId } : {}),
         ownerId,
         title: input.title.trim(),
         startDate: input.startDate,
@@ -791,6 +793,7 @@ export async function startSessionFromEntry(
   ownerId: string,
   mealPlanId: string,
   entryId: string,
+  clientSessionId?: string,
 ) {
   const mealPlan = await getOwnedMealPlanOrThrow(ownerId, mealPlanId);
   const entry = findOwnedEntry(mealPlan, entryId);
@@ -811,15 +814,19 @@ export async function startSessionFromEntry(
     decimalToNumber(version.yieldQuantity),
   );
 
-  const session = await startCookingSession(ownerId, {
-    dishId: entry.dishId,
-    dishVersionId: entry.dishVersionId,
-    units: cookableUnits.map((unit) => ({
-      unitKey: unit.unitKey,
-      scaleFactor: null,
-    })),
-    scaleFactor,
-  });
+  const session = await startCookingSession(
+    ownerId,
+    {
+      dishId: entry.dishId,
+      dishVersionId: entry.dishVersionId,
+      units: cookableUnits.map((unit) => ({
+        unitKey: unit.unitKey,
+        scaleFactor: null,
+      })),
+      scaleFactor,
+    },
+    clientSessionId ? { sessionId: clientSessionId } : undefined,
+  );
 
   await prisma.mealPlanEntry.update({
     where: { id: entryId },
@@ -846,6 +853,7 @@ export async function generateGroceryListFromMealPlan(
   ownerId: string,
   mealPlanId: string,
   input: { title: string; plannedDate?: Date; entryIds?: string[] },
+  clientListId?: string,
 ): Promise<string> {
   const mealPlan = await getOwnedMealPlanOrThrow(ownerId, mealPlanId);
   const selected = input.entryIds
@@ -865,6 +873,7 @@ export async function generateGroceryListFromMealPlan(
       plannedDate: input.plannedDate ?? new Date(),
       entries: selected.map(toContributionEntry),
     },
+    clientListId,
   );
 
   if (input.entryIds) {

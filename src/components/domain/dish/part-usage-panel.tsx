@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
 import { DetailSectionHeading } from "@/components/domain/dish/dish-read-only-presentation";
-import { propagatePartUpdate } from "@/lib/dishes/actions";
+import { propagatePartUpdateOffline as propagatePartUpdate } from "@/lib/dishes/offline-propagate";
 import type {
   PropagationOutcome,
   PropagationSelection,

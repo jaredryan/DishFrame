@@ -26,7 +26,6 @@
 // (`dishframe-documents` vs. `dishframe-rsc`) rather than relying on Vary-
 // header matching semantics within one cache.
 
-const CACHE_VERSION = "v1";
 const STATIC_CACHE = "dishframe-static";
 const DOCUMENTS_CACHE = "dishframe-documents";
 const RSC_CACHE = "dishframe-rsc";
@@ -53,6 +52,7 @@ self.addEventListener("install", (event) => {
         // A single missing precache URL (e.g. offline.html not yet built
         // in a dev environment) shouldn't fail the whole install.
       });
+      await precacheOfflineShells();
       // Do not auto-activate — see sw-register.tsx's update-lifecycle
       // handling. Activating immediately would replace the running
       // version mid-session, which is exactly what the "Update available
@@ -67,7 +67,10 @@ self.addEventListener("activate", (event) => {
       const names = await caches.keys();
       await Promise.all(
         names
-          .filter((name) => name.startsWith("dishframe-") && !ALL_CACHES.includes(name))
+          .filter(
+            (name) =>
+              name.startsWith("dishframe-") && !ALL_CACHES.includes(name),
+          )
           .map((name) => caches.delete(name)),
       );
       await self.clients.claim();
@@ -95,7 +98,8 @@ self.addEventListener("message", (event) => {
 function isNavigationRequest(request) {
   return (
     request.mode === "navigate" ||
-    (request.method === "GET" && request.headers.get("accept")?.includes("text/html"))
+    (request.method === "GET" &&
+      request.headers.get("accept")?.includes("text/html"))
   );
 }
 
@@ -104,7 +108,10 @@ function isRscRequest(request) {
   // carry `RSC: 1`; some also carry `Next-Router-State-Tree`/`Next-Url`.
   // Checking `RSC` alone is sufficient to route these into their own
   // cache, separate from full-document HTML.
-  return request.headers.get("RSC") === "1" || request.headers.has("Next-Router-State-Tree");
+  return (
+    request.headers.get("RSC") === "1" ||
+    request.headers.has("Next-Router-State-Tree")
+  );
 }
 
 function isNextStaticAsset(url) {
@@ -119,7 +126,153 @@ function isApiRoute(url) {
   return url.pathname.startsWith("/api/");
 }
 
-async function networkFirst(request, cacheName, fallbackUrl) {
+// --- Generic offline route-shell fallback --------------------------------
+//
+// A cached response for one specific dynamic URL (e.g. `/recipes/abc123`)
+// is useless once the user navigates to `/recipes/xyz789` while offline —
+// that exact URL was never fetched. Every dynamic record route listed below
+// has a client-side "offline boundary" component
+// (`components/domain/*/*-offline-boundary.tsx`) that derives its record's
+// identity from the browser's real URL via `useParams()` — never from
+// anything embedded in the server-rendered payload — so a mismatched shell
+// is always safe to paint from while the boundary swaps in the real record
+// from the IndexedDB replica.
+//
+// Route-shell safety correction: the shell used for that mismatch window
+// must be a NEUTRAL bootstrap render, never another real record's rendered
+// payload — reusing Record A's response as Record B's shell would let
+// Record A's content visibly paint (even briefly) at Record B's URL, which
+// every offline boundary's own hydration-safety design (`serverProps: null`
+// / `OFFLINE_SHELL_SENTINEL`) exists specifically to prevent. So a shell is
+// never captured reactively from a real navigation — it's PRECACHED at
+// `install` time (see `precacheOfflineShells` below) by fetching each
+// pattern's reserved sentinel URL, which every route's page.tsx recognizes
+// *before* any auth/data dependency and renders as `serverProps={null}` —
+// the same inert bootstrap shell every offline boundary already renders for
+// this case. That makes the first-ever offline visit to any of these
+// patterns work without depending on having visited a real record of that
+// pattern online first. A shell is stored in, and only ever read back from,
+// the SAME cache its exact-URL entries already use — this never mixes the
+// document/RSC split above; it only adds one extra synthetic cache key per
+// cache.
+//
+// Keep `OFFLINE_SHELL_SENTINEL` and each `sentinelPath` below in sync with
+// `src/lib/offline/shell-sentinel.ts` and the page.tsx sentinel checks —
+// this plain script has no build step to import that constant directly.
+const OFFLINE_SHELL_SENTINEL = "_offline_shell_";
+
+const SHELL_ROUTES = [
+  {
+    pattern: /^\/recipes\/[^/]+$/,
+    sentinelPath: `/recipes/${OFFLINE_SHELL_SENTINEL}`,
+  },
+  {
+    pattern: /^\/parts\/[^/]+$/,
+    sentinelPath: `/parts/${OFFLINE_SHELL_SENTINEL}`,
+  },
+  {
+    pattern: /^\/recipes\/[^/]+\/cook$/,
+    sentinelPath: `/recipes/${OFFLINE_SHELL_SENTINEL}/cook`,
+  },
+  {
+    pattern: /^\/parts\/[^/]+\/cook$/,
+    sentinelPath: `/parts/${OFFLINE_SHELL_SENTINEL}/cook`,
+  },
+  {
+    pattern: /^\/recipes\/[^/]+\/versions\/[^/]+$/,
+    sentinelPath: `/recipes/${OFFLINE_SHELL_SENTINEL}/versions/${OFFLINE_SHELL_SENTINEL}`,
+  },
+  {
+    pattern: /^\/parts\/[^/]+\/versions\/[^/]+$/,
+    sentinelPath: `/parts/${OFFLINE_SHELL_SENTINEL}/versions/${OFFLINE_SHELL_SENTINEL}`,
+  },
+  {
+    pattern: /^\/recipes\/[^/]+\/compare$/,
+    sentinelPath: `/recipes/${OFFLINE_SHELL_SENTINEL}/compare`,
+  },
+  {
+    pattern: /^\/parts\/[^/]+\/compare$/,
+    sentinelPath: `/parts/${OFFLINE_SHELL_SENTINEL}/compare`,
+  },
+  {
+    pattern: /^\/cook\/[^/]+$/,
+    sentinelPath: `/cook/${OFFLINE_SHELL_SENTINEL}`,
+  },
+  {
+    pattern: /^\/cook\/[^/]+\/review$/,
+    sentinelPath: `/cook/${OFFLINE_SHELL_SENTINEL}/review`,
+  },
+  {
+    pattern: /^\/meal-plans\/[^/]+$/,
+    sentinelPath: `/meal-plans/${OFFLINE_SHELL_SENTINEL}`,
+  },
+  {
+    pattern: /^\/meal-plans\/[^/]+\/edit$/,
+    sentinelPath: `/meal-plans/${OFFLINE_SHELL_SENTINEL}/edit`,
+  },
+  {
+    pattern: /^\/grocery-lists\/[^/]+$/,
+    sentinelPath: `/grocery-lists/${OFFLINE_SHELL_SENTINEL}`,
+  },
+];
+
+function shellKeyForPathname(pathname) {
+  for (const { pattern } of SHELL_ROUTES) {
+    if (pattern.test(pathname)) return pattern.source;
+  }
+  return null;
+}
+
+// A synthetic same-origin request used purely as a Cache Storage key —
+// never actually sent over the network.
+function shellRequestFor(patternSource) {
+  return new Request(
+    `${self.location.origin}/__offline-shell__?pattern=${encodeURIComponent(patternSource)}`,
+  );
+}
+
+// Fetches each route pattern's neutral sentinel URL — as both a document
+// and an RSC request, matching the two caches real navigations use — and
+// stores the result under that pattern's shell key. Best-effort per route:
+// one failed fetch (e.g. offline during an update install) doesn't block
+// the others or fail the whole `install` event.
+async function precacheOfflineShells() {
+  const documentsCache = await caches.open(DOCUMENTS_CACHE);
+  const rscCache = await caches.open(RSC_CACHE);
+
+  await Promise.all(
+    SHELL_ROUTES.map(async ({ pattern, sentinelPath }) => {
+      const shellKey = shellRequestFor(pattern.source);
+      try {
+        const docResponse = await fetch(sentinelPath, {
+          headers: { Accept: "text/html" },
+        });
+        if (docResponse && docResponse.ok) {
+          await documentsCache.put(shellKey, docResponse.clone());
+        }
+      } catch {
+        // See function doc comment.
+      }
+      try {
+        const rscResponse = await fetch(sentinelPath, {
+          headers: { RSC: "1", Accept: "text/x-component" },
+        });
+        if (rscResponse && rscResponse.ok) {
+          await rscCache.put(shellKey, rscResponse.clone());
+        }
+      } catch {
+        // See function doc comment.
+      }
+    }),
+  );
+}
+
+async function networkFirstWithShellFallback(
+  request,
+  cacheName,
+  pathname,
+  fallbackUrl,
+) {
   const cache = await caches.open(cacheName);
   try {
     const response = await fetch(request);
@@ -130,6 +283,11 @@ async function networkFirst(request, cacheName, fallbackUrl) {
   } catch (error) {
     const cached = await cache.match(request);
     if (cached) return cached;
+    const shellKey = shellKeyForPathname(pathname);
+    if (shellKey) {
+      const shell = await cache.match(shellRequestFor(shellKey));
+      if (shell) return shell;
+    }
     if (fallbackUrl) {
       const fallback = await caches.match(fallbackUrl);
       if (fallback) return fallback;
@@ -172,7 +330,9 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
 
   if (isImageAssetRoute(url)) {
-    event.respondWith(cacheFirst(request, IMAGES_CACHE, IMAGE_CACHE_MAX_ENTRIES));
+    event.respondWith(
+      cacheFirst(request, IMAGES_CACHE, IMAGE_CACHE_MAX_ENTRIES),
+    );
     return;
   }
 
@@ -187,12 +347,21 @@ self.addEventListener("fetch", (event) => {
   }
 
   if (isRscRequest(request)) {
-    event.respondWith(networkFirst(request, RSC_CACHE, null));
+    event.respondWith(
+      networkFirstWithShellFallback(request, RSC_CACHE, url.pathname, null),
+    );
     return;
   }
 
   if (isNavigationRequest(request)) {
-    event.respondWith(networkFirst(request, DOCUMENTS_CACHE, "/offline.html"));
+    event.respondWith(
+      networkFirstWithShellFallback(
+        request,
+        DOCUMENTS_CACHE,
+        url.pathname,
+        "/offline.html",
+      ),
+    );
     return;
   }
 
@@ -239,15 +408,6 @@ function idbGetAll(db, storeName) {
   });
 }
 
-function idbPut(db, storeName, value) {
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(storeName, "readwrite");
-    tx.objectStore(storeName).put(value);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
-
 function idbDelete(db, storeName, key) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(storeName, "readwrite");
@@ -255,6 +415,22 @@ function idbDelete(db, storeName, key) {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
+}
+
+// Mirrors src/lib/offline/queue.ts's DIRECT_ATTEMPT_LEASE_MS — a
+// "syncing" mutation is `runOrQueueMutation`'s own direct-attempt lease
+// (see mutate.ts), not this drain's to touch while it might still be
+// live in some page's foreground JS. Only once the lease is old enough
+// to mean that attempt was abandoned (the page was torn down mid-fetch)
+// does this background drain treat it as eligible, same as the
+// foreground `listPendingMutations`.
+const DIRECT_ATTEMPT_LEASE_MS = 20000;
+
+function isSyncingLeaseExpired(mutation, now) {
+  if (!mutation.lastAttemptAt) return true;
+  return (
+    now - new Date(mutation.lastAttemptAt).getTime() >= DIRECT_ATTEMPT_LEASE_MS
+  );
 }
 
 async function backgroundDrain() {
@@ -265,8 +441,13 @@ async function backgroundDrain() {
     return; // No local database yet (e.g. never bootstrapped) — nothing to drain.
   }
 
+  const now = Date.now();
   const mutations = (await idbGetAll(db, MUTATIONS_STORE))
-    .filter((m) => (m.status === "pending" || m.status === "failed") && !m.terminal)
+    .filter((m) => {
+      if (m.terminal) return false;
+      if (m.status === "pending" || m.status === "failed") return true;
+      return m.status === "syncing" && isSyncingLeaseExpired(m, now);
+    })
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
   const blockedEntities = new Set();
@@ -303,7 +484,11 @@ async function backgroundDrain() {
         continue;
       }
 
-      if (response.status >= 400 && response.status < 500 && response.status !== 429) {
+      if (
+        response.status >= 400 &&
+        response.status < 500 &&
+        response.status !== 429
+      ) {
         // Terminal from here (auth/validation/not-found/conflict) — leave
         // it for a real client to classify and surface via the full
         // drain loop rather than guessing at status-code semantics twice.

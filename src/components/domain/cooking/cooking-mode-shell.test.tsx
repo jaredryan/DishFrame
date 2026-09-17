@@ -1,5 +1,5 @@
 import type { ReactElement } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   render as rtlRender,
   screen,
@@ -13,12 +13,6 @@ import {
 } from "@/components/domain/cooking/cooking-mode-shell";
 import { OnboardingProvider } from "@/components/onboarding/onboarding-provider";
 import { ToastProvider, Toaster } from "@/components/ui/toast";
-import {
-  toggleChecklistItem,
-  updateSessionScale,
-  startTimer,
-  endCookingSession,
-} from "@/lib/cooking/actions";
 
 // CookingModeShell renders CoachMark, which requires an ancestor
 // OnboardingProvider now that useOnboarding() throws without one, and now
@@ -42,19 +36,11 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push, refresh }),
 }));
 
+// Only CookingPlanManager's own unit/session-plan editing still calls these
+// Server Actions directly — checklist toggles, session/unit scale, timers,
+// and ending the session all now route through runOrQueueMutation →
+// fetch("/api/sync/cooking", ...) instead (see the fetch stub below).
 vi.mock("@/lib/cooking/actions", () => ({
-  toggleChecklistItem: vi.fn(async () => ({ status: "success" })),
-  setUnitCompletion: vi.fn(async () => ({ status: "success" })),
-  updateSessionScale: vi.fn(async () => ({ status: "success" })),
-  updateUnitScale: vi.fn(async () => ({ status: "success" })),
-  createTimer: vi.fn(async () => ({ status: "success" })),
-  renameTimer: vi.fn(async () => ({ status: "success" })),
-  startTimer: vi.fn(async () => ({ status: "success" })),
-  pauseTimer: vi.fn(async () => ({ status: "success" })),
-  resetTimer: vi.fn(async () => ({ status: "success" })),
-  adjustTimer: vi.fn(async () => ({ status: "success" })),
-  dismissTimer: vi.fn(async () => ({ status: "success" })),
-  endCookingSession: vi.fn(async () => ({ status: "success" })),
   addSessionUnits: vi.fn(async () => ({ status: "success" })),
   removeSessionUnit: vi.fn(async () => ({ status: "success" })),
   restoreSessionUnit: vi.fn(async () => ({ status: "success" })),
@@ -62,14 +48,45 @@ vi.mock("@/lib/cooking/actions", () => ({
   deleteCookingSession: vi.fn(async () => ({ status: "success" })),
 }));
 
-vi.mock("@/lib/reviews/actions", () => ({
-  updateCookingNotes: vi.fn(async () => ({ status: "success" })),
-}));
+let fetchMock: ReturnType<typeof vi.fn>;
 
-const mockedToggle = vi.mocked(toggleChecklistItem);
-const mockedUpdateSessionScale = vi.mocked(updateSessionScale);
-const mockedStartTimer = vi.mocked(startTimer);
-const mockedEndCookingSession = vi.mocked(endCookingSession);
+function syncResponse(body: Record<string, unknown> = {}) {
+  return new Response(
+    JSON.stringify({
+      status: "applied",
+      entityId: "session-1",
+      serverRevision: null,
+      ...body,
+    }),
+    { status: 200 },
+  );
+}
+
+/** Every op currently posted to `/api/sync/cooking` in this file, parsed
+ * from the fetch stub's captured request bodies — checklist toggles,
+ * scale saves, timer actions, and end-session all share this one endpoint
+ * (`OP_NAMESPACE_TO_ENDPOINT` in `src/lib/offline/mutate.ts`), so
+ * assertions filter on `op`/`payload` instead of on distinct mocked
+ * functions. */
+function syncPayloads() {
+  return fetchMock.mock.calls.map(([, init]) => {
+    const body = JSON.parse((init as RequestInit).body as string) as {
+      op: string;
+      entityId: string;
+      payload: unknown;
+    };
+    return { op: body.op, entityId: body.entityId, payload: body.payload };
+  });
+}
+
+beforeEach(() => {
+  fetchMock = vi.fn(async () => syncResponse());
+  vi.stubGlobal("fetch", fetchMock);
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 function unit(overrides: Partial<CookingModeUnit>): CookingModeUnit {
   return {
@@ -274,10 +291,10 @@ describe("CookingModeShell — instant checkbox feedback and persistence", () =>
     expect(checkbox).toBeChecked();
 
     await waitFor(() =>
-      expect(mockedToggle).toHaveBeenCalledWith({
-        sessionId: "session-1",
-        itemId: "item-1",
-        checked: true,
+      expect(syncPayloads()).toContainEqual({
+        op: "cooking.toggleChecklistItem",
+        entityId: "session-1",
+        payload: { sessionId: "session-1", itemId: "item-1", checked: true },
       }),
     );
   });
@@ -452,17 +469,17 @@ describe("CookingModeShell — collapsible Ingredients", () => {
     ).toHaveTextContent("Ingredients — 2/2");
 
     await waitFor(() =>
-      expect(mockedToggle).toHaveBeenCalledWith({
-        sessionId: "session-1",
-        itemId: "ing-1",
-        checked: true,
+      expect(syncPayloads()).toContainEqual({
+        op: "cooking.toggleChecklistItem",
+        entityId: "session-1",
+        payload: { sessionId: "session-1", itemId: "ing-1", checked: true },
       }),
     );
     await waitFor(() =>
-      expect(mockedToggle).toHaveBeenCalledWith({
-        sessionId: "session-1",
-        itemId: "ing-2",
-        checked: true,
+      expect(syncPayloads()).toContainEqual({
+        op: "cooking.toggleChecklistItem",
+        entityId: "session-1",
+        payload: { sessionId: "session-1", itemId: "ing-2", checked: true },
       }),
     );
 
@@ -472,17 +489,17 @@ describe("CookingModeShell — collapsible Ingredients", () => {
     await user.click(within(main).getByRole("button", { name: /reset list/i }));
 
     await waitFor(() =>
-      expect(mockedToggle).toHaveBeenCalledWith({
-        sessionId: "session-1",
-        itemId: "ing-1",
-        checked: false,
+      expect(syncPayloads()).toContainEqual({
+        op: "cooking.toggleChecklistItem",
+        entityId: "session-1",
+        payload: { sessionId: "session-1", itemId: "ing-1", checked: false },
       }),
     );
     await waitFor(() =>
-      expect(mockedToggle).toHaveBeenCalledWith({
-        sessionId: "session-1",
-        itemId: "ing-2",
-        checked: false,
+      expect(syncPayloads()).toContainEqual({
+        op: "cooking.toggleChecklistItem",
+        entityId: "session-1",
+        payload: { sessionId: "session-1", itemId: "ing-2", checked: false },
       }),
     );
     expect(
@@ -572,17 +589,17 @@ describe("CookingModeShell — collapsible Instructions", () => {
     ).toHaveTextContent("Instructions — 2/2");
 
     await waitFor(() =>
-      expect(mockedToggle).toHaveBeenCalledWith({
-        sessionId: "session-1",
-        itemId: "inst-1",
-        checked: true,
+      expect(syncPayloads()).toContainEqual({
+        op: "cooking.toggleChecklistItem",
+        entityId: "session-1",
+        payload: { sessionId: "session-1", itemId: "inst-1", checked: true },
       }),
     );
     await waitFor(() =>
-      expect(mockedToggle).toHaveBeenCalledWith({
-        sessionId: "session-1",
-        itemId: "inst-2",
-        checked: true,
+      expect(syncPayloads()).toContainEqual({
+        op: "cooking.toggleChecklistItem",
+        entityId: "session-1",
+        payload: { sessionId: "session-1", itemId: "inst-2", checked: true },
       }),
     );
 
@@ -592,17 +609,17 @@ describe("CookingModeShell — collapsible Instructions", () => {
     await user.click(within(main).getByRole("button", { name: /reset list/i }));
 
     await waitFor(() =>
-      expect(mockedToggle).toHaveBeenCalledWith({
-        sessionId: "session-1",
-        itemId: "inst-1",
-        checked: false,
+      expect(syncPayloads()).toContainEqual({
+        op: "cooking.toggleChecklistItem",
+        entityId: "session-1",
+        payload: { sessionId: "session-1", itemId: "inst-1", checked: false },
       }),
     );
     await waitFor(() =>
-      expect(mockedToggle).toHaveBeenCalledWith({
-        sessionId: "session-1",
-        itemId: "inst-2",
-        checked: false,
+      expect(syncPayloads()).toContainEqual({
+        op: "cooking.toggleChecklistItem",
+        entityId: "session-1",
+        payload: { sessionId: "session-1", itemId: "inst-2", checked: false },
       }),
     );
     expect(
@@ -675,9 +692,10 @@ describe("CookingModeShell — desktop timer rail", () => {
       within(riceRow).getByRole("button", { name: /start timer/i }),
     );
     await waitFor(() =>
-      expect(mockedStartTimer).toHaveBeenCalledWith({
-        sessionId: "session-1",
-        timerId: "timer-1",
+      expect(syncPayloads()).toContainEqual({
+        op: "cooking.startTimer",
+        entityId: "session-1",
+        payload: { sessionId: "session-1", timerId: "timer-1" },
       }),
     );
   });
@@ -720,10 +738,13 @@ describe("CookingModeShell — scaling dialogs (retargeted to the desktop tree)"
       screen.getByRole("button", { name: /save scale change/i }),
     );
 
-    expect(mockedUpdateSessionScale).toHaveBeenCalledWith({
-      sessionId: "session-1",
-      scaleFactor: 2,
-    });
+    await waitFor(() =>
+      expect(syncPayloads()).toContainEqual({
+        op: "cooking.updateSessionScale",
+        entityId: "session-1",
+        payload: { sessionId: "session-1", scaleFactor: 2 },
+      }),
+    );
   });
 
   /**
@@ -790,7 +811,9 @@ describe("CookingModeShell — End cooking", () => {
       within(dialog).getByRole("button", { name: "Keep cooking" }),
     );
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(mockedEndCookingSession).not.toHaveBeenCalled();
+    expect(syncPayloads().some((p) => p.op === "cooking.endSession")).toBe(
+      false,
+    );
   });
 
   it("'Leave & resume later' leaves Cooking Mode without ending the session", async () => {
@@ -805,7 +828,9 @@ describe("CookingModeShell — End cooking", () => {
     );
 
     expect(push).toHaveBeenCalledWith("/recipes/dish-1/history");
-    expect(mockedEndCookingSession).not.toHaveBeenCalled();
+    expect(syncPayloads().some((p) => p.op === "cooking.endSession")).toBe(
+      false,
+    );
   });
 
   it("'End early' ends the session with partial progress preserved", async () => {
@@ -818,9 +843,10 @@ describe("CookingModeShell — End cooking", () => {
     await user.click(screen.getByRole("button", { name: "End early" }));
 
     await waitFor(() =>
-      expect(mockedEndCookingSession).toHaveBeenCalledWith({
-        sessionId: "session-1",
-        outcome: "ENDED_EARLY",
+      expect(syncPayloads()).toContainEqual({
+        op: "cooking.endSession",
+        entityId: "session-1",
+        payload: { sessionId: "session-1", outcome: "ENDED_EARLY" },
       }),
     );
   });
@@ -835,9 +861,10 @@ describe("CookingModeShell — End cooking", () => {
     await user.click(screen.getByRole("button", { name: "Finish session" }));
 
     await waitFor(() =>
-      expect(mockedEndCookingSession).toHaveBeenCalledWith({
-        sessionId: "session-1",
-        outcome: "COMPLETED",
+      expect(syncPayloads()).toContainEqual({
+        op: "cooking.endSession",
+        entityId: "session-1",
+        payload: { sessionId: "session-1", outcome: "COMPLETED" },
       }),
     );
   });
@@ -903,7 +930,11 @@ describe("CookingModeShell — leave-page warning bypass", () => {
     );
     await user.click(screen.getByRole("button", { name: "End early" }));
 
-    await waitFor(() => expect(mockedEndCookingSession).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(syncPayloads().some((p) => p.op === "cooking.endSession")).toBe(
+        true,
+      ),
+    );
     expect(dispatchBeforeUnload()).toBe(false);
   });
 
@@ -916,15 +947,18 @@ describe("CookingModeShell — leave-page warning bypass", () => {
     );
     await user.click(screen.getByRole("button", { name: "Finish session" }));
 
-    await waitFor(() => expect(mockedEndCookingSession).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(syncPayloads().some((p) => p.op === "cooking.endSession")).toBe(
+        true,
+      ),
+    );
     expect(dispatchBeforeUnload()).toBe(false);
   });
 
   it("does not bypass the warning when ending the session fails", async () => {
-    mockedEndCookingSession.mockResolvedValueOnce({
-      status: "error",
-      message: "Could not end this session.",
-    });
+    fetchMock.mockResolvedValueOnce(
+      syncResponse({ status: "error", message: "Could not end this session." }),
+    );
     const user = userEvent.setup();
     render(<CookingModeShell {...baseProps} units={runningTimerUnits()} />);
 
@@ -933,7 +967,11 @@ describe("CookingModeShell — leave-page warning bypass", () => {
     );
     await user.click(screen.getByRole("button", { name: "End early" }));
 
-    await waitFor(() => expect(mockedEndCookingSession).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(syncPayloads().some((p) => p.op === "cooking.endSession")).toBe(
+        true,
+      ),
+    );
     expect(dispatchBeforeUnload()).toBe(true);
   });
 });

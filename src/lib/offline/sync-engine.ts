@@ -11,6 +11,7 @@ import {
   listPendingMutations,
   markMutationStatus,
   removeMutation,
+  requeueWithFreshMutationId,
   hasExceededRetryBudget,
   isRetryDue,
 } from "@/lib/offline/queue";
@@ -40,6 +41,19 @@ function endpointForOp(op: string): string {
   return endpoint;
 }
 
+/** Entity types `/api/sync/bootstrap` always returns a full snapshot of
+ * (see that route) — deletion-reconciled below even when the snapshot's
+ * count for one of these is zero. `importDraft` is deliberately excluded:
+ * it's purely local/offline-created and never appears in a bootstrap
+ * response, so it must never be pruned by this mechanism. */
+const RECONCILABLE_ENTITY_TYPES: EntityType[] = [
+  "dish",
+  "cookingSession",
+  "mealPlan",
+  "groceryList",
+  "referenceData",
+];
+
 let draining = false;
 let drainAgainRequested = false;
 const listeners = new Set<() => void>();
@@ -60,7 +74,9 @@ export function notifySyncActivity() {
   notify();
 }
 
-async function applyMutation(mutation: QueuedMutation): Promise<SyncApplyResult> {
+async function applyMutation(
+  mutation: QueuedMutation,
+): Promise<SyncApplyResult> {
   const endpoint = endpointForOp(mutation.op);
   const response = await fetch(endpoint, {
     method: "POST",
@@ -93,7 +109,8 @@ async function applyMutation(mutation: QueuedMutation): Promise<SyncApplyResult>
     return {
       status: "conflict",
       message:
-        body?.message ?? "This changed elsewhere before your offline change could sync.",
+        body?.message ??
+        "This changed elsewhere before your offline change could sync.",
       serverDoc: body?.serverDoc,
     };
   }
@@ -106,7 +123,11 @@ async function applyMutation(mutation: QueuedMutation): Promise<SyncApplyResult>
     };
   }
   if (!response.ok) {
-    return { status: "error", message: `Sync failed (${response.status}).`, terminal: false };
+    return {
+      status: "error",
+      message: `Sync failed (${response.status}).`,
+      terminal: false,
+    };
   }
   return (await response.json()) as SyncApplyResult;
 }
@@ -194,11 +215,15 @@ export async function drainQueue(): Promise<void> {
           };
         }
 
-        if (result.status === "applied" || result.status === "already-applied") {
+        if (
+          result.status === "applied" ||
+          result.status === "already-applied"
+        ) {
           await removeMutation(mutation.mutationId);
           const remaining = (await listPendingMutations()).filter(
             (m) =>
-              m.entityType === mutation.entityType && m.entityId === mutation.entityId,
+              m.entityType === mutation.entityType &&
+              m.entityId === mutation.entityId,
           ).length;
           await reconcileEntityAfterSync(
             mutation.entityType,
@@ -220,12 +245,18 @@ export async function drainQueue(): Promise<void> {
           blockedEntities.add(entityKey);
         } else if (result.status === "error") {
           const attempts = mutation.attempts + 1;
-          const terminal = result.terminal || hasExceededRetryBudget({ ...mutation, attempts });
-          await markMutationStatus(mutation.mutationId, terminal ? "failed" : "pending", {
-            lastError: result.message,
-            terminal,
-            attempts,
-          });
+          const terminal =
+            result.terminal ||
+            hasExceededRetryBudget({ ...mutation, attempts });
+          await markMutationStatus(
+            mutation.mutationId,
+            terminal ? "failed" : "pending",
+            {
+              lastError: result.message,
+              terminal,
+              attempts,
+            },
+          );
           blockedEntities.add(entityKey);
         }
         notify();
@@ -236,16 +267,17 @@ export async function drainQueue(): Promise<void> {
   }
 }
 
-/** Explicit retry for a single failed-but-non-terminal mutation (the
- * plan's "explicit retry where useful"), resetting its attempt count so it
- * gets the full backoff budget again. */
+/**
+ * Explicit retry for a single failed/conflicted mutation (the conflict
+ * dialog's "Keep my change" — this function's only caller,
+ * `useConflictResolution`'s `keepMine`). Mints a fresh mutation id rather
+ * than resetting this one's status: `SyncMutationReceipt` is keyed by
+ * `mutationId` and replays a stored outcome verbatim, so resending the
+ * same id would just replay the same stored 409 conflict forever instead
+ * of re-evaluating the mutation against the server's current state.
+ */
 export async function retryMutation(mutationId: string): Promise<void> {
-  await markMutationStatus(mutationId, "pending", {
-    attempts: 0,
-    terminal: false,
-    lastError: null,
-    lastAttemptAt: null,
-  });
+  await requeueWithFreshMutationId(mutationId);
   await drainQueue();
 }
 
@@ -256,6 +288,7 @@ const BOOTSTRAP_DONE_KEY = "sync:bootstrapped";
 
 async function applyServerSnapshot(
   entities: BootstrapResponse["entities"],
+  requestedBefore?: string,
 ): Promise<void> {
   for (const item of entities) {
     const existing = await getEntity(item.entityType, item.id);
@@ -263,6 +296,18 @@ async function applyServerSnapshot(
     // snapshot — its own queued mutation is what will reconcile it once it
     // syncs; overwriting it here would silently discard the local edit.
     if (existing?.dirty) continue;
+    // Same staleness hazard `pruneEntitiesNotIn` guards against: this
+    // snapshot reflects server state as of `requestedBefore`, so a locally
+    // confirmed write newer than that (already synced, so no longer dirty)
+    // must win over this slower, older response rather than being reverted
+    // by it.
+    if (
+      requestedBefore &&
+      existing &&
+      existing.localUpdatedAt >= requestedBefore
+    ) {
+      continue;
+    }
 
     if (item.deleted) {
       const { deleteEntity } = await import("@/lib/offline/db");
@@ -289,19 +334,27 @@ async function applyServerSnapshot(
  * snapshot for a type flagged `reconcileDeletes` was deleted server-side
  * while this device wasn't watching. */
 export async function runBootstrapSync(): Promise<void> {
+  // Captured before the request goes out: `keepIds` below reflects server
+  // state as of this moment, not when the response happens to arrive. A
+  // concurrent local mutation (e.g. a dish created while this fetch is
+  // in flight — see `pruneEntitiesNotIn`'s doc comment) can otherwise be
+  // wrongly pruned once this slower, stale snapshot resolves.
+  const requestedAt = new Date().toISOString();
   const response = await fetch("/api/sync/bootstrap");
-  if (!response.ok) throw new Error(`Bootstrap sync failed (${response.status}).`);
+  if (!response.ok)
+    throw new Error(`Bootstrap sync failed (${response.status}).`);
   const body: BootstrapResponse = await response.json();
-  await applyServerSnapshot(body.entities);
+  await applyServerSnapshot(body.entities, requestedAt);
 
-  const byType = new Map<EntityType, Set<string>>();
+  const byType = new Map<EntityType, Set<string>>(
+    RECONCILABLE_ENTITY_TYPES.map((entityType) => [entityType, new Set()]),
+  );
   for (const item of body.entities) {
     if (item.deleted) continue;
-    if (!byType.has(item.entityType)) byType.set(item.entityType, new Set());
-    byType.get(item.entityType)!.add(item.id);
+    byType.get(item.entityType)?.add(item.id);
   }
   for (const [entityType, ids] of byType) {
-    await pruneEntitiesNotIn(entityType, ids);
+    await pruneEntitiesNotIn(entityType, ids, requestedAt);
   }
 
   await setMeta(SYNC_CURSOR_KEY, body.syncedAt);
@@ -317,10 +370,14 @@ export async function runIncrementalPull(): Promise<void> {
     await runBootstrapSync();
     return;
   }
-  const response = await fetch(`/api/sync/pull?since=${encodeURIComponent(cursor)}`);
-  if (!response.ok) throw new Error(`Incremental sync failed (${response.status}).`);
+  const requestedAt = new Date().toISOString();
+  const response = await fetch(
+    `/api/sync/pull?since=${encodeURIComponent(cursor)}`,
+  );
+  if (!response.ok)
+    throw new Error(`Incremental sync failed (${response.status}).`);
   const body: BootstrapResponse = await response.json();
-  await applyServerSnapshot(body.entities);
+  await applyServerSnapshot(body.entities, requestedAt);
   await setMeta(SYNC_CURSOR_KEY, body.syncedAt);
   notify();
 }

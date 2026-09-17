@@ -52,7 +52,10 @@ import {
   extractDishFromJsonFile,
   getImportFileKind,
 } from "@/lib/importExport/file-sources";
-import { parsePastedRecipe, type PasteParseResult } from "@/lib/importExport/paste-parser";
+import {
+  parsePastedRecipe,
+  type PasteParseResult,
+} from "@/lib/importExport/paste-parser";
 import { saveDishOffline } from "@/lib/dishes/offline-save";
 import type { ArchiveImportDraft } from "@/lib/importExport/recipe-gallery-import";
 import { validateDishContentForPersistence } from "@/lib/dishes/validation-messages";
@@ -80,20 +83,26 @@ import type {
  */
 function parsePasteTextOffline(
   rawText: string,
-): { status: "success"; result: PasteParseResult } | { status: "error"; message: string } {
+):
+  | { status: "success"; result: PasteParseResult }
+  | { status: "error"; message: string } {
   const trimmed = rawText.trim();
   if (trimmed.length === 0) {
     return { status: "error", message: "Paste some recipe text first." };
   }
   if (trimmed.length > 20000) {
-    return { status: "error", message: "Too big: expected string to have <=20000 characters." };
+    return {
+      status: "error",
+      message: "Too big: expected string to have <=20000 characters.",
+    };
   }
   try {
     return { status: "success", result: parsePastedRecipe(trimmed) };
   } catch (error) {
     return {
       status: "error",
-      message: error instanceof Error ? error.message : "Couldn't parse this text.",
+      message:
+        error instanceof Error ? error.message : "Couldn't parse this text.",
     };
   }
 }
@@ -977,9 +986,59 @@ export function PasteImportFlow({
   // chunk's own boundary while its call is in flight, then commits exactly
   // to that boundary the moment it resolves, before animating the next
   // segment. No fake per-recipe count is ever shown.
+  // Offline: `confirmImportBatch`'s chunking exists purely to keep each
+  // Server Action call under a serverless execution-time ceiling — there's
+  // no equivalent constraint for local IndexedDB writes, so this loops
+  // `saveDishOffline` per item directly instead of replicating the chunked
+  // round-trip structure. Import-source attribution and mapped Tag/Flavor-
+  // profile/Cuisine ids ride along in the queued `dish.create` mutation's
+  // payload and are applied server-side once it actually syncs
+  // (`offline-sync/dishes.ts`'s handler) — the same metadata attachment
+  // `confirmImportBatch` does online, just deferred to sync time instead of
+  // discarded.
+  async function runOfflineConfirm(
+    items: Array<{ index: number; input: BulkImportItemInput }>,
+  ): Promise<BulkImportItemResult[]> {
+    setImportProgress(0);
+    const results: BulkImportItemResult[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const { input } = items[i];
+      const result = await saveDishOffline(
+        input.kind,
+        null,
+        input.values,
+        undefined,
+        {
+          sourceTitle: input.sourceLabel,
+          tagIds: input.tags?.map((t) => t.id),
+          flavorProfileIds: input.flavorProfiles?.map((f) => f.id),
+          cuisineIds: input.cuisines?.map((c) => c.id),
+        },
+      );
+      results.push(
+        result.status === "success" && result.dishId
+          ? {
+              sourceRef: input.sourceRef,
+              status: "success",
+              dishId: result.dishId,
+            }
+          : {
+              sourceRef: input.sourceRef,
+              status: "error",
+              message: result.message ?? "This item could not be imported.",
+            },
+      );
+      setImportProgress(((i + 1) / items.length) * 100);
+    }
+    return results;
+  }
+
   async function runChunkedConfirm(
     items: Array<{ index: number; input: BulkImportItemInput }>,
   ): Promise<BulkImportItemResult[]> {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      return runOfflineConfirm(items);
+    }
     const totalChunks = Math.max(
       1,
       Math.ceil(items.length / BULK_IMPORT_CHUNK_SIZE),
@@ -1274,7 +1333,9 @@ export function PasteImportFlow({
     // Checked up front, before hitting the Server Action, for a clear
     // message rather than a generic network-failure error.
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
-      setError("Importing from a website needs a connection — try again once you're back online.");
+      setError(
+        "Importing from a website needs a connection — try again once you're back online.",
+      );
       return;
     }
     setIsParsing(true);
@@ -1293,16 +1354,19 @@ export function PasteImportFlow({
     confirmKind: DishKindValue,
     values: DishContentInput,
   ) {
-    // Offline: `confirmImport`'s import-source attribution and guessed-
-    // Cuisine resolution both need a network round trip this device
-    // doesn't have — fall back to the same offline-capable create path
+    // Offline: falls back to the same offline-capable create path
     // `DishEditor` otherwise uses (docs/OFFLINE_IMPLEMENTATION_PLAN.md:
     // "downstream review/save should use the same offline-capable recipe
-    // path where practical"). The Dish still saves correctly; it just
-    // won't show "Source: Import" or the guessed Cuisine until edited
-    // again later, online.
+    // path where practical") — but still carries the import-source
+    // attribution and guessed-Cuisine name along in the queued mutation's
+    // payload, applied server-side once it actually syncs (`dish.create`'s
+    // sync-op handler), rather than dropped merely because this path
+    // bypasses `confirmImport`'s Server Action.
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
-      return saveDishOffline(confirmKind, null, values);
+      return saveDishOffline(confirmKind, null, values, undefined, {
+        sourceTitle: sourceLabel,
+        cuisineGuessName: parseResult?.cuisineGuess ?? null,
+      });
     }
     return confirmImport(
       confirmKind,

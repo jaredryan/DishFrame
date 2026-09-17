@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth/session";
 import { getOwnedVersionDetailOrThrow } from "@/lib/dishes/queries";
-import { VersionHistoryView } from "@/components/domain/dish/version-history-view";
+import { buildVersionHistoryViewProps } from "@/lib/dishes/version-history-page-props";
+import { VersionHistoryOfflineBoundary } from "@/components/domain/dish/version-history-offline-boundary";
+import { OFFLINE_SHELL_SENTINEL } from "@/lib/offline/shell-sentinel";
 
 export async function generateMetadata({
   params,
@@ -33,18 +35,26 @@ export default async function RecipeVersionPage({
 }: {
   params: Promise<{ dishId: string; versionId: string }>;
 }) {
+  const { dishId, versionId } = await params;
+
+  if (
+    dishId === OFFLINE_SHELL_SENTINEL ||
+    versionId === OFFLINE_SHELL_SENTINEL
+  ) {
+    return <VersionHistoryOfflineBoundary serverProps={null} />;
+  }
+
   const session = await getServerSession();
   if (!session) {
     redirect("/sign-in");
   }
-  const { dishId, versionId } = await params;
 
-  return (
-    <VersionHistoryView
-      ownerId={session.user.id}
-      dishId={dishId}
-      versionId={versionId}
-      kind="RECIPE"
-    />
+  const props = await buildVersionHistoryViewProps(
+    session.user.id,
+    dishId,
+    versionId,
+    "RECIPE",
   );
+
+  return <VersionHistoryOfflineBoundary serverProps={props} />;
 }

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { afterEach, describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MealPlanEditor } from "@/components/domain/mealplans/meal-plan-editor";
@@ -35,6 +35,44 @@ const { listDishVersionOptions } = vi.hoisted(() => ({
 vi.mock("@/lib/dishes/actions", () => ({
   listDishVersionOptions,
 }));
+
+// createMealPlan/updateMealPlan/saveMealPlanEntryChanges are all offline-
+// capable wrappers now (`mealplan-offline-actions.ts`), routed through
+// fetch("/api/sync/mealplans", ...) instead of the Server Actions mocked
+// above — this stub replaces those dead mocks for assertions.
+let fetchMock: ReturnType<typeof vi.fn>;
+
+function syncResponse(body: Record<string, unknown> = {}) {
+  return new Response(
+    JSON.stringify({
+      status: "applied",
+      entityId: "plan-1",
+      serverRevision: null,
+      ...body,
+    }),
+    { status: 200 },
+  );
+}
+
+function syncPayloads() {
+  return fetchMock.mock.calls.map(([, init]) => {
+    const body = JSON.parse((init as RequestInit).body as string) as {
+      op: string;
+      entityId: string;
+      payload: unknown;
+    };
+    return { op: body.op, entityId: body.entityId, payload: body.payload };
+  });
+}
+
+beforeEach(() => {
+  fetchMock = vi.fn(async () => syncResponse());
+  vi.stubGlobal("fetch", fetchMock);
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 function candidate(
   overrides: Partial<MealPlanEntryCandidate> = {},
@@ -290,15 +328,22 @@ describe("MealPlanEditor Add-meal picker — Version selection and yield sync", 
     await user.click(screen.getByRole("button", { name: "Add meal" }));
     await user.click(screen.getByRole("button", { name: "Create meal plan" }));
 
-    await waitFor(() => expect(saveMealPlanEntryChanges).toHaveBeenCalled());
-    expect(saveMealPlanEntryChanges).toHaveBeenCalledWith(
+    await waitFor(() =>
+      expect(
+        syncPayloads().some((p) => p.op === "mealplan.saveEntryChanges"),
+      ).toBe(true),
+    );
+    expect(syncPayloads()).toContainEqual(
       expect.objectContaining({
-        newEntries: [
-          expect.objectContaining({
-            dishId: "dish-1",
-            dishVersionId: "version-2",
-          }),
-        ],
+        op: "mealplan.saveEntryChanges",
+        payload: expect.objectContaining({
+          newEntries: [
+            expect.objectContaining({
+              dishId: "dish-1",
+              dishVersionId: "version-2",
+            }),
+          ],
+        }),
       }),
     );
   });
@@ -460,8 +505,17 @@ describe("MealPlanEditor Schedule section", () => {
 
     await user.click(screen.getByRole("button", { name: "Create meal plan" }));
 
-    await waitFor(() => expect(saveMealPlanEntryChanges).toHaveBeenCalled());
-    const call = saveMealPlanEntryChanges.mock.calls[0][0];
+    await waitFor(() =>
+      expect(
+        syncPayloads().some((p) => p.op === "mealplan.saveEntryChanges"),
+      ).toBe(true),
+    );
+    const call = syncPayloads().find(
+      (p) => p.op === "mealplan.saveEntryChanges",
+    )!.payload as {
+      newEntries: { localKey: string }[];
+      scheduleAssignments: unknown;
+    };
     expect(call.newEntries).toHaveLength(1);
     const localKey = call.newEntries[0].localKey;
     expect(typeof localKey).toBe("string");

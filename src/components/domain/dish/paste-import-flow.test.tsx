@@ -172,15 +172,6 @@ describe("PasteImportFlow", () => {
   });
 
   it("parses pasted text and shows the review editor pre-filled with the proposal", async () => {
-    mockedPropose.mockResolvedValue({
-      status: "success",
-      result: {
-        values: { ...blankVersionValues, title: "Weeknight Tacos" },
-        needsReviewCount: 0,
-        cuisineGuess: null,
-      },
-    });
-
     const user = userEvent.setup();
     render(<PasteImportFlow cuisineOptions={[]} />);
 
@@ -190,9 +181,6 @@ describe("PasteImportFlow", () => {
     );
     await user.click(screen.getByRole("button", { name: "Parse recipe" }));
 
-    expect(mockedPropose).toHaveBeenCalledWith(
-      "Weeknight Tacos\n1 lb ground beef",
-    );
     expect(
       await screen.findByText("Review imported recipe"),
     ).toBeInTheDocument();
@@ -200,18 +188,22 @@ describe("PasteImportFlow", () => {
   });
 
   it("shows a needs-review banner when the parser flags ambiguous lines", async () => {
-    mockedPropose.mockResolvedValue({
-      status: "success",
-      result: {
-        values: blankVersionValues,
-        needsReviewCount: 2,
-        cuisineGuess: null,
-      },
-    });
+    // Two long, unstructured lines the real parser can't confidently place
+    // as an ingredient or instruction (see paste-parser.test.ts's own
+    // "flags a long unstructured leading line" cases) — this is a pure
+    // client-side parse now (parsePasteTextOffline/parsePastedRecipe), so
+    // this exercises the real parser rather than a mocked result.
+    const longLineA =
+      "This recipe was passed down from my grandmother and involves a very long story about how she used to make it every Sunday afternoon in the summer";
+    const longLineB =
+      "a splash of the good olive oil my aunt brought back from her trip to Sicily last summer, the one with the green label and the hand-written note";
 
     const user = userEvent.setup();
     render(<PasteImportFlow cuisineOptions={[]} />);
-    await user.type(screen.getByLabelText("Pasted recipe text"), "Some text");
+    await user.type(
+      screen.getByLabelText("Pasted recipe text"),
+      `Family Recipe\n${longLineA}\n${longLineB}`,
+    );
     await user.click(screen.getByRole("button", { name: "Parse recipe" }));
 
     expect(
@@ -241,20 +233,20 @@ describe("PasteImportFlow", () => {
     expect(screen.getByLabelText("Pasted recipe text")).toBeInTheDocument();
   });
 
-  it("surfaces a parse error without advancing to review", async () => {
-    mockedPropose.mockResolvedValue({
-      status: "error",
-      message: "Paste some recipe text first.",
-    });
-
+  // Parsing is now a pure client-side call with no Server Action round
+  // trip (parsePasteTextOffline), so the empty-paste guard that used to
+  // surface as a returned error is instead enforced by disabling "Parse
+  // recipe" until there's non-whitespace text — the same "paste something
+  // first" requirement, just applied before a click is even possible.
+  it("keeps Parse recipe disabled until non-whitespace text is entered, blocking an empty-paste submit", async () => {
     const user = userEvent.setup();
     render(<PasteImportFlow cuisineOptions={[]} />);
-    await user.type(screen.getByLabelText("Pasted recipe text"), "x");
-    await user.click(screen.getByRole("button", { name: "Parse recipe" }));
 
-    expect(
-      await screen.findByText("Paste some recipe text first."),
-    ).toBeInTheDocument();
+    const parseButton = screen.getByRole("button", { name: "Parse recipe" });
+    expect(parseButton).toBeDisabled();
+
+    await user.type(screen.getByLabelText("Pasted recipe text"), "   ");
+    expect(parseButton).toBeDisabled();
     expect(
       screen.queryByText("Review imported recipe"),
     ).not.toBeInTheDocument();
@@ -364,15 +356,6 @@ describe("PasteImportFlow", () => {
   });
 
   it("drags a file onto the drop zone and shows the review editor", async () => {
-    mockedPropose.mockResolvedValue({
-      status: "success",
-      result: {
-        values: { ...blankVersionValues, title: "Weeknight Tacos" },
-        needsReviewCount: 0,
-        cuisineGuess: null,
-      },
-    });
-
     render(<PasteImportFlow cuisineOptions={[]} />);
     const user = userEvent.setup();
     await user.click(screen.getByRole("tab", { name: "Upload file" }));
@@ -394,21 +377,10 @@ describe("PasteImportFlow", () => {
     expect(
       await screen.findByText("Review imported recipe"),
     ).toBeInTheDocument();
-    expect(mockedPropose).toHaveBeenCalledWith(
-      "Weeknight Tacos\n1 lb ground beef",
-    );
+    expect(screen.getByDisplayValue("Weeknight Tacos")).toBeInTheDocument();
   });
 
   it("extracts text from an uploaded .md file (via the picker) and shows the review editor", async () => {
-    mockedPropose.mockResolvedValue({
-      status: "success",
-      result: {
-        values: { ...blankVersionValues, title: "Weeknight Tacos" },
-        needsReviewCount: 0,
-        cuisineGuess: null,
-      },
-    });
-
     const user = userEvent.setup();
     render(<PasteImportFlow cuisineOptions={[]} />);
     await user.click(screen.getByRole("tab", { name: "Upload file" }));
@@ -421,9 +393,7 @@ describe("PasteImportFlow", () => {
     expect(
       await screen.findByText("Review imported recipe"),
     ).toBeInTheDocument();
-    expect(mockedPropose).toHaveBeenCalledWith(
-      "Weeknight Tacos\n1 lb ground beef",
-    );
+    expect(screen.getByDisplayValue("Weeknight Tacos")).toBeInTheDocument();
   });
 
   // Task §1: DishFrame's own Recipe/Part JSON export round-trips through

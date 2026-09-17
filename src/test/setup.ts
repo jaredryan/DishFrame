@@ -1,9 +1,15 @@
+import "fake-indexeddb/auto";
 import { afterEach } from "vitest";
 import { cleanup } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
+import { deleteDb } from "@/lib/offline/db";
 
-afterEach(() => {
+afterEach(async () => {
   cleanup();
+  // Every offline-capable mutation now goes through IndexedDB
+  // (src/lib/offline/db.ts) — reset it after each test so state doesn't
+  // leak between tests in the same file.
+  await deleteDb();
 });
 
 // Radix primitives (dropdown menu, sheet, ...) probe these DOM APIs, which

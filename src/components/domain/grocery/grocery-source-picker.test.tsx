@@ -1,5 +1,5 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi, beforeEach } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
   GrocerySourcePickerProvider,
@@ -30,6 +30,45 @@ vi.mock("@/lib/mealplans/actions", () => ({
   listMealPlanEntriesForGrocerySelection: (...args: unknown[]) =>
     mockListMealPlanEntriesForGrocerySelection(...args),
 }));
+
+// `generateGroceryList`/`generateGroceryListFromMealPlan` are now offline-
+// capable wrappers (`grocery-offline-actions.ts`/`mealplan-offline-
+// actions.ts`) that route through fetch("/api/sync/...") instead of
+// calling the Server Actions mocked above directly — this stub replaces
+// those two dead mocks for assertions.
+let fetchMock: ReturnType<typeof vi.fn>;
+
+function syncResponse(body: Record<string, unknown> = {}) {
+  return new Response(
+    JSON.stringify({
+      status: "applied",
+      entityId: "list-1",
+      serverRevision: null,
+      ...body,
+    }),
+    { status: 200 },
+  );
+}
+
+function syncPayloads() {
+  return fetchMock.mock.calls.map(([, init]) => {
+    const body = JSON.parse((init as RequestInit).body as string) as {
+      op: string;
+      entityId: string;
+      payload: unknown;
+    };
+    return { op: body.op, entityId: body.entityId, payload: body.payload };
+  });
+}
+
+beforeEach(() => {
+  fetchMock = vi.fn(async () => syncResponse());
+  vi.stubGlobal("fetch", fetchMock);
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 const MEAL_PLAN_CANDIDATE: MealPlanGroceryCandidate = {
   id: "plan-1",
@@ -194,16 +233,21 @@ describe("GrocerySourcePicker", () => {
 
     await user.click(screen.getByRole("button", { name: "Generate" }));
 
-    expect(mockGenerateGroceryList).toHaveBeenCalledWith(
-      expect.objectContaining({
-        sources: [
-          expect.objectContaining({
-            dishId: "dish-1",
-            dishVersionId: "version-2",
-            scaleFactor: 0.75,
+    await waitFor(() =>
+      expect(syncPayloads()).toContainEqual(
+        expect.objectContaining({
+          op: "grocery.create",
+          payload: expect.objectContaining({
+            sources: [
+              expect.objectContaining({
+                dishId: "dish-1",
+                dishVersionId: "version-2",
+                scaleFactor: 0.75,
+              }),
+            ],
           }),
-        ],
-      }),
+        }),
+      ),
     );
   });
 
@@ -253,11 +297,16 @@ describe("GrocerySourcePicker", () => {
     await user.click(screen.getByRole("checkbox", { name: "Nuoc Cham Bowl" }));
     await user.click(screen.getByRole("button", { name: "Generate" }));
 
-    expect(mockGenerateGroceryListFromMealPlan).toHaveBeenCalledWith(
-      expect.objectContaining({
-        mealPlanId: "plan-1",
-        entryIds: ["entry-1"],
-      }),
+    await waitFor(() =>
+      expect(syncPayloads()).toContainEqual(
+        expect.objectContaining({
+          op: "mealplan.generateGroceryList",
+          payload: expect.objectContaining({
+            mealPlanId: "plan-1",
+            entryIds: ["entry-1"],
+          }),
+        }),
+      ),
     );
   });
 

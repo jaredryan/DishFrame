@@ -29,15 +29,15 @@ import { useStepScrollReset } from "@/components/ui/use-step-scroll-reset";
 import { useToast } from "@/components/ui/toast";
 import { DisabledActionHint } from "@/components/app/disabled-action-hint";
 import { cn } from "@/lib/utils";
+import { listGrocerySourceVersionOptions } from "@/lib/grocery/list-actions";
+import { listMealPlanEntriesForGrocerySelectionOffline } from "@/lib/mealplans/offline-queries";
+import { listDishVersionOptionsOffline } from "@/lib/dishes/offline-version-history";
 import {
-  generateGroceryList,
-  listGrocerySourceVersionOptions,
-} from "@/lib/grocery/list-actions";
-import {
-  generateGroceryListFromMealPlan,
   listMealPlanEntriesForGrocerySelection,
   type MealPlanEntryForGrocerySelectionDto,
 } from "@/lib/mealplans/actions";
+import { generateGroceryList } from "@/components/domain/grocery/grocery-offline-actions";
+import { generateGroceryListFromMealPlan } from "@/components/domain/mealplans/mealplan-offline-actions";
 import { toIsoDateOnly, formatDateOnly } from "@/lib/date";
 import type {
   GrocerySourceCandidate,
@@ -397,7 +397,11 @@ export function GrocerySourcePickerPanel({
       (dishId) => !versionsByDishId[dishId] && !versionLoadErrors[dishId],
     );
     for (const dishId of toFetch) {
-      listGrocerySourceVersionOptions({ dishId }).then((result) => {
+      const load =
+        typeof navigator !== "undefined" && navigator.onLine === false
+          ? listDishVersionOptionsOffline(dishId)
+          : listGrocerySourceVersionOptions({ dishId });
+      load.then((result) => {
         if (result.status !== "success") {
           setVersionLoadErrors((prev) => ({
             ...prev,
@@ -431,9 +435,13 @@ export function GrocerySourcePickerPanel({
     setMealPlanEntries(null);
 
     setMealPlanEntriesError(null);
-    listMealPlanEntriesForGrocerySelection({
-      mealPlanId: selectedMealPlanId,
-    }).then((result) => {
+    const load =
+      typeof navigator !== "undefined" && navigator.onLine === false
+        ? listMealPlanEntriesForGrocerySelectionOffline(selectedMealPlanId)
+        : listMealPlanEntriesForGrocerySelection({
+            mealPlanId: selectedMealPlanId,
+          });
+    load.then((result) => {
       if (cancelled) return;
       if (result.status !== "success") {
         setMealPlanEntriesError(result.message);

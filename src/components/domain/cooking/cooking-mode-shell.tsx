@@ -302,9 +302,15 @@ export function CookingModeShell({
         op: "cooking.updateUnitScale",
         entityType: "cookingSession",
         entityId: sessionId,
-        payload: { sessionId, unitId: scalingUnitId, scaleFactor: pendingUnitScale },
+        payload: {
+          sessionId,
+          unitId: scalingUnitId,
+          scaleFactor: pendingUnitScale,
+        },
         optimisticDoc: (current: unknown) =>
-          patchUnit(current, scalingUnitId, { scaleFactor: pendingUnitScale ?? 1 }),
+          patchUnit(current, scalingUnitId, {
+            scaleFactor: pendingUnitScale ?? 1,
+          }),
         mutationId: generateClientId(),
       });
       if (!result.ok) {
@@ -331,7 +337,9 @@ export function CookingModeShell({
         payload: { sessionId, outcome },
         optimisticDoc: (current: unknown) => {
           const props = current as CookingModeSessionProps | undefined;
-          return props ? { ...props, state: outcome, isActive: false } : current;
+          return props
+            ? { ...props, state: outcome, isActive: false }
+            : current;
         },
         mutationId: generateClientId(),
       });

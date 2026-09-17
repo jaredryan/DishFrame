@@ -1,25 +1,49 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DishTagFlavorEditor } from "@/components/domain/dish/dish-tag-flavor-editor";
-import {
-  setDishTags,
-  setDishFlavorProfiles,
-  setDishCuisines,
-} from "@/lib/dishes/actions";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn() }),
 }));
 
-vi.mock("@/lib/dishes/actions", () => ({
-  setDishTags: vi.fn(async () => ({ status: "success", dishId: "d1" })),
-  setDishFlavorProfiles: vi.fn(async () => ({
-    status: "success",
-    dishId: "d1",
-  })),
-  setDishCuisines: vi.fn(async () => ({ status: "success", dishId: "d1" })),
-}));
+// setDishTags/setDishFlavorProfiles/setDishCuisines are now offline-capable
+// wrappers (`offline-metadata.ts`) routed through
+// fetch("/api/sync/dishes", ...) instead of the Server Actions previously
+// mocked here — this stub replaces those dead mocks for assertions.
+let fetchMock: ReturnType<typeof vi.fn>;
+
+function syncResponse(body: Record<string, unknown> = {}) {
+  return new Response(
+    JSON.stringify({
+      status: "applied",
+      entityId: "d1",
+      serverRevision: null,
+      ...body,
+    }),
+    { status: 200 },
+  );
+}
+
+function syncPayloads() {
+  return fetchMock.mock.calls.map(([, init]) => {
+    const body = JSON.parse((init as RequestInit).body as string) as {
+      op: string;
+      entityId: string;
+      payload: unknown;
+    };
+    return { op: body.op, entityId: body.entityId, payload: body.payload };
+  });
+}
+
+beforeEach(() => {
+  fetchMock = vi.fn(async () => syncResponse());
+  vi.stubGlobal("fetch", fetchMock);
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 function renderEditor(
   overrides: Partial<React.ComponentProps<typeof DishTagFlavorEditor>> = {},
@@ -56,17 +80,26 @@ describe("DishTagFlavorEditor", () => {
     await user.click(screen.getByText("Vietnamese"));
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(setDishTags).toHaveBeenCalledWith("RECIPE", {
-      dishId: "d1",
-      tagIds: ["tag1"],
-    });
-    expect(setDishFlavorProfiles).toHaveBeenCalledWith("RECIPE", {
-      dishId: "d1",
-      flavorProfileValueIds: ["fp1"],
-    });
-    expect(setDishCuisines).toHaveBeenCalledWith("RECIPE", {
-      dishId: "d1",
-      cuisineIds: ["cuisine1"],
+    await waitFor(() => {
+      expect(syncPayloads()).toContainEqual({
+        op: "dish.setTags",
+        entityId: "d1",
+        payload: { dishId: "d1", kind: "RECIPE", tagIds: ["tag1"] },
+      });
+      expect(syncPayloads()).toContainEqual({
+        op: "dish.setFlavorProfiles",
+        entityId: "d1",
+        payload: {
+          dishId: "d1",
+          kind: "RECIPE",
+          flavorProfileValueIds: ["fp1"],
+        },
+      });
+      expect(syncPayloads()).toContainEqual({
+        op: "dish.setCuisines",
+        entityId: "d1",
+        payload: { dishId: "d1", kind: "RECIPE", cuisineIds: ["cuisine1"] },
+      });
     });
   });
 
@@ -87,10 +120,13 @@ describe("DishTagFlavorEditor", () => {
     await user.click(screen.getByText("Vietnamese"));
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(setDishCuisines).toHaveBeenCalledWith("RECIPE", {
-      dishId: "d1",
-      cuisineIds: [],
-    });
+    await waitFor(() =>
+      expect(syncPayloads()).toContainEqual({
+        op: "dish.setCuisines",
+        entityId: "d1",
+        payload: { dishId: "d1", kind: "RECIPE", cuisineIds: [] },
+      }),
+    );
   });
 
   it("Cancel discards in-progress selections without saving", async () => {
@@ -104,8 +140,7 @@ describe("DishTagFlavorEditor", () => {
     await user.click(screen.getByText("Vietnamese"));
     await user.click(screen.getByRole("button", { name: "Cancel" }));
 
-    expect(setDishTags).not.toHaveBeenCalled();
-    expect(setDishCuisines).not.toHaveBeenCalled();
+    expect(syncPayloads()).toHaveLength(0);
 
     // Reopening starts fresh from the original (unsaved) selection.
     await user.click(

@@ -21,10 +21,22 @@ export function CookingNotesField({
   initialNotes: string | null;
 }) {
   const [value, setValue] = React.useState(initialNotes ?? "");
+  // The last value this component itself confirmed saved — tracked locally
+  // rather than comparing `value` back against the `initialNotes` prop.
+  // That prop only reflects a save once it's round-tripped through the
+  // offline replica, a global `onSyncActivity` notification, and the
+  // parent offline boundary's own reconcile effect; that path isn't
+  // guaranteed to land before this component re-renders, so "Saved." could
+  // stay hidden indefinitely even after a genuinely successful save.
+  // Setting this directly from `handleSave`'s own success makes the
+  // indicator immediate and independent of that round trip.
+  const [lastSavedValue, setLastSavedValue] = React.useState(
+    initialNotes ?? "",
+  );
   const [isPending, startTransition] = React.useTransition();
   const [saved, setSaved] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const dirty = value !== (initialNotes ?? "");
+  const dirty = value !== lastSavedValue;
 
   function handleSave() {
     setError(null);
@@ -46,6 +58,7 @@ export function CookingNotesField({
         setError(result.message);
         return;
       }
+      setLastSavedValue(value);
       setSaved(true);
     });
   }
