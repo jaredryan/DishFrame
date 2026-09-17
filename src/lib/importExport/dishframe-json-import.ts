@@ -81,6 +81,40 @@ function countLinkedParts(value: unknown): number {
   return Array.isArray(value) ? value.length : 0;
 }
 
+// Composable nutrition (owner decision, 2026-09-17, PRODUCT_SPEC.md §54.5):
+// shared reader for an ingredient's `nutrition` object or a Section's
+// `nutritionOverride` object — same DTO shape (`export-dto.ts`'s
+// `ingredientDto`/`versionContentDto`), minus basis/source (neither applies
+// below the whole-Dish level). Returns `null` when nothing is present, so
+// an older export (no such object at all, or one with every field blank)
+// never activates an accidental all-null override/contribution.
+function normalizeNutritionValues(raw: unknown): {
+  calories: number | null;
+  protein: number | null;
+  carbs: number | null;
+  fat: number | null;
+  moreNutrients: MoreNutrientEntry[] | null;
+} | null {
+  if (!isRecord(raw)) return null;
+  const calories = asNullableNumber(raw.calories);
+  const protein = asNullableNumber(raw.protein);
+  const carbs = asNullableNumber(raw.carbs);
+  const fat = asNullableNumber(raw.fat);
+  const moreNutrients = Array.isArray(raw.moreNutrients)
+    ? (raw.moreNutrients as MoreNutrientEntry[])
+    : null;
+  if (
+    calories == null &&
+    protein == null &&
+    carbs == null &&
+    fat == null &&
+    !moreNutrients?.length
+  ) {
+    return null;
+  }
+  return { calories, protein, carbs, fat, moreNutrients };
+}
+
 function normalizeIngredient(raw: unknown): IngredientInput | null {
   if (!isRecord(raw)) return null;
   const name = asString(raw.name);
@@ -99,6 +133,7 @@ function normalizeIngredient(raw: unknown): IngredientInput | null {
     preparationNote: asNullableString(raw.preparationNote),
     isOptional: raw.isOptional === true,
     originalImportedText: asNullableString(raw.originalImportedText),
+    nutrition: normalizeNutritionValues(raw.nutrition),
     substitute:
       substituteRaw && substituteName
         ? {
@@ -140,6 +175,7 @@ function normalizeSection(raw: unknown, position: number): SectionInput | null {
     instructions,
     partLinks: [],
     position,
+    nutritionOverride: normalizeNutritionValues(raw.nutritionOverride),
   };
 }
 

@@ -1,15 +1,17 @@
 import "server-only";
 import { prisma } from "@/lib/db/prisma";
 import { decimalToNumber } from "@/lib/dishes/format";
-import {
-  toNutritionSummaryData,
-  type NutritionSummaryData,
-} from "@/components/domain/dish/nutrition-summary";
+import { nutritionValuesFromRow } from "@/lib/dishes/mappers";
 import {
   sectionContentInclude,
   partLinkContentInclude,
 } from "@/lib/dishes/queries";
 import { Prisma } from "@/generated/prisma/client";
+import type {
+  NutritionValuesInput,
+  NutritionBasisValue,
+  NutritionSourceProviderValue,
+} from "@/lib/dishes/schema";
 
 type VersionSectionRow = Prisma.SectionGetPayload<{
   include: typeof sectionContentInclude.include;
@@ -57,6 +59,13 @@ export type ReplicatedVersionIngredient = {
   // gather-core.ts`'s shared walker needs from an ingredient row.
   substituteForIngredientId: string | null;
   substitute: ReplicatedVersionSubstitute | null;
+  // Composable nutrition (owner decision, 2026-09-17, PRODUCT_SPEC.md
+  // §54.5): this ingredient's own contribution, replicated raw (not a
+  // precomputed total) so effective nutrition can be calculated locally —
+  // offline editor preview and offline Version History/compare both reuse
+  // `src/lib/nutrition/calculate.ts` against this same data, never a
+  // separate offline-specific calculator.
+  nutrition: NutritionValuesInput | null;
 };
 
 export type ReplicatedVersionSection = {
@@ -75,6 +84,8 @@ export type ReplicatedVersionSection = {
   // Plain references, not resolved nested trees — see this file's doc
   // comment (docs/OFFLINE_IMPLEMENTATION_PLAN.md §2's scoped fidelity note).
   partLinks: ReplicatedPartLinkRef[];
+  // Composable nutrition: this Section's own manual override, if any.
+  nutritionOverride: NutritionValuesInput | null;
 };
 
 export type ReplicatedVersion = {
@@ -92,7 +103,15 @@ export type ReplicatedVersion = {
   cookTimeMinutes: number | null;
   difficulty: string | null;
   imageAssetId: string | null;
-  nutrition: NutritionSummaryData;
+  // Composable nutrition: the whole-Dish manual override, if any — raw, not
+  // precomputed, for the same local-calculation reason as above. Basis/
+  // source are only ever meaningful when this override is active.
+  nutritionOverride: NutritionValuesInput | null;
+  nutritionBasis: NutritionBasisValue | null;
+  nutritionBasisQuantity: number | null;
+  nutritionBasisUnit: string | null;
+  nutritionSourceProvider: NutritionSourceProviderValue | null;
+  nutritionSourceName: string | null;
   sections: ReplicatedVersionSection[];
   topLevelPartLinks: ReplicatedPartLinkRef[];
 };
@@ -112,6 +131,7 @@ function toIngredient(
     preparationNote: row.preparationNote,
     isOptional: row.isOptional,
     substituteForIngredientId: row.substituteForIngredientId,
+    nutrition: nutritionValuesFromRow(row),
     substitute: row.substitute
       ? {
           lineageId: row.substitute.lineageId,
@@ -178,7 +198,13 @@ export async function buildDishVersionHistorySnapshot(
     cookTimeMinutes: version.cookTimeMinutes,
     difficulty: version.difficulty,
     imageAssetId: version.imageAssetId,
-    nutrition: toNutritionSummaryData(version),
+    nutritionOverride: nutritionValuesFromRow(version),
+    nutritionBasis: version.nutritionBasis,
+    nutritionBasisQuantity: decimalToNumber(version.nutritionBasisQuantity),
+    nutritionBasisUnit: version.nutritionBasisUnit,
+    nutritionSourceProvider:
+      version.nutritionSourceProvider as NutritionSourceProviderValue | null,
+    nutritionSourceName: version.nutritionSourceName,
     sections: version.sections.map((section) => ({
       id: section.id,
       lineageId: section.lineageId,
@@ -195,6 +221,7 @@ export async function buildDishVersionHistorySnapshot(
       partLinks: version.partLinks
         .filter((link) => link.sectionId === section.id)
         .map(toPartLinkRef),
+      nutritionOverride: nutritionValuesFromRow(section),
     })),
     topLevelPartLinks: version.partLinks
       .filter((link) => link.sectionId === null)

@@ -15,6 +15,7 @@ import {
 import { versionContentToInput } from "@/lib/dishes/mappers";
 import { decimalToNumber } from "@/lib/dishes/format";
 import { versionLabel as formatVersionLabel } from "@/lib/dishes/version-note";
+import { resolveDishVersionEffectiveNutrition } from "@/lib/nutrition/resolve";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
 import {
   resolvePartLinkDisplayInfo,
@@ -24,6 +25,7 @@ import type { PartLinkLabelMap } from "@/components/domain/dish/version-compare-
 import type { DishKindValue } from "@/lib/dishes/schema";
 
 async function toCompareInput(
+  ownerId: string,
   dishId: string,
   versionId: string,
 ): Promise<{
@@ -33,9 +35,10 @@ async function toCompareInput(
 }> {
   const version = await getDishScopedVersionContentOrThrow(dishId, versionId);
   const content = versionContentToInput(version.sections, version.partLinks);
-  const materializedPartLinks = await listMaterializedPartLinkSnapshots(
-    version.id,
-  );
+  const [materializedPartLinks, nutrition] = await Promise.all([
+    listMaterializedPartLinkSnapshots(version.id),
+    resolveDishVersionEffectiveNutrition(ownerId, dishId, versionId),
+  ]);
   return {
     majorVersion: version.majorVersion,
     minorVersion: version.minorVersion,
@@ -48,12 +51,11 @@ async function toCompareInput(
         cookTimeMinutes: version.cookTimeMinutes,
         difficulty: version.difficulty,
       },
-      nutrition: {
-        calories: decimalToNumber(version.calories),
-        protein: decimalToNumber(version.protein),
-        carbs: decimalToNumber(version.carbs),
-        fat: decimalToNumber(version.fat),
-      },
+      // Composable nutrition (owner decision, 2026-09-17): override-or-
+      // calculated, nested Parts resolved from exactly the Part Versions
+      // *this* Version's own PartLinks pin — see
+      // `resolveDishVersionEffectiveNutrition`'s doc comment.
+      nutrition,
       sections: content.sections,
       partLinks: content.partLinks,
       materializedPartLinks,
@@ -166,8 +168,8 @@ export async function buildVersionCompareViewProps(
   const toId = toParam || defaultPair.toId;
 
   const [fromVersion, toVersion] = await Promise.all([
-    toCompareInput(dish.id, fromId),
-    toCompareInput(dish.id, toId),
+    toCompareInput(ownerId, dish.id, fromId),
+    toCompareInput(ownerId, dish.id, toId),
   ]);
   const result = compareDishVersions(fromVersion.input, toVersion.input);
   const partLinkLabels = await resolvePartLinkLabels(ownerId, result);

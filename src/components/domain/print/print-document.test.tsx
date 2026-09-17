@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { PrintDocument } from "@/components/domain/print/print-document";
+import { NONE_NUTRITION } from "@/lib/nutrition/calculate";
 import type {
   PublicShareContent,
   PublicSection,
@@ -24,7 +25,7 @@ function baseContent(
     prepTimeMinutes: null,
     cookTimeMinutes: null,
     difficulty: null,
-    nutrition: null,
+    nutrition: NONE_NUTRITION,
     aggregateRating: null,
     ratingCount: null,
     sections: [],
@@ -260,14 +261,15 @@ describe("PrintDocument", () => {
       <PrintDocument
         content={baseContent({
           nutrition: {
-            calories: 320,
-            protein: 12,
-            carbs: 40,
-            fat: 8,
-            basis: null,
-            basisQuantity: null,
-            basisUnit: null,
-            sourceName: "USDA",
+            totals: {
+              calories: 320,
+              protein: 12,
+              carbs: 40,
+              fat: 8,
+              moreNutrients: null,
+            },
+            state: "OVERRIDE",
+            source: { provider: "USDA_FDC", name: "USDA" },
           },
         })}
         kindLabel="Recipe"

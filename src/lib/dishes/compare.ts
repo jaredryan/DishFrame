@@ -6,6 +6,7 @@ import {
   type SectionInput,
 } from "@/lib/dishes/schema";
 import { formatIngredientLine } from "@/lib/dishes/format";
+import type { EffectiveNutrition } from "@/lib/nutrition/calculate";
 
 /**
  * Pure, framework- and DB-agnostic Version comparison
@@ -50,12 +51,14 @@ export type VersionMetadataSnapshot = {
   difficulty: string | null;
 };
 
-export type VersionNutritionSnapshot = {
-  calories: number | null;
-  protein: number | null;
-  carbs: number | null;
-  fat: number | null;
-};
+// Composable nutrition (owner decision, 2026-09-17, PRODUCT_SPEC.md §54.5):
+// the caller supplies each side's already-resolved effective nutrition
+// (override-or-calculated, nested Parts already composed) — computed by
+// whichever adapter fits the caller (`resolveDishVersionEffectiveNutrition`
+// for the DB, an offline/replica equivalent, or `computeShareGraphEffectiveNutrition`
+// for a fully-resolved share graph) — so this module stays pure/DB-agnostic
+// and never re-derives nutrition itself.
+export type VersionNutritionSnapshot = EffectiveNutrition;
 
 export type VersionCompareInput = {
   metadata: VersionMetadataSnapshot;
@@ -240,6 +243,13 @@ function metadataChanges(
   return changes;
 }
 
+const NUTRITION_STATE_LABEL: Record<EffectiveNutrition["state"], string> = {
+  NONE: "None",
+  PARTIAL: "Partial",
+  COMPLETE: "Calculated",
+  OVERRIDE: "Manual override",
+};
+
 function nutritionChanges(
   before: VersionNutritionSnapshot,
   after: VersionNutritionSnapshot,
@@ -249,29 +259,39 @@ function nutritionChanges(
     changes,
     "calories",
     "Calories",
-    formatNumber(before.calories),
-    formatNumber(after.calories),
+    formatNumber(before.totals.calories),
+    formatNumber(after.totals.calories),
   );
   pushIfChanged(
     changes,
     "protein",
     "Protein",
-    formatNumber(before.protein),
-    formatNumber(after.protein),
+    formatNumber(before.totals.protein),
+    formatNumber(after.totals.protein),
   );
   pushIfChanged(
     changes,
     "carbs",
     "Carbs",
-    formatNumber(before.carbs),
-    formatNumber(after.carbs),
+    formatNumber(before.totals.carbs),
+    formatNumber(after.totals.carbs),
   );
   pushIfChanged(
     changes,
     "fat",
     "Fat",
-    formatNumber(before.fat),
-    formatNumber(after.fat),
+    formatNumber(before.totals.fat),
+    formatNumber(after.totals.fat),
+  );
+  // Composable nutrition: a version can go from calculated to Manual
+  // override (or Partial to Calculated, etc.) with the *same* numeric
+  // totals — worth surfacing on its own, not just implied by the numbers.
+  pushIfChanged(
+    changes,
+    "nutritionStatus",
+    "Nutrition status",
+    NUTRITION_STATE_LABEL[before.state],
+    NUTRITION_STATE_LABEL[after.state],
   );
   return changes;
 }

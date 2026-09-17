@@ -1,136 +1,130 @@
 import { Badge } from "@/components/ui/badge";
-import { decimalToNumber } from "@/lib/dishes/format";
 import type {
-  MoreNutrientEntry,
   NutritionBasisValue,
   NutritionSourceProviderValue,
 } from "@/lib/dishes/schema";
-import type { Prisma } from "@/generated/prisma/client";
+import type {
+  EffectiveNutrition,
+  NutritionState,
+} from "@/lib/nutrition/calculate";
 
 /**
- * Slice 13 correction pass, PRODUCT_SPEC.md §54: read-only nutrition
- * display, shared by the current-Version detail page
- * (`dish-detail-view.tsx`) and both historical Version pages
- * (`versions/[versionId]/page.tsx`) — one presentation, fed whichever
- * Version's own saved values the caller loaded, so a historical page shows
- * that exact Version's nutrition rather than the Dish's current one. Plain
- * Server-Component-renderable (no "use client" — no interactivity beyond
- * the native `<details>` disclosure), matching `StageBadge`'s convention.
+ * Composable nutrition (owner decision, 2026-09-17, PRODUCT_SPEC.md §54.5):
+ * the calculated/partial/override-aware nutrition display, powered by
+ * `src/lib/nutrition/calculate.ts`'s centralized `EffectiveNutrition` — the
+ * one nutrition presentation every surface uses (editor Section/whole-Dish
+ * summaries, current-Version detail, print, public share, Version History,
+ * Version compare, and their offline equivalents). Plain
+ * Server-Component-renderable (no "use client" — no interactivity beyond the
+ * native `<details>` disclosure).
  */
-
-export type NutritionSummaryData = {
-  calories: number | null;
-  protein: number | null;
-  carbs: number | null;
-  fat: number | null;
-  nutritionBasis: NutritionBasisValue | null;
-  nutritionBasisQuantity: number | null;
-  nutritionBasisUnit: string | null;
-  moreNutrients: MoreNutrientEntry[] | null;
-  nutritionSourceProvider: NutritionSourceProviderValue | null;
-  nutritionSourceName: string | null;
-};
 
 const PROVIDER_LABEL: Record<NutritionSourceProviderValue, string> = {
   USDA_FDC: "USDA FoodData Central",
 };
 
-/**
- * A raw `DishVersion` row's nutrition columns → `NutritionSummaryData` —
- * shared by every caller (current-Version detail page, both historical
- * Version pages) so the Decimal/Json → plain-value conversion happens in
- * exactly one place, matching `decimalToNumber`'s own "one shared rounding/
- * conversion point" convention elsewhere in this codebase. `moreNutrients`
- * is only ever written as `MoreNutrientEntry[]` by this app
- * (`normalizeNutritionOrThrow`, service.ts) — a plain array-shape check is
- * enough to trust it back, matching `dish-form-values.ts`'s own
- * `moreNutrientsFromJson`.
- */
-export function toNutritionSummaryData(version: {
-  calories: Prisma.Decimal | null;
-  protein: Prisma.Decimal | null;
-  carbs: Prisma.Decimal | null;
-  fat: Prisma.Decimal | null;
-  nutritionBasis: NutritionBasisValue | null;
-  nutritionBasisQuantity: Prisma.Decimal | null;
-  nutritionBasisUnit: string | null;
-  moreNutrients: Prisma.JsonValue | null;
-  nutritionSourceProvider: string | null;
-  nutritionSourceName: string | null;
-}): NutritionSummaryData {
-  return {
-    calories: decimalToNumber(version.calories),
-    protein: decimalToNumber(version.protein),
-    carbs: decimalToNumber(version.carbs),
-    fat: decimalToNumber(version.fat),
-    nutritionBasis: version.nutritionBasis,
-    nutritionBasisQuantity: decimalToNumber(version.nutritionBasisQuantity),
-    nutritionBasisUnit: version.nutritionBasisUnit,
-    moreNutrients: Array.isArray(version.moreNutrients)
-      ? (version.moreNutrients as unknown as MoreNutrientEntry[])
-      : null,
-    nutritionSourceProvider:
-      version.nutritionSourceProvider as NutritionSourceProviderValue | null,
-    nutritionSourceName: version.nutritionSourceName,
-  };
-}
+export type EffectiveNutritionDisplayData = EffectiveNutrition & {
+  // Only meaningful when `state === "OVERRIDE"` — the whole-Dish override's
+  // own basis/source attribution (unchanged Tier 1/Tier 2 fields). A
+  // Section-level override has neither (no basis/source concept at that
+  // level in this pass), so callers below the whole-Dish level simply omit
+  // these.
+  basis?: {
+    nutritionBasis: NutritionBasisValue | null;
+    nutritionBasisQuantity: number | null;
+    nutritionBasisUnit: string | null;
+  } | null;
+  source?: {
+    provider: NutritionSourceProviderValue;
+    name: string | null;
+  } | null;
+};
 
-function basisText(nutrition: NutritionSummaryData): string | null {
-  if (nutrition.nutritionBasis === "WHOLE") return "Whole recipe";
+const NUTRITION_STATE_LABEL: Record<Exclude<NutritionState, "NONE">, string> = {
+  COMPLETE: "Calculated",
+  PARTIAL: "Partial",
+  OVERRIDE: "Manual override",
+};
+
+function effectiveBasisText(
+  basis: EffectiveNutritionDisplayData["basis"],
+): string | null {
+  if (!basis) return null;
+  if (basis.nutritionBasis === "WHOLE") return "Whole recipe/part";
   if (
-    nutrition.nutritionBasis === "PER_OUTPUT_UNIT" &&
-    nutrition.nutritionBasisQuantity != null &&
-    nutrition.nutritionBasisUnit
+    basis.nutritionBasis === "PER_OUTPUT_UNIT" &&
+    basis.nutritionBasisQuantity != null &&
+    basis.nutritionBasisUnit
   ) {
-    return `Per ${nutrition.nutritionBasisQuantity} ${nutrition.nutritionBasisUnit}`;
+    return `Per ${basis.nutritionBasisQuantity} ${basis.nutritionBasisUnit}`;
   }
   return null;
 }
 
-export function NutritionSummary({
+/**
+ * `title` lets the same component serve both a whole-Dish summary
+ * ("Nutrition") and a per-Section summary ("Section nutrition") without a
+ * second near-identical component.
+ */
+export function EffectiveNutritionSummary({
   nutrition,
+  title = "Nutrition",
 }: {
-  nutrition: NutritionSummaryData;
+  nutrition: EffectiveNutritionDisplayData;
+  title?: string;
 }) {
+  // §54.6-style "nothing to show, nothing rendered" — `NONE` means no
+  // override and nothing below has any data.
+  if (nutrition.state === "NONE") return null;
+
+  const { totals } = nutrition;
   const hasPrimary =
-    nutrition.calories != null ||
-    nutrition.protein != null ||
-    nutrition.carbs != null ||
-    nutrition.fat != null;
-  const hasMore = !!nutrition.moreNutrients?.length;
-  const hasSource = !!nutrition.nutritionSourceProvider;
-
-  // §54.6: "does not require every food to provide every nutrient" —
-  // extends here to the whole panel: nothing to show, nothing rendered.
-  if (!hasPrimary && !hasMore) return null;
-
-  const providerLabel = nutrition.nutritionSourceProvider
-    ? PROVIDER_LABEL[nutrition.nutritionSourceProvider]
+    totals.calories != null ||
+    totals.protein != null ||
+    totals.carbs != null ||
+    totals.fat != null;
+  const hasMore = !!totals.moreNutrients?.length;
+  const basisText = effectiveBasisText(nutrition.basis);
+  const providerLabel = nutrition.source
+    ? PROVIDER_LABEL[nutrition.source.provider]
     : null;
 
   return (
     <div className="border-border bg-card flex flex-col gap-2 rounded-lg border px-3 py-2.5">
-      <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
-        Nutrition
-      </p>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+          {title}
+        </p>
+        <Badge
+          variant={nutrition.state === "OVERRIDE" ? "secondary" : "outline"}
+        >
+          {NUTRITION_STATE_LABEL[nutrition.state]}
+        </Badge>
+      </div>
       {hasPrimary && (
         <div className="flex flex-wrap gap-1.5">
-          {nutrition.calories != null && (
-            <Badge variant="outline">{nutrition.calories} cal</Badge>
+          {totals.calories != null && (
+            <Badge variant="outline">{totals.calories} cal</Badge>
           )}
-          {nutrition.protein != null && (
-            <Badge variant="outline">{nutrition.protein}g protein</Badge>
+          {totals.protein != null && (
+            <Badge variant="outline">{totals.protein}g protein</Badge>
           )}
-          {nutrition.carbs != null && (
-            <Badge variant="outline">{nutrition.carbs}g carbs</Badge>
+          {totals.carbs != null && (
+            <Badge variant="outline">{totals.carbs}g carbs</Badge>
           )}
-          {nutrition.fat != null && (
-            <Badge variant="outline">{nutrition.fat}g fat</Badge>
+          {totals.fat != null && (
+            <Badge variant="outline">{totals.fat}g fat</Badge>
           )}
         </div>
       )}
-      {basisText(nutrition) && (
-        <p className="text-muted-foreground text-xs">{basisText(nutrition)}</p>
+      {nutrition.state === "PARTIAL" && (
+        <p className="text-muted-foreground text-xs">
+          Based on the ingredients with nutrition entered so far — some
+          contributing ingredients or Parts have none yet.
+        </p>
+      )}
+      {basisText && (
+        <p className="text-muted-foreground text-xs">{basisText}</p>
       )}
       {hasMore && (
         <details className="group">
@@ -138,7 +132,7 @@ export function NutritionSummary({
             More nutrients
           </summary>
           <div className="mt-1.5 flex flex-wrap gap-1.5">
-            {nutrition.moreNutrients!.map((entry) => (
+            {totals.moreNutrients!.map((entry) => (
               <Badge key={entry.key} variant="outline">
                 {entry.label} {entry.value}
                 {entry.unit}
@@ -147,13 +141,11 @@ export function NutritionSummary({
           </div>
         </details>
       )}
-      {hasSource && (
+      {nutrition.source && (
         <p className="text-muted-foreground text-xs">
           Sourced from {providerLabel}
-          {nutrition.nutritionSourceName
-            ? ` — ${nutrition.nutritionSourceName}`
-            : ""}
-          . USDA FoodData Central values may contain errors or change over time.
+          {nutrition.source.name ? ` — ${nutrition.source.name}` : ""}. USDA
+          FoodData Central values may contain errors or change over time.
         </p>
       )}
     </div>

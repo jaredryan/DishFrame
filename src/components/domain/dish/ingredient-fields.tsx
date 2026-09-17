@@ -14,6 +14,7 @@ import { useAmountMode } from "@/components/domain/dish/use-amount-mode";
 import { SubstituteFields } from "@/components/domain/dish/substitute-fields";
 import { ItemToolbar } from "@/components/domain/dish/reorder-buttons";
 import { formatIngredientSummary } from "@/components/domain/dish/ingredient-summary";
+import { MoreNutrientsFields } from "@/components/domain/dish/more-nutrients-fields";
 
 /**
  * Deliberately untyped `useFormContext()` (no `DishFormValues` generic):
@@ -225,6 +226,95 @@ export function IngredientFields({
               />
             )}
           </div>
+
+          {/* Composable nutrition (owner decision, 2026-09-17,
+              PRODUCT_SPEC.md §54.5): optional, collapsed-by-default —
+              "without making normal ingredient entry cumbersome." Values
+              represent this ingredient's contribution for the amount
+              actually used above, not a per-100g basis. Primary fields
+              only (no More nutrients/source here) — that stays a Section/
+              whole-Dish-level workflow via `NutritionFields`. */}
+          <details className="border-border border-t pt-3">
+            <summary className="text-muted-foreground cursor-pointer text-xs font-medium tracking-wide uppercase select-none">
+              Nutrition (optional)
+            </summary>
+            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <Field>
+                <FieldLabel htmlFor={`${idPrefix}-nutrition-calories`}>
+                  Calories
+                </FieldLabel>
+                <Input
+                  id={`${idPrefix}-nutrition-calories`}
+                  type="number"
+                  inputMode="decimal"
+                  step="any"
+                  min={0}
+                  placeholder="Optional"
+                  {...register(`${prefix}.nutrition.calories`, {
+                    setValueAs: (value) =>
+                      value === "" ? null : Number(value),
+                  })}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor={`${idPrefix}-nutrition-protein`}>
+                  Protein (g)
+                </FieldLabel>
+                <Input
+                  id={`${idPrefix}-nutrition-protein`}
+                  type="number"
+                  inputMode="decimal"
+                  step="any"
+                  min={0}
+                  placeholder="Optional"
+                  {...register(`${prefix}.nutrition.protein`, {
+                    setValueAs: (value) =>
+                      value === "" ? null : Number(value),
+                  })}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor={`${idPrefix}-nutrition-carbs`}>
+                  Carbs (g)
+                </FieldLabel>
+                <Input
+                  id={`${idPrefix}-nutrition-carbs`}
+                  type="number"
+                  inputMode="decimal"
+                  step="any"
+                  min={0}
+                  placeholder="Optional"
+                  {...register(`${prefix}.nutrition.carbs`, {
+                    setValueAs: (value) =>
+                      value === "" ? null : Number(value),
+                  })}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor={`${idPrefix}-nutrition-fat`}>
+                  Fat (g)
+                </FieldLabel>
+                <Input
+                  id={`${idPrefix}-nutrition-fat`}
+                  type="number"
+                  inputMode="decimal"
+                  step="any"
+                  min={0}
+                  placeholder="Optional"
+                  {...register(`${prefix}.nutrition.fat`, {
+                    setValueAs: (value) =>
+                      value === "" ? null : Number(value),
+                  })}
+                />
+              </Field>
+            </div>
+            <div className="mt-3">
+              <MoreNutrientsFields
+                name={`${prefix}.nutrition.moreNutrients`}
+                idPrefix={idPrefix}
+              />
+            </div>
+          </details>
 
           {/* Explicit workflow completion, separate from the top-right collapse shortcut. */}
           <Button

@@ -33,6 +33,7 @@ import { PartAttachPicker } from "@/components/domain/dish/part-attach-picker";
 import { CreatePartLink } from "@/components/domain/dish/create-part-link";
 import { ConvertSectionToPartDialog } from "@/components/domain/dish/convert-section-to-part-dialog";
 import { ReplaceSectionWithPartDialog } from "@/components/domain/dish/replace-section-with-part-dialog";
+import { SectionNutritionFields } from "@/components/domain/dish/section-nutrition-fields";
 import { isBlankSubstitute } from "@/lib/dishes/schema";
 import type {
   DishKindValue,
@@ -52,6 +53,7 @@ const BLANK_INGREDIENT = {
   preparationNote: null,
   isOptional: false,
   substitute: null,
+  nutrition: null,
 };
 
 const BLANK_INSTRUCTION = { text: "" };
@@ -487,6 +489,8 @@ export function SectionEditorDialog({
                 <CreatePartLink />
               </div>
             </div>
+
+            <SectionNutritionFields />
           </div>
         </FormProvider>
 

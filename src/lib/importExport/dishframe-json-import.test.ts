@@ -266,4 +266,110 @@ describe("normalizeDishExportJson", () => {
     expect(draft.result.values.sections[0].partLinks).toEqual([]);
     expect(draft.result.values.partLinks).toEqual([]);
   });
+
+  // Composable nutrition (owner decision, 2026-09-17, PRODUCT_SPEC.md
+  // §54.5): a current-format export's per-ingredient `nutrition` and
+  // per-Section `nutritionOverride` objects round-trip into the imported
+  // draft's `IngredientInput`/`SectionInput` shape.
+  it("imports ingredient nutrition and a Section nutrition override", () => {
+    const result = normalizeDishExportJson(
+      dishExportJson({
+        versions: [
+          {
+            title: "Weeknight Tacos",
+            nutrition: {
+              calories: null,
+              protein: null,
+              carbs: null,
+              fat: null,
+              basis: null,
+              basisQuantity: null,
+              basisUnit: null,
+              moreNutrients: null,
+              sourceProvider: null,
+              sourceId: null,
+              sourceName: null,
+            },
+            sections: [
+              {
+                name: null,
+                guidanceNote: null,
+                position: 0,
+                ingredients: [
+                  {
+                    name: "Ground beef",
+                    quantity: 1,
+                    unit: "lb",
+                    nutrition: {
+                      calories: 350,
+                      protein: 30,
+                      carbs: 0,
+                      fat: 25,
+                      moreNutrients: null,
+                    },
+                  },
+                  {
+                    // No nutrition entered at all — must import as no
+                    // contribution, not an accidental all-null override.
+                    name: "Taco shells",
+                  },
+                ],
+                instructions: [],
+                linkedParts: [],
+                nutritionOverride: {
+                  calories: 500,
+                  protein: null,
+                  carbs: null,
+                  fat: null,
+                  moreNutrients: null,
+                },
+              },
+            ],
+            topLevelLinkedParts: [],
+          },
+        ],
+      }),
+    );
+
+    expect(result.status).toBe("success");
+    if (result.status !== "success") return;
+    const draft = result.drafts[0];
+    expect(draft.status).toBe("ok");
+    if (draft.status !== "ok") return;
+
+    const section = draft.result.values.sections[0];
+    expect(section.nutritionOverride).toEqual({
+      calories: 500,
+      protein: null,
+      carbs: null,
+      fat: null,
+      moreNutrients: null,
+    });
+    expect(section.ingredients[0].nutrition).toEqual({
+      calories: 350,
+      protein: 30,
+      carbs: 0,
+      fat: 25,
+      moreNutrients: null,
+    });
+    expect(section.ingredients[1].nutrition).toBeNull();
+  });
+
+  // Backward compatibility: an older export with no ingredient/Section
+  // nutrition at all (the default fixture) must still import cleanly, with
+  // its whole-Dish `nutrition` object becoming the whole-Dish manual
+  // override — unaffected by this feature's addition.
+  it("imports an older export's whole-Dish-only nutrition as the whole-Dish override, with no Section overrides", () => {
+    const result = normalizeDishExportJson(dishExportJson());
+    expect(result.status).toBe("success");
+    if (result.status !== "success") return;
+    const draft = result.drafts[0];
+    expect(draft.status).toBe("ok");
+    if (draft.status !== "ok") return;
+
+    expect(draft.result.values.calories).toBe(400);
+    expect(draft.result.values.protein).toBe(25);
+    expect(draft.result.values.sections[0].nutritionOverride).toBeNull();
+    expect(draft.result.values.sections[0].ingredients[0].nutrition).toBeNull();
+  });
 });

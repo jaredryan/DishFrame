@@ -96,6 +96,27 @@ vi.mock("@/lib/sections/actions", () => ({
   resolvePartVersionForDetach: vi.fn(),
 }));
 
+// Composable nutrition (owner decision, 2026-09-17): the whole-Dish/Section
+// live nutrition preview falls back to this Server Action for a linked
+// Part not (yet) in the local offline replica (`use-part-link-nutrition.ts`)
+// — mocked the same way every other Server Action this editor calls is, so
+// these tests never attempt a real network/DB round trip.
+vi.mock("@/lib/nutrition/actions", () => ({
+  getPartLinkEffectiveNutrition: vi.fn(async () => ({
+    status: "success",
+    nutrition: {
+      state: "NONE",
+      totals: {
+        calories: null,
+        protein: null,
+        carbs: null,
+        fat: null,
+        moreNutrients: null,
+      },
+    },
+  })),
+}));
+
 // The Reorder modal's own drag-and-drop rendering/mechanics are covered in
 // `top-level-reorder-dialog.test.tsx`; here it's stubbed to a plain summary
 // of the entries it received plus a "Test cancel"/"Test apply reversed"

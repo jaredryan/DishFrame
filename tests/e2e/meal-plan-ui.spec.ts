@@ -15,6 +15,13 @@ async function createRecipe(page: Page, title: string): Promise<void> {
   await page.getByLabel("Recipe title").fill(title, { timeout: 15_000 });
   await page.getByLabel("Yield amount").fill("4");
   await page.getByLabel("Yield unit").fill("servings");
+  // A new Recipe defaults to "Idea" stage (`blankDishFormValues`), but the
+  // Meal Plan editor's Add-meal picker defaults its Stage filter to "Active"
+  // only — without this, the Recipe this helper just created is invisible
+  // to `createMealPlanWithScheduledMeal`'s and this file's own default-filter
+  // search below.
+  await page.getByRole("combobox", { name: "Recipe stage" }).click();
+  await page.getByRole("option", { name: "Active" }).click();
 
   await page.getByRole("button", { name: "Add section", exact: true }).click();
   const sectionDialog = page.getByRole("dialog");
@@ -24,7 +31,19 @@ async function createRecipe(page: Page, title: string): Promise<void> {
   await sectionDialog.getByLabel("Unit", { exact: true }).fill("cup");
   await sectionDialog.getByRole("button", { name: "Finish section" }).click();
 
-  await page.getByRole("button", { name: "Save", exact: true }).click();
+  // Recipe creation goes through the offline-sync queue (`saveDishOffline`
+  // -> `runOrQueueMutation` -> `/api/sync/dishes`), which resolves — and
+  // `router.push`es to the new Recipe's URL — the moment its own fetch
+  // settles, even on a caught network hiccup that falls back to the local
+  // queue for a later background retry (`mutate.ts`'s `queued: true`
+  // branch). A bare click only proves the client *optimistically* thinks
+  // it's created; a page relying on this Recipe already existing in
+  // Postgres (the Add-meal picker below, on a different navigation) needs
+  // the real POST to have actually resolved first — see `helpers.ts`'s
+  // `waitForServerAction` doc comment.
+  await waitForServerAction(page, () =>
+    page.getByRole("button", { name: "Save", exact: true }).click(),
+  );
   await expect(page).toHaveURL(/\/recipes\/[^/]+$/, { timeout: 15_000 });
 }
 

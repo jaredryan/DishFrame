@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { SemanticChip } from "@/components/domain/dish/semantic-chip";
 import { formatIngredientLine } from "@/lib/dishes/format";
+import { EffectiveNutritionSummary } from "@/components/domain/dish/nutrition-summary";
 import type {
   PublicShareContent,
   PublicSection,
@@ -236,22 +237,9 @@ export function PublicShareView({
         />
       </div>
 
-      {content.nutrition && (
-        <div className="border-border space-y-1 border-t pt-4 text-sm">
-          <h2 className="font-medium">Nutrition</h2>
-          <p className="text-muted-foreground">
-            {[
-              content.nutrition.calories != null &&
-                `${content.nutrition.calories} cal`,
-              content.nutrition.protein != null &&
-                `${content.nutrition.protein}g protein`,
-              content.nutrition.carbs != null &&
-                `${content.nutrition.carbs}g carbs`,
-              content.nutrition.fat != null && `${content.nutrition.fat}g fat`,
-            ]
-              .filter(Boolean)
-              .join(" · ")}
-          </p>
+      {content.nutrition.state !== "NONE" && (
+        <div className="border-border border-t pt-4">
+          <EffectiveNutritionSummary nutrition={content.nutrition} />
         </div>
       )}
     </article>

@@ -15,112 +15,14 @@ import {
 } from "@/components/ui/select";
 import { NumberField } from "@/components/domain/dish/number-field";
 import { FdcSearchPicker } from "@/components/domain/dish/fdc-search-picker";
+import { MoreNutrientsFields } from "@/components/domain/dish/more-nutrients-fields";
 import type { FdcNutritionDetail } from "@/lib/nutrition/fdc-client";
-import {
-  nutritionBasisValues,
-  recognizedMoreNutrientKeys,
-  type MoreNutrientEntry,
-  type RecognizedMoreNutrientKey,
-} from "@/lib/dishes/schema";
+import { nutritionBasisValues } from "@/lib/dishes/schema";
 
 const BASIS_LABEL: Record<(typeof nutritionBasisValues)[number], string> = {
   WHOLE: "Whole recipe/part",
   PER_OUTPUT_UNIT: "Per serving or output unit",
 };
-
-const MORE_NUTRIENT_META: Record<
-  RecognizedMoreNutrientKey,
-  { label: string; unit: string }
-> = {
-  fiber: { label: "Fiber", unit: "g" },
-  sugar: { label: "Sugar", unit: "g" },
-  sodium: { label: "Sodium", unit: "mg" },
-  saturatedFat: { label: "Saturated fat", unit: "g" },
-  cholesterol: { label: "Cholesterol", unit: "mg" },
-};
-
-function moreNutrientsToRecord(
-  entries: MoreNutrientEntry[] | null | undefined,
-): Record<RecognizedMoreNutrientKey, number | null> {
-  const record = Object.fromEntries(
-    recognizedMoreNutrientKeys.map((key) => [key, null]),
-  ) as Record<RecognizedMoreNutrientKey, number | null>;
-  for (const entry of entries ?? []) {
-    if (entry && entry.key in record) record[entry.key] = entry.value;
-  }
-  return record;
-}
-
-function recordToMoreNutrients(
-  record: Record<RecognizedMoreNutrientKey, number | null>,
-): MoreNutrientEntry[] | null {
-  const entries: MoreNutrientEntry[] = recognizedMoreNutrientKeys
-    .filter((key) => record[key] != null)
-    .map((key) => ({
-      key,
-      label: MORE_NUTRIENT_META[key].label,
-      value: record[key]!,
-      unit: MORE_NUTRIENT_META[key].unit,
-    }));
-  return entries.length > 0 ? entries : null;
-}
-
-/** The "More nutrients" expandable panel (PRODUCT_SPEC.md §54.6) — a fixed,
- * conservative, recognized set of extra nutrients, each independently
- * editable whether it arrived from an FDC result or was typed manually. */
-function MoreNutrientsFields() {
-  const { control } = useFormContext();
-
-  return (
-    <details className="group">
-      <summary className="text-muted-foreground cursor-pointer text-sm select-none">
-        More nutrients
-      </summary>
-      <Controller
-        control={control}
-        name="moreNutrients"
-        render={({ field }) => {
-          const record = moreNutrientsToRecord(field.value);
-          function setNutrient(
-            key: RecognizedMoreNutrientKey,
-            value: number | null,
-          ) {
-            field.onChange(recordToMoreNutrients({ ...record, [key]: value }));
-          }
-          return (
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              {recognizedMoreNutrientKeys.map((key) => (
-                <Field key={key}>
-                  <FieldLabel htmlFor={`more-nutrient-${key}`}>
-                    {MORE_NUTRIENT_META[key].label}
-                  </FieldLabel>
-                  <div className="flex items-center gap-2">
-                    <Input
-                      id={`more-nutrient-${key}`}
-                      type="number"
-                      inputMode="decimal"
-                      step="any"
-                      min={0}
-                      className="w-24"
-                      value={record[key] ?? ""}
-                      onChange={(event) => {
-                        const raw = event.target.value;
-                        setNutrient(key, raw === "" ? null : Number(raw));
-                      }}
-                    />
-                    <span className="text-muted-foreground text-sm">
-                      {MORE_NUTRIENT_META[key].unit}
-                    </span>
-                  </div>
-                </Field>
-              ))}
-            </div>
-          );
-        }}
-      />
-    </details>
-  );
-}
 
 /**
  * Slice 13: manual nutrition entry (PRODUCT_SPEC.md §54.1/§54.2) plus FDC
@@ -192,7 +94,10 @@ export function NutritionFields({
         </div>
       </div>
       {!collapsed && (
-        <div className="border-border bg-card flex flex-col gap-4 rounded-xl border p-4">
+        <div
+          data-testid="nutrition-fields"
+          className="border-border bg-card flex flex-col gap-4 rounded-xl border p-4"
+        >
           {sourceProvider && (
             <p className="text-muted-foreground flex items-start gap-2 text-xs">
               <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
@@ -318,7 +223,7 @@ export function NutritionFields({
             )}
           </div>
 
-          <MoreNutrientsFields />
+          <MoreNutrientsFields name="moreNutrients" idPrefix="dish" />
         </div>
       )}
     </div>

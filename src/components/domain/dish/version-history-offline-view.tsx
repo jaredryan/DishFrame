@@ -1,5 +1,6 @@
 "use client";
 
+import * as React from "react";
 import Link from "next/link";
 import { ChefHat } from "lucide-react";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
@@ -14,7 +15,11 @@ import {
   DishMetaChips,
   DishDescriptionNote,
 } from "@/components/domain/dish/dish-read-only-presentation";
-import { NutritionSummary } from "@/components/domain/dish/nutrition-summary";
+import {
+  EffectiveNutritionSummary,
+  type EffectiveNutritionDisplayData,
+} from "@/components/domain/dish/nutrition-summary";
+import { computeReplicatedVersionEffectiveNutrition } from "@/lib/dishes/offline-nutrition";
 import { PromoteVersionButton } from "@/components/domain/dish/promote-version-button";
 import { VersionPicker } from "@/components/domain/dish/version-picker";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
@@ -22,6 +27,60 @@ import { formatIngredientLine } from "@/lib/dishes/format";
 import { versionLabel as formatVersionLabel } from "@/lib/dishes/version-note";
 import type { DishKindValue, StageValue } from "@/lib/dishes/schema";
 import type { ReplicatedVersion } from "@/lib/dishes/version-history-snapshot";
+
+/**
+ * Composable nutrition (owner decision, 2026-09-17): the replicated
+ * `ReplicatedVersion` carries raw ingredient/Section nutrition, not a
+ * precomputed total (see that file's own doc comment) — this Version's
+ * effective nutrition is computed client-side, reusing the exact same
+ * `calculate.ts` logic every other adapter uses
+ * (`src/lib/dishes/offline-nutrition.ts`), resolving nested Parts from the
+ * replica when they're available there.
+ */
+function useReplicatedVersionNutrition(
+  version: ReplicatedVersion | undefined,
+): EffectiveNutritionDisplayData | null {
+  const [nutrition, setNutrition] =
+    React.useState<EffectiveNutritionDisplayData | null>(null);
+  const [loadedVersionId, setLoadedVersionId] = React.useState(version?.id);
+  if (version?.id !== loadedVersionId) {
+    setLoadedVersionId(version?.id);
+    setNutrition(null);
+  }
+
+  React.useEffect(() => {
+    let cancelled = false;
+    if (!version) return;
+    void (async () => {
+      const effective =
+        await computeReplicatedVersionEffectiveNutrition(version);
+      if (cancelled) return;
+      setNutrition({
+        ...effective,
+        basis:
+          effective.state === "OVERRIDE"
+            ? {
+                nutritionBasis: version.nutritionBasis,
+                nutritionBasisQuantity: version.nutritionBasisQuantity,
+                nutritionBasisUnit: version.nutritionBasisUnit,
+              }
+            : null,
+        source:
+          effective.state === "OVERRIDE" && version.nutritionSourceProvider
+            ? {
+                provider: version.nutritionSourceProvider,
+                name: version.nutritionSourceName,
+              }
+            : null,
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [version]);
+
+  return nutrition;
+}
 
 /**
  * Offline rendering of one Version's read-only content, from the
@@ -55,6 +114,7 @@ export function VersionHistoryOfflineView({
   const version = versions.find((v) => v.id === activeVersionId);
   const basePath = dishBasePath(kind);
   const collectionLabel = kind === "PART" ? "Parts" : "Recipes";
+  const nutrition = useReplicatedVersionNutrition(version);
 
   if (!version) {
     return (
@@ -68,7 +128,6 @@ export function VersionHistoryOfflineView({
 
   const isCurrent = version.id === currentVersionId;
   const label = formatVersionLabel(version.majorVersion, version.minorVersion);
-  const nutrition = version.nutrition;
   const hasOmittedPartLinks =
     version.topLevelPartLinks.length > 0 ||
     version.sections.some((s) => s.partLinks.length > 0);
@@ -121,7 +180,7 @@ export function VersionHistoryOfflineView({
             description={version.description}
             versionNote={version.versionNote}
           />
-          <NutritionSummary nutrition={nutrition} />
+          {nutrition && <EffectiveNutritionSummary nutrition={nutrition} />}
           <div className="flex flex-wrap items-center gap-2">
             <Button asChild>
               <Link href={`${basePath}/${dishId}/cook?versionId=${version.id}`}>

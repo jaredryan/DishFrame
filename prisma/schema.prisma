@@ -198,6 +198,14 @@ model DishVersion {
   cookTimeMinutes Int?
   difficulty      String?
 
+  // Composable nutrition (owner decision, 2026-09-17, PRODUCT_SPEC.md
+  // §54.5): unchanged storage, reinterpreted meaning — these five fields
+  // (plus basis/source below) are now the whole-Dish manual OVERRIDE rather
+  // than the only nutrition value. When any is set, it REPLACES the
+  // calculated Section/ingredient sum (src/lib/nutrition/calculate.ts). Any
+  // pre-existing populated row already IS a correct override under this
+  // meaning — no data migration was needed, only new Ingredient/Section
+  // columns (see the migration note on those models).
   calories                Decimal?        @db.Decimal(10, 2)
   protein                 Decimal?        @db.Decimal(10, 2)
   carbs                   Decimal?        @db.Decimal(10, 2)
@@ -284,6 +292,21 @@ model Section {
   // `position` stays scoped to their owning Section, as before.
   position      Int
 
+  // Composable nutrition (owner decision, 2026-09-17, PRODUCT_SPEC.md
+  // §54.5): an optional manual override for this Section — when any field
+  // here is set, it REPLACES the Section's calculated ingredient/nested-Part
+  // sum rather than adding to it (src/lib/nutrition/calculate.ts). No
+  // separate "override enabled" flag — presence of any value here is the
+  // activation signal, mirroring how DishVersion's own nutrition fields
+  // already work below. No basis/source fields — a Section has no yield of
+  // its own, so these always represent a straight total, and there is no
+  // Tier 2 lookup at this level in this pass.
+  calories      Decimal? @db.Decimal(10, 2)
+  protein       Decimal? @db.Decimal(10, 2)
+  carbs         Decimal? @db.Decimal(10, 2)
+  fat           Decimal? @db.Decimal(10, 2)
+  moreNutrients Json?
+
   dishVersion  DishVersion   @relation(fields: [dishVersionId], references: [id], onDelete: Cascade)
   ingredients  Ingredient[]
   instructions Instruction[]
@@ -320,6 +343,21 @@ model Ingredient {
   isOptional           Boolean  @default(false)
   originalImportedText String?
   position             Int
+
+  // Composable nutrition (owner decision, 2026-09-17, PRODUCT_SPEC.md
+  // §54.5): represents the nutrition CONTRIBUTION of the amount of this
+  // ingredient actually used in this Dish (e.g. "6 oz chicken breast" →
+  // nutrition for those 6 oz) — never a per-100g/normalized basis. Optional;
+  // a null set here means "no nutrition data for this ingredient," which
+  // src/lib/nutrition/calculate.ts treats as missing (making any total it
+  // contributes to Partial) rather than zero. Never populated by automatic
+  // ingredient matching/an external database in this pass — manual entry
+  // only, same restriction as Tier 1 whole-Dish nutrition.
+  calories              Decimal? @db.Decimal(10, 2)
+  protein               Decimal? @db.Decimal(10, 2)
+  carbs                 Decimal? @db.Decimal(10, 2)
+  fat                   Decimal? @db.Decimal(10, 2)
+  moreNutrients         Json?
 
   substituteForIngredientId String?     @unique
   substituteFor             Ingredient? @relation("Substitutes", fields: [substituteForIngredientId], references: [id])

@@ -8,6 +8,8 @@ import {
   type VersionComparisonResult,
 } from "@/lib/dishes/compare";
 import { versionLabel as formatVersionLabel } from "@/lib/dishes/version-note";
+import { computeReplicatedVersionEffectiveNutrition } from "@/lib/dishes/offline-nutrition";
+import type { EffectiveNutrition } from "@/lib/nutrition/calculate";
 import type { DishSnapshotDoc } from "@/lib/offline-sync/dishes";
 import type { ReplicatedVersion } from "@/lib/dishes/version-history-snapshot";
 import type { PartLinkLabelMap } from "@/components/domain/dish/version-compare-view";
@@ -29,7 +31,10 @@ import type { PartLinkLabelMap } from "@/components/domain/dish/version-compare-
  * necessarily the exact historical Version's own label if that Part has
  * since been edited again.
  */
-function toCompareInput(version: ReplicatedVersion): VersionCompareInput {
+function toCompareInput(
+  version: ReplicatedVersion,
+  nutrition: EffectiveNutrition,
+): VersionCompareInput {
   return {
     metadata: {
       description: version.description,
@@ -39,12 +44,12 @@ function toCompareInput(version: ReplicatedVersion): VersionCompareInput {
       cookTimeMinutes: version.cookTimeMinutes,
       difficulty: version.difficulty,
     },
-    nutrition: {
-      calories: version.nutrition.calories,
-      protein: version.nutrition.protein,
-      carbs: version.nutrition.carbs,
-      fat: version.nutrition.fat,
-    },
+    // Composable nutrition (owner decision, 2026-09-17): computed by the
+    // caller via `computeReplicatedVersionEffectiveNutrition` — the same
+    // centralized `calculate.ts` logic every other adapter uses, against
+    // this replicated Version's own raw ingredient/Section data and
+    // whichever nested Part Versions its own PartLinks pin.
+    nutrition,
     sections: version.sections.map((section) => ({
       lineageId: section.lineageId,
       name: section.name,
@@ -187,9 +192,13 @@ export async function compareVersionsOffline(
   const toVersion = versions.find((v) => v.id === toId);
   if (!fromVersion || !toVersion) return null;
 
+  const [fromNutrition, toNutrition] = await Promise.all([
+    computeReplicatedVersionEffectiveNutrition(fromVersion),
+    computeReplicatedVersionEffectiveNutrition(toVersion),
+  ]);
   const result = compareDishVersions(
-    toCompareInput(fromVersion),
-    toCompareInput(toVersion),
+    toCompareInput(fromVersion, fromNutrition),
+    toCompareInput(toVersion, toNutrition),
   );
   const partLinkLabels = await resolvePartLinkLabelsOffline(result);
 

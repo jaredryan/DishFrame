@@ -229,7 +229,12 @@ describe("offline/sync-engine bootstrap", () => {
       id: "dish-deleted",
       doc: { title: "Gone" },
       serverRevision: "2025-01-01T00:00:00.000Z",
-      localUpdatedAt: new Date().toISOString(),
+      // A fixed past timestamp, not `new Date()` — `runBootstrapSync`
+      // captures its own "now" immediately before this runs, and the two
+      // real-clock reads can land in the same millisecond, which trips
+      // `pruneEntitiesNotIn`'s intentionally-conservative `>=` in-flight-
+      // mutation guard and wrongly protects this entity from pruning.
+      localUpdatedAt: "2025-01-01T00:00:00.000Z",
       dirty: false,
       conflict: null,
     });

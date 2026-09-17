@@ -16,6 +16,8 @@ import type {
   FdcSearchResultItem,
   FdcNutritionDetail,
 } from "@/lib/nutrition/fdc-client";
+import { resolveDishVersionEffectiveNutrition } from "@/lib/nutrition/resolve";
+import type { EffectiveNutrition } from "@/lib/nutrition/calculate";
 
 /**
  * BUILD_PLAN.md Slice 13: proxies FDC search/detail lookups server-side
@@ -106,5 +108,35 @@ export async function applyFdcResult(values: {
     return { status: "success", nutrition };
   } catch (error) {
     return { status: "error", message: mapFdcError(error) };
+  }
+}
+
+export type PartLinkEffectiveNutritionActionState =
+  | { status: "success"; nutrition: EffectiveNutrition }
+  | { status: "error"; message: string };
+
+/**
+ * Composable nutrition (owner decision, 2026-09-17, PRODUCT_SPEC.md §54.5):
+ * the editor's live Section/whole-Dish nutrition preview needs each linked
+ * Part occurrence's own effective nutrition (its override, or its
+ * calculated sum) to fold into a client-side calculation alongside local,
+ * in-progress ingredient/Section data — mirrors
+ * `sections/actions.ts`'s `getPartLinkPreview` (same "editor needs a linked
+ * Part's resolved data on demand" shape), scoped to nutrition only.
+ */
+export async function getPartLinkEffectiveNutrition(values: {
+  targetDishId: string;
+  targetDishVersionId: string;
+}): Promise<PartLinkEffectiveNutritionActionState> {
+  try {
+    const userId = await requireUserId();
+    const nutrition = await resolveDishVersionEffectiveNutrition(
+      userId,
+      values.targetDishId,
+      values.targetDishVersionId,
+    );
+    return { status: "success", nutrition };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
   }
 }

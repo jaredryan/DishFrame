@@ -60,6 +60,11 @@ export async function buildRecipeFixtures(
       section({
         position: 0,
         name: "Salad",
+        // Composable nutrition (owner decision, 2026-09-17, PRODUCT_SPEC.md
+        // §54.5): ingredient-level nutrition on 2 of 3 ingredients — the
+        // Cucumber (optional) is deliberately left without nutrition, so
+        // this Section's own calculated total is a real "Partial" example,
+        // not just "Calculated."
         ingredients: [
           {
             name: "Mixed greens",
@@ -67,6 +72,7 @@ export async function buildRecipeFixtures(
             unit: "cups",
             isApproximate: false,
             isOptional: false,
+            nutrition: { calories: 20, protein: 2, carbs: 4, fat: 0 },
           },
           {
             name: "Cherry tomatoes",
@@ -74,6 +80,7 @@ export async function buildRecipeFixtures(
             unit: "cup",
             isApproximate: false,
             isOptional: false,
+            nutrition: { calories: 27, protein: 1, carbs: 6, fat: 0 },
           },
           {
             name: "Cucumber",
@@ -90,6 +97,13 @@ export async function buildRecipeFixtures(
       section({
         position: 1,
         name: "Dressing",
+        // Composable nutrition: a Section-level manual override — replaces
+        // this Section's calculated Olive-oil/vinegar sum outright, the
+        // other half of this Recipe's mixed-state demo (Salad above is
+        // calculated/Partial; Dressing here is Manual override) so the
+        // whole Recipe ends up Partial overall (an override doesn't make
+        // an otherwise-incomplete sibling Section complete).
+        nutritionOverride: { calories: 120, protein: 0, carbs: 1, fat: 14 },
         ingredients: [
           {
             name: "Olive oil",

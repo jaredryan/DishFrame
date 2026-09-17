@@ -1,53 +1,54 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import {
-  NutritionSummary,
-  toNutritionSummaryData,
-  type NutritionSummaryData,
+  EffectiveNutritionSummary,
+  type EffectiveNutritionDisplayData,
 } from "@/components/domain/dish/nutrition-summary";
-import { Prisma } from "@/generated/prisma/client";
+import { NONE_NUTRITION } from "@/lib/nutrition/calculate";
+import type { NutritionState } from "@/lib/nutrition/calculate";
 
 /**
- * Slice 13 correction pass, PRODUCT_SPEC.md §54: the shared read-only
- * nutrition presentation used by both the current-Version detail page and
- * both historical Version pages.
+ * Composable nutrition (owner decision, 2026-09-17, PRODUCT_SPEC.md §54.5):
+ * the shared calculated/partial/override-aware nutrition presentation used
+ * by every surface (editor summaries, detail, print, public share, Version
+ * History/compare, and offline equivalents).
  */
 
 function nutrition(
-  overrides: Partial<NutritionSummaryData> = {},
-): NutritionSummaryData {
+  state: NutritionState,
+  overrides: Partial<EffectiveNutritionDisplayData["totals"]> = {},
+  rest: Partial<Omit<EffectiveNutritionDisplayData, "totals" | "state">> = {},
+): EffectiveNutritionDisplayData {
   return {
-    calories: null,
-    protein: null,
-    carbs: null,
-    fat: null,
-    nutritionBasis: null,
-    nutritionBasisQuantity: null,
-    nutritionBasisUnit: null,
-    moreNutrients: null,
-    nutritionSourceProvider: null,
-    nutritionSourceName: null,
-    ...overrides,
+    state,
+    totals: {
+      calories: null,
+      protein: null,
+      carbs: null,
+      fat: null,
+      moreNutrients: null,
+      ...overrides,
+    },
+    ...rest,
   };
 }
 
-describe("NutritionSummary", () => {
-  it("renders nothing when there is no nutrition data at all", () => {
-    const { container } = render(<NutritionSummary nutrition={nutrition()} />);
+describe("EffectiveNutritionSummary", () => {
+  it("renders nothing when the state is NONE", () => {
+    const { container } = render(
+      <EffectiveNutritionSummary nutrition={NONE_NUTRITION} />,
+    );
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("shows primary nutrients and basis when present", () => {
+  it("shows primary nutrients and a Calculated badge for COMPLETE", () => {
     render(
-      <NutritionSummary
-        nutrition={nutrition({
+      <EffectiveNutritionSummary
+        nutrition={nutrition("COMPLETE", {
           calories: 320,
           protein: 12,
           carbs: 40,
           fat: 8,
-          nutritionBasis: "PER_OUTPUT_UNIT",
-          nutritionBasisQuantity: 1,
-          nutritionBasisUnit: "serving",
         })}
       />,
     );
@@ -56,18 +57,57 @@ describe("NutritionSummary", () => {
     expect(screen.getByText("12g protein")).toBeInTheDocument();
     expect(screen.getByText("40g carbs")).toBeInTheDocument();
     expect(screen.getByText("8g fat")).toBeInTheDocument();
+    expect(screen.getByText("Calculated")).toBeInTheDocument();
+  });
+
+  it("shows a Partial badge and explanatory note for PARTIAL", () => {
+    render(
+      <EffectiveNutritionSummary
+        nutrition={nutrition("PARTIAL", { calories: 100 })}
+      />,
+    );
+    expect(screen.getByText("Partial")).toBeInTheDocument();
+    expect(
+      screen.getByText(/some contributing ingredients/),
+    ).toBeInTheDocument();
+  });
+
+  it("shows a Manual override badge, basis, and source for OVERRIDE", () => {
+    render(
+      <EffectiveNutritionSummary
+        nutrition={nutrition(
+          "OVERRIDE",
+          { calories: 300 },
+          {
+            basis: {
+              nutritionBasis: "PER_OUTPUT_UNIT",
+              nutritionBasisQuantity: 1,
+              nutritionBasisUnit: "serving",
+            },
+            source: { provider: "USDA_FDC", name: "Rice, white, cooked" },
+          },
+        )}
+      />,
+    );
+    expect(screen.getByText("Manual override")).toBeInTheDocument();
     expect(screen.getByText("Per 1 serving")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Sourced from USDA FoodData Central/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Rice, white, cooked/)).toBeInTheDocument();
   });
 
   it("shows More nutrients only when present", () => {
     const { rerender } = render(
-      <NutritionSummary nutrition={nutrition({ calories: 100 })} />,
+      <EffectiveNutritionSummary
+        nutrition={nutrition("COMPLETE", { calories: 100 })}
+      />,
     );
     expect(screen.queryByText("More nutrients")).not.toBeInTheDocument();
 
     rerender(
-      <NutritionSummary
-        nutrition={nutrition({
+      <EffectiveNutritionSummary
+        nutrition={nutrition("COMPLETE", {
           calories: 100,
           moreNutrients: [
             { key: "fiber", label: "Fiber", value: 3, unit: "g" },
@@ -79,69 +119,13 @@ describe("NutritionSummary", () => {
     expect(screen.getByText("Fiber 3g")).toBeInTheDocument();
   });
 
-  it("shows the USDA disclaimer only when sourced attribution exists", () => {
-    const { rerender } = render(
-      <NutritionSummary nutrition={nutrition({ calories: 100 })} />,
-    );
-    expect(screen.queryByText(/may contain errors/)).not.toBeInTheDocument();
-
-    rerender(
-      <NutritionSummary
-        nutrition={nutrition({
-          calories: 100,
-          nutritionSourceProvider: "USDA_FDC",
-          nutritionSourceName: "Rice, white, cooked",
-        })}
+  it("supports a custom title for a Section-level summary", () => {
+    render(
+      <EffectiveNutritionSummary
+        nutrition={nutrition("COMPLETE", { calories: 50 })}
+        title="Section nutrition"
       />,
     );
-    expect(
-      screen.getByText(/Sourced from USDA FoodData Central/),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/Rice, white, cooked/)).toBeInTheDocument();
-    expect(
-      screen.getByText(/may contain errors or change over time/),
-    ).toBeInTheDocument();
-  });
-});
-
-describe("toNutritionSummaryData", () => {
-  it("converts Decimal/Json version columns into plain display data", () => {
-    const data = toNutritionSummaryData({
-      calories: new Prisma.Decimal(320),
-      protein: new Prisma.Decimal(12),
-      carbs: null,
-      fat: null,
-      nutritionBasis: "WHOLE",
-      nutritionBasisQuantity: null,
-      nutritionBasisUnit: null,
-      moreNutrients: [{ key: "fiber", label: "Fiber", value: 3, unit: "g" }],
-      nutritionSourceProvider: "USDA_FDC",
-      nutritionSourceName: "Test food",
-    });
-
-    expect(data.calories).toBe(320);
-    expect(data.protein).toBe(12);
-    expect(data.nutritionBasis).toBe("WHOLE");
-    expect(data.moreNutrients).toEqual([
-      { key: "fiber", label: "Fiber", value: 3, unit: "g" },
-    ]);
-    expect(data.nutritionSourceProvider).toBe("USDA_FDC");
-  });
-
-  it("treats a malformed moreNutrients value as no data rather than throwing", () => {
-    const data = toNutritionSummaryData({
-      calories: null,
-      protein: null,
-      carbs: null,
-      fat: null,
-      nutritionBasis: null,
-      nutritionBasisQuantity: null,
-      nutritionBasisUnit: null,
-      moreNutrients: "not an array" as never,
-      nutritionSourceProvider: null,
-      nutritionSourceName: null,
-    });
-
-    expect(data.moreNutrients).toBeNull();
+    expect(screen.getByText("Section nutrition")).toBeInTheDocument();
   });
 });

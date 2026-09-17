@@ -5,6 +5,7 @@ import * as dishService from "@/lib/dishes/service";
 import { ValidationError } from "@/lib/errors";
 import { decimalToNumber } from "@/lib/dishes/format";
 import { getDishScopedVersionContentOrThrow } from "@/lib/dishes/queries";
+import { resolveDishVersionEffectiveNutrition } from "@/lib/nutrition/resolve";
 import type { DishContentInput } from "@/lib/dishes/schema";
 
 /**
@@ -653,6 +654,511 @@ describe("nutrition", () => {
       expect(updated.currentVersion!.majorVersion).toBe(2);
       expect(decimalToNumber(updated.currentVersion!.calories)).toBe(275);
       expect(decimalToNumber(updated.currentVersion!.protein)).toBe(9);
+    });
+  });
+
+  describe("composable nutrition (ingredient/Section, owner decision 2026-09-17)", () => {
+    it("calculates a Recipe's effective nutrition bottom-up from ingredient contributions", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+
+      const dishId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                {
+                  name: "Chicken breast",
+                  quantity: 6,
+                  quantityEnd: null,
+                  isApproximate: false,
+                  unit: "oz",
+                  displayText: null,
+                  preparationNote: null,
+                  isOptional: false,
+                  substitute: null,
+                  nutrition: { calories: 280, protein: 53, carbs: 0, fat: 6 },
+                },
+                {
+                  name: "Rice",
+                  quantity: 1,
+                  quantityEnd: null,
+                  isApproximate: false,
+                  unit: "cup",
+                  displayText: null,
+                  preparationNote: null,
+                  isOptional: false,
+                  substitute: null,
+                  nutrition: { calories: 200, protein: 4, carbs: 45, fat: 0 },
+                },
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      const dish = await loadDishWithVersion(dishId);
+
+      const effective = await resolveDishVersionEffectiveNutrition(
+        userId,
+        dishId,
+        dish.currentVersionId!,
+      );
+
+      expect(effective.state).toBe("COMPLETE");
+      expect(effective.totals.calories).toBe(480);
+      expect(effective.totals.protein).toBe(57);
+      expect(effective.totals.carbs).toBe(45);
+      expect(effective.totals.fat).toBe(6);
+    });
+
+    it("flags a calculated total as Partial when some ingredients have no nutrition data", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+
+      const dishId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                {
+                  name: "Chicken breast",
+                  quantity: 6,
+                  quantityEnd: null,
+                  isApproximate: false,
+                  unit: "oz",
+                  displayText: null,
+                  preparationNote: null,
+                  isOptional: false,
+                  substitute: null,
+                  nutrition: { calories: 280, protein: 53, carbs: 0, fat: 6 },
+                },
+                {
+                  name: "Salt to taste",
+                  quantity: null,
+                  quantityEnd: null,
+                  isApproximate: false,
+                  unit: null,
+                  displayText: "Salt to taste",
+                  preparationNote: null,
+                  isOptional: false,
+                  substitute: null,
+                },
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      const dish = await loadDishWithVersion(dishId);
+
+      const effective = await resolveDishVersionEffectiveNutrition(
+        userId,
+        dishId,
+        dish.currentVersionId!,
+      );
+
+      expect(effective.state).toBe("PARTIAL");
+      expect(effective.totals.calories).toBe(280);
+    });
+
+    it("a Section override replaces its calculated ingredient sum without creating a new Version", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+
+      const dishId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({
+          sections: [
+            {
+              name: "Sauce",
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                {
+                  name: "Soy sauce",
+                  quantity: 2,
+                  quantityEnd: null,
+                  isApproximate: false,
+                  unit: "tbsp",
+                  displayText: null,
+                  preparationNote: null,
+                  isOptional: false,
+                  substitute: null,
+                  nutrition: { calories: 20, protein: 2, carbs: 2, fat: 0 },
+                },
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      const dish = await loadDishWithVersion(dishId);
+      const baseVersionId = dish.currentVersionId!;
+      const before = await getDishScopedVersionContentOrThrow(
+        dishId,
+        baseVersionId,
+      );
+      const section = before.sections[0];
+      const ingredient = section.ingredients[0];
+
+      await dishService.editDish(
+        userId,
+        dishId,
+        baseVersionId,
+        content({
+          sections: [
+            {
+              lineageId: section.lineageId,
+              name: "Sauce",
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                {
+                  lineageId: ingredient.lineageId,
+                  name: "Soy sauce",
+                  quantity: 2,
+                  quantityEnd: null,
+                  isApproximate: false,
+                  unit: "tbsp",
+                  displayText: null,
+                  preparationNote: null,
+                  isOptional: false,
+                  substitute: null,
+                  nutrition: { calories: 20, protein: 2, carbs: 2, fat: 0 },
+                },
+              ],
+              instructions: [],
+              partLinks: [],
+              nutritionOverride: {
+                calories: 999,
+                protein: null,
+                carbs: null,
+                fat: null,
+              },
+            },
+          ],
+        }),
+        undefined,
+      );
+
+      const versionsAfterOverride = await prisma.dishVersion.findMany({
+        where: { dishId },
+      });
+      // Nutrition-only edits are Version-scoped metadata (like whole-Dish
+      // nutrition) — never a reason to create a new Version.
+      expect(versionsAfterOverride).toHaveLength(1);
+
+      const overriddenEffective = await resolveDishVersionEffectiveNutrition(
+        userId,
+        dishId,
+        baseVersionId,
+      );
+      // The Section itself is OVERRIDE, but the Dish has no override of its
+      // own — aggregating one fully-known Section is COMPLETE, not OVERRIDE
+      // (see calculate.test.ts "override completeness": OVERRIDE only
+      // applies at the level holding the active override).
+      expect(overriddenEffective.state).toBe("COMPLETE");
+      expect(overriddenEffective.totals.calories).toBe(999);
+
+      // Removing the override restores the calculated ingredient sum.
+      await dishService.editDish(
+        userId,
+        dishId,
+        baseVersionId,
+        content({
+          sections: [
+            {
+              lineageId: section.lineageId,
+              name: "Sauce",
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                {
+                  lineageId: ingredient.lineageId,
+                  name: "Soy sauce",
+                  quantity: 2,
+                  quantityEnd: null,
+                  isApproximate: false,
+                  unit: "tbsp",
+                  displayText: null,
+                  preparationNote: null,
+                  isOptional: false,
+                  substitute: null,
+                  nutrition: { calories: 20, protein: 2, carbs: 2, fat: 0 },
+                },
+              ],
+              instructions: [],
+              partLinks: [],
+              nutritionOverride: null,
+            },
+          ],
+        }),
+        undefined,
+      );
+
+      const restoredEffective = await resolveDishVersionEffectiveNutrition(
+        userId,
+        dishId,
+        baseVersionId,
+      );
+      expect(restoredEffective.state).toBe("COMPLETE");
+      expect(restoredEffective.totals.calories).toBe(20);
+    });
+
+    it("composes a nested Part's effective nutrition as one scaled contribution, without double-counting its ingredients", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+
+      const partId = await dishService.createDish(
+        userId,
+        "PART",
+        content({
+          title: "Garlic paste",
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                {
+                  name: "Garlic",
+                  quantity: 3,
+                  quantityEnd: null,
+                  isApproximate: false,
+                  unit: "cloves",
+                  displayText: null,
+                  preparationNote: null,
+                  isOptional: false,
+                  substitute: null,
+                  nutrition: { calories: 15, protein: 1, carbs: 3, fat: 0 },
+                },
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      const part = await loadDishWithVersion(partId);
+
+      const recipeId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                {
+                  name: "Chicken breast",
+                  quantity: 6,
+                  quantityEnd: null,
+                  isApproximate: false,
+                  unit: "oz",
+                  displayText: null,
+                  preparationNote: null,
+                  isOptional: false,
+                  substitute: null,
+                  nutrition: { calories: 280, protein: 53, carbs: 0, fat: 6 },
+                },
+              ],
+              instructions: [],
+              partLinks: [
+                {
+                  targetDishId: partId,
+                  targetDishVersionId: part.currentVersionId!,
+                  position: 0,
+                  multiplier: 2,
+                },
+              ],
+            },
+          ],
+        }),
+      );
+      const recipe = await loadDishWithVersion(recipeId);
+
+      const effective = await resolveDishVersionEffectiveNutrition(
+        userId,
+        recipeId,
+        recipe.currentVersionId!,
+      );
+
+      // 280 (chicken) + 2x (15 calories from the Part, at multiplier 2) = 310
+      expect(effective.state).toBe("COMPLETE");
+      expect(effective.totals.calories).toBe(310);
+      expect(effective.totals.protein).toBe(55);
+    });
+
+    it("resolves a legacy whole-Dish-only nutrition Version (no ingredient nutrition) as an override — backward compatible, no data migration needed", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+
+      // Mirrors a pre-composable-nutrition Recipe: only DishVersion-level
+      // nutrition set, no ingredient-level data at all.
+      const dishId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({ calories: 300, protein: 10, carbs: 40, fat: 8 }),
+      );
+      const dish = await loadDishWithVersion(dishId);
+
+      const effective = await resolveDishVersionEffectiveNutrition(
+        userId,
+        dishId,
+        dish.currentVersionId!,
+      );
+
+      expect(effective.state).toBe("OVERRIDE");
+      expect(effective.totals.calories).toBe(300);
+      expect(effective.totals.protein).toBe(10);
+      expect(effective.totals.carbs).toBe(40);
+      expect(effective.totals.fat).toBe(8);
+    });
+
+    it("resolves a nested Part's nutrition from the exact Version the parent's PartLink pins, not the Part's current Version", async () => {
+      const user = await createTestUser();
+      userId = user.id;
+
+      const partId = await dishService.createDish(
+        userId,
+        "PART",
+        content({
+          title: "Garlic paste",
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [
+                {
+                  name: "Garlic",
+                  quantity: 3,
+                  quantityEnd: null,
+                  isApproximate: false,
+                  unit: "cloves",
+                  displayText: null,
+                  preparationNote: null,
+                  isOptional: false,
+                  substitute: null,
+                  nutrition: { calories: 15, protein: 1, carbs: 3, fat: 0 },
+                },
+              ],
+              instructions: [],
+              partLinks: [],
+            },
+          ],
+        }),
+      );
+      const part = await loadDishWithVersion(partId);
+      const pinnedPartVersionId = part.currentVersionId!;
+
+      const recipeId = await dishService.createDish(
+        userId,
+        "RECIPE",
+        content({
+          sections: [
+            {
+              name: null,
+              guidanceNote: null,
+              position: 0,
+              ingredients: [],
+              instructions: [],
+              partLinks: [
+                {
+                  targetDishId: partId,
+                  targetDishVersionId: pinnedPartVersionId,
+                  position: 0,
+                  multiplier: 1,
+                },
+              ],
+            },
+          ],
+        }),
+      );
+      const recipe = await loadDishWithVersion(recipeId);
+      const recipeVersionId = recipe.currentVersionId!;
+
+      const before = await resolveDishVersionEffectiveNutrition(
+        userId,
+        recipeId,
+        recipeVersionId,
+      );
+      expect(before.totals.calories).toBe(15);
+
+      // Give the Part a genuinely new, materially different current
+      // Version — a real cooking change, requiring a MAJOR bump — without
+      // ever touching the parent Recipe or its PartLink.
+      const partUnchanged = await unchangedContentFor(
+        partId,
+        pinnedPartVersionId,
+      );
+      await dishService.editDish(
+        userId,
+        partId,
+        pinnedPartVersionId,
+        content({
+          title: "Garlic paste",
+          sections: [
+            {
+              ...partUnchanged.sections[0],
+              ingredients: [
+                {
+                  name: "Roasted garlic",
+                  quantity: 5,
+                  quantityEnd: null,
+                  isApproximate: false,
+                  unit: "cloves",
+                  displayText: null,
+                  preparationNote: null,
+                  isOptional: false,
+                  substitute: null,
+                  nutrition: { calories: 900, protein: 40, carbs: 90, fat: 0 },
+                },
+              ],
+            },
+          ],
+        }),
+        "MAJOR",
+      );
+      const updatedPart = await loadDishWithVersion(partId);
+      expect(updatedPart.currentVersionId).not.toBe(pinnedPartVersionId);
+
+      // The parent Recipe's own Version — and its PartLink — never changed,
+      // so its effective nutrition must be exactly what it was before,
+      // never the Part's new current-Version nutrition (900 calories).
+      const after = await resolveDishVersionEffectiveNutrition(
+        userId,
+        recipeId,
+        recipeVersionId,
+      );
+      expect(after.totals.calories).toBe(15);
+
+      // Resolving the Part's own *current* Version directly, by contrast,
+      // does see the new content — confirming the difference is genuinely
+      // about which Version the parent pinned, not a stale cache.
+      const currentPartEffective = await resolveDishVersionEffectiveNutrition(
+        userId,
+        partId,
+        updatedPart.currentVersionId!,
+      );
+      expect(currentPartEffective.totals.calories).toBe(900);
     });
   });
 });

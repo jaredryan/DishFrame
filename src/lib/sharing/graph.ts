@@ -2,14 +2,26 @@ import "server-only";
 import { prisma } from "@/lib/db/prisma";
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import { decimalToNumber } from "@/lib/dishes/format";
-import { toIngredientInput } from "@/lib/dishes/mappers";
+import {
+  toIngredientInput,
+  nutritionValuesFromRow,
+} from "@/lib/dishes/mappers";
 import { sectionContentInclude } from "@/lib/dishes/queries";
 import type {
   SectionInput,
   DishKindValue,
   VersionContentInput,
+  MoreNutrientEntry,
 } from "@/lib/dishes/schema";
 import type { $Enums, Prisma } from "@/generated/prisma/client";
+import {
+  computeSectionEffective,
+  computeDishEffective,
+  scaleEffectiveNutrition,
+  toRawNutritionValues,
+  NONE_NUTRITION,
+  type EffectiveNutrition,
+} from "@/lib/nutrition/calculate";
 
 /**
  * ARCHITECTURE_PROPOSAL.md §G.5's "fully resolved" access pattern, built for
@@ -297,6 +309,11 @@ export async function buildShareGraph(
         text: instruction.text,
       })),
       partLinks: bySectionId.get(section.id) ?? [],
+      // Composable nutrition (owner decision, 2026-09-17): a Section's own
+      // manual override, if any — needed so a share/print of this graph can
+      // compute effective nutrition (`computeShareGraphEffectiveNutrition`
+      // below) exactly like every other surface.
+      nutritionOverride: nutritionValuesFromRow(section),
     }));
 
     for (const ref of collectChildRefs(sections, topLevelPartLinks)) {
@@ -343,6 +360,127 @@ export async function buildShareGraph(
   await visit(rootDishId, rootVersionId, 0);
 
   return { nodes, order, rootVersionId };
+}
+
+function moreNutrientsFromGraphValue(
+  value: Prisma.JsonValue | null,
+): MoreNutrientEntry[] | null {
+  return Array.isArray(value)
+    ? (value as unknown as MoreNutrientEntry[])
+    : null;
+}
+
+/**
+ * Composable nutrition (owner decision, 2026-09-17, PRODUCT_SPEC.md §54.5):
+ * the same centralized calculation logic (`src/lib/nutrition/calculate.ts`)
+ * every other surface uses, adapted to `ShareGraph`'s already-fully-resolved
+ * in-memory tree instead of a live/replica lookup — `buildShareGraph`
+ * already walks every nested Part (LIVE or MATERIALIZED) exactly once, so
+ * this is a pure, synchronous post-order combine, not a second traversal.
+ * Powers both print (`resolveOwnerPrintContent`) and public share
+ * (`buildPublicShareContent`) — for a historical Version, `graph`'s root was
+ * built from *that* Version's own pinned Sections/Ingredients/PartLinks
+ * (§`buildShareGraph`'s own doc comment), so nested-Part contributions are
+ * automatically resolved from the Part Versions that historical snapshot
+ * actually pinned, never a linked Part's current content.
+ */
+export function computeShareGraphEffectiveNutrition(
+  graph: ShareGraph,
+  versionId: string,
+  visited: Set<string> = new Set(),
+  depth = 0,
+): EffectiveNutrition {
+  if (depth > MAX_SHARE_GRAPH_DEPTH || visited.has(versionId)) {
+    return NONE_NUTRITION;
+  }
+  const node = graph.nodes.get(versionId);
+  if (!node) return NONE_NUTRITION;
+
+  const nextVisited = new Set(visited);
+  nextVisited.add(versionId);
+
+  function resolveMaterialized(
+    content: VersionContentInput,
+    innerDepth: number,
+  ): EffectiveNutrition {
+    const sectionEffectives = content.sections.map((section) => {
+      const nested = section.partLinks.map((link) =>
+        scaleEffectiveNutrition(
+          computeShareGraphEffectiveNutrition(
+            graph,
+            link.targetDishVersionId,
+            nextVisited,
+            innerDepth + 1,
+          ),
+          link.multiplier,
+        ),
+      );
+      return computeSectionEffective(
+        toRawNutritionValues(section.nutritionOverride),
+        section.ingredients.map((ingredient) =>
+          toRawNutritionValues(ingredient.nutrition),
+        ),
+        nested,
+      );
+    });
+    const topLevelContributions = content.partLinks.map((link) =>
+      scaleEffectiveNutrition(
+        computeShareGraphEffectiveNutrition(
+          graph,
+          link.targetDishVersionId,
+          nextVisited,
+          innerDepth + 1,
+        ),
+        link.multiplier,
+      ),
+    );
+    // A MATERIALIZED snapshot has no whole-Dish-level override of its own
+    // (`resolveMaterializedSnapshot` only ever froze Sections/Ingredients/
+    // Instructions/nested-PartLinks) — always calculated from its content.
+    return computeDishEffective(null, sectionEffectives, topLevelContributions);
+  }
+
+  function resolveRef(ref: ShareGraphPartLinkRef): EffectiveNutrition {
+    if (ref.kind === "LIVE") {
+      return scaleEffectiveNutrition(
+        computeShareGraphEffectiveNutrition(
+          graph,
+          ref.targetDishVersionId,
+          nextVisited,
+          depth + 1,
+        ),
+        ref.multiplier,
+      );
+    }
+    return scaleEffectiveNutrition(
+      resolveMaterialized(ref.materializedContent, depth),
+      ref.multiplier,
+    );
+  }
+
+  const sectionEffectives = node.sections.map((section) => {
+    const nested = section.partLinks.map(resolveRef);
+    return computeSectionEffective(
+      toRawNutritionValues(section.nutritionOverride),
+      section.ingredients.map((ingredient) =>
+        toRawNutritionValues(ingredient.nutrition),
+      ),
+      nested,
+    );
+  });
+  const topLevelContributions = node.topLevelPartLinks.map(resolveRef);
+
+  return computeDishEffective(
+    toRawNutritionValues({
+      calories: node.calories,
+      protein: node.protein,
+      carbs: node.carbs,
+      fat: node.fat,
+      moreNutrients: moreNutrientsFromGraphValue(node.moreNutrients),
+    }),
+    sectionEffectives,
+    topLevelContributions,
+  );
 }
 
 /** Every distinct `ImageAsset` id reachable anywhere in the graph — used

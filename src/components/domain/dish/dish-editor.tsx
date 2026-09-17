@@ -61,6 +61,17 @@ import { Badge } from "@/components/ui/badge";
 import { SemanticChip } from "@/components/domain/dish/semantic-chip";
 import { NumberField } from "@/components/domain/dish/number-field";
 import { NutritionFields } from "@/components/domain/dish/nutrition-fields";
+import { EffectiveNutritionSummary } from "@/components/domain/dish/nutrition-summary";
+import {
+  usePartLinkEffectiveNutritionMap,
+  lookupPartLinkNutrition,
+} from "@/components/domain/dish/use-part-link-nutrition";
+import {
+  computeDishEffective,
+  computeSectionEffective,
+  scaleEffectiveNutrition,
+  toRawNutritionValues,
+} from "@/lib/nutrition/calculate";
 import { SectionFields } from "@/components/domain/dish/section-fields";
 import {
   SectionEditorDialog,
@@ -140,6 +151,7 @@ function blankSectionDraft(): SectionInput {
     instructions: [],
     partLinks: [],
     position: 0,
+    nutritionOverride: null,
   };
 }
 
@@ -346,6 +358,93 @@ export function DishEditor({
   // interleave).
   const watchedSections = useWatch({ control, name: "sections" });
   const watchedTopLevelPartLinks = useWatch({ control, name: "partLinks" });
+
+  // Composable nutrition (owner decision, 2026-09-17, PRODUCT_SPEC.md
+  // §54.5): a live calculated-or-override whole-Dish summary, powered by
+  // the same `calculate.ts` logic the server uses — every Section's own
+  // ingredients/nested-Part contributions, resolved bottom-up, exactly
+  // mirroring `resolveDishVersionEffectiveNutrition`'s DB-backed walk but
+  // fed from this in-progress form instead. `NutritionFields` below remains
+  // the one place that actually edits the whole-Dish override.
+  const [
+    watchedCalories,
+    watchedProtein,
+    watchedCarbs,
+    watchedFat,
+    watchedMoreNutrients,
+    watchedNutritionBasis,
+    watchedNutritionBasisQuantity,
+    watchedNutritionBasisUnit,
+    watchedNutritionSourceProvider,
+    watchedNutritionSourceName,
+  ] = useWatch({
+    control,
+    name: [
+      "calories",
+      "protein",
+      "carbs",
+      "fat",
+      "moreNutrients",
+      "nutritionBasis",
+      "nutritionBasisQuantity",
+      "nutritionBasisUnit",
+      "nutritionSourceProvider",
+      "nutritionSourceName",
+    ],
+  });
+
+  const allPartLinkRefs = React.useMemo(
+    () => [
+      ...(watchedSections ?? []).flatMap((section) => section.partLinks ?? []),
+      ...(watchedTopLevelPartLinks ?? []),
+    ],
+    [watchedSections, watchedTopLevelPartLinks],
+  );
+  const partLinkNutritionMap =
+    usePartLinkEffectiveNutritionMap(allPartLinkRefs);
+  const dishEffectiveNutrition = React.useMemo(() => {
+    const sectionEffectives = (watchedSections ?? []).map((section) => {
+      const nestedContributions = (section.partLinks ?? []).map((link) =>
+        scaleEffectiveNutrition(
+          lookupPartLinkNutrition(partLinkNutritionMap, link),
+          link.multiplier ?? 1,
+        ),
+      );
+      return computeSectionEffective(
+        toRawNutritionValues(section.nutritionOverride),
+        (section.ingredients ?? []).map((ingredient) =>
+          toRawNutritionValues(ingredient.nutrition),
+        ),
+        nestedContributions,
+      );
+    });
+    const topLevelContributions = (watchedTopLevelPartLinks ?? []).map((link) =>
+      scaleEffectiveNutrition(
+        lookupPartLinkNutrition(partLinkNutritionMap, link),
+        link.multiplier ?? 1,
+      ),
+    );
+    return computeDishEffective(
+      toRawNutritionValues({
+        calories: watchedCalories,
+        protein: watchedProtein,
+        carbs: watchedCarbs,
+        fat: watchedFat,
+        moreNutrients: watchedMoreNutrients,
+      }),
+      sectionEffectives,
+      topLevelContributions,
+    );
+  }, [
+    watchedSections,
+    watchedTopLevelPartLinks,
+    partLinkNutritionMap,
+    watchedCalories,
+    watchedProtein,
+    watchedCarbs,
+    watchedFat,
+    watchedMoreNutrients,
+  ]);
 
   // Slice 6A: "Default scale" is a live-computed preview, not a second
   // authored quantity/unit — the result text always derives from the
@@ -1100,6 +1199,28 @@ export function DishEditor({
             )}
           </div>
 
+          <EffectiveNutritionSummary
+            nutrition={{
+              ...dishEffectiveNutrition,
+              basis:
+                dishEffectiveNutrition.state === "OVERRIDE"
+                  ? {
+                      nutritionBasis: watchedNutritionBasis ?? null,
+                      nutritionBasisQuantity:
+                        watchedNutritionBasisQuantity ?? null,
+                      nutritionBasisUnit: watchedNutritionBasisUnit ?? null,
+                    }
+                  : null,
+              source:
+                dishEffectiveNutrition.state === "OVERRIDE" &&
+                watchedNutritionSourceProvider
+                  ? {
+                      provider: watchedNutritionSourceProvider,
+                      name: watchedNutritionSourceName ?? null,
+                    }
+                  : null,
+            }}
+          />
           <NutritionFields defaultCollapsed={!!dish} />
 
           <div className="flex flex-col gap-4">

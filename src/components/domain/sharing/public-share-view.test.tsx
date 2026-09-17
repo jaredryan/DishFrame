@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { PublicShareView } from "@/components/domain/sharing/public-share-view";
+import { NONE_NUTRITION } from "@/lib/nutrition/calculate";
 import type {
   PublicShareContent,
   PublicSection,
@@ -24,7 +25,7 @@ function baseContent(
     prepTimeMinutes: null,
     cookTimeMinutes: null,
     difficulty: null,
-    nutrition: null,
+    nutrition: NONE_NUTRITION,
     aggregateRating: null,
     ratingCount: null,
     sections: [],

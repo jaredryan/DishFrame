@@ -19,9 +19,14 @@ import { listTags } from "@/lib/tags/queries";
 import { listFlavorProfileValues } from "@/lib/flavor-profiles/queries";
 import { listCuisines } from "@/lib/cuisines/queries";
 import { prisma } from "@/lib/db/prisma";
-import { toNutritionSummaryData } from "@/components/domain/dish/nutrition-summary";
+import type { EffectiveNutritionDisplayData } from "@/components/domain/dish/nutrition-summary";
 import type { ScaledSectionRow } from "@/components/domain/dish/scaled-version-view";
-import type { DishKindValue } from "@/lib/dishes/schema";
+import type {
+  DishKindValue,
+  NutritionSourceProviderValue,
+} from "@/lib/dishes/schema";
+import { resolveDishVersionEffectiveNutrition } from "@/lib/nutrition/resolve";
+import { scaleEffectiveNutrition } from "@/lib/nutrition/calculate";
 
 type DishDetail = Prisma.DishGetPayload<{ include: typeof dishDetailInclude }>;
 export type VersionSectionRow = Prisma.SectionGetPayload<{
@@ -203,6 +208,44 @@ async function buildDishDetailViewPropsFor(
   const effectiveYieldQuantity =
     yieldQuantity != null ? yieldQuantity * effectiveScale : null;
 
+  // Composable nutrition (owner decision, 2026-09-17, PRODUCT_SPEC.md
+  // §54.5): the whole-Dish override if active, otherwise the calculated
+  // ingredient/Section/nested-Part sum (`src/lib/nutrition/resolve.ts`),
+  // scaled by the same `Dish.defaultScale` batch multiplier the yield above
+  // already applies — "scaling a Dish should scale nutrition
+  // proportionally."
+  const rawEffectiveNutrition = await resolveDishVersionEffectiveNutrition(
+    dish.ownerId,
+    dish.id,
+    version.id,
+  );
+  const scaledEffectiveNutrition = scaleEffectiveNutrition(
+    rawEffectiveNutrition,
+    effectiveScale,
+  );
+  const nutrition: EffectiveNutritionDisplayData = {
+    ...scaledEffectiveNutrition,
+    basis:
+      scaledEffectiveNutrition.state === "OVERRIDE"
+        ? {
+            nutritionBasis: version.nutritionBasis,
+            nutritionBasisQuantity: decimalToNumber(
+              version.nutritionBasisQuantity,
+            ),
+            nutritionBasisUnit: version.nutritionBasisUnit,
+          }
+        : null,
+    source:
+      scaledEffectiveNutrition.state === "OVERRIDE" &&
+      version.nutritionSourceProvider
+        ? {
+            provider:
+              version.nutritionSourceProvider as NutritionSourceProviderValue,
+            name: version.nutritionSourceName,
+          }
+        : null,
+  };
+
   return {
     hasVersion: true as const,
     dishId: dish.id,
@@ -226,7 +269,7 @@ async function buildDishDetailViewPropsFor(
     difficulty: version.difficulty,
     description: version.description,
     versionNote: version.versionNote,
-    nutrition: toNutritionSummaryData(version),
+    nutrition,
     ratingSummary,
     startingPoint,
     tagOptions,

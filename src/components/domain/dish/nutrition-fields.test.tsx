@@ -190,10 +190,16 @@ describe("FDC search and select", () => {
     expect(mockedApplyFdcResult).toHaveBeenCalledWith({ fdcId: 5001 });
     expect(await screen.findByLabelText("Calories")).toHaveValue("130");
     expect(screen.getByLabelText("Protein (g)")).toHaveValue("2.7");
+    // Scoped to the editable form section — `EffectiveNutritionSummary`
+    // (the read-only preview) now also renders its own "Sourced from"
+    // attribution alongside it once the whole-Dish override is active.
+    const nutritionFields = screen.getByTestId("nutrition-fields");
     expect(
-      screen.getByText(/Sourced from USDA FoodData Central/),
+      within(nutritionFields).getByText(/Sourced from USDA FoodData Central/),
     ).toBeInTheDocument();
-    expect(screen.getByText(/Rice, white, cooked/)).toBeInTheDocument();
+    expect(
+      within(nutritionFields).getByText(/Rice, white, cooked/),
+    ).toBeInTheDocument();
   });
 
   it("shows a friendly error and never blocks manual entry when search fails", async () => {
@@ -233,17 +239,23 @@ describe("detach from source", () => {
     // Nutrition starts collapsed for an already-saved Recipe/Part.
     await user.click(screen.getByRole("button", { name: "Expand Nutrition" }));
 
+    // Scoped to the editable form section — `EffectiveNutritionSummary`
+    // (the read-only preview) also renders its own "Sourced from"
+    // attribution while the whole-Dish override is active.
+    const nutritionFields = screen.getByTestId("nutrition-fields");
     expect(
-      screen.getByText(/Sourced from USDA FoodData Central/),
+      within(nutritionFields).getByText(/Sourced from USDA FoodData Central/),
     ).toBeInTheDocument();
     expect(screen.getByLabelText("Calories")).toHaveValue("320");
 
     await user.click(
-      screen.getByRole("button", { name: "Detach from source" }),
+      within(nutritionFields).getByRole("button", {
+        name: "Detach from source",
+      }),
     );
 
     expect(
-      screen.queryByText(/Sourced from USDA FoodData Central/),
+      within(nutritionFields).queryByText(/Sourced from USDA FoodData Central/),
     ).not.toBeInTheDocument();
     // Values and basis survive the detach — only attribution is cleared.
     expect(screen.getByLabelText("Calories")).toHaveValue("320");
@@ -257,7 +269,11 @@ describe("More nutrients", () => {
     render(<DishEditor kind="RECIPE" dish={existingDishWithNutrition} />);
     await user.click(screen.getByRole("button", { name: "Expand Nutrition" }));
 
-    await user.click(screen.getByText("More nutrients"));
+    // Scoped to the editable form section — `EffectiveNutritionSummary`
+    // (the read-only preview) has its own, separate "More nutrients"
+    // disclosure.
+    const nutritionFields = screen.getByTestId("nutrition-fields");
+    await user.click(within(nutritionFields).getByText("More nutrients"));
 
     expect(screen.getByLabelText("Fiber")).toHaveValue(3);
     expect(screen.getByLabelText("Sugar")).toHaveValue(null);

@@ -282,25 +282,28 @@ export function PrintDocument({
         />
       </div>
 
-      {content.nutrition && (
+      {content.nutrition.state !== "NONE" && (
         <div className="break-inside-avoid border-t border-neutral-300 pt-4">
           <h2 className="break-after-avoid text-[12pt] font-semibold text-neutral-900">
             Nutrition
+            {content.nutrition.state === "PARTIAL" && " (partial)"}
           </h2>
           <p className="text-[10.5pt] text-neutral-600">
             {[
-              content.nutrition.calories != null &&
-                `${content.nutrition.calories} cal`,
-              content.nutrition.protein != null &&
-                `${content.nutrition.protein}g protein`,
-              content.nutrition.carbs != null &&
-                `${content.nutrition.carbs}g carbs`,
-              content.nutrition.fat != null && `${content.nutrition.fat}g fat`,
+              content.nutrition.totals.calories != null &&
+                `${content.nutrition.totals.calories} cal`,
+              content.nutrition.totals.protein != null &&
+                `${content.nutrition.totals.protein}g protein`,
+              content.nutrition.totals.carbs != null &&
+                `${content.nutrition.totals.carbs}g carbs`,
+              content.nutrition.totals.fat != null &&
+                `${content.nutrition.totals.fat}g fat`,
             ]
               .filter(Boolean)
               .join(" · ")}
-            {content.nutrition.sourceName
-              ? ` · Source: ${content.nutrition.sourceName}`
+            {content.nutrition.state === "OVERRIDE" &&
+            content.nutrition.source?.name
+              ? ` · Source: ${content.nutrition.source.name}`
               : ""}
           </p>
         </div>

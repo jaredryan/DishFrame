@@ -848,11 +848,19 @@ export function MealPlanEditor(
             schedule,
           ),
         });
-        if (entriesResult.status !== "success" || entriesResult.hadEntryError) {
+        if (entriesResult.status === "error") {
+          // A hard failure means nothing in this batch was applied — unlike
+          // `hadEntryError` below (a partial failure among several entries),
+          // navigating away here would silently discard the queued edits
+          // with no visible sign anything went wrong (matches the `create`
+          // mode branch above, which also stops rather than proceeding).
+          setServerError(entriesResult.message);
+          setIsSubmitting(false);
+          return;
+        }
+        if (entriesResult.hadEntryError) {
           setServerError(
-            entriesResult.status === "error"
-              ? entriesResult.message
-              : "The Meal Plan saved, but some meal changes could not be applied.",
+            "The Meal Plan saved, but some meal changes could not be applied.",
           );
         }
       }

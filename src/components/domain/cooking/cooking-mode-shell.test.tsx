@@ -82,6 +82,15 @@ function syncPayloads() {
 beforeEach(() => {
   fetchMock = vi.fn(async () => syncResponse());
   vi.stubGlobal("fetch", fetchMock);
+  // `push`/`refresh` are declared once at module scope for the whole file's
+  // `next/navigation` mock, unlike `fetchMock` above — without clearing
+  // here, a `waitFor(() => expect(push).toHaveBeenCalledWith(...))` in a
+  // later test can pass instantly on a call left over from an earlier test
+  // that pushed the same URL (e.g. another "End cooking" outcome routing to
+  // the same `/cook/{id}/review`), well before this test's own handler
+  // actually runs.
+  push.mockClear();
+  refresh.mockClear();
 });
 
 afterEach(() => {
@@ -930,10 +939,14 @@ describe("CookingModeShell — leave-page warning bypass", () => {
     );
     await user.click(screen.getByRole("button", { name: "End early" }));
 
+    // `syncPayloads()` only proves the mutation's fetch was *initiated* —
+    // it's captured from `fetchMock.mock.calls` the instant `fetch()` is
+    // called, well before `runOrQueueMutation` resolves. `skipLeaveWarningRef`
+    // isn't set until `handleEnd`'s continuation after that resolves, in the
+    // same synchronous tick as `router.push` — so waiting on `push` (not the
+    // fetch call) is what actually orders after the ref is set.
     await waitFor(() =>
-      expect(syncPayloads().some((p) => p.op === "cooking.endSession")).toBe(
-        true,
-      ),
+      expect(push).toHaveBeenCalledWith("/cook/session-1/review"),
     );
     expect(dispatchBeforeUnload()).toBe(false);
   });
@@ -948,9 +961,7 @@ describe("CookingModeShell — leave-page warning bypass", () => {
     await user.click(screen.getByRole("button", { name: "Finish session" }));
 
     await waitFor(() =>
-      expect(syncPayloads().some((p) => p.op === "cooking.endSession")).toBe(
-        true,
-      ),
+      expect(push).toHaveBeenCalledWith("/cook/session-1/review"),
     );
     expect(dispatchBeforeUnload()).toBe(false);
   });

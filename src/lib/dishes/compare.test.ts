@@ -74,7 +74,16 @@ function snapshot(
       cookTimeMinutes: 20,
       difficulty: "Easy",
     },
-    nutrition: { calories: null, protein: null, carbs: null, fat: null },
+    nutrition: {
+      state: "NONE",
+      totals: {
+        calories: null,
+        protein: null,
+        carbs: null,
+        fat: null,
+        moreNutrients: null,
+      },
+    },
     sections: [],
     partLinks: [],
     materializedPartLinks: [],

@@ -9,8 +9,10 @@ import { prisma } from "@/lib/db/prisma";
 import { decimalToNumber } from "@/lib/dishes/format";
 import { versionContentToInput } from "@/lib/dishes/mappers";
 import { versionLabel as formatVersionLabel } from "@/lib/dishes/version-note";
-import { toNutritionSummaryData } from "@/components/domain/dish/nutrition-summary";
+import type { EffectiveNutritionDisplayData } from "@/components/domain/dish/nutrition-summary";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
+import { resolveDishVersionEffectiveNutrition } from "@/lib/nutrition/resolve";
+import type { NutritionSourceProviderValue } from "@/lib/dishes/schema";
 import type { VersionSectionRow } from "@/components/domain/dish/version-sections-view";
 import {
   resolvePartLinkTrees,
@@ -123,6 +125,38 @@ export async function buildVersionHistoryViewProps(
   );
   const displayTitle = dish.currentTitle || version.title;
 
+  // Composable nutrition (owner decision, 2026-09-17, PRODUCT_SPEC.md
+  // §54.5): this exact historical Version's own effective nutrition — its
+  // own Ingredient/Section data and whichever Part Versions its own
+  // PartLinks pin, never the current content of a since-updated Part (see
+  // `resolveDishVersionEffectiveNutrition`'s doc comment).
+  const rawNutrition = await resolveDishVersionEffectiveNutrition(
+    dish.ownerId,
+    dish.id,
+    version.id,
+  );
+  const nutrition: EffectiveNutritionDisplayData = {
+    ...rawNutrition,
+    basis:
+      rawNutrition.state === "OVERRIDE"
+        ? {
+            nutritionBasis: version.nutritionBasis,
+            nutritionBasisQuantity: decimalToNumber(
+              version.nutritionBasisQuantity,
+            ),
+            nutritionBasisUnit: version.nutritionBasisUnit,
+          }
+        : null,
+    source:
+      rawNutrition.state === "OVERRIDE" && version.nutritionSourceProvider
+        ? {
+            provider:
+              version.nutritionSourceProvider as NutritionSourceProviderValue,
+            name: version.nutritionSourceName,
+          }
+        : null,
+  };
+
   return {
     dishId: dish.id,
     kind,
@@ -155,7 +189,7 @@ export async function buildVersionHistoryViewProps(
     prepTimeMinutes: version.prepTimeMinutes,
     cookTimeMinutes: version.cookTimeMinutes,
     difficulty: version.difficulty,
-    nutrition: toNutritionSummaryData(version),
+    nutrition,
     sections: toPlainSections(version.sections),
     sectionPartLinks: sectionPartLinkTreeLists,
     topLevelPartLinks: topLevelPartLinkTrees,

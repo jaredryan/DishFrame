@@ -14,7 +14,7 @@ import {
 } from "@/components/domain/dish/dish-read-only-presentation";
 import { ScaledVersionView } from "@/components/domain/dish/scaled-version-view";
 import { PartUsagePanel } from "@/components/domain/dish/part-usage-panel";
-import { NutritionSummary } from "@/components/domain/dish/nutrition-summary";
+import { EffectiveNutritionSummary } from "@/components/domain/dish/nutrition-summary";
 import { FavoriteToggle } from "@/components/domain/dish/favorite-toggle";
 import { DishTagFlavorEditor } from "@/components/domain/dish/dish-tag-flavor-editor";
 import { dishBasePath } from "@/components/domain/dish/dish-card";
@@ -94,7 +94,7 @@ export function DishDetailView(props: DishDetailViewProps) {
     />
   );
 
-  const nutritionEl = <NutritionSummary nutrition={props.nutrition} />;
+  const nutritionEl = <EffectiveNutritionSummary nutrition={props.nutrition} />;
 
   const cookRowEl = (
     <div className="flex flex-wrap items-center gap-2">

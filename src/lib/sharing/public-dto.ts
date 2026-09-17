@@ -1,18 +1,21 @@
 import "server-only";
 import { prisma } from "@/lib/db/prisma";
 import { getDuplicationRatingSnapshot } from "@/lib/reviews/queries";
-import type {
-  ShareGraph,
-  ShareGraphNode,
-  ShareGraphPartLinkRef,
-  ShareGraphMaterializedPartLinkRef,
+import {
+  type ShareGraph,
+  type ShareGraphNode,
+  type ShareGraphPartLinkRef,
+  type ShareGraphMaterializedPartLinkRef,
+  computeShareGraphEffectiveNutrition,
 } from "@/lib/sharing/graph";
 import type {
   DishKindValue,
   SectionInput,
   InstructionInput,
   PartLinkInput,
+  NutritionSourceProviderValue,
 } from "@/lib/dishes/schema";
+import type { EffectiveNutritionDisplayData } from "@/components/domain/dish/nutrition-summary";
 
 /**
  * PRODUCT_SPEC.md §83.5: the one explicit whitelist every public share
@@ -89,30 +92,17 @@ export type PublicShareContent = {
   prepTimeMinutes: number | null;
   cookTimeMinutes: number | null;
   difficulty: string | null;
-  nutrition: {
-    calories: number | null;
-    protein: number | null;
-    carbs: number | null;
-    fat: number | null;
-    basis: string | null;
-    basisQuantity: number | null;
-    basisUnit: string | null;
-    sourceName: string | null;
-  } | null;
+  // Composable nutrition (owner decision, 2026-09-17, PRODUCT_SPEC.md
+  // §54.5): override-or-calculated, resolved from the graph's own
+  // Ingredient/Section/nested-Part content (`computeShareGraphEffectiveNutrition`)
+  // — the exact same shape/states (NONE/PARTIAL/COMPLETE/OVERRIDE) every
+  // other nutrition presentation in the app uses.
+  nutrition: EffectiveNutritionDisplayData;
   aggregateRating: number | null;
   ratingCount: number | null;
   sections: PublicSection[];
   topLevelPartLinks: PublicPartLinkNode[];
 };
-
-function hasNutritionContent(node: ShareGraphNode): boolean {
-  return (
-    node.calories !== null ||
-    node.protein !== null ||
-    node.carbs !== null ||
-    node.fat !== null
-  );
-}
 
 /** Renders both LIVE (a real, still-existing linked Part) and MATERIALIZED
  * (the Part was later deleted — a frozen snapshot survives, ARCHITECTURE_
@@ -318,18 +308,31 @@ export async function buildPublicShareContent(
     prepTimeMinutes: root.prepTimeMinutes,
     cookTimeMinutes: root.cookTimeMinutes,
     difficulty: root.difficulty,
-    nutrition: hasNutritionContent(root)
-      ? {
-          calories: root.calories,
-          protein: root.protein,
-          carbs: root.carbs,
-          fat: root.fat,
-          basis: root.nutritionBasis,
-          basisQuantity: root.nutritionBasisQuantity,
-          basisUnit: root.nutritionBasisUnit,
-          sourceName: root.nutritionSourceName,
-        }
-      : null,
+    nutrition: (() => {
+      const effective = computeShareGraphEffectiveNutrition(
+        graph,
+        root.versionId,
+      );
+      return {
+        ...effective,
+        basis:
+          effective.state === "OVERRIDE"
+            ? {
+                nutritionBasis: root.nutritionBasis,
+                nutritionBasisQuantity: root.nutritionBasisQuantity,
+                nutritionBasisUnit: root.nutritionBasisUnit,
+              }
+            : null,
+        source:
+          effective.state === "OVERRIDE" && root.nutritionSourceProvider
+            ? {
+                provider:
+                  root.nutritionSourceProvider as NutritionSourceProviderValue,
+                name: root.nutritionSourceName,
+              }
+            : null,
+      };
+    })(),
     aggregateRating: ratingSnapshot.aggregateRating,
     ratingCount: ratingSnapshot.ratingCount,
     sections: toPublicSections(graph, root),

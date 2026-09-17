@@ -33,6 +33,7 @@ import {
   versionContentToInput,
   toPartLinkInput,
   toIngredientInput,
+  nutritionValuesFromRow,
   type VersionPartLinkRow,
   type VersionSectionRow,
 } from "@/lib/dishes/mappers";
@@ -59,6 +60,7 @@ import {
   isBlankSubstitute,
   nutritionSourceProviderValues,
   type NutritionSourceProviderValue,
+  type NutritionValuesInput,
   type DishContentInput,
   type SectionInput,
   type IngredientInput,
@@ -70,6 +72,7 @@ import {
   type PartUsageResolutionValue,
 } from "@/lib/dishes/schema";
 import type { ShareGraph, ShareGraphPartLinkRef } from "@/lib/sharing/graph";
+import { normalizeNutrientAmount } from "@/lib/nutrition/calculate";
 
 /**
  * Framework-agnostic domain functions (ARCHITECTURE_PROPOSAL.md §K.4) — see
@@ -113,6 +116,22 @@ import type { ShareGraph, ShareGraphPartLinkRef } from "@/lib/sharing/graph";
  *     Section-organization-only content (renaming/reordering with every
  *     Ingredient/Instruction/linked Part otherwise untouched) still gets
  *     exactly one automatic minor Version, no choice required.
+ *   - Composable nutrition (owner decision, 2026-09-17, extending the
+ *     Slice 13 metadata-classification rule above down to the ingredient/
+ *     Section levels it introduces): an Ingredient's own nutrition
+ *     contribution and a Section's nutrition override are Version-scoped
+ *     *metadata* on rows that otherwise live inside material content —
+ *     `ingredientContentSignature`/Section-organization comparison
+ *     deliberately excludes them, so a nutrition-only edit never counts as
+ *     a cooking or organization change and never by itself requires the
+ *     minor/major choice. When nothing else changed, these values are
+ *     written directly onto the base Version's existing Ingredient/Section
+ *     rows (`applyIngredientSectionNutritionUpdates`, the same "update
+ *     Version-scoped metadata in place" exception
+ *     `applyVersionMetadataUpdate` already is) rather than requiring a new
+ *     Version. When a real material change happens in the same save, the
+ *     submitted nutrition values simply ride along as part of the newly
+ *     created Ingredient/Section rows, same as any other field.
  *   - A save that combines Version-scoped metadata with material content:
  *     the appropriate new Version is created through the material-content
  *     flow above, carrying the submitted metadata values — the prior
@@ -341,6 +360,7 @@ function versionContentToInsertableInput(
         position: instruction.position,
       })),
       partLinks: bySectionId.get(section.id) ?? [],
+      nutritionOverride: nutritionValuesFromRow(section),
     })),
     partLinks: topLevel,
   };
@@ -589,6 +609,7 @@ export async function insertSections(
       name: section.name || null,
       guidanceNote: section.guidanceNote || null,
       position: section.position,
+      ...nutritionColumnsForWrite(section.nutritionOverride ?? null),
     });
   }
   if (sectionRows.length > 0) {
@@ -621,6 +642,7 @@ export async function insertSections(
         isOptional: ingredient.isOptional,
         originalImportedText: ingredient.originalImportedText || null,
         position: ii,
+        ...nutritionColumnsForWrite(ingredient.nutrition ?? null),
       });
 
       if (ingredient.substitute) {
@@ -881,6 +903,76 @@ function normalizeNullableQuantity(
 // could too) — without this, a blank substitute reaching this far would
 // have been inserted as a real, empty-named Ingredient row instead of
 // being rejected or dropped.
+// Decimal(10, 2) columns (calories/protein/carbs/fat, schema.prisma) —
+// rounded here for the same reason `normalizeQuantity` rounds ingredient
+// quantities to Decimal(12,3): one deliberate rounding point before
+// persistence, not left for Postgres to round silently. Delegates to
+// `calculate.ts`'s `normalizeNutrientAmount` so the exact same rounding
+// rule governs both a persisted value and a calculated one.
+function normalizeNutritionValue(
+  value: number | null | undefined,
+): number | null {
+  return value == null ? null : normalizeNutrientAmount(value);
+}
+
+/**
+ * Composable nutrition (owner decision, 2026-09-17): shared shaping for an
+ * Ingredient's own nutrition contribution or a Section's nutrition
+ * override — both use the same raw shape (`nutritionValuesInputSchema`) and
+ * the same "presence of any value is the activation signal" rule as
+ * `calculate.ts`'s `overrideEffectiveNutrition`/`ingredientEffectiveNutrition`.
+ * Returns `null` whenever every field is empty (including an object with
+ * every field explicitly cleared), so an abandoned "add nutrition" click
+ * can never persist as accidental all-null activation.
+ */
+function normalizeNutritionValues(
+  input: NutritionValuesInput | null | undefined,
+): NutritionValuesInput | null {
+  if (!input) return null;
+  const calories = normalizeNutritionValue(input.calories);
+  const protein = normalizeNutritionValue(input.protein);
+  const carbs = normalizeNutritionValue(input.carbs);
+  const fat = normalizeNutritionValue(input.fat);
+  const moreNutrients = input.moreNutrients?.length
+    ? input.moreNutrients
+    : null;
+  if (
+    calories == null &&
+    protein == null &&
+    carbs == null &&
+    fat == null &&
+    !moreNutrients
+  ) {
+    return null;
+  }
+  return { calories, protein, carbs, fat, moreNutrients };
+}
+
+function nutritionValuesEqual(
+  a: NutritionValuesInput | null,
+  b: NutritionValuesInput | null,
+): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/** Already-`normalizeNutritionValues`-shaped input → the four Decimal
+ * columns plus a Prisma-write-ready `moreNutrients` — shared by
+ * `insertSections`' Ingredient/Section row builders and
+ * `applyIngredientSectionNutritionUpdates`' in-place update. */
+function nutritionColumnsForWrite(values: NutritionValuesInput | null) {
+  return {
+    calories: values?.calories ?? null,
+    protein: values?.protein ?? null,
+    carbs: values?.carbs ?? null,
+    fat: values?.fat ?? null,
+    moreNutrients: copyMoreNutrients(
+      values?.moreNutrients?.length
+        ? (values.moreNutrients as unknown as Prisma.JsonValue)
+        : null,
+    ),
+  };
+}
+
 function normalizeIngredientQuantities(
   ingredient: IngredientInput,
 ): IngredientInput {
@@ -891,6 +983,7 @@ function normalizeIngredientQuantities(
     ...ingredient,
     quantity: normalizeNullableQuantity(ingredient.quantity),
     quantityEnd: normalizeNullableQuantity(ingredient.quantityEnd),
+    nutrition: normalizeNutritionValues(ingredient.nutrition),
     substitute: substitute
       ? {
           ...substitute,
@@ -899,20 +992,6 @@ function normalizeIngredientQuantities(
         }
       : substitute,
   };
-}
-
-// Decimal(10, 2) columns (calories/protein/carbs/fat, schema.prisma) —
-// rounded here for the same reason `normalizeQuantity` rounds ingredient
-// quantities to Decimal(12,3): one deliberate rounding point before
-// persistence, not left for Postgres to round silently.
-const NUTRITION_VALUE_DECIMAL_PLACES = 2;
-
-function normalizeNutritionValue(
-  value: number | null | undefined,
-): number | null {
-  return value == null
-    ? null
-    : Number(value.toFixed(NUTRITION_VALUE_DECIMAL_PLACES));
 }
 
 export type NormalizedNutrition = {
@@ -1079,6 +1158,7 @@ function sanitizedSectionsOrThrow(input: DishContentInput): SectionInput[] {
   const sections = removeEmptySections(input.sections).map((section) => ({
     ...section,
     ingredients: section.ingredients.map(normalizeIngredientQuantities),
+    nutritionOverride: normalizeNutritionValues(section.nutritionOverride),
   }));
 
   // A substitute surviving `normalizeIngredientQuantities` (i.e. not
@@ -1435,6 +1515,7 @@ export async function editDish(
         }
       });
     }
+    await applyIngredientSectionNutritionUpdates(base, sections);
     if (versionMetadataChanged) {
       await applyVersionMetadataUpdate(base, {
         description: input.description || null,
@@ -1590,6 +1671,7 @@ export async function editDish(
         ingredients: [],
         instructions: [],
         partLinks: materializedBySectionLineage.get(section.lineageId!) ?? [],
+        nutritionOverride: section.nutritionOverride,
       }));
     const { sections: mergedSections, partLinks: mergedTopLevel } =
       mergeMaterializedBack(
@@ -1642,6 +1724,102 @@ export async function editDish(
     }
 
     return dish.id;
+  });
+}
+
+/**
+ * Composable nutrition (owner decision, 2026-09-17): the ingredient/Section
+ * counterpart to `applyVersionMetadataUpdate` below — writes a nutrition-
+ * only change directly onto the base Version's own already-persisted
+ * Ingredient/Section rows (matched by `lineageId`, guaranteed to still
+ * exist 1:1 since this only ever runs when `materialContentChanged` is
+ * `false`) rather than creating a new Version. Diffs each row's normalized
+ * nutrition against what's actually stored before writing, so a save that
+ * touched other fields but left nutrition untouched issues zero nutrition
+ * writes.
+ */
+async function applyIngredientSectionNutritionUpdates(
+  base: { sections: VersionSectionRow[] },
+  submittedSections: SectionInput[],
+): Promise<void> {
+  const baseSectionByLineage = new Map(
+    base.sections.map((section) => [section.lineageId, section]),
+  );
+
+  type PendingUpdate =
+    | {
+        table: "section";
+        id: string;
+        data: ReturnType<typeof nutritionColumnsForWrite>;
+      }
+    | {
+        table: "ingredient";
+        id: string;
+        data: ReturnType<typeof nutritionColumnsForWrite>;
+      };
+  const pending: PendingUpdate[] = [];
+
+  for (const section of submittedSections) {
+    if (!section.lineageId) continue;
+    const baseSection = baseSectionByLineage.get(section.lineageId);
+    if (!baseSection) continue;
+
+    const submittedSectionNutrition = section.nutritionOverride ?? null;
+    if (
+      !nutritionValuesEqual(
+        nutritionValuesFromRow(baseSection),
+        submittedSectionNutrition,
+      )
+    ) {
+      pending.push({
+        table: "section",
+        id: baseSection.id,
+        data: nutritionColumnsForWrite(submittedSectionNutrition),
+      });
+    }
+
+    const baseIngredientByLineage = new Map(
+      baseSection.ingredients
+        .filter((ingredient) => ingredient.substituteForIngredientId === null)
+        .map((ingredient) => [ingredient.lineageId, ingredient]),
+    );
+    for (const ingredient of section.ingredients) {
+      if (!ingredient.lineageId) continue;
+      const baseIngredient = baseIngredientByLineage.get(ingredient.lineageId);
+      if (!baseIngredient) continue;
+
+      const submittedIngredientNutrition = ingredient.nutrition ?? null;
+      if (
+        !nutritionValuesEqual(
+          nutritionValuesFromRow(baseIngredient),
+          submittedIngredientNutrition,
+        )
+      ) {
+        pending.push({
+          table: "ingredient",
+          id: baseIngredient.id,
+          data: nutritionColumnsForWrite(submittedIngredientNutrition),
+        });
+      }
+    }
+  }
+
+  if (pending.length === 0) return;
+
+  await prisma.$transaction(async (tx) => {
+    for (const update of pending) {
+      if (update.table === "section") {
+        await tx.section.update({
+          where: { id: update.id },
+          data: update.data,
+        });
+      } else {
+        await tx.ingredient.update({
+          where: { id: update.id },
+          data: update.data,
+        });
+      }
+    }
   });
 }
 

@@ -59,7 +59,15 @@ const ACCOUNT_EXPORT_FORMAT = "dishframe.account-export";
 // zero, one, or several normalized Cuisines instead of one free-text value).
 // `dishframe-json-import.ts` still reads an older payload's singular
 // `cuisine` as a one-element fallback, so a pre-v3 export still round-trips.
-const CURRENT_EXPORT_FORMAT_VERSION = 3;
+// v4 (2026-09-17, composable nutrition, PRODUCT_SPEC.md §54.5): each
+// exported ingredient gained its own optional `nutrition` object (the
+// contribution for the amount used, same shape as the whole-Dish
+// `nutrition` object below minus basis/source), and each exported Section
+// gained an optional `nutritionOverride`. The whole-Dish `nutrition` object
+// is unchanged in shape — `dishframe-json-import.ts` now imports it as the
+// whole-Dish manual override, which is also exactly how a pre-v4 payload
+// (with no ingredient/Section nutrition at all) round-trips unchanged.
+const CURRENT_EXPORT_FORMAT_VERSION = 4;
 
 export const versionModeValues = ["SINGLE", "ALL"] as const;
 export type VersionModeValue = (typeof versionModeValues)[number];
@@ -118,6 +126,11 @@ type ExportIngredientRow = {
   isOptional: boolean;
   originalImportedText: string | null;
   substituteForIngredientId: string | null;
+  calories: Prisma.Decimal | null;
+  protein: Prisma.Decimal | null;
+  carbs: Prisma.Decimal | null;
+  fat: Prisma.Decimal | null;
+  moreNutrients: unknown;
   substitute: {
     name: string;
     quantity: Prisma.Decimal | null;
@@ -140,6 +153,18 @@ export function ingredientDto(ingredient: ExportIngredientRow) {
     preparationNote: ingredient.preparationNote,
     isOptional: ingredient.isOptional,
     originalImportedText: ingredient.originalImportedText,
+    // Composable nutrition (owner decision, 2026-09-17, PRODUCT_SPEC.md
+    // §54.5): this ingredient's own nutrition contribution — the amount
+    // actually used, never a per-100g/normalized basis. Same shape as the
+    // whole-Dish `nutrition` object below, minus basis/source (neither
+    // applies at ingredient level in this pass).
+    nutrition: {
+      calories: decimalToNumber(ingredient.calories),
+      protein: decimalToNumber(ingredient.protein),
+      carbs: decimalToNumber(ingredient.carbs),
+      fat: decimalToNumber(ingredient.fat),
+      moreNutrients: ingredient.moreNutrients,
+    },
     substitute: ingredient.substitute
       ? {
           name: ingredient.substitute.name,
@@ -186,6 +211,11 @@ type ExportVersionRow = {
     position: number;
     ingredients: ExportIngredientRow[];
     instructions: Array<{ text: string; position: number }>;
+    calories: Prisma.Decimal | null;
+    protein: Prisma.Decimal | null;
+    carbs: Prisma.Decimal | null;
+    fat: Prisma.Decimal | null;
+    moreNutrients: unknown;
   }>;
   partLinks: Array<{
     sectionId: string | null;
@@ -243,6 +273,17 @@ export function versionContentDto(version: ExportVersionRow) {
         text: i.text,
         position: i.position,
       })),
+      // Composable nutrition (owner decision, 2026-09-17, PRODUCT_SPEC.md
+      // §54.5): this Section's manual override, if any — replaces its
+      // calculated ingredient/nested-Part sum. All-null fields mean no
+      // override (calculated).
+      nutritionOverride: {
+        calories: decimalToNumber(section.calories),
+        protein: decimalToNumber(section.protein),
+        carbs: decimalToNumber(section.carbs),
+        fat: decimalToNumber(section.fat),
+        moreNutrients: section.moreNutrients,
+      },
       linkedParts: version.partLinks
         .filter((link) => link.sectionId === section.id)
         .map((link) => ({

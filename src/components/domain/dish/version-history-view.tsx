@@ -19,7 +19,7 @@ import {
   DishMetaChips,
   DishDescriptionNote,
 } from "@/components/domain/dish/dish-read-only-presentation";
-import { NutritionSummary } from "@/components/domain/dish/nutrition-summary";
+import { EffectiveNutritionSummary } from "@/components/domain/dish/nutrition-summary";
 import { versionLabel as formatVersionLabel } from "@/lib/dishes/version-note";
 import type { VersionHistoryViewProps } from "@/lib/dishes/version-history-page-props";
 
@@ -133,7 +133,7 @@ export function VersionHistoryView(props: VersionHistoryViewProps) {
             description={description}
             versionNote={versionNote}
           />
-          <NutritionSummary nutrition={nutrition} />
+          <EffectiveNutritionSummary nutrition={nutrition} />
           <div className="flex flex-wrap items-center gap-2">
             <Button asChild>
               <Link href={`${basePath}/${dishId}/cook?versionId=${versionId}`}>

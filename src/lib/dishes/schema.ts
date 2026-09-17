@@ -123,6 +123,47 @@ const nullableSubstituteSchema = z.preprocess(
   substituteInputSchema.nullable().optional(),
 );
 
+// Slice 13, PRODUCT_SPEC.md §54.6: a conservative, explicitly recognized set
+// of "More nutrients" — DishFrame never surfaces an unlabeled source field.
+// Moved above `ingredientInputSchema` (composable-nutrition pass,
+// 2026-09-17) so `nutritionValuesInputSchema` below — now also referenced
+// by `ingredientInputSchema`/`sectionInputSchema` — can use it without a
+// forward-reference (a `const` used before its own module-level
+// initialization throws at runtime, unlike a hoisted `function`).
+export const recognizedMoreNutrientKeys = [
+  "fiber",
+  "sugar",
+  "sodium",
+  "saturatedFat",
+  "cholesterol",
+] as const;
+export type RecognizedMoreNutrientKey =
+  (typeof recognizedMoreNutrientKeys)[number];
+
+export const moreNutrientEntrySchema = z.object({
+  key: z.enum(recognizedMoreNutrientKeys),
+  label: z.string().trim().min(1).max(60),
+  value: z.number(),
+  unit: z.string().trim().min(1).max(20),
+});
+export type MoreNutrientEntry = z.infer<typeof moreNutrientEntrySchema>;
+
+// Composable nutrition (owner decision, 2026-09-17, PRODUCT_SPEC.md §54.5):
+// the raw nutrition shape shared by an Ingredient's own entered
+// contribution, a Section override, and the whole-Dish override — same
+// primary fields/More-nutrients DishFrame already supports (§54.1/§54.6),
+// not a new nutrient model. `null` (never an all-null object) means "no
+// nutrition data here" everywhere this is used — see
+// `src/lib/nutrition/calculate.ts`.
+export const nutritionValuesInputSchema = z.object({
+  calories: z.number().min(0).nullable().optional(),
+  protein: z.number().min(0).nullable().optional(),
+  carbs: z.number().min(0).nullable().optional(),
+  fat: z.number().min(0).nullable().optional(),
+  moreNutrients: z.array(moreNutrientEntrySchema).nullable().optional(),
+});
+export type NutritionValuesInput = z.infer<typeof nutritionValuesInputSchema>;
+
 export const ingredientInputSchema = z.object({
   // Present when this row was loaded from an existing Version and should
   // carry its lineage identity forward (ARCHITECTURE_PROPOSAL.md §D.-1);
@@ -144,6 +185,12 @@ export const ingredientInputSchema = z.object({
   // can cross-check a structured guess against its source even after
   // editing the structured fields. Never set by the ordinary editor UI.
   originalImportedText: z.string().trim().max(500).nullable().optional(),
+  // Composable nutrition (owner decision, 2026-09-17, PRODUCT_SPEC.md
+  // §54.5): this ingredient's own nutrition CONTRIBUTION — for the amount
+  // actually used in this Dish, never a per-100g/normalized basis. `null`
+  // (the default) means no nutrition entered for this ingredient; never
+  // populated by automatic matching/an external database in this pass.
+  nutrition: nutritionValuesInputSchema.nullable().optional(),
 });
 export type IngredientInput = z.infer<typeof ingredientInputSchema>;
 
@@ -214,6 +261,12 @@ export const sectionInputSchema = z.object({
   // enforced by application convention (`insertSections`/the editor), not a
   // DB constraint — see schema.prisma's own comment on `Section.position`.
   position: z.number().int().min(0),
+  // Composable nutrition (owner decision, 2026-09-17, PRODUCT_SPEC.md
+  // §54.5): an optional manual override for this Section — when set, it
+  // REPLACES the calculated sum of this Section's own ingredients/nested
+  // Part contributions rather than adding to it (`src/lib/nutrition/
+  // calculate.ts`). `null` (the default) means no override — calculated.
+  nutritionOverride: nutritionValuesInputSchema.nullable().optional(),
 });
 export type SectionInput = z.infer<typeof sectionInputSchema>;
 
@@ -221,26 +274,6 @@ export type SectionInput = z.infer<typeof sectionInputSchema>;
 // §54.2's "whole Recipe or Part" vs. "per serving or compatible output unit."
 export const nutritionBasisValues = ["WHOLE", "PER_OUTPUT_UNIT"] as const;
 export type NutritionBasisValue = (typeof nutritionBasisValues)[number];
-
-// Slice 13, PRODUCT_SPEC.md §54.6: a conservative, explicitly recognized set
-// of "More nutrients" — DishFrame never surfaces an unlabeled source field.
-export const recognizedMoreNutrientKeys = [
-  "fiber",
-  "sugar",
-  "sodium",
-  "saturatedFat",
-  "cholesterol",
-] as const;
-export type RecognizedMoreNutrientKey =
-  (typeof recognizedMoreNutrientKeys)[number];
-
-export const moreNutrientEntrySchema = z.object({
-  key: z.enum(recognizedMoreNutrientKeys),
-  label: z.string().trim().min(1).max(60),
-  value: z.number(),
-  unit: z.string().trim().min(1).max(20),
-});
-export type MoreNutrientEntry = z.infer<typeof moreNutrientEntrySchema>;
 
 // Slice 13 correction pass: the one supported sourced-nutrition provider.
 // Kept as an explicit enum (not a free-form string) so an unsupported value
@@ -269,7 +302,14 @@ export const dishContentSchema = z.object({
   // whether typed directly or populated from an FDC result. Slice 13
   // correction pass: Version-scoped metadata, editable in place on the
   // selected Version — like description/image/yield/prep/cook/difficulty —
-  // never itself a reason to create a new Version.
+  // never itself a reason to create a new Version. Composable-nutrition
+  // pass (owner decision, 2026-09-17, PRODUCT_SPEC.md §54.5): reinterpreted
+  // as the whole-Dish manual OVERRIDE — when any of these five fields is
+  // set, it REPLACES the calculated Section sum (`src/lib/nutrition/
+  // calculate.ts`) rather than being the only nutrition value. Unchanged
+  // storage/shape, so every pre-existing populated Version already IS a
+  // correct override under this meaning (no migration needed beyond the
+  // new Ingredient/Section columns those calculated sums read from).
   calories: z.number().min(0).nullable().optional(),
   protein: z.number().min(0).nullable().optional(),
   carbs: z.number().min(0).nullable().optional(),
@@ -490,7 +530,7 @@ export type VersionContentChange = {
 // `undefined` (a brand-new, not-yet-lineaged Section) — used to key
 // top-level linked Parts in the same lookup maps as Section-nested ones
 // without any risk of collision.
-const TOP_LEVEL_PART_LINK_KEY = " top-level";
+const TOP_LEVEL_PART_LINK_KEY = "top-level";
 
 export type VersionContentInput = {
   sections: SectionInput[];

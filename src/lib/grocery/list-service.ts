@@ -2093,6 +2093,15 @@ export async function resyncGroceryListFromMealPlan(
     await recomputeMealPlanItemSync(tx, itemId);
   }
 
+  // Every write above targets `GroceryListItem`/`GroceryItemContribution`
+  // rows, never the `GroceryList` row itself — so without this, a
+  // Meal-Plan-driven resync never bumps `GroceryList.updatedAt`, and
+  // `GroceryListOfflineBoundary`'s `serverIsNewer` staleness check (see its
+  // doc comment) can't tell this resync apart from "nothing happened",
+  // leaving a dirty local replica (e.g. a checkbox toggle interrupted by a
+  // hard navigation) masking the resync's own changes indefinitely.
+  await tx.groceryList.update({ where: { id: groceryListId }, data: {} });
+
   return plan.summary;
 }
 

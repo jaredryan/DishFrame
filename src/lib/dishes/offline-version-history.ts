@@ -7,6 +7,8 @@ import type { DishKindValue, DishActionState } from "@/lib/dishes/schema";
 import type { DishSnapshotDoc } from "@/lib/offline-sync/dishes";
 import type { ReplicatedVersion } from "@/lib/dishes/version-history-snapshot";
 import type { DishDetailViewProps } from "@/lib/dishes/detail-view";
+import { computeReplicatedVersionEffectiveNutrition } from "@/lib/dishes/offline-nutrition";
+import type { EffectiveNutritionDisplayData } from "@/components/domain/dish/nutrition-summary";
 
 export async function listReplicatedVersions(
   dishId: string,
@@ -80,6 +82,35 @@ export async function promoteHistoricalVersionOffline(
   const promoted = existing?.doc.versions.find(
     (v) => v.id === values.versionId,
   );
+  // Composable nutrition (owner decision, 2026-09-17): computed once here
+  // (async, from the replica) rather than inside `optimisticDoc` below,
+  // which must stay synchronous — same centralized `calculate.ts` logic
+  // every other adapter uses (`src/lib/dishes/offline-nutrition.ts`).
+  const promotedEffectiveNutrition = promoted
+    ? await computeReplicatedVersionEffectiveNutrition(promoted)
+    : null;
+  const promotedNutrition: EffectiveNutritionDisplayData | null =
+    promotedEffectiveNutrition && promoted
+      ? {
+          ...promotedEffectiveNutrition,
+          basis:
+            promotedEffectiveNutrition.state === "OVERRIDE"
+              ? {
+                  nutritionBasis: promoted.nutritionBasis,
+                  nutritionBasisQuantity: promoted.nutritionBasisQuantity,
+                  nutritionBasisUnit: promoted.nutritionBasisUnit,
+                }
+              : null,
+          source:
+            promotedEffectiveNutrition.state === "OVERRIDE" &&
+            promoted.nutritionSourceProvider
+              ? {
+                  provider: promoted.nutritionSourceProvider,
+                  name: promoted.nutritionSourceName,
+                }
+              : null,
+        }
+      : null;
 
   const result = await runOrQueueMutation({
     op: "dish.promoteVersion",
@@ -124,7 +155,7 @@ export async function promoteHistoricalVersionOffline(
               prepTimeMinutes: promoted.prepTimeMinutes,
               cookTimeMinutes: promoted.cookTimeMinutes,
               difficulty: promoted.difficulty,
-              nutrition: promoted.nutrition,
+              nutrition: promotedNutrition ?? priorDetail.nutrition,
               imageAssetId: promoted.imageAssetId,
               sections: promoted.sections.map((section) => ({
                 id: section.id,

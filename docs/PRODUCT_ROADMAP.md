@@ -1365,21 +1365,26 @@ Agreed next steps:
 # 14. Final Implementation Updates
 
 `PRODUCT_SPEC.md` was written next, as planned. `FRONTEND_SPEC.md` and
-`IMPLEMENTATION_SPEC.md` (§12) were never created as separate documents —
-that planning role was absorbed instead by `ARCHITECTURE_PROPOSAL.md`
-(technical/data-model planning) and `BUILD_PLAN.md` (slice sequencing and
-implementation planning), which together carried the project through to a
-complete build.
+`IMPLEMENTATION_SPEC.md` (§12) were never created as separate documents — that
+planning role was absorbed instead by `ARCHITECTURE_PROPOSAL.md` (technical/data-
+model planning) and `BUILD_PLAN.md` (slice sequencing and implementation
+planning), which together carried the project through the build.
 
-**Tier 1 (§4) and Tier 2 (§6) are both now fully implemented** — see
-`PRODUCT_SPEC.md` §95 ("Final Priority Model") and §99 ("Final
-Implementation Updates") for the current state. Tier 3 (§8) remains
-optional, forward-looking scope, largely unbuilt, exactly as this roadmap
-originally intended — with two exceptions worth noting: Recipe Gallery
-migration (part of Tier 1 Phase 7, §4) was deliberately deferred by owner
-decision rather than built (the generic paste-and-review importer serves
-as the interim substitute), and barcode scanning (listed as optional/late
-Tier 2, §6 Phase whichever covers it) was built as a convenience entry
-point into the existing nutrition-lookup search, not a separate search
-mechanism. Any other roadmap item not mentioned here shipped as
-originally scoped; see `docs/TODO.md` for genuinely still-open work.
+**Tier 1 (§4) and Tier 2 (§6) are fully implemented.** Several capabilities that
+originally lived in optional Tier 3 have also since shipped because real product
+work justified them: Website Recipe Import; USDA-backed nutrition lookup plus
+composable ingredient/Section/Recipe/Part nutrition; and an installable PWA with
+local structured-data replication, offline Recipe/Part and Cooking workflows,
+queued synchronization, conflict handling, wake lock, and offline Meal Plan /
+Grocery support.
+
+The Recipe Gallery-specific migration/import path also exists now; it is no
+longer a deferred Tier 1 gap. The owner's migration of the remaining personal
+Recipe Gallery collection is personal data-entry work, not software scope.
+
+The remaining Tier 3 sections should still be read as optional future ideas,
+not promises. Examples include rotation/planning insights, cooking statistics,
+a native application, richer public-directory work, advanced cooking
+scheduling, and OCR/image import. See `TODO.md` for current unfinished QA/work
+and `POST_LAUNCH_TODO.md` for tasks that matter only if DishFrame moves toward a
+broader public launch.

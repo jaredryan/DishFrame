@@ -4,8 +4,44 @@ import type {
   IngredientInput,
   SectionInput,
   PartLinkInput,
+  NutritionValuesInput,
+  MoreNutrientEntry,
 } from "@/lib/dishes/schema";
 import type { partLinkContentInclude } from "@/lib/dishes/queries";
+
+// Composable nutrition (owner decision, 2026-09-17): shared Decimal/Json →
+// `NutritionValuesInput | null` conversion for an Ingredient or Section row
+// — `null` whenever every field is empty, matching
+// `calculate.ts`'s "presence of any value is the activation signal" rule,
+// so a round-tripped row with no nutrition entered never re-serializes as
+// an all-null object.
+export function nutritionValuesFromRow(row: {
+  calories: Prisma.Decimal | null;
+  protein: Prisma.Decimal | null;
+  carbs: Prisma.Decimal | null;
+  fat: Prisma.Decimal | null;
+  moreNutrients: Prisma.JsonValue | null;
+}): NutritionValuesInput | null {
+  const moreNutrients = Array.isArray(row.moreNutrients)
+    ? (row.moreNutrients as unknown as MoreNutrientEntry[])
+    : null;
+  if (
+    row.calories == null &&
+    row.protein == null &&
+    row.carbs == null &&
+    row.fat == null &&
+    !moreNutrients?.length
+  ) {
+    return null;
+  }
+  return {
+    calories: decimalToNumber(row.calories),
+    protein: decimalToNumber(row.protein),
+    carbs: decimalToNumber(row.carbs),
+    fat: decimalToNumber(row.fat),
+    moreNutrients,
+  };
+}
 
 /**
  * Prisma-row → plain-object mappers shared by every caller that needs a
@@ -38,6 +74,7 @@ export function toIngredientInput(
     preparationNote: ingredient.preparationNote,
     isOptional: ingredient.isOptional,
     originalImportedText: ingredient.originalImportedText,
+    nutrition: nutritionValuesFromRow(ingredient),
     substitute: ingredient.substitute
       ? {
           lineageId: ingredient.substitute.lineageId,
@@ -137,6 +174,7 @@ export function versionContentToInput(
         position: instruction.position,
       })),
       partLinks: bySectionId.get(section.id) ?? [],
+      nutritionOverride: nutritionValuesFromRow(section),
     })),
     partLinks: topLevel,
   };

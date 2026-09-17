@@ -3896,116 +3896,155 @@ DishFrame should not show conflicting preferred units in Recipe Detail and cooki
 
 # 54. Nutrition
 
-## 54.1 Tier 1 manual nutrition
+## 54.1 Composable nutrition model
 
-Tier 1 supports manual nutrition entry.
+DishFrame supports nutrition at three structural levels:
 
-Primary fields:
+- individual ingredients;
+- Sections;
+- the whole Recipe or Part Version.
 
-- Calories
-- Protein
-- Carbohydrates
-- Fat
+Ingredient nutrition represents the contribution of the amount actually used in
+that Version. It is optional.
 
-DishFrame does not make medical claims or treat user-entered values as authoritative.
-
-## 54.2 Nutrition basis
-
-Nutrition supports:
-
-- whole Recipe or Part;
-- per serving or compatible output unit.
-
-When yield permits, DishFrame may calculate one basis from the other.
-
-Example:
+By default, nutrition calculates upward:
 
 ```text
-Whole Recipe: 3,000 calories
-Makes 6 servings
-Calculated: 500 calories per serving
+Ingredient contributions → Section → Recipe / Part
 ```
 
-## 54.3 Scaling
+A Section's calculated nutrition is the sum of its local ingredient
+contributions plus the effective nutrition of linked Parts used by that Section.
+A Recipe or Part's calculated nutrition is the sum of its Sections.
 
-When the entire Recipe scales proportionally:
+The same model applies to calories, protein, carbohydrates, fat, and supported
+More nutrients.
 
-- total nutrition scales;
-- nutrition per serving remains unchanged when servings scale proportionally.
+## 54.2 Manual overrides
 
-When the batch remains fixed but actual serving count changes:
+A user may enter an optional manual nutrition override at either:
 
-- total nutrition remains unchanged;
-- session-specific per-serving nutrition changes.
+- Section level; or
+- whole Recipe/Part Version level.
 
-Saved Version nutrition is never silently rewritten.
+An override **replaces**, rather than adds to, the calculated value at that
+level. Removing the override returns that level to calculated nutrition.
 
-## 54.4 Tier 2 FoodData Central lookup
+The whole-Version nutrition fields therefore remain useful as an authoritative
+manual total when the user already knows the correct numbers.
 
-Tier 2 integrates USDA FoodData Central for nutrition lookup.
+User-facing nutrition state distinguishes:
 
-The user may search:
+- **Calculated** — complete from child data;
+- **Partial** — calculated from known child data while one or more required
+  contributions are missing;
+- **Manual override** — the displayed value is authoritative for that level.
 
-- generic foods;
-- branded foods.
+A level with no usable nutrition remains absent rather than becoming an
+implicit zero-valued override.
 
-The user selects the matching result.
+## 54.3 Nested Parts and historical integrity
 
-Imported data:
+A linked Part contributes its **effective nutrition** — its whole-Part override
+when present, otherwise its calculated nutrition — scaled according to the
+amount/yield used by the parent.
 
-- remains editable;
-- retains source name and source identifier;
-- may be detached and converted to fully manual data;
-- is labeled as sourced information that may contain errors or change.
+The parent treats that linked Part as one contribution and does not traverse the
+same Part ingredients again, preventing double-counting.
 
-Manual entry always remains available.
+Nutrition always resolves the exact Part Version referenced by the parent
+PartLink. A parent Recipe's nutrition must not silently change merely because a
+newer Part Version exists that the parent has not adopted.
 
-## 54.5 Reusable ingredient nutrition
+Historical Version nutrition follows the same rule: calculations use the
+historical Version's own ingredient/Section data and the exact linked Part
+Versions belonging to that historical snapshot.
 
-Where the implementation model supports it, selected nutrition records may be associated with structured ingredients and reused through Parts.
+## 54.4 Scaling and serving basis
 
-DishFrame may then calculate Recipe totals from:
+When a Recipe or Part scales proportionally:
 
-- reusable Parts;
-- local ingredients;
-- local sauces or toppings.
+- total effective nutrition scales proportionally;
+- per-serving or per-compatible-output nutrition remains unchanged when the
+  output scales by the same factor.
 
-The implementation specification must define how ingredient quantities and source serving units are normalized before claiming calculated totals.
+When a completed Cooking Session records a different actual serving count for a
+fixed batch, the saved Version total is unchanged while session-specific
+per-serving presentation may change.
 
-## 54.6 More nutrients
+DishFrame does not claim meaningful per-serving nutrition for incompatible
+output units unless a valid relationship exists.
 
-When FoodData Central supplies additional recognized nutrients, Tier 2 displays an expandable:
+## 54.5 Missing nutrition
 
-> More nutrients
+Nutrition entry is optional at every ingredient.
 
-The primary interface remains focused on calories and macros.
+If some contributions are unknown, DishFrame sums the values it does know but
+marks the result Partial rather than presenting it as a complete total.
 
-The product may display available values such as:
+A manual Section or whole-Version override is authoritative for that level even
+when descendants are incomplete.
+
+## 54.6 FoodData Central lookup
+
+DishFrame integrates USDA FoodData Central as an optional lookup/correction aid,
+not as an automatic matching authority.
+
+The user may search generic or branded foods and choose the intended result.
+Imported values:
+
+- remain editable;
+- retain source name/identifier where applicable;
+- may be corrected or replaced manually;
+- never prevent fully manual nutrition entry.
+
+Ingredient-level nutrition can therefore be entered manually or informed by a
+selected source without changing the calculation hierarchy above.
+
+## 54.7 More nutrients
+
+The expandable **More nutrients** model applies consistently at ingredient,
+Section-override, and whole-Version levels.
+
+Supported values may include:
 
 - fiber;
 - sugar;
 - sodium;
 - saturated fat;
 - cholesterol;
-- other clearly labeled source nutrients.
+- other clearly labeled supported nutrients.
 
-DishFrame does not require every food to provide every nutrient and does not dump unlabeled technical source fields directly into the interface.
+Missing nutrients remain missing; DishFrame does not treat an unavailable value
+as zero.
 
-## 54.7 Barcode lookup
+## 54.8 Barcode lookup
 
 Text search remains the primary nutrition-lookup method.
 
-Tier 2 may also support retail barcode scanning as a convenience:
+Retail barcode scanning is a convenience path to branded FoodData Central
+results:
 
 - request camera access only after user action;
-- scan UPC/EAN-compatible retail barcodes;
-- use the decoded GTIN/UPC to locate a branded FoodData Central result;
-- return to text search when scanning is unsupported or unsuccessful;
-- never make barcode support necessary to use nutrition lookup.
+- support UPC/EAN-compatible retail barcodes where the browser permits it;
+- fall back to text search when scanning is unsupported or unsuccessful;
+- never require barcode scanning to use nutrition lookup.
 
-Barcode scanning is a late Tier 2 convenience rather than a foundational dependency.
+## 54.9 Import, export, sharing, history, and offline behavior
 
-If cross-browser camera behavior or quality assurance becomes disproportionately costly, it may move to Tier 3 without changing the nutrition data model.
+DishFrame's structured Recipe JSON format round-trips ingredient nutrition,
+Section overrides, whole-Version overrides, and More nutrients. Older DishFrame
+JSON containing only whole-Version nutrition imports that data as a manual
+whole-Version override.
+
+Effective nutrition is used consistently on ordinary detail, print/share,
+Version history, and Version comparison surfaces. Historical surfaces calculate
+from the historical snapshot rather than current nested-Part data.
+
+The offline replica carries the raw nutrition inputs required by the same
+central calculation rules, including exact linked Part Version references, so
+supported Recipe/Part viewing and editing do not require a separate offline
+nutrition model.
 
 ---
 
@@ -6679,4 +6718,6 @@ Two product surfaces exist that predate/sit alongside this document and are wort
 - **Legal pages.** `/privacy` and `/terms` exist (a shared legal-page layout), reachable from the site footer and listed in the sitemap/robots files. Content describes the actual current implementation (Google-only sign-in, private-by-default data, Vercel Blob images, a Resend-backed Contact form that is not persisted to the database, no analytics/tracking SDK). Both pages still need professional legal review before any broad commercial launch — see `docs/TODO.md`.
 - **Public marketing pages carry no signed-in personalization.** Every visitor — signed in or not — sees the same header, hero, and CTA copy ("Create your first recipe" → `/recipes/new`, which itself redirects to sign-in when needed). This was a deliberate simplification of an earlier session-aware design; see `ARCHITECTURE_PROPOSAL.md` §Q for the architectural reason (it also restores static prerendering for those routes).
 
-A small number of genuinely open product questions and known gaps remain from the Tier 1/2 build (e.g. `/home`'s dashboard sections still being static placeholders, a sitewide badge-text contrast gap, the Meal-Plan grocery-generation UI's pre- vs. post-generation customization scope). These are tracked as current work in `docs/TODO.md` rather than restated here, since they are not yet settled decisions.
+Subsequent implementation work also completed three substantial extensions that were originally outside the Tier 1/2 core: durable current-use security hardening; linked Grocery List resync with explicit manual-change reconciliation; and comprehensive offline/PWA support with a local replica, queued synchronization, conflict handling, offline Cooking workflows, and persisted Cooking history. Composable ingredient-level nutrition (§54) is likewise now shipped rather than speculative.
+
+Genuinely unfinished QA and small product/UI issues are tracked in `TODO.md`; conditional work for a broader public/commercial launch is tracked in `POST_LAUNCH_TODO.md`. This specification should not be used as a duplicate task list.
