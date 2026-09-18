@@ -6,6 +6,8 @@ import {
   TimersTray,
   RecipePanel,
   ConnectedSectionPanel,
+  resolveSelectedSource,
+  isSourceOverviewDestination,
   type CookingLayoutProps,
 } from "@/components/domain/cooking/cooking-mode-desktop-layout";
 
@@ -13,7 +15,12 @@ import {
 export function MobileCookingLayout(props: CookingLayoutProps) {
   const {
     sessionId,
+    dishId,
     dishTitle,
+    dishKind,
+    versionLabel,
+    versionImageAssetId,
+    sources,
     selectedDestination,
     onSelectDestination,
     unitViewModels,
@@ -29,10 +36,26 @@ export function MobileCookingLayout(props: CookingLayoutProps) {
   const [timersOpen, setTimersOpen] = React.useState(false);
   const [timerModalOpen, setTimerModalOpen] = React.useState(false);
 
-  const selectedUnit = selectedDestination
-    ? (unitViewModels.find((vm) => vm.unit.id === selectedDestination)?.unit ??
-      null)
-    : null;
+  const isSourceOverview = isSourceOverviewDestination(selectedDestination);
+  const selectedUnit =
+    !isSourceOverview && selectedDestination
+      ? (unitViewModels.find((vm) => vm.unit.id === selectedDestination)
+          ?.unit ?? null)
+      : null;
+  const selectedSource = resolveSelectedSource(
+    sources,
+    {
+      dishId,
+      dishTitle,
+      dishKind,
+      versionLabel,
+      versionImageAssetId,
+      scaleFactor: 1,
+      outputQuantity: null,
+      outputUnit: null,
+    },
+    selectedDestination,
+  );
 
   function handleSelect(destination: string | null) {
     onSelectDestination(destination);
@@ -43,7 +66,9 @@ export function MobileCookingLayout(props: CookingLayoutProps) {
     ({ timer }) => liveTimers.get(timer.id)?.isExpired,
   );
 
-  const currentName = selectedUnit ? selectedUnit.label : dishTitle;
+  const currentName = selectedUnit
+    ? selectedUnit.label
+    : selectedSource.dishTitle;
 
   return (
     <div className="flex min-h-dvh flex-col">
@@ -76,6 +101,7 @@ export function MobileCookingLayout(props: CookingLayoutProps) {
             >
               <NavList
                 dishTitle={dishTitle}
+                sources={sources}
                 selectedDestination={selectedDestination}
                 onSelectDestination={handleSelect}
                 unitViewModels={unitViewModels}
@@ -113,8 +139,16 @@ export function MobileCookingLayout(props: CookingLayoutProps) {
 
       <main className="bg-card flex-1 px-4 pt-4 pb-32">
         <div className="flex flex-col gap-6">
-          {selectedDestination === null ? (
-            <RecipePanel {...props} />
+          {isSourceOverview ? (
+            <RecipePanel
+              {...props}
+              dishId={selectedSource.dishId}
+              dishTitle={selectedSource.dishTitle}
+              dishKind={selectedSource.dishKind}
+              versionLabel={selectedSource.versionLabel}
+              versionImageAssetId={selectedSource.versionImageAssetId}
+              sourceId={sources.length > 1 ? selectedSource.id : null}
+            />
           ) : selectedUnit ? (
             <ConnectedSectionPanel
               unit={selectedUnit}

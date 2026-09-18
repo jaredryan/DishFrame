@@ -246,9 +246,10 @@ model DishVersion {
   // (dishId, dishVersionId) -> (dishId, id) relation on the child model) rather than Dish
   // directly, since a direct Dish relation would have required reusing the same dishId
   // scalar the composite relation also uses.
-  cookingSessions    CookingSession[]
-  ratings            Rating[]
-  partUsages         CookingSessionPartUsage[]
+  cookingSessions       CookingSession[]
+  cookingSessionSources CookingSessionSource[]
+  ratings               Rating[]
+  partUsages            CookingSessionPartUsage[]
   groceryListSources GroceryListSource[]
   mealPlanEntries    MealPlanEntry[]
   shareLinksFixed    ShareLink[]
@@ -612,6 +613,15 @@ model CookingSession {
   // of a direct-to-Dish relation (removed; it reused dishId, already used by the composite
   // relation below). Every Cooking Session always references an exact Version, so the
   // composite relation alone is sufficient.
+  //
+  // Multi-source cooking sessions: `dishId`/`dishVersionId`/`scaleFactor`/`originalScaleFactor`
+  // stay populated as a mirror of `sources[0]` (position 0) for every session, single- or
+  // multi-source — kept so every pre-existing read site that reads these columns directly
+  // (getSessionSourceSummary, getLastCookedAt, listSessionsForOwner, etc.) keeps compiling and
+  // returns a real, meaningful value with no migration required at those call sites. This
+  // mirror is never authoritative for a multi-source session — `sources` is. Callers that must
+  // be multi-source-aware (Cooking Setup/Mode, resume cards, per-dish history) read `sources`
+  // instead; see docs/MULTI_SOURCE_COOKING_SESSIONS.md.
   dishId        String
   dishVersionId String
   state         SessionState @default(IN_PROGRESS)
@@ -634,13 +644,59 @@ model CookingSession {
 
   owner           User                      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   dishVersion     DishVersion               @relation(fields: [dishId, dishVersionId], references: [dishId, id], onDelete: Cascade)
+  sources         CookingSessionSource[]
   units           CookingSessionUnit[]
   review          SessionReview?
+  sourceReviews   CookingSessionSourceReview[]
   ratings         Rating[]
   partUsages      CookingSessionPartUsage[]
   mealPlanEntries MealPlanEntry[]
 
   @@index([ownerId, state, updatedAt])
+  @@index([dishId])
+}
+
+/**
+ * Multi-source Cooking Sessions — one row per selected top-level Recipe/
+ * standalone Part participating in a `CookingSession` (§ "Core product
+ * model" in the owner's multi-source spec, 2026-09-17). A historical
+ * single-source session has exactly one row here (position 0), backfilled
+ * from that session's own `dishId`/`dishVersionId`/`scaleFactor` — see this
+ * migration's backfill INSERT. `position` is the source's own place in the
+ * source-level nav above Cooking Mode's divider — independent of
+ * `CookingSessionUnit.position`, which orders the combined unit list below
+ * it.
+ *
+ * `isActive` denormalizes the parent session's IN_PROGRESS state onto this
+ * row, kept in lockstep inside the same transaction that ever changes
+ * `CookingSession.state` (creation, `endCookingSession` — there is no
+ * reactivation). Postgres can't express a partial unique index filtered on
+ * a *joined* table's column, so this mirror is what the raw-SQL partial
+ * unique index below (`one_active_session_per_dish_source`) filters on
+ * directly — the multi-source generalization of the pre-existing
+ * `one_active_session_per_dish` index on `CookingSession.dishId` itself
+ * (kept, not dropped: still valid, if now redundant, for a source's own
+ * dish since every source is also a row here).
+ */
+model CookingSessionSource {
+  id            String  @id @default(cuid())
+  sessionId     String
+  position      Int
+  dishId        String
+  dishVersionId String
+  isActive      Boolean @default(true)
+
+  scaleFactor         Decimal? @db.Decimal(8, 4)
+  originalScaleFactor Decimal? @db.Decimal(8, 4)
+
+  createdAt DateTime @default(now())
+
+  session       CookingSession                   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  dishVersion   DishVersion                       @relation(fields: [dishId, dishVersionId], references: [dishId, id], onDelete: Cascade)
+  contributions CookingSessionUnitContribution[]
+  review        CookingSessionSourceReview?
+
+  @@index([sessionId, position])
   @@index([dishId])
 }
 
@@ -650,7 +706,10 @@ model CookingSessionUnit {
   position             Int
   scaleFactor          Decimal?  @db.Decimal(8, 4)
   // Slice 8 correction — same original-vs-current rule as CookingSession.originalScaleFactor,
-  // applied per-unit (§24.4's "an individual Section scale; an individual Part scale").
+  // applied per-unit (§24.4's "an individual Section scale; an individual Part scale"). For a
+  // multi-source consolidated unit (see CookingSessionUnitContribution), this is the unit's own
+  // *aggregate* scale on top of the sum of its contributions — never a second per-source
+  // override; per-source allocation lives entirely in the contribution rows.
   originalScaleFactor  Decimal?  @db.Decimal(8, 4)
   completedAt          DateTime?
   removedAt            DateTime?
@@ -663,12 +722,60 @@ model CookingSessionUnit {
   sourceSectionLineageId  String?
   sourcePartLinkLineageId String?
 
-  session        CookingSession                @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  session        CookingSession                    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   checklistItems CookingSessionChecklistItem[]
   timers         Timer[]
   partUsages     CookingSessionPartUsage[]
+  contributions  CookingSessionUnitContribution[]
 
   @@index([sessionId])
+}
+
+/**
+ * Multi-source shared-Part consolidation ("Shared Part consolidation" —
+ * a core requirement of the owner's multi-source spec, 2026-09-17). One row
+ * per (unit, source) pair: a unit contributed by only one source (the
+ * common case, including every historical single-source session) has
+ * exactly one row here; a unit consolidated because two or more selected
+ * sources reference the exact same Part identity + exact same Part Version
+ * (never merged across different Versions) has one row per contributing
+ * source, so the aggregate cooked amount can be traced back to how much of
+ * it belongs to each source (PRODUCT_SPEC-style "Chicken Bowl — 2 cups").
+ *
+ * `sourceUnitKey` is that *source's own* `sessionUnitKey()` value (scoped to
+ * that source's own Version's authored PartLink/Section graph, exactly what
+ * `buildCookableUnits` produces for it) — never the merged unit's identity,
+ * since two different sources reach the same consolidated Part through two
+ * different local lineage ids. Mid-session mutations that must ask "does
+ * source X already contribute to some existing unit for key K" (add/
+ * restore) look this up by `(sourceId, sourceUnitKey)`, never by unit id
+ * alone.
+ *
+ * `multiplier` is this contribution's own effective multiplier (composed
+ * the same way a single-source unit's own `scaleFactor` already was:
+ * source.scaleFactor * this row's own authored-link multiplier), and
+ * `contributionQuantity`/`contributionUnit` are this contribution's own
+ * authored output amount before the unit's aggregate scale is applied — the
+ * numbers the per-source allocation display reads directly rather than
+ * re-deriving the split at read time.
+ */
+model CookingSessionUnitContribution {
+  id            String  @id @default(cuid())
+  unitId        String
+  sourceId      String
+  sourceUnitKey String
+
+  multiplier           Decimal? @db.Decimal(8, 4)
+  contributionQuantity Decimal? @db.Decimal(12, 3)
+  contributionUnit     String?
+
+  createdAt DateTime @default(now())
+
+  unit   CookingSessionUnit   @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  source CookingSessionSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@unique([unitId, sourceId])
+  @@index([sourceId, sourceUnitKey])
 }
 
 enum PartUsageRelation {
@@ -797,6 +904,39 @@ model SessionReview {
   updatedAt                     DateTime @updatedAt
 
   session CookingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}
+
+/**
+ * Multi-source post-cook review — one row per participating source, used
+ * only for a session with more than one `CookingSessionSource` row. A
+ * single-source session keeps using `SessionReview` above, completely
+ * unchanged ("Single-source review behavior should remain effectively
+ * unchanged," owner's multi-source spec 2026-09-17) — this sibling model
+ * exists purely so a multi-source session can hold N independent reviews
+ * (one per source) without retrofitting `SessionReview`'s 1:1-per-session
+ * shape or its existing single-source call sites. Same fields/semantics as
+ * `SessionReview`, scoped to one source instead of the whole session;
+ * `Rating.dishId` already lets one Taster rate several dishes within one
+ * session (existing `@@unique([sessionId, tasterId, dishId])`), so Ratings
+ * need no schema change to stay source-specific.
+ */
+model CookingSessionSourceReview {
+  sourceId                      String   @id
+  sessionId                     String
+  whatWentWell                  String?
+  whatDidNotGoWell              String?
+  anythingElse                  String?
+  actualAmountQuantity          Decimal? @db.Decimal(12, 3)
+  actualAmountUnit              String?
+  reviewAdjustedDurationSeconds Int?
+  includedUnitIds               String[] @default([])
+  createdAt                     DateTime @default(now())
+  updatedAt                     DateTime @updatedAt
+
+  source  CookingSessionSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  session CookingSession       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
 }
 
 model Rating {

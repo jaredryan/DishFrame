@@ -48,6 +48,7 @@ const PROTECTED_OBJECT_NAMES = [
   "one_favorite_tag_per_user",
   "one_owner_taster_per_user",
   "one_active_session_per_dish",
+  "one_active_session_per_dish_source",
   "dish_current_title_trgm_idx",
   "dish_current_structural_search_text_trgm_idx",
   "one_fallback_category_per_user",

@@ -7,6 +7,8 @@ import * as reviewService from "@/lib/reviews/service";
 import {
   saveSessionReviewSchema,
   deleteSessionReviewSchema,
+  saveSessionSourceReviewSchema,
+  deleteSessionSourceReviewSchema,
   updateCookingNotesSchema,
   type ActionState,
 } from "@/lib/reviews/schema";
@@ -56,6 +58,53 @@ export async function deleteSessionReview(values: {
     const { sessionId } = deleteSessionReviewSchema.parse(values);
 
     await reviewService.deleteSessionReview(userId, sessionId);
+
+    revalidateSession(sessionId);
+    revalidatePath("/recipes");
+    revalidatePath("/parts");
+    return { status: "success", message: "Review deleted." };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export async function saveSessionSourceReview(values: {
+  sessionId: string;
+  sourceId: string;
+  whatWentWell: string | null;
+  whatDidNotGoWell: string | null;
+  anythingElse: string | null;
+  actualAmountQuantity: number | null;
+  actualAmountUnit: string | null;
+  reviewAdjustedDurationSeconds: number | null;
+  ratings: Array<{ tasterId: string; value: number }>;
+  includedUnitIds: string[];
+}): Promise<SaveSessionReviewActionState> {
+  try {
+    const userId = await requireUserId();
+    const input = saveSessionSourceReviewSchema.parse(values);
+
+    const result = await reviewService.saveSessionSourceReview(userId, input);
+
+    revalidateSession(values.sessionId);
+    revalidatePath("/recipes");
+    revalidatePath("/parts");
+    return { status: "success", deleted: result.deleted };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export async function deleteSessionSourceReview(values: {
+  sessionId: string;
+  sourceId: string;
+}): Promise<ActionState> {
+  try {
+    const userId = await requireUserId();
+    const { sessionId, sourceId } =
+      deleteSessionSourceReviewSchema.parse(values);
+
+    await reviewService.deleteSessionSourceReview(userId, sessionId, sourceId);
 
     revalidateSession(sessionId);
     revalidatePath("/recipes");

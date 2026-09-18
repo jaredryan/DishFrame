@@ -61,7 +61,16 @@ test.describe("Meal Plans: build, sync grocery list, edit, complete", () => {
     await addMealDialog
       .getByPlaceholder("Search your Recipes and Parts…")
       .fill(title);
-    await addMealDialog.getByRole("radio", { name: title }).click();
+    // Selecting a radio here immediately swaps the whole dialog to its next
+    // step (Version/target-yield), which has intermittently made a plain
+    // pointer `.click()` on this row report "not stable"/"detached from
+    // DOM" while its own list re-renders around it. `.focus()` + Enter
+    // activates the same native `<button role="radio">` without Playwright's
+    // pointer-position stability check, sidestepping that race.
+    const recipeRadio = addMealDialog.getByRole("radio", { name: title });
+    await recipeRadio.waitFor();
+    await recipeRadio.focus();
+    await page.keyboard.press("Enter");
     await addMealDialog
       .getByRole("button", { name: "Add meal", exact: true })
       .click();

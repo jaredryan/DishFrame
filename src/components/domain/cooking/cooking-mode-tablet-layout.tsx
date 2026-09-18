@@ -3,9 +3,12 @@ import { StartTimerDialog } from "@/components/domain/cooking/start-timer-dialog
 import {
   NavHeader,
   NavSectionList,
+  SourceNavList,
   TimersTray,
   RecipePanel,
   ConnectedSectionPanel,
+  resolveSelectedSource,
+  isSourceOverviewDestination,
   type CookingLayoutProps,
 } from "@/components/domain/cooking/cooking-mode-desktop-layout";
 
@@ -13,7 +16,12 @@ import {
 export function TabletCookingLayout(props: CookingLayoutProps) {
   const {
     sessionId,
+    dishId,
     dishTitle,
+    dishKind,
+    versionLabel,
+    versionImageAssetId,
+    sources,
     selectedDestination,
     onSelectDestination,
     unitViewModels,
@@ -26,10 +34,26 @@ export function TabletCookingLayout(props: CookingLayoutProps) {
   const [timersExpanded, setTimersExpanded] = React.useState(false);
   const [timerModalOpen, setTimerModalOpen] = React.useState(false);
 
-  const selectedUnit = selectedDestination
-    ? (unitViewModels.find((vm) => vm.unit.id === selectedDestination)?.unit ??
-      null)
-    : null;
+  const isSourceOverview = isSourceOverviewDestination(selectedDestination);
+  const selectedUnit =
+    !isSourceOverview && selectedDestination
+      ? (unitViewModels.find((vm) => vm.unit.id === selectedDestination)
+          ?.unit ?? null)
+      : null;
+  const selectedSource = resolveSelectedSource(
+    sources,
+    {
+      dishId,
+      dishTitle,
+      dishKind,
+      versionLabel,
+      versionImageAssetId,
+      scaleFactor: 1,
+      outputQuantity: null,
+      outputUnit: null,
+    },
+    selectedDestination,
+  );
 
   const hasExpiredTimer = railTimers.some(
     ({ timer }) => liveTimers.get(timer.id)?.isExpired,
@@ -39,11 +63,19 @@ export function TabletCookingLayout(props: CookingLayoutProps) {
     <div className="flex h-dvh w-full overflow-hidden">
       <div className="border-border bg-card flex h-full w-64 shrink-0 flex-col border-r">
         <div className="shrink-0 p-3 pb-0">
-          <NavHeader
-            dishTitle={dishTitle}
-            selectedDestination={selectedDestination}
-            onSelectDestination={onSelectDestination}
-          />
+          {sources.length > 1 ? (
+            <SourceNavList
+              sources={sources}
+              selectedDestination={selectedDestination}
+              onSelectDestination={onSelectDestination}
+            />
+          ) : (
+            <NavHeader
+              dishTitle={dishTitle}
+              selectedDestination={selectedDestination}
+              onSelectDestination={onSelectDestination}
+            />
+          )}
         </div>
         <nav
           aria-label="Cooking navigation"
@@ -75,8 +107,16 @@ export function TabletCookingLayout(props: CookingLayoutProps) {
 
       <main className="flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-2xl flex-col gap-6 px-6 py-8">
-          {selectedDestination === null ? (
-            <RecipePanel {...props} />
+          {isSourceOverview ? (
+            <RecipePanel
+              {...props}
+              dishId={selectedSource.dishId}
+              dishTitle={selectedSource.dishTitle}
+              dishKind={selectedSource.dishKind}
+              versionLabel={selectedSource.versionLabel}
+              versionImageAssetId={selectedSource.versionImageAssetId}
+              sourceId={sources.length > 1 ? selectedSource.id : null}
+            />
           ) : selectedUnit ? (
             <ConnectedSectionPanel
               unit={selectedUnit}

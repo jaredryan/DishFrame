@@ -79,3 +79,73 @@ export async function buildSessionReviewProps(
 export type SessionReviewProps = Awaited<
   ReturnType<typeof buildSessionReviewProps>
 >;
+
+/**
+ * Multi-source Cooking Sessions completion pass (2026-09-18) — one entry
+ * per participating source, each shaped exactly like `SessionReviewProps`
+ * (plus its own `sourceId`) so `<SessionReviewForm>` renders identically
+ * per source, walked through one at a time by the review wizard. A
+ * single-source session's own review keeps using `buildSessionReviewProps`
+ * above, completely unchanged — this is only ever read for
+ * `sources.length > 1`.
+ */
+export async function buildMultiSourceSessionReviewProps(
+  userId: string,
+  sessionId: string,
+) {
+  const { session: cookingSession, dishById } = await getOwnedSessionForReview(
+    userId,
+    sessionId,
+  );
+  const tasterOptions = await listReviewTasterOptions(userId, sessionId);
+
+  return cookingSession.sources.map((source) => {
+    const dish = dishById.get(source.dishId) ?? null;
+    const sourceUnits = cookingSession.units.filter(
+      (u) =>
+        !u.removedAt && u.contributions.some((c) => c.sourceId === source.id),
+    );
+    const contextUnits: SessionContextUnit[] = sourceUnits.map((u) => ({
+      id: u.id,
+      label: u.label,
+      completed: u.completedAt != null,
+    }));
+    const existingRatings = cookingSession.ratings
+      .filter((r) => r.dishId === source.dishId)
+      .map((r) => ({ tasterId: r.tasterId, value: r.value }));
+
+    return {
+      sourceId: source.id,
+      sessionId,
+      dishId: dish?.id ?? source.dishId,
+      dishVersionId: source.dishVersionId,
+      dishKind: dish?.kind ?? null,
+      dishTitle: dish?.currentTitle ?? "Deleted item",
+      outcome: cookingSession.state as
+        "IN_PROGRESS" | "COMPLETED" | "ENDED_EARLY",
+      contextUnits,
+      tasterOptions,
+      existingReview: source.review
+        ? {
+            whatWentWell: source.review.whatWentWell,
+            whatDidNotGoWell: source.review.whatDidNotGoWell,
+            anythingElse: source.review.anythingElse,
+            actualAmountQuantity: decimalToNumber(
+              source.review.actualAmountQuantity,
+            ),
+            actualAmountUnit: source.review.actualAmountUnit,
+            reviewAdjustedDurationSeconds:
+              source.review.reviewAdjustedDurationSeconds,
+            includedUnitIds: source.review.includedUnitIds,
+          }
+        : null,
+      existingRatings,
+      rawElapsedSeconds: cookingSession.rawElapsedSeconds,
+      currentStage: dish?.stage ?? null,
+    };
+  });
+}
+
+export type MultiSourceSessionReviewProps = Awaited<
+  ReturnType<typeof buildMultiSourceSessionReviewProps>
+>;

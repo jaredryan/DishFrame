@@ -27,6 +27,38 @@ export type StartCookingSessionInput = z.infer<
   typeof startCookingSessionSchema
 >;
 
+/**
+ * Multi-source Cooking Sessions (owner spec, 2026-09-17) — the generic
+ * Start Cooking picker's two-step multi-select flow lands here. `sources`
+ * mirrors `startCookingSessionSchema`'s single dishId/dishVersionId/
+ * scaleFactor per selected top-level Recipe/Part; `units` selects from the
+ * *consolidated* set (see lib/cooking/consolidation.ts) by `mergeKey`, never
+ * a per-source unitKey — a shared Part is one entry here regardless of how
+ * many sources contribute to it.
+ */
+export const cookingSourceInputSchema = z.object({
+  dishId: z.string().min(1),
+  dishVersionId: z.string().min(1),
+  scaleFactor: scaleFactorSchema.optional(),
+});
+
+export const consolidatedUnitSelectionSchema = z.object({
+  mergeKey: z.string().min(1),
+  scaleFactor: scaleFactorSchema.optional(),
+});
+
+export const startMultiSourceCookingSessionSchema = z.object({
+  sources: z
+    .array(cookingSourceInputSchema)
+    .min(1, "Select at least one Recipe or Part to cook."),
+  units: z
+    .array(consolidatedUnitSelectionSchema)
+    .min(1, "Select at least one Section or Part to cook."),
+});
+export type StartMultiSourceCookingSessionInput = z.infer<
+  typeof startMultiSourceCookingSessionSchema
+>;
+
 export const addSessionUnitsSchema = z.object({
   sessionId: z.string().min(1),
   unitKeys: z.array(z.string().min(1)).min(1),
@@ -84,6 +116,15 @@ export const updateSessionScaleSchema = z.object({
 export const updateUnitScaleSchema = z.object({
   sessionId: z.string().min(1),
   unitId: z.string().min(1),
+  scaleFactor: scaleFactorSchema,
+});
+
+// Multi-source Cooking Sessions completion pass (2026-09-18) — live
+// per-source rescale, the multi-source counterpart to
+// updateSessionScaleSchema above.
+export const updateSourceScaleSchema = z.object({
+  sessionId: z.string().min(1),
+  sourceId: z.string().min(1),
   scaleFactor: scaleFactorSchema,
 });
 

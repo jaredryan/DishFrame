@@ -64,7 +64,17 @@ export const getSessionSourceSummary = cache(
       }),
       prisma.dishVersion.findFirst({
         where: { id: dishVersionId, dishId },
-        select: { majorVersion: true, minorVersion: true, imageAssetId: true },
+        select: {
+          majorVersion: true,
+          minorVersion: true,
+          imageAssetId: true,
+          // Multi-source Cooking Sessions completion pass — each source's
+          // own authored yield, for its own live rescale control
+          // (`session-view.ts`'s `CookingModeSourceDto`). Harmless for
+          // every pre-existing caller, which simply doesn't read these.
+          yieldQuantity: true,
+          yieldUnit: true,
+        },
       }),
     ]);
     return {
@@ -74,6 +84,8 @@ export const getSessionSourceSummary = cache(
         ? versionLabel(version.majorVersion, version.minorVersion)
         : "—",
       versionImageAssetId: version?.imageAssetId ?? null,
+      outputQuantity: version ? decimalToNumber(version.yieldQuantity) : null,
+      outputUnit: version?.yieldUnit ?? null,
     };
   },
 );
@@ -85,11 +97,16 @@ export const getOwnedSessionOrThrow = cache(
     const session = await prisma.cookingSession.findFirst({
       where: { id: sessionId, ownerId },
       include: {
+        // Multi-source Cooking Sessions — every historical session has
+        // exactly one row here (the migration backfill), so single-source
+        // read sites that never look at `sources` are unaffected.
+        sources: { orderBy: { position: "asc" } },
         units: {
           orderBy: { position: "asc" },
           include: {
             checklistItems: { orderBy: { id: "asc" } },
             timers: true,
+            contributions: { include: { source: true } },
           },
         },
       },
@@ -126,6 +143,27 @@ export function findActiveSessionForDish(ownerId: string, dishId: string) {
   });
 }
 
+/**
+ * Multi-source generalization of `findActiveSessionForDish` — checks every
+ * selected source dish at once against `CookingSessionSource`'s own
+ * denormalized `isActive` mirror, which recognizes a dish's participation
+ * in *any* active session (single- or multi-source) rather than only a
+ * session whose own top-level `dishId` matches. Same non-authoritative role
+ * as its sibling: used only to enrich `ActiveSessionConflictError` with
+ * which dish conflicted and which session to resume/end — the partial
+ * unique index `one_active_session_per_dish_source` is the real guard.
+ */
+export async function findActiveSessionForSourceDishes(
+  ownerId: string,
+  dishIds: string[],
+): Promise<{ dishId: string; sessionId: string } | null> {
+  const row = await prisma.cookingSessionSource.findFirst({
+    where: { dishId: { in: dishIds }, isActive: true, session: { ownerId } },
+    select: { dishId: true, sessionId: true },
+  });
+  return row ? { dishId: row.dishId, sessionId: row.sessionId } : null;
+}
+
 const RECENT_ENDED_SESSION_LIMIT = 10;
 
 export type CrossDishActiveSessionData = DishActiveSessionData & {
@@ -158,15 +196,25 @@ export async function listSessionsForOwner(
   recentEnded: CrossDishCompletedSessionData[];
 }> {
   const dishId = options?.dishId;
+  // Multi-source Cooking Sessions — a dish participates in a session either
+  // as its own top-level `dishId` (every historical session; a
+  // multi-source session's position-0 mirror) or as any other selected
+  // source, so the dish-scoped filter matches both (owner spec, 2026-09-17:
+  // "Each participating Recipe/Part's relevant Cooking History should
+  // include that same session").
+  const dishFilter = dishId
+    ? { OR: [{ dishId }, { sources: { some: { dishId } } }] }
+    : {};
   const [activeRows, completedRows] = await Promise.all([
     prisma.cookingSession.findMany({
-      where: { ownerId, state: "IN_PROGRESS", ...(dishId ? { dishId } : {}) },
+      where: { ownerId, state: "IN_PROGRESS", ...dishFilter },
       orderBy: { updatedAt: "desc" },
       select: {
         id: true,
         dishId: true,
         startedAt: true,
         cookingNotes: true,
+        sources: { orderBy: { position: "asc" }, select: { dishId: true } },
         units: {
           where: { removedAt: null },
           orderBy: { position: "asc" },
@@ -178,7 +226,7 @@ export async function listSessionsForOwner(
       where: {
         ownerId,
         state: { in: ["COMPLETED", "ENDED_EARLY"] },
-        ...(dishId ? { dishId } : {}),
+        ...dishFilter,
       },
       orderBy: { endedAt: "desc" },
       ...(dishId ? {} : { take: RECENT_ENDED_SESSION_LIMIT }),
@@ -189,6 +237,7 @@ export async function listSessionsForOwner(
         startedAt: true,
         endedAt: true,
         cookingNotes: true,
+        sources: { orderBy: { position: "asc" }, select: { dishId: true } },
         units: {
           where: { removedAt: null },
           orderBy: { position: "asc" },
@@ -213,7 +262,12 @@ export async function listSessionsForOwner(
   ]);
 
   const dishIds = [
-    ...new Set([...activeRows, ...completedRows].map((s) => s.dishId)),
+    ...new Set(
+      [...activeRows, ...completedRows].flatMap((s) => [
+        s.dishId,
+        ...s.sources.map((src) => src.dishId),
+      ]),
+    ),
   ];
   const dishes = dishIds.length
     ? await prisma.dish.findMany({
@@ -223,6 +277,19 @@ export async function listSessionsForOwner(
     : [];
   const dishById = new Map(dishes.map((d) => [d.id, d]));
 
+  // Owner spec, 2026-09-17: "one combined resume card/session," summarized
+  // as e.g. "Chicken Bowl + Beef Bowl" — every source's own title, not the
+  // session's individual cookable-unit labels (`unitLabels`, kept
+  // unchanged below for whatever already reads it).
+  function sourceTitlesFor(s: {
+    dishId: string;
+    sources: { dishId: string }[];
+  }) {
+    const ids =
+      s.sources.length > 0 ? s.sources.map((src) => src.dishId) : [s.dishId];
+    return ids.map((id) => dishById.get(id)?.currentTitle ?? "Deleted item");
+  }
+
   const active: CrossDishActiveSessionData[] = activeRows.map((s) => ({
     id: s.id,
     startedAt: s.startedAt,
@@ -231,6 +298,7 @@ export async function listSessionsForOwner(
     dishId: s.dishId,
     dishTitle: dishById.get(s.dishId)?.currentTitle ?? "Deleted item",
     dishKind: dishById.get(s.dishId)?.kind ?? null,
+    sourceTitles: sourceTitlesFor(s),
   }));
 
   const recentEnded: CrossDishCompletedSessionData[] = completedRows.map(
@@ -262,6 +330,7 @@ export async function listSessionsForOwner(
         dishId: s.dishId,
         dishTitle: dishById.get(s.dishId)?.currentTitle ?? "Deleted item",
         dishKind: dishById.get(s.dishId)?.kind ?? null,
+        sourceTitles: sourceTitlesFor(s),
       };
     },
   );
@@ -274,6 +343,11 @@ export type DishActiveSessionData = {
   startedAt: Date;
   unitLabels: string[];
   cookingNotes: string | null;
+  /** Every participating source's own title, e.g. `["Chicken Bowl", "Beef
+   * Bowl"]` — a single-source session's array always has exactly one
+   * entry, matching `dishTitle`. Owner spec, 2026-09-17: the resume card's
+   * "one combined session" summary reads this, never `unitLabels`. */
+  sourceTitles: string[];
 };
 
 export type DishCompletedSessionData = {
@@ -293,6 +367,7 @@ export type DishCompletedSessionData = {
     isOwner: boolean;
     value: number;
   }>;
+  sourceTitles: string[];
 };
 
 /**
@@ -305,14 +380,19 @@ export type DishCompletedSessionData = {
  * exists yet), and the per-session Rating breakdown by Taster.
  */
 export async function listDishSessionHistory(ownerId: string, dishId: string) {
+  // Same OR-based dish participation rule as `listSessionsForOwner` — this
+  // Recipe/Part's own history includes a multi-source session it took part
+  // in as any selected source, not only when it happens to be `sources[0]`.
+  const dishFilter = { OR: [{ dishId }, { sources: { some: { dishId } } }] };
   const [activeRows, completedRows] = await Promise.all([
     prisma.cookingSession.findMany({
-      where: { ownerId, dishId, state: "IN_PROGRESS" },
+      where: { ownerId, state: "IN_PROGRESS", ...dishFilter },
       orderBy: { updatedAt: "desc" },
       select: {
         id: true,
         startedAt: true,
         cookingNotes: true,
+        sources: { orderBy: { position: "asc" }, select: { dishId: true } },
         units: {
           where: { removedAt: null },
           orderBy: { position: "asc" },
@@ -321,7 +401,11 @@ export async function listDishSessionHistory(ownerId: string, dishId: string) {
       },
     }),
     prisma.cookingSession.findMany({
-      where: { ownerId, dishId, state: { in: ["COMPLETED", "ENDED_EARLY"] } },
+      where: {
+        ownerId,
+        state: { in: ["COMPLETED", "ENDED_EARLY"] },
+        ...dishFilter,
+      },
       orderBy: { endedAt: "desc" },
       select: {
         id: true,
@@ -329,6 +413,7 @@ export async function listDishSessionHistory(ownerId: string, dishId: string) {
         startedAt: true,
         endedAt: true,
         cookingNotes: true,
+        sources: { orderBy: { position: "asc" }, select: { dishId: true } },
         units: {
           where: { removedAt: null },
           orderBy: { position: "asc" },
@@ -352,11 +437,32 @@ export async function listDishSessionHistory(ownerId: string, dishId: string) {
     }),
   ]);
 
+  const sourceDishIds = [
+    ...new Set(
+      [...activeRows, ...completedRows].flatMap((s) =>
+        s.sources.map((src) => src.dishId),
+      ),
+    ),
+  ];
+  const sourceDishes = sourceDishIds.length
+    ? await prisma.dish.findMany({
+        where: { id: { in: sourceDishIds } },
+        select: { id: true, currentTitle: true },
+      })
+    : [];
+  const titleById = new Map(sourceDishes.map((d) => [d.id, d.currentTitle]));
+  function sourceTitlesFor(s: { sources: { dishId: string }[] }) {
+    return s.sources.length > 0
+      ? s.sources.map((src) => titleById.get(src.dishId) ?? "Deleted item")
+      : [];
+  }
+
   const active: DishActiveSessionData[] = activeRows.map((s) => ({
     id: s.id,
     startedAt: s.startedAt,
     unitLabels: s.units.map((u) => u.label),
     cookingNotes: s.cookingNotes,
+    sourceTitles: sourceTitlesFor(s),
   }));
 
   const completed: DishCompletedSessionData[] = completedRows.map((s) => {
@@ -384,6 +490,7 @@ export async function listDishSessionHistory(ownerId: string, dishId: string) {
         isOwner: r.taster.isOwner,
         value: r.value,
       })),
+      sourceTitles: sourceTitlesFor(s),
     };
   });
 
@@ -440,6 +547,16 @@ export type CookableUnit = {
   partRelation: PartUsageOccurrenceRelation | null;
   partViaTitleSnapshot: string | null;
   partPathSnapshot: string | null;
+  // Multi-source Cooking Sessions (2026-09-17) — this unit's own authored
+  // PartLink multiplier (1 for a SECTION, which has none). `outputQuantity`
+  // above is deliberately the Part's *raw* authored yield, unscaled by this
+  // — identical across every source that references the same Part+Version
+  // — so consolidation's per-source contribution/aggregate-output math
+  // (`consolidation.ts`) needs this separately to land on the same basis
+  // the checklist quantities (already multiplier-scaled via `scaleRaw`)
+  // are on. Never applied twice: the checklist's own numbers already have
+  // it baked in; only `outputQuantity`-derived display math reads this.
+  linkMultiplier: number;
 };
 
 const MAX_PART_FLATTEN_DEPTH = 12;
@@ -570,6 +687,7 @@ async function buildPartUnitTree(
     partRelation: relation,
     partViaTitleSnapshot: viaPartTitleSnapshot,
     partPathSnapshot: pathSnapshot,
+    linkMultiplier: multiplier,
   };
 
   const nextVisited = new Set(visited);
@@ -694,6 +812,7 @@ export async function buildCookableUnits(
             partRelation: null,
             partViaTitleSnapshot: null,
             partPathSnapshot: null,
+            linkMultiplier: 1,
             checklist: [
               ...localIngredients.map(ingredientToRaw),
               ...section.instructions.map((instruction) => ({
@@ -776,8 +895,14 @@ export async function getLastCookedAt(
   dishId: string,
   kind: "RECIPE" | "PART",
 ): Promise<Date | null> {
+  // Multi-source Cooking Sessions — this Recipe/Part's own Last-cooked
+  // reflects a completed session it participated in as any selected
+  // source, not only when it was the session's own top-level `dishId`.
   const standalone = await prisma.cookingSession.findFirst({
-    where: { dishId, state: "COMPLETED" },
+    where: {
+      state: "COMPLETED",
+      OR: [{ dishId }, { sources: { some: { dishId } } }],
+    },
     orderBy: { endedAt: "desc" },
     select: { endedAt: true },
   });
@@ -832,6 +957,17 @@ export async function getLastCookedAtForDishes(
   });
   for (const row of standaloneRows) considerCandidate(row.dishId, row.endedAt);
 
+  // Multi-source Cooking Sessions — the same participation generalization
+  // as `getLastCookedAt`, batched: a dish counts even when it was only a
+  // non-primary selected source.
+  const sourceRows = await prisma.cookingSessionSource.findMany({
+    where: { dishId: { in: dishIds }, session: { state: "COMPLETED" } },
+    select: { dishId: true, session: { select: { endedAt: true } } },
+  });
+  for (const row of sourceRows) {
+    considerCandidate(row.dishId, row.session.endedAt);
+  }
+
   if (kind === "PART") {
     const usageRows = await prisma.cookingSessionPartUsage.findMany({
       where: {
@@ -881,17 +1017,37 @@ export async function getPartCookingHistory(
   ownerId: string,
   partDishId: string,
 ): Promise<PartHistoryEvent[]> {
+  // Multi-source Cooking Sessions audit (2026-09-18) — this Part's own
+  // "standalone" occurrences (cooked directly as one of a session's
+  // selected sources) now match via `CookingSessionSource`, not the
+  // session's own top-level `dishId`/`dishVersionId` mirror, which would
+  // silently miss (or misreport the Version of) this Part participating as
+  // a non-primary source. Every session — including every pre-existing
+  // single-source one — has at least one source row (the migration
+  // backfill), so this is a strict generalization, never a narrower match.
   const standaloneSessions = await prisma.cookingSession.findMany({
     where: {
       ownerId,
-      dishId: partDishId,
       state: { in: ["COMPLETED", "ENDED_EARLY"] },
+      sources: { some: { dishId: partDishId } },
     },
     orderBy: { endedAt: "desc" },
-    select: { id: true, state: true, endedAt: true, dishVersionId: true },
+    select: {
+      id: true,
+      state: true,
+      endedAt: true,
+      sources: {
+        where: { dishId: partDishId },
+        select: { dishVersionId: true },
+      },
+    },
   });
   const standaloneVersionIds = [
-    ...new Set(standaloneSessions.map((s) => s.dishVersionId)),
+    ...new Set(
+      standaloneSessions.flatMap((s) =>
+        s.sources.map((src) => src.dishVersionId),
+      ),
+    ),
   ];
   const standaloneVersions = standaloneVersionIds.length
     ? await prisma.dishVersion.findMany({
@@ -912,19 +1068,9 @@ export async function getPartCookingHistory(
       partVersionLabelSnapshot: true,
       pathSnapshot: true,
       relation: true,
-      session: { select: { endedAt: true, dishId: true } },
+      session: { select: { endedAt: true } },
     },
   });
-  const rootDishIds = [...new Set(usageRows.map((r) => r.session.dishId))];
-  const rootDishes = rootDishIds.length
-    ? await prisma.dish.findMany({
-        where: { id: { in: rootDishIds } },
-        select: { id: true, currentTitle: true },
-      })
-    : [];
-  const rootDishTitleById = new Map(
-    rootDishes.map((d) => [d.id, d.currentTitle ?? "Deleted item"]),
-  );
 
   const usageBySession = new Map<string, typeof usageRows>();
   for (const row of usageRows) {
@@ -937,7 +1083,11 @@ export async function getPartCookingHistory(
 
   for (const session of standaloneSessions) {
     if (!session.endedAt) continue;
-    const version = versionById.get(session.dishVersionId);
+    // A Part backfilled from a legacy single-source session, or selected
+    // only once in a multi-source one, has exactly one matching source row
+    // here; defensively falls back to "—" rather than throwing if somehow
+    // neither resolves.
+    const version = versionById.get(session.sources[0]?.dishVersionId ?? "");
     events.push({
       sessionId: session.id,
       state: session.state as "COMPLETED" | "ENDED_EARLY",
@@ -959,13 +1109,23 @@ export async function getPartCookingHistory(
   for (const [sessionId, rows] of usageBySession) {
     const endedAt = rows[0]!.session.endedAt;
     if (!endedAt) continue;
+    // Multi-source audit: `pathSnapshot`'s own first segment is always the
+    // *contributing* source's own title (`buildCookableUnits` seeds every
+    // path with that source's own dish title before any nesting) — reading
+    // it here, per occurrence, replaces the old single `session.dishId`
+    // read, which named only the session's primary source even when this
+    // Part was actually used via a different one.
+    const sourceTitles = [
+      ...new Set(
+        rows.map((r) => r.pathSnapshot?.split(" → ")[0] ?? "Deleted item"),
+      ),
+    ];
     events.push({
       sessionId,
       state: "COMPLETED",
       endedAt,
       isStandalone: false,
-      dishTitle:
-        rootDishTitleById.get(rows[0]!.session.dishId) ?? "Deleted item",
+      dishTitle: sourceTitles.join(" + "),
       occurrences: rows.map((r) => ({
         partVersionLabelSnapshot: r.partVersionLabelSnapshot,
         pathSnapshot: r.pathSnapshot,

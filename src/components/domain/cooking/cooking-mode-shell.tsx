@@ -38,7 +38,10 @@ import { useWakeLock } from "@/components/domain/cooking/use-wake-lock";
 import { playTimerDing } from "@/lib/cooking/timer-sound";
 import { runOrQueueMutation } from "@/lib/offline/mutate";
 import { generateClientId } from "@/lib/offline/ids";
-import type { CookingModeSessionProps } from "@/lib/cooking/session-view";
+import type {
+  CookingModeSessionProps,
+  CookingModeSourceDto,
+} from "@/lib/cooking/session-view";
 import type { DishKindValue } from "@/lib/dishes/schema";
 import type {
   CookingModeChecklistItem,
@@ -116,6 +119,7 @@ export function CookingModeShell({
   dishKind,
   versionLabel,
   versionImageAssetId,
+  sources,
   units,
   addableUnits,
   sessionScaleFactor,
@@ -136,6 +140,7 @@ export function CookingModeShell({
   dishKind: DishKindValue | null;
   versionLabel: string;
   versionImageAssetId: string | null;
+  sources: CookingModeSourceDto[];
   units: CookingModeUnit[];
   addableUnits: AddableUnit[];
   sessionScaleFactor: number;
@@ -155,6 +160,16 @@ export function CookingModeShell({
   const [pendingSessionScale, setPendingSessionScale] = React.useState<
     number | null
   >(sessionScaleFactor);
+  // Live per-source rescale (completion pass, 2026-09-18) — a separate
+  // dialog from the whole-session one above, opened only for a genuinely
+  // multi-source session; the single-source dialog/state above is
+  // untouched and still the only path a single-source session ever hits.
+  const [scalingSourceId, setScalingSourceId] = React.useState<string | null>(
+    null,
+  );
+  const [pendingSourceScale, setPendingSourceScale] = React.useState<
+    number | null
+  >(null);
   const [scalingUnitId, setScalingUnitId] = React.useState<string | null>(null);
   const [pendingUnitScale, setPendingUnitScale] = React.useState<number | null>(
     null,
@@ -290,6 +305,52 @@ export function CookingModeShell({
         return;
       }
       setSessionScaleOpen(false);
+      router.refresh();
+    });
+  }
+
+  /** Live per-source rescale — the multi-source counterpart of
+   * `handleSaveSessionScale` above, only ever reachable when
+   * `sources.length > 1` (the per-source dialog is never opened
+   * otherwise). The optimistic patch only updates the rescaled source's
+   * own `scaleFactor` — the real recomputed checklist/contribution amounts
+   * (including any consolidated Part this source contributes to) come from
+   * the server via `router.refresh()`, the same "cheap optimistic patch,
+   * then refresh for the authoritative recompute" shape
+   * `handleSaveUnitScale` below already uses. */
+  function handleSaveSourceScale() {
+    if (!scalingSourceId) return;
+    setError(null);
+    startTransition(async () => {
+      const result = await runOrQueueMutation({
+        op: "cooking.updateSourceScale",
+        entityType: "cookingSession",
+        entityId: sessionId,
+        payload: {
+          sessionId,
+          sourceId: scalingSourceId,
+          scaleFactor: pendingSourceScale,
+        },
+        optimisticDoc: (current: unknown) => {
+          const props = current as CookingModeSessionProps | undefined;
+          return props
+            ? {
+                ...props,
+                sources: props.sources.map((s) =>
+                  s.id === scalingSourceId
+                    ? { ...s, scaleFactor: pendingSourceScale ?? 1 }
+                    : s,
+                ),
+              }
+            : current;
+        },
+        mutationId: generateClientId(),
+      });
+      if (!result.ok) {
+        setError(result.message);
+        return;
+      }
+      setScalingSourceId(null);
       router.refresh();
     });
   }
@@ -480,6 +541,7 @@ export function CookingModeShell({
     dishKind,
     versionLabel,
     versionImageAssetId,
+    sources,
     statusLabel,
     hasReview,
     planActiveUnits: activeUnits as PlanUnit[],
@@ -497,9 +559,15 @@ export function CookingModeShell({
     totalUnitsCount: totalUnits,
     cookingNotes,
     onRequestEnd: () => setConfirmingEnd(true),
-    onOpenSessionScale: () => {
-      setPendingSessionScale(sessionScaleFactor);
-      setSessionScaleOpen(true);
+    onOpenScale: (sourceId) => {
+      if (sourceId == null) {
+        setPendingSessionScale(sessionScaleFactor);
+        setSessionScaleOpen(true);
+        return;
+      }
+      const source = sources.find((s) => s.id === sourceId);
+      setPendingSourceScale(source?.scaleFactor ?? null);
+      setScalingSourceId(sourceId);
     },
     isChecked: checklistState.isChecked,
     onToggleItem: checklistState.toggle,
@@ -570,6 +638,50 @@ export function CookingModeShell({
               Cancel
             </Button>
             <Button onClick={handleSaveSessionScale} disabled={isPending}>
+              Save scale change
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={scalingSourceId != null}
+        onOpenChange={(open) => !open && setScalingSourceId(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Scale{" "}
+              {sources.find((s) => s.id === scalingSourceId)?.dishTitle ??
+                "this source"}
+            </DialogTitle>
+            <DialogDescription>
+              Updates this source&apos;s own remaining quantities — the other
+              sources in this session keep their own scale. A shared Part&apos;s
+              total is recomputed from every contributing source; anything
+              already checked off is flagged, not silently changed.
+            </DialogDescription>
+          </DialogHeader>
+          <ScaleControl
+            outputQuantity={
+              sources.find((s) => s.id === scalingSourceId)?.outputQuantity ??
+              null
+            }
+            outputUnit={
+              sources.find((s) => s.id === scalingSourceId)?.outputUnit ?? null
+            }
+            targetLabel="Cook for"
+            multiplierLabel="Scale this source"
+            currentMultiplier={
+              sources.find((s) => s.id === scalingSourceId)?.scaleFactor ?? null
+            }
+            onMultiplierChange={setPendingSourceScale}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setScalingSourceId(null)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveSourceScale} disabled={isPending}>
               Save scale change
             </Button>
           </DialogFooter>

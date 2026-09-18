@@ -59,3 +59,66 @@ export async function saveSessionReviewOffline(values: {
   if (!result.ok) return { status: "error", message: result.message };
   return { status: "success", deleted: false };
 }
+
+type CookingSessionMultiSourceDoc = {
+  reviewProps?: SessionReviewProps;
+  sourceReviewProps?: Array<{
+    sourceId: string;
+    existingReview: SessionReviewProps["existingReview"];
+    existingRatings: SessionReviewProps["existingRatings"];
+  }>;
+};
+
+/**
+ * Multi-source Cooking Sessions completion pass (2026-09-18) — the
+ * per-source counterpart of `saveSessionReviewOffline` above, routing
+ * through the same `/api/sync/cooking` mutation-queue architecture via its
+ * own `cooking.saveSourceReview` op rather than a parallel sync path.
+ */
+export async function saveSessionSourceReviewOffline(values: {
+  sessionId: string;
+  sourceId: string;
+  whatWentWell: string | null;
+  whatDidNotGoWell: string | null;
+  anythingElse: string | null;
+  actualAmountQuantity: number | null;
+  actualAmountUnit: string | null;
+  reviewAdjustedDurationSeconds: number | null;
+  ratings: Array<{ tasterId: string; value: number }>;
+  includedUnitIds: string[];
+}): Promise<SaveSessionReviewActionState> {
+  const result = await runOrQueueMutation({
+    op: "cooking.saveSourceReview",
+    entityType: "cookingSession",
+    entityId: values.sessionId,
+    payload: values,
+    optimisticDoc: (current: unknown) => {
+      const doc = current as CookingSessionMultiSourceDoc | undefined;
+      if (!doc?.sourceReviewProps) return current;
+      return {
+        ...doc,
+        sourceReviewProps: doc.sourceReviewProps.map((entry) =>
+          entry.sourceId === values.sourceId
+            ? {
+                ...entry,
+                existingReview: {
+                  whatWentWell: values.whatWentWell,
+                  whatDidNotGoWell: values.whatDidNotGoWell,
+                  anythingElse: values.anythingElse,
+                  actualAmountQuantity: values.actualAmountQuantity,
+                  actualAmountUnit: values.actualAmountUnit,
+                  reviewAdjustedDurationSeconds:
+                    values.reviewAdjustedDurationSeconds,
+                  includedUnitIds: values.includedUnitIds,
+                },
+                existingRatings: values.ratings,
+              }
+            : entry,
+        ),
+      };
+    },
+    mutationId: generateClientId(),
+  });
+  if (!result.ok) return { status: "error", message: result.message };
+  return { status: "success", deleted: false };
+}

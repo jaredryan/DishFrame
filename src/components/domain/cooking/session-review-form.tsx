@@ -30,8 +30,14 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { StarRatingInput } from "@/components/domain/cooking/star-rating-input";
 import { CoachMark } from "@/components/onboarding/coach-mark";
-import { deleteSessionReview } from "@/lib/reviews/actions";
-import { saveSessionReviewOffline } from "@/lib/reviews/offline-save-review";
+import {
+  deleteSessionReview,
+  deleteSessionSourceReview,
+} from "@/lib/reviews/actions";
+import {
+  saveSessionReviewOffline,
+  saveSessionSourceReviewOffline,
+} from "@/lib/reviews/offline-save-review";
 import { createTaster } from "@/lib/tasters/actions";
 import { initialCreateTasterActionState } from "@/lib/tasters/schema";
 import { updateDishStage } from "@/lib/dishes/actions";
@@ -77,6 +83,9 @@ function formatMinutes(seconds: number | null): string {
  */
 export function SessionReviewForm({
   sessionId,
+  sourceId,
+  stepLabel,
+  nextHref,
   dishId,
   dishVersionId,
   dishKind,
@@ -90,6 +99,18 @@ export function SessionReviewForm({
   currentStage,
 }: {
   sessionId: string;
+  // Multi-source Cooking Sessions completion pass (2026-09-18) — when set,
+  // this form reviews one participating source rather than the whole
+  // session (`CookingSessionSourceReview` instead of `SessionReview`).
+  // Undefined preserves every single-source behavior unchanged.
+  sourceId?: string;
+  // "Step N of M" context shown only in wizard mode (`sourceId` set and
+  // there's more than one source to walk through).
+  stepLabel?: string;
+  // Wizard mode: where "Not now" and the success screen's "Done" advance
+  // to instead of their single-source defaults (the next source's own
+  // review, or the session once the last one is saved/skipped).
+  nextHref?: string;
   dishId: string;
   // PRODUCT_SPEC.md §39.5 — the exact Version this session cooked, passed
   // through to Edit Recipe/Part so editing opens from what was actually
@@ -236,8 +257,7 @@ export function SessionReviewForm({
     const minutes = adjustedMinutes.trim() ? Number(adjustedMinutes) : null;
 
     startTransition(async () => {
-      const result = await saveSessionReviewOffline({
-        sessionId,
+      const values = {
         whatWentWell: whatWentWell.trim() || null,
         whatDidNotGoWell: whatDidNotGoWell.trim() || null,
         anythingElse: anythingElse.trim() || null,
@@ -252,13 +272,20 @@ export function SessionReviewForm({
             : null,
         ratings,
         includedUnitIds: [...includedUnitIds],
-      });
+      };
+      const result = sourceId
+        ? await saveSessionSourceReviewOffline({
+            sessionId,
+            sourceId,
+            ...values,
+          })
+        : await saveSessionReviewOffline({ sessionId, ...values });
       if (result.status === "error") {
         showToast({ variant: "error", title: result.message });
         return;
       }
       if (result.deleted) {
-        router.push(`/cook/${sessionId}`);
+        router.push(nextHref ?? `/cook/${sessionId}`);
         return;
       }
       setJustSaved(true);
@@ -267,12 +294,14 @@ export function SessionReviewForm({
 
   function handleDelete() {
     startDeleteTransition(async () => {
-      const result = await deleteSessionReview({ sessionId });
+      const result = sourceId
+        ? await deleteSessionSourceReview({ sessionId, sourceId })
+        : await deleteSessionReview({ sessionId });
       if (result.status === "error") {
         showToast({ variant: "error", title: result.message });
         return;
       }
-      router.push(`/cook/${sessionId}`);
+      router.push(nextHref ?? `/cook/${sessionId}`);
     });
   }
 
@@ -400,9 +429,9 @@ export function SessionReviewForm({
           </div>
 
           <Button asChild>
-            <Link href={`${basePath}/${dishId}/history`}>
+            <Link href={nextHref ?? `${basePath}/${dishId}/history`}>
               <CheckCircle2 className="size-4" aria-hidden="true" />
-              Done
+              {nextHref ? "Continue" : "Done"}
             </Link>
           </Button>
         </div>
@@ -413,6 +442,11 @@ export function SessionReviewForm({
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-1">
+        {stepLabel && (
+          <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+            {stepLabel}
+          </p>
+        )}
         <h1 className="font-heading text-foreground text-xl font-semibold text-balance">
           How did {dishTitle} go?
         </h1>
@@ -616,7 +650,9 @@ export function SessionReviewForm({
             asChild
             disabled={isPending}
           >
-            <Link href={`/cook/${sessionId}`}>Not now</Link>
+            <Link href={nextHref ?? `/cook/${sessionId}`}>
+              {nextHref ? "Skip this one" : "Not now"}
+            </Link>
           </Button>
           {hasExistingReview && (
             <Button

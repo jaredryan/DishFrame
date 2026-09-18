@@ -32,6 +32,7 @@ import type {
   RailTimer,
   UnitViewModel,
 } from "@/components/domain/cooking/cooking-mode-types";
+import type { CookingModeSourceDto } from "@/lib/cooking/session-view";
 import type { useTimerActions } from "@/components/domain/cooking/use-timer-actions";
 import type { LiveTimerState } from "@/components/domain/cooking/use-live-timers";
 import type { DishKindValue } from "@/lib/dishes/schema";
@@ -47,6 +48,7 @@ export type CookingLayoutProps = {
   dishKind: DishKindValue | null;
   versionLabel: string;
   versionImageAssetId: string | null;
+  sources: CookingModeSourceDto[];
   statusLabel: string;
   hasReview: boolean;
   planActiveUnits: PlanUnit[];
@@ -60,7 +62,10 @@ export type CookingLayoutProps = {
   totalUnitsCount: number;
   cookingNotes: string | null;
   onRequestEnd: () => void;
-  onOpenSessionScale: () => void;
+  // Live per-source rescale (completion pass, 2026-09-18) — `null` opens
+  // the whole-session scale dialog (single-source sessions, unchanged); a
+  // source id opens that one source's own scale dialog.
+  onOpenScale: (sourceId: string | null) => void;
   isChecked: (item: CookingModeChecklistItem) => boolean;
   onToggleItem: (itemId: string, checked: boolean) => void;
   onMarkAllPrepared: (unit: CookingModeUnit) => void;
@@ -80,6 +85,56 @@ export type CookingLayoutProps = {
   liveTimers: Map<string, LiveTimerState>;
 };
 
+const SOURCE_DESTINATION_PREFIX = "source:";
+
+/** Destination-string helpers, shared by every layout — `selectedDestination`
+ * stays a single `string | null` field end-to-end (no new state shape to
+ * thread through offline sync/URL persistence): `null` is "the first/only
+ * source's own overview" (exactly today's single-source meaning, so a
+ * single-source session's behavior is byte-identical), `source:{id}` is
+ * another source's own overview, and any other value is a unit id. */
+export function sourceDestination(sourceId: string): string {
+  return `${SOURCE_DESTINATION_PREFIX}${sourceId}`;
+}
+
+/** `null` or a `source:{id}` destination is a source overview; anything
+ * else is a unit id. Exported so every layout gates `RecipePanel` vs
+ * `ConnectedSectionPanel` the same way. */
+export function isSourceOverviewDestination(
+  destination: string | null,
+): boolean {
+  return (
+    destination === null || destination.startsWith(SOURCE_DESTINATION_PREFIX)
+  );
+}
+
+/** Exported for `TabletCookingLayout`/`MobileCookingLayout` — both resolve
+ * `RecipePanel`'s identity props the same way desktop does, rather than
+ * duplicating this logic per layout. */
+export function resolveSelectedSource(
+  sources: CookingModeSourceDto[],
+  fallback: {
+    dishId: string;
+    dishTitle: string;
+    dishKind: DishKindValue | null;
+    versionLabel: string;
+    versionImageAssetId: string | null;
+    scaleFactor: number;
+    outputQuantity: number | null;
+    outputUnit: string | null;
+  },
+  selectedDestination: string | null,
+): CookingModeSourceDto {
+  if (selectedDestination?.startsWith(SOURCE_DESTINATION_PREFIX)) {
+    const sourceId = selectedDestination.slice(
+      SOURCE_DESTINATION_PREFIX.length,
+    );
+    const match = sources.find((s) => s.id === sourceId);
+    if (match) return match;
+  }
+  return { id: sources[0]?.id ?? "", ...fallback };
+}
+
 /** ARCHITECTURE_PROPOSAL.md §C.8 — the three-zone desktop workspace (`lg:` and up); `TabletCookingLayout`/`MobileCookingLayout` reuse this file's `NavList`/`TimerList`/`RecipePanel`/`ConnectedSectionPanel` exports for narrower ranges. */
 export function DesktopCookingLayout({
   sessionId,
@@ -89,6 +144,7 @@ export function DesktopCookingLayout({
   dishKind,
   versionLabel,
   versionImageAssetId,
+  sources,
   statusLabel,
   hasReview,
   planActiveUnits,
@@ -102,7 +158,7 @@ export function DesktopCookingLayout({
   totalUnitsCount,
   cookingNotes,
   onRequestEnd,
-  onOpenSessionScale,
+  onOpenScale,
   isChecked,
   onToggleItem,
   onMarkAllPrepared,
@@ -122,15 +178,36 @@ export function DesktopCookingLayout({
   liveTimers,
 }: CookingLayoutProps) {
   const [timerModalOpen, setTimerModalOpen] = React.useState(false);
-  const selectedUnit = selectedDestination
-    ? (unitViewModels.find((vm) => vm.unit.id === selectedDestination)?.unit ??
-      null)
-    : null;
+  const isSourceOverview = isSourceOverviewDestination(selectedDestination);
+  const selectedUnit =
+    !isSourceOverview && selectedDestination
+      ? (unitViewModels.find((vm) => vm.unit.id === selectedDestination)
+          ?.unit ?? null)
+      : null;
+  const selectedSource = resolveSelectedSource(
+    sources,
+    // scaleFactor/outputQuantity/outputUnit are never read off this
+    // fallback branch — the single-source scale dialog reads the shell's
+    // own session-level values instead (`onOpenScale(null)`); these three
+    // exist only to satisfy `CookingModeSourceDto`'s shape.
+    {
+      dishId,
+      dishTitle,
+      dishKind,
+      versionLabel,
+      versionImageAssetId,
+      scaleFactor: 1,
+      outputQuantity: null,
+      outputUnit: null,
+    },
+    selectedDestination,
+  );
 
   return (
     <div className="flex h-dvh w-full overflow-hidden">
       <NavRail
         dishTitle={dishTitle}
+        sources={sources}
         selectedDestination={selectedDestination}
         onSelectDestination={onSelectDestination}
         unitViewModels={unitViewModels}
@@ -138,22 +215,23 @@ export function DesktopCookingLayout({
 
       <main className="flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-2xl flex-col gap-6 px-6 py-8 xl:px-8">
-          {selectedDestination === null ? (
+          {isSourceOverview ? (
             <RecipePanel
               sessionId={sessionId}
               isActive={isActive}
-              dishId={dishId}
-              dishTitle={dishTitle}
-              dishKind={dishKind}
-              versionLabel={versionLabel}
-              versionImageAssetId={versionImageAssetId}
+              dishId={selectedSource.dishId}
+              dishTitle={selectedSource.dishTitle}
+              dishKind={selectedSource.dishKind}
+              versionLabel={selectedSource.versionLabel}
+              versionImageAssetId={selectedSource.versionImageAssetId}
+              sourceId={sources.length > 1 ? selectedSource.id : null}
               statusLabel={statusLabel}
               hasReview={hasReview}
               completedUnitsCount={completedUnitsCount}
               totalUnitsCount={totalUnitsCount}
               cookingNotes={cookingNotes}
               onRequestEnd={onRequestEnd}
-              onOpenSessionScale={onOpenSessionScale}
+              onOpenScale={onOpenScale}
               planActiveUnits={planActiveUnits}
               planRemovedUnits={planRemovedUnits}
               addableUnits={addableUnits}
@@ -211,11 +289,13 @@ export function DesktopCookingLayout({
 
 function NavRail({
   dishTitle,
+  sources,
   selectedDestination,
   onSelectDestination,
   unitViewModels,
 }: {
   dishTitle: string;
+  sources: CookingModeSourceDto[];
   selectedDestination: string | null;
   onSelectDestination: (destination: string | null) => void;
   unitViewModels: UnitViewModel[];
@@ -223,11 +303,19 @@ function NavRail({
   return (
     <div className="border-border bg-card flex h-full w-52 shrink-0 flex-col border-r xl:w-60">
       <div className="shrink-0 p-3 pb-0">
-        <NavHeader
-          dishTitle={dishTitle}
-          selectedDestination={selectedDestination}
-          onSelectDestination={onSelectDestination}
-        />
+        {sources.length > 1 ? (
+          <SourceNavList
+            sources={sources}
+            selectedDestination={selectedDestination}
+            onSelectDestination={onSelectDestination}
+          />
+        ) : (
+          <NavHeader
+            dishTitle={dishTitle}
+            selectedDestination={selectedDestination}
+            onSelectDestination={onSelectDestination}
+          />
+        )}
       </div>
       <nav
         aria-label="Cooking navigation"
@@ -267,6 +355,55 @@ export function NavHeader({
       >
         {dishTitle}
       </button>
+      <div className="border-border my-1 border-t" />
+    </>
+  );
+}
+
+/**
+ * Multi-source generalization of `NavHeader` (owner spec, 2026-09-17) — one
+ * nav button per participating source above the divider, instead of the
+ * single fixed Recipe/Part title button. Used only when `sources.length >
+ * 1`; a single-source session always renders `NavHeader` instead, so its
+ * nav stays pixel-identical to before this feature existed.
+ */
+export function SourceNavList({
+  sources,
+  selectedDestination,
+  onSelectDestination,
+}: {
+  sources: CookingModeSourceDto[];
+  selectedDestination: string | null;
+  onSelectDestination: (destination: string | null) => void;
+}) {
+  return (
+    <>
+      <ul className="flex flex-col gap-1">
+        {sources.map((source, index) => {
+          // Index 0's own destination is `null` — the same sentinel a
+          // single-source session's own `NavHeader` already uses, so
+          // `selectDestination`'s `?unit=` URL-persistence logic
+          // (`cooking-mode-shell.tsx`) needs no source-specific case.
+          const destination = index === 0 ? null : sourceDestination(source.id);
+          const isSelected = selectedDestination === destination;
+          return (
+            <li key={source.id}>
+              <button
+                type="button"
+                onClick={() => onSelectDestination(destination)}
+                aria-current={isSelected}
+                className={`w-full cursor-pointer truncate rounded-lg px-3 py-2 text-left text-sm font-semibold ${
+                  isSelected
+                    ? "bg-primary/5 text-primary"
+                    : "text-foreground hover:bg-muted"
+                }`}
+              >
+                {source.dishTitle}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
       <div className="border-border my-1 border-t" />
     </>
   );
@@ -315,6 +452,11 @@ export function NavSectionList({
                   )}
                 </span>
               </span>
+              {unit.sourceLabel && (
+                <span className="text-muted-foreground truncate text-xs">
+                  {unit.sourceLabel}
+                </span>
+              )}
             </button>
           </li>
         );
@@ -326,22 +468,32 @@ export function NavSectionList({
 /** The Recipe destination button + Section list, without a `<nav>` wrapper — used where header and list scroll together (e.g. the mobile drawer). Desktop/tablet rails use `NavHeader`/`NavSectionList` separately so only the middle region scrolls. */
 export function NavList({
   dishTitle,
+  sources,
   selectedDestination,
   onSelectDestination,
   unitViewModels,
 }: {
   dishTitle: string;
+  sources: CookingModeSourceDto[];
   selectedDestination: string | null;
   onSelectDestination: (destination: string | null) => void;
   unitViewModels: UnitViewModel[];
 }) {
   return (
     <>
-      <NavHeader
-        dishTitle={dishTitle}
-        selectedDestination={selectedDestination}
-        onSelectDestination={onSelectDestination}
-      />
+      {sources.length > 1 ? (
+        <SourceNavList
+          sources={sources}
+          selectedDestination={selectedDestination}
+          onSelectDestination={onSelectDestination}
+        />
+      ) : (
+        <NavHeader
+          dishTitle={dishTitle}
+          selectedDestination={selectedDestination}
+          onSelectDestination={onSelectDestination}
+        />
+      )}
       <NavSectionList
         selectedDestination={selectedDestination}
         onSelectDestination={onSelectDestination}
@@ -359,13 +511,14 @@ export function RecipePanel({
   dishKind,
   versionLabel,
   versionImageAssetId,
+  sourceId,
   statusLabel,
   hasReview,
   completedUnitsCount,
   totalUnitsCount,
   cookingNotes,
   onRequestEnd,
-  onOpenSessionScale,
+  onOpenScale,
   planActiveUnits,
   planRemovedUnits,
   addableUnits,
@@ -380,13 +533,16 @@ export function RecipePanel({
   dishKind: DishKindValue | null;
   versionLabel: string;
   versionImageAssetId: string | null;
+  // Live per-source rescale — null for a single-source session (the Scale
+  // button opens the whole-session dialog); this source's own id otherwise.
+  sourceId: string | null;
   statusLabel: string;
   hasReview: boolean;
   completedUnitsCount: number;
   totalUnitsCount: number;
   cookingNotes: string | null;
   onRequestEnd: () => void;
-  onOpenSessionScale: () => void;
+  onOpenScale: (sourceId: string | null) => void;
   planActiveUnits: PlanUnit[];
   planRemovedUnits: PlanUnit[];
   addableUnits: AddableUnit[];
@@ -400,7 +556,11 @@ export function RecipePanel({
         <div className="flex items-start justify-end gap-2">
           <div className="flex shrink-0 items-center gap-3">
             <Link
-              href={`/cook/${sessionId}/review`}
+              href={
+                sourceId
+                  ? `/cook/${sessionId}/review?source=${sourceId}`
+                  : `/cook/${sessionId}/review`
+              }
               className="text-primary text-sm hover:underline"
             >
               {hasReview ? "Edit Review" : "Add Review"}
@@ -456,9 +616,13 @@ export function RecipePanel({
             addableUnits={addableUnits}
             onUnitRemoved={onUnitRemoved}
           />
-          <Button variant="outline" size="sm" onClick={onOpenSessionScale}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onOpenScale(sourceId)}
+          >
             <SlidersHorizontal className="size-4" aria-hidden="true" />
-            Scale session
+            {sourceId ? "Scale" : "Scale session"}
           </Button>
           <Button size="sm" onClick={onRequestEnd}>
             <CircleStop className="size-4" aria-hidden="true" />
@@ -563,6 +727,21 @@ export function SectionPanel({
           </Button>
         )}
       </div>
+
+      {unit.contributors && (
+        // Restrained per-source allocation (owner spec) — a shared Part's
+        // own contribution breakdown, visible during actual cooking too,
+        // not only in pre-cook Setup.
+        <p className="text-muted-foreground -mt-4 text-sm">
+          {unit.contributors
+            .map((c) =>
+              c.contributionQuantity != null
+                ? `${c.sourceDishTitle} — ${Math.round(c.contributionQuantity * 100) / 100}${c.contributionUnit ? ` ${c.contributionUnit}` : ""}`
+                : c.sourceDishTitle,
+            )
+            .join(" · ")}
+        </p>
+      )}
 
       <IngredientsSection
         items={ingredientItems}

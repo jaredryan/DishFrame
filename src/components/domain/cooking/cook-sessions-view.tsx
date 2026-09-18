@@ -33,6 +33,20 @@ function isStale(startedAt: Date): boolean {
   return Date.now() - startedAt.getTime() > STALE_THRESHOLD_MS;
 }
 
+/** Owner spec, 2026-09-17: "one combined resume card/session," e.g.
+ * "Chicken Bowl + Beef Bowl" — every participating source's own title.
+ * `sourceTitles` always has exactly one entry for a single-source session
+ * (matching `dishTitle`), so this is a no-op change for every existing
+ * card. */
+function resumeCardTitle(session: {
+  dishTitle: string;
+  sourceTitles: string[];
+}): string {
+  return session.sourceTitles.length > 1
+    ? session.sourceTitles.join(" + ")
+    : session.dishTitle;
+}
+
 export type SessionRowData = {
   id: string;
   dishTitle: string;
@@ -152,7 +166,7 @@ export function CookActiveSessionCard({
   return (
     <ActiveSessionCardShell
       session={session}
-      title={session.dishTitle}
+      title={resumeCardTitle(session)}
       leadingPill={
         <StaticPill>
           <Clock className="size-3.5" aria-hidden="true" />
@@ -180,7 +194,7 @@ export function CookCompletedSessionCard({
   return (
     <CompletedSessionCardShell
       session={session}
-      title={session.dishTitle}
+      title={resumeCardTitle(session)}
       leadingPill={
         <StaticPill>
           <Clock className="size-3.5" aria-hidden="true" />

@@ -10,10 +10,26 @@ import {
 import * as cookingService from "@/lib/cooking/service";
 import {
   listCookablePickerItems as queryCookablePickerItems,
+  getOwnedDishOrThrow,
+  getDishScopedVersionContentOrThrow,
+  listDishVersionSummaries,
   type CookablePickerItem,
 } from "@/lib/dishes/queries";
+import { buildCookableUnits } from "@/lib/cooking/queries";
+import {
+  consolidateSources,
+  suggestConsolidatedOrder,
+} from "@/lib/cooking/consolidation";
+import {
+  toConsolidatedSetupUnits,
+  type ConsolidatedSetupUnit,
+} from "@/lib/cooking/setup-units";
+import type { VersionOption } from "@/components/domain/dish/version-picker";
+import { versionLabel } from "@/lib/dishes/version-note";
+import { decimalToNumber } from "@/lib/dishes/format";
 import {
   startCookingSessionSchema,
+  startMultiSourceCookingSessionSchema,
   addSessionUnitsSchema,
   removeSessionUnitSchema,
   restoreSessionUnitSchema,
@@ -24,6 +40,7 @@ import {
   setUnitCompletionSchema,
   updateSessionScaleSchema,
   updateUnitScaleSchema,
+  updateSourceScaleSchema,
   createTimerSchema,
   renameTimerSchema,
   timerIdSchema,
@@ -73,6 +90,134 @@ export async function startCookingSession(values: {
     const input = startCookingSessionSchema.parse(values);
 
     const session = await cookingService.startCookingSession(userId, input);
+
+    revalidateSession(session.id);
+    return { status: "success", sessionId: session.id };
+  } catch (error) {
+    if (error instanceof ActiveSessionConflictError) {
+      return {
+        status: "conflict",
+        message: error.message,
+        existingSessionId: error.existingSessionId,
+      };
+    }
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export type MultiSourceSetupSourceDto = {
+  dishId: string;
+  dishKind: "RECIPE" | "PART";
+  dishTitle: string;
+  dishVersionId: string;
+  versionLabel: string;
+  isCurrent: boolean;
+  currentVersionId: string | null;
+  versions: VersionOption[];
+  outputQuantity: number | null;
+  outputUnit: string | null;
+};
+
+export type GetMultiSourceSetupDataActionState =
+  | {
+      status: "success";
+      sources: MultiSourceSetupSourceDto[];
+      units: ConsolidatedSetupUnit[];
+    }
+  | { status: "error"; message: string };
+
+/**
+ * Backs the new multi-source Cooking Setup screen the generic Start Cooking
+ * picker hands off to (owner spec, 2026-09-17) — re-derives each selected
+ * source's own content and the consolidated combined-order list fresh on
+ * every call, same "never trusted from the client" rule as
+ * `buildCookableUnits` itself. `dishVersionId` is optional per source (the
+ * picker's Step 1 selects only a Recipe/Part; Step 2 picks its Version) —
+ * omitted, it defaults to that Dish's own current Version.
+ */
+export async function getMultiSourceSetupData(values: {
+  sources: Array<{ dishId: string; dishVersionId?: string | null }>;
+}): Promise<GetMultiSourceSetupDataActionState> {
+  try {
+    const userId = await requireUserId();
+    if (values.sources.length === 0) {
+      return {
+        status: "error",
+        message: "Select at least one Recipe or Part.",
+      };
+    }
+
+    const resolved = await Promise.all(
+      values.sources.map(async (s) => {
+        const dish = await getOwnedDishOrThrow(userId, s.dishId);
+        const targetVersionId = s.dishVersionId || dish.currentVersionId;
+        if (!targetVersionId) {
+          throw new Error(
+            `${dish.currentTitle ?? "This item"} has no saved Version.`,
+          );
+        }
+        const [version, versions] = await Promise.all([
+          getDishScopedVersionContentOrThrow(s.dishId, targetVersionId),
+          listDishVersionSummaries(s.dishId),
+        ]);
+        return { dish, version, versions };
+      }),
+    );
+
+    const cookableUnitsPerSource = await Promise.all(
+      resolved.map(({ dish, version }) =>
+        buildCookableUnits(userId, dish, version),
+      ),
+    );
+
+    const sources: MultiSourceSetupSourceDto[] = resolved.map(
+      ({ dish, version, versions }) => ({
+        dishId: dish.id,
+        dishKind: dish.kind,
+        dishTitle: dish.currentTitle || "Untitled",
+        dishVersionId: version.id,
+        versionLabel: versionLabel(version.majorVersion, version.minorVersion),
+        isCurrent: version.id === dish.currentVersionId,
+        currentVersionId: dish.currentVersionId,
+        versions,
+        outputQuantity: decimalToNumber(version.yieldQuantity),
+        outputUnit: version.yieldUnit,
+      }),
+    );
+
+    const consolidated = consolidateSources(
+      cookableUnitsPerSource.map((cookableUnits) => ({
+        cookableUnits,
+        scaleFactor: null,
+      })),
+    );
+    const units = toConsolidatedSetupUnits(
+      suggestConsolidatedOrder(consolidated),
+      sources.map((s) => s.dishTitle),
+    );
+
+    return { status: "success", sources, units };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export async function startMultiSourceCookingSession(values: {
+  sources: Array<{
+    dishId: string;
+    dishVersionId: string;
+    scaleFactor?: number | null;
+  }>;
+  units: Array<{ mergeKey: string; scaleFactor?: number | null }>;
+}): Promise<StartCookingSessionActionState> {
+  try {
+    const userId = await requireUserId();
+    const input = startMultiSourceCookingSessionSchema.parse(values);
+
+    const session = await cookingService.startMultiSourceCookingSession(
+      userId,
+      input,
+    );
 
     revalidateSession(session.id);
     return { status: "success", sessionId: session.id };
@@ -284,6 +429,30 @@ export async function updateUnitScale(values: {
       userId,
       sessionId,
       unitId,
+      scaleFactor,
+    );
+
+    revalidateSession(sessionId);
+    return { status: "success" };
+  } catch (error) {
+    return { status: "error", message: toActionErrorMessage(error) };
+  }
+}
+
+export async function updateSourceScale(values: {
+  sessionId: string;
+  sourceId: string;
+  scaleFactor: number | null;
+}): Promise<ActionState> {
+  try {
+    const userId = await requireUserId();
+    const { sessionId, sourceId, scaleFactor } =
+      updateSourceScaleSchema.parse(values);
+
+    await cookingService.updateSourceScale(
+      userId,
+      sessionId,
+      sourceId,
       scaleFactor,
     );
 

@@ -1,4 +1,5 @@
 import type { CookableUnit } from "@/lib/cooking/queries";
+import type { ConsolidatedUnit } from "@/lib/cooking/consolidation";
 
 export type SetupUnit = {
   unitKey: string;
@@ -36,5 +37,54 @@ export function toSetupUnits(cookableUnits: CookableUnit[]): SetupUnit[] {
     outputQuantity: unit.outputQuantity,
     outputUnit: unit.outputUnit,
     parentPartLabel: unit.partViaTitleSnapshot,
+  }));
+}
+
+export type ConsolidatedSetupContributor = {
+  sourceIndex: number;
+  sourceDishTitle: string;
+  contributionQuantity: number | null;
+  contributionUnit: string | null;
+};
+
+export type ConsolidatedSetupUnit = SetupUnit & {
+  /** Stable key selected/reordered by, and posted back as
+   * `units[].mergeKey` to `startMultiSourceCookingSession` — see
+   * `consolidation.ts`'s `ConsolidatedUnit.mergeKey`. */
+  mergeKey: string;
+  /** Only meaningful when `contributors.length > 1` — a Section or a Part
+   * contributed by a single source never needs the restrained source-label
+   * treatment the owner's multi-source spec calls for ("Source attribution
+   * in the combined list"). */
+  contributors: ConsolidatedSetupContributor[];
+};
+
+/** Multi-source counterpart to `toSetupUnits` — the exact same per-unit
+ * mapping, plus each unit's `mergeKey` and per-source contribution
+ * breakdown for the combined "Cooking order and scale" list and its
+ * restrained source-attribution treatment. */
+export function toConsolidatedSetupUnits(
+  consolidatedUnits: ConsolidatedUnit[],
+  sourceDishTitles: string[],
+): ConsolidatedSetupUnit[] {
+  return consolidatedUnits.map(({ mergeKey, unit, contributions }) => ({
+    unitKey: unit.unitKey,
+    kind: unit.kind,
+    label: unit.label,
+    estimatedDurationMinutes: unit.estimatedDurationMinutes,
+    ingredientCount: unit.checklist.filter((i) => i.kind === "INGREDIENT")
+      .length,
+    instructionCount: unit.checklist.filter((i) => i.kind === "INSTRUCTION")
+      .length,
+    outputQuantity: unit.outputQuantity,
+    outputUnit: unit.outputUnit,
+    parentPartLabel: unit.partViaTitleSnapshot,
+    mergeKey,
+    contributors: contributions.map((c) => ({
+      sourceIndex: c.sourceIndex,
+      sourceDishTitle: sourceDishTitles[c.sourceIndex] ?? "Untitled",
+      contributionQuantity: c.contributionQuantity,
+      contributionUnit: c.contributionUnit,
+    })),
   }));
 }

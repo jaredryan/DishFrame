@@ -17,13 +17,21 @@ import {
   getOwnedDishVersionOrThrow,
   getOwnedSessionOrThrow,
   findActiveSessionForDish,
+  findActiveSessionForSourceDishes,
   buildCookableUnits,
-  sessionUnitKey,
   type CookableUnit,
   type OwnedCookingSession,
 } from "@/lib/cooking/queries";
+import {
+  consolidateSources,
+  recomputeContributionAggregate,
+  type ConsolidatedUnit,
+} from "@/lib/cooking/consolidation";
 import { versionLabel } from "@/lib/dishes/version-note";
-import type { StartCookingSessionInput } from "@/lib/cooking/schema";
+import type {
+  StartCookingSessionInput,
+  StartMultiSourceCookingSessionInput,
+} from "@/lib/cooking/schema";
 
 /**
  * Cooking Session domain functions (ARCHITECTURE_PROPOSAL.md §I's "Begin a
@@ -167,6 +175,24 @@ export async function startCookingSession(
         },
       });
 
+      // Multi-source Cooking Sessions (2026-09-17) — every session, single-
+      // or multi-source, gets exactly one CookingSessionSource row per
+      // participating dish, so `startMultiSourceCookingSession`'s own
+      // conflict detection (which only ever queries this table) correctly
+      // sees a session started through this older, still-primary
+      // single-source path too. Purely additive: nothing else in this
+      // function changes.
+      const sourceRow = await tx.cookingSessionSource.create({
+        data: {
+          sessionId: session.id,
+          position: 0,
+          dishId: input.dishId,
+          dishVersionId: input.dishVersionId,
+          scaleFactor: sessionScale,
+          originalScaleFactor: sessionScale,
+        },
+      });
+
       for (const [index, { unit, scaleFactor }] of selected.entries()) {
         const effectiveMultiplier = (sessionScale ?? 1) * (scaleFactor ?? 1);
         const unitClientIds = clientIds?.units?.[unit.unitKey];
@@ -212,6 +238,31 @@ export async function startCookingSession(
         }
 
         await createPartUsageRows(tx, session.id, unitRow.id, unit);
+
+        // Multi-source Cooking Sessions (2026-09-17) — every unit, in every
+        // session, gets exactly one CookingSessionUnitContribution row
+        // (this source's own, wholly-owning one) so the multi-source-aware
+        // read/write paths (`addSessionUnits`, `session-view.ts`'s
+        // addable-units computation) don't need a separate code path for a
+        // unit created through this older, still-primary single-source
+        // function. `multiplier` mirrors this unit's own per-unit
+        // `scaleFactor` composed with the session's scale — the same
+        // `effectiveMultiplier` already used to render its checklist above.
+        await tx.cookingSessionUnitContribution.create({
+          data: {
+            unitId: unitRow.id,
+            sourceId: sourceRow.id,
+            sourceUnitKey: unit.unitKey,
+            multiplier: effectiveMultiplier,
+            contributionQuantity:
+              unit.outputQuantity == null
+                ? null
+                : unit.outputQuantity *
+                  unit.linkMultiplier *
+                  effectiveMultiplier,
+            contributionUnit: unit.outputUnit,
+          },
+        });
       }
 
       return session;
@@ -220,6 +271,229 @@ export async function startCookingSession(
     if (isUniqueConstraintViolation(error)) {
       const existing = await findActiveSessionForDish(ownerId, input.dishId);
       throw new ActiveSessionConflictError(existing?.id ?? null);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Multi-source Cooking Sessions (owner spec, 2026-09-17) — the generic
+ * Start Cooking picker's counterpart to `startCookingSession` above, which
+ * stays completely untouched for every existing single-source entry point
+ * (direct per-Recipe/Part "Prepare to cook," `mealplans/service.ts`'s
+ * `startSessionFromEntry`). One transaction creates the `CookingSession` +
+ * one `CookingSessionSource` row per selected top-level source + every
+ * selected *consolidated* unit (see `consolidateSources`) + its checklist +
+ * one `CookingSessionUnitContribution`/`CookingSessionPartUsage` pair per
+ * contributing source — atomic exactly like `startCookingSession`: any
+ * source dish already active elsewhere throws before any row of this new
+ * session is visible (the partial unique index `one_active_session_per_dish_source`
+ * fires inside the same transaction, which the caught `P2002` maps to
+ * `ActiveSessionConflictError`, never a partially-created session).
+ *
+ * `CookingSession.dishId`/`dishVersionId`/`scaleFactor`/`originalScaleFactor`
+ * mirror `sources[0]` (position 0) purely for the many existing read sites
+ * that still read those columns directly — never authoritative for this
+ * session; `sources` is (see schema.prisma's `CookingSession` doc comment).
+ */
+/** Offline start (docs/OFFLINE_IMPLEMENTATION_PLAN.md's client-generated-id
+ * strategy) needs the session's own id immediately, same rationale as
+ * `StartCookingSessionClientIds` above — a follow-up mutation queued
+ * moments later (e.g. ending the session) can reference it before this
+ * creation mutation has synced. Per-unit/per-source client ids aren't
+ * threaded through here: the offline creation path never renders a rich
+ * optimistic preview to begin with (`offline-start.ts`'s own `optimisticDoc`
+ * is a no-op), so there's nothing yet that could diverge from them. */
+export async function startMultiSourceCookingSession(
+  ownerId: string,
+  input: StartMultiSourceCookingSessionInput,
+  clientIds?: { sessionId?: string },
+) {
+  const dishIds = input.sources.map((s) => s.dishId);
+  if (new Set(dishIds).size !== dishIds.length) {
+    throw new ValidationError(
+      "Each Recipe or Part can only be selected once per session.",
+    );
+  }
+
+  const resolvedSources = await Promise.all(
+    input.sources.map((s) =>
+      getOwnedDishVersionOrThrow(ownerId, s.dishId, s.dishVersionId),
+    ),
+  );
+  const cookableUnitsPerSource = await Promise.all(
+    resolvedSources.map(({ dish, version }) =>
+      buildCookableUnits(ownerId, dish, version),
+    ),
+  );
+
+  const consolidated = consolidateSources(
+    input.sources.map((s, index) => ({
+      cookableUnits: cookableUnitsPerSource[index],
+      scaleFactor: s.scaleFactor ?? null,
+    })),
+  );
+  const byMergeKey = new Map(consolidated.map((u) => [u.mergeKey, u]));
+
+  const seen = new Set<string>();
+  const selected: Array<{
+    unit: ConsolidatedUnit;
+    scaleFactor: number | null;
+  }> = [];
+  for (const entry of input.units) {
+    if (seen.has(entry.mergeKey)) continue;
+    seen.add(entry.mergeKey);
+    const unit = byMergeKey.get(entry.mergeKey);
+    if (!unit) {
+      throw new ValidationError(
+        "One of the selected Sections or Parts is no longer available.",
+      );
+    }
+    selected.push({ unit, scaleFactor: entry.scaleFactor ?? null });
+  }
+  if (selected.length === 0) {
+    throw new ValidationError("Select at least one Section or Part to cook.");
+  }
+
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const primary = input.sources[0];
+      const session = await tx.cookingSession.create({
+        data: {
+          ...(clientIds?.sessionId ? { id: clientIds.sessionId } : {}),
+          ownerId,
+          dishId: primary.dishId,
+          dishVersionId: primary.dishVersionId,
+          scaleFactor: primary.scaleFactor ?? null,
+          originalScaleFactor: primary.scaleFactor ?? null,
+        },
+      });
+
+      const sourceRows: { id: string }[] = [];
+      for (const [index, s] of input.sources.entries()) {
+        sourceRows.push(
+          await tx.cookingSessionSource.create({
+            data: {
+              sessionId: session.id,
+              position: index,
+              dishId: s.dishId,
+              dishVersionId: s.dishVersionId,
+              scaleFactor: s.scaleFactor ?? null,
+              originalScaleFactor: s.scaleFactor ?? null,
+            },
+          }),
+        );
+      }
+
+      for (const [
+        index,
+        { unit: consolidatedUnit, scaleFactor },
+      ] of selected.entries()) {
+        const unit = consolidatedUnit.unit;
+        const unitRow = await tx.cookingSessionUnit.create({
+          data: {
+            sessionId: session.id,
+            position: index,
+            scaleFactor,
+            originalScaleFactor: scaleFactor,
+            label: unit.label,
+            sourceDishTitle: unit.sourceDishTitle,
+            sourceDishVersionLabel: unit.sourceDishVersionLabel,
+            sourceSectionLineageId: unit.sourceSectionLineageId,
+            sourcePartLinkLineageId: unit.sourcePartLinkLineageId,
+          },
+        });
+
+        // Completion pass fix (2026-09-18): an *ordinary* (single-
+        // contribution) unit's checklist quantities were previously
+        // rendered using only the per-unit scale, silently ignoring the
+        // owning source's own configured scale — a Chicken Bowl scaled 2x
+        // never actually scaled its own Sections' ingredients. A
+        // *consolidated* unit's checklist is already source-scale-weighted
+        // by `aggregateChecklist` (see consolidation.ts), so multiplying by
+        // source scale again here would double-count it — only an ordinary
+        // unit needs it applied at this step.
+        const owningSourceScale =
+          consolidatedUnit.contributions.length === 1
+            ? (input.sources[consolidatedUnit.contributions[0].sourceIndex]
+                .scaleFactor ?? 1)
+            : 1;
+        const checklistMultiplier = owningSourceScale * (scaleFactor ?? 1);
+
+        for (const raw of unit.checklist) {
+          const display = renderChecklistDisplay(raw, checklistMultiplier);
+          await tx.cookingSessionChecklistItem.create({
+            data: {
+              unitId: unitRow.id,
+              kind: raw.kind,
+              displayText: display.displayText,
+              displayQuantity: display.displayQuantity,
+              displayUnit: display.displayUnit,
+              baseQuantity: display.baseQuantity,
+              baseQuantityEnd: display.baseQuantityEnd,
+              isApproximate: display.isApproximate,
+              sourceLineageId: raw.sourceLineageId,
+            },
+          });
+        }
+
+        for (const contribution of consolidatedUnit.contributions) {
+          const sourceRow = sourceRows[contribution.sourceIndex];
+          await tx.cookingSessionUnitContribution.create({
+            data: {
+              unitId: unitRow.id,
+              sourceId: sourceRow.id,
+              sourceUnitKey: contribution.sourceUnitKey,
+              multiplier: contribution.weight,
+              contributionQuantity: contribution.contributionQuantity,
+              contributionUnit: contribution.contributionUnit,
+            },
+          });
+
+          // Generalizes createPartUsageRows above to one row per
+          // contributing source for a consolidated Part, rather than one
+          // per merged unit — see CookingSessionUnitContribution's own
+          // schema.prisma doc comment.
+          const contributedUnit = contribution.unit;
+          if (
+            contributedUnit.kind === "PART" &&
+            contributedUnit.targetDishId &&
+            contributedUnit.targetDishVersionId
+          ) {
+            await tx.cookingSessionPartUsage.create({
+              data: {
+                sessionId: session.id,
+                unitId: unitRow.id,
+                partDishId: contributedUnit.targetDishId,
+                partVersionId: contributedUnit.targetDishVersionId,
+                partTitleSnapshot: contributedUnit.label,
+                partVersionLabelSnapshot:
+                  contributedUnit.sourceDishVersionLabel,
+                relation: contributedUnit.partRelation ?? "DIRECT",
+                viaPartTitleSnapshot: contributedUnit.partViaTitleSnapshot,
+                pathSnapshot:
+                  contributedUnit.partPathSnapshot ?? contributedUnit.label,
+              },
+            });
+          }
+        }
+      }
+
+      return session;
+    });
+  } catch (error) {
+    if (isUniqueConstraintViolation(error)) {
+      const conflict = await findActiveSessionForSourceDishes(ownerId, dishIds);
+      const conflictingSource = resolvedSources.find(
+        (_, i) => input.sources[i].dishId === conflict?.dishId,
+      );
+      const message = conflictingSource
+        ? `"${conflictingSource.dish.currentTitle ?? "This item"}" is already being cooked in another session.`
+        : undefined;
+      throw new ActiveSessionConflictError(
+        conflict?.sessionId ?? null,
+        message,
+      );
     }
     throw error;
   }
@@ -244,29 +518,157 @@ export async function addSessionUnits(
   const session = await getOwnedSessionOrThrow(ownerId, sessionId);
   assertActive(session);
 
-  const { dish, version } = await getOwnedDishVersionOrThrow(
-    ownerId,
-    session.dishId,
-    session.dishVersionId,
+  // Multi-source audit (2026-09-18): searches every participating source's
+  // own cookable units, not just the session's legacy top-level
+  // dishId/dishVersionId mirror (source[0]) — the old single-source-only
+  // version of this function silently no-opped when asked to add a unit
+  // belonging to any other source. A single-source session has exactly one
+  // row in `session.sources`, so this is a strict generalization.
+  const perSource = await Promise.all(
+    session.sources.map(async (s) => {
+      const { dish, version } = await getOwnedDishVersionOrThrow(
+        ownerId,
+        s.dishId,
+        s.dishVersionId,
+      );
+      const cookableUnits = await buildCookableUnits(ownerId, dish, version);
+      return { source: s, cookableUnits };
+    }),
   );
-  const cookableUnits = await buildCookableUnits(ownerId, dish, version);
-  const byKey = new Map(cookableUnits.map((unit) => [unit.unitKey, unit]));
+  // unitKey is only ever generated from one source's own local lineage id,
+  // so at most one source can ever offer a given key — first match wins.
+  const byKey = new Map<
+    string,
+    { source: (typeof session.sources)[number]; unit: CookableUnit }
+  >();
+  for (const { source, cookableUnits } of perSource) {
+    for (const unit of cookableUnits) {
+      if (!byKey.has(unit.unitKey)) byKey.set(unit.unitKey, { source, unit });
+    }
+  }
 
-  const existingKeys = new Set(session.units.map(sessionUnitKey));
+  const existingKeys = new Set(
+    session.units.flatMap((u) => u.contributions.map((c) => c.sourceUnitKey)),
+  );
   const toAdd = [...new Set(unitKeys)].filter(
     (key) => byKey.has(key) && !existingKeys.has(key),
   );
   if (toAdd.length === 0) return;
 
+  // Shared-Part consolidation (owner spec, 2026-09-17): a requested unit
+  // whose exact Part+Version already has an active unit in this session
+  // (contributed by a different source) gets a new contribution on *that*
+  // unit instead of a second, duplicate CookingSessionUnit.
+  const existingPartUsage = await prisma.cookingSessionPartUsage.findMany({
+    where: { sessionId, unit: { removedAt: null } },
+    select: { unitId: true, partDishId: true, partVersionId: true },
+  });
+  const existingUnitIdByTarget = new Map(
+    existingPartUsage
+      .filter((u) => u.partDishId && u.partVersionId)
+      .map((u) => [`${u.partDishId}:${u.partVersionId}`, u.unitId]),
+  );
+
   const maxPosition = session.units.reduce(
     (max, u) => Math.max(max, u.position),
     -1,
   );
-  const sessionScale = decimalToNumber(session.scaleFactor) ?? 1;
 
   await prisma.$transaction(async (tx) => {
-    for (const [offset, key] of toAdd.entries()) {
-      const unit = byKey.get(key)!;
+    let offset = 0;
+    for (const key of toAdd) {
+      const { source, unit } = byKey.get(key)!;
+      const sourceScale = decimalToNumber(source.scaleFactor) ?? 1;
+      const targetKey =
+        unit.targetDishId && unit.targetDishVersionId
+          ? `${unit.targetDishId}:${unit.targetDishVersionId}`
+          : null;
+      const existingUnitId = targetKey
+        ? existingUnitIdByTarget.get(targetKey)
+        : undefined;
+
+      const contributionQuantity =
+        unit.outputQuantity == null
+          ? null
+          : unit.outputQuantity * unit.linkMultiplier * sourceScale;
+
+      if (existingUnitId) {
+        await tx.cookingSessionUnitContribution.create({
+          data: {
+            unitId: existingUnitId,
+            sourceId: source.id,
+            sourceUnitKey: unit.unitKey,
+            multiplier: sourceScale,
+            contributionQuantity,
+            contributionUnit: unit.outputUnit,
+          },
+        });
+        await createPartUsageRows(tx, sessionId, existingUnitId, unit);
+
+        // Re-aggregates the now-shared unit's checklist from every
+        // contribution's current source scale, exactly like
+        // `updateSourceScale`'s own recompute — never resets progress
+        // (only baseQuantity/displayQuantity are touched, in place).
+        const existingUnit = session.units.find(
+          (u) => u.id === existingUnitId,
+        )!;
+        const otherContributions = await Promise.all(
+          existingUnit.contributions.map(async (c) => {
+            const contribSource =
+              c.sourceId === source.id
+                ? source
+                : session.sources.find((s) => s.id === c.sourceId)!;
+            const { dish, version } = await getOwnedDishVersionOrThrow(
+              ownerId,
+              contribSource.dishId,
+              contribSource.dishVersionId,
+            );
+            const rawUnits = await buildCookableUnits(ownerId, dish, version);
+            const rawUnit = rawUnits.find((u) => u.unitKey === c.sourceUnitKey);
+            return rawUnit
+              ? {
+                  unit: rawUnit,
+                  weight: decimalToNumber(contribSource.scaleFactor) ?? 1,
+                }
+              : null;
+          }),
+        );
+        const aggregate = recomputeContributionAggregate([
+          ...otherContributions.filter(
+            (c): c is { unit: CookableUnit; weight: number } => c != null,
+          ),
+          { unit, weight: sourceScale },
+        ]);
+        const unitMultiplier = decimalToNumber(existingUnit.scaleFactor) ?? 1;
+        const updates = existingUnit.checklistItems
+          .map((item) => {
+            const aggRaw = aggregate.checklist.find(
+              (r) => r.sourceLineageId === item.sourceLineageId,
+            );
+            if (
+              !aggRaw ||
+              aggRaw.kind !== "INGREDIENT" ||
+              aggRaw.quantity == null
+            ) {
+              return null;
+            }
+            return {
+              id: item.id,
+              baseQuantity: aggRaw.quantity,
+              baseQuantityEnd: aggRaw.quantityEnd,
+              displayQuantity: formatScaledQuantity(
+                aggRaw.quantity,
+                aggRaw.quantityEnd,
+                item.isApproximate,
+                unitMultiplier,
+              ),
+            };
+          })
+          .filter((u): u is NonNullable<typeof u> => u != null);
+        await applyChecklistBaseAndDisplayUpdates(tx, updates);
+        continue;
+      }
+
       const unitClientIds = clientIds?.[key];
       const unitRow = await tx.cookingSessionUnit.create({
         data: {
@@ -280,12 +682,13 @@ export async function addSessionUnits(
           sourcePartLinkLineageId: unit.sourcePartLinkLineageId,
         },
       });
+      offset += 1;
       const checklistIds =
         unitClientIds?.checklistItemIds?.length === unit.checklist.length
           ? unitClientIds.checklistItemIds
           : null;
       for (const [itemIndex, raw] of unit.checklist.entries()) {
-        const display = renderChecklistDisplay(raw, sessionScale);
+        const display = renderChecklistDisplay(raw, sourceScale);
         await tx.cookingSessionChecklistItem.create({
           data: {
             ...(checklistIds ? { id: checklistIds[itemIndex] } : {}),
@@ -302,6 +705,16 @@ export async function addSessionUnits(
         });
       }
 
+      await tx.cookingSessionUnitContribution.create({
+        data: {
+          unitId: unitRow.id,
+          sourceId: source.id,
+          sourceUnitKey: unit.unitKey,
+          multiplier: sourceScale,
+          contributionQuantity,
+          contributionUnit: unit.outputUnit,
+        },
+      });
       await createPartUsageRows(tx, sessionId, unitRow.id, unit);
     }
     await tx.cookingSession.update({
@@ -583,6 +996,19 @@ export async function endCookingSession(
       });
     }
 
+    // Multi-source Cooking Sessions (2026-09-17) — releases every one of
+    // this session's source dishes from the partial unique index
+    // `one_active_session_per_dish_source` the moment the session ends.
+    // Without this, an ended session's source rows would stay `isActive`
+    // forever, permanently blocking any future session on that dish —
+    // there is no reactivation path (`assertActive` above already rejects
+    // ending a session twice), so this is the only place this ever needs
+    // to run.
+    await tx.cookingSessionSource.updateMany({
+      where: { sessionId },
+      data: { isActive: false },
+    });
+
     return tx.cookingSession.update({
       where: { id: sessionId },
       data: { state: outcome, endedAt, rawElapsedSeconds },
@@ -840,8 +1266,24 @@ export async function updateSessionScale(
 
 /**
  * PRODUCT_SPEC.md §24.4: an individual Section's or Part's own scale.
- * Composes with the session's current whole-session scale, same as at
- * session-start (`startCookingSession`'s `effectiveMultiplier`).
+ * Composes with the *owning* source's own current scale — except a
+ * single-source session (every historical session, and any new session
+ * started with exactly one selected source), where that's
+ * `CookingSession.scaleFactor` instead: `updateSessionScale` (the
+ * single-source "whole-session scale" path) only ever mutates that column,
+ * never the lone `CookingSessionSource.scaleFactor` row (nothing in the
+ * single-source UI/API exposes a separate per-source scale to keep it in
+ * sync with), so that row goes stale the moment a single-source session's
+ * whole-session scale changes. A multi-source session has no such
+ * "whole-session" column to fall back to (each source's own
+ * `CookingSessionSource.scaleFactor` is independently live — see
+ * `updateSourceScale`), so its owning source's own row is read directly. A
+ * consolidated (multi-contribution) unit's `baseQuantity` is already the
+ * source-scale-weighted aggregate (`aggregateChecklist`/
+ * `recomputeContributionAggregate`), so composing another source multiplier
+ * here would double-count it — only an ordinary (single-contribution) unit
+ * needs its owning source's scale applied, exactly like
+ * `startMultiSourceCookingSession`'s own `owningSourceScale`.
  */
 export async function updateUnitScale(
   ownerId: string,
@@ -858,10 +1300,15 @@ export async function updateUnitScale(
     throw new ValidationError("Removed units cannot be rescaled.");
   }
 
-  const sessionMultiplier = decimalToNumber(session.scaleFactor) ?? 1;
+  const owningSourceScale =
+    session.sources.length === 1
+      ? (decimalToNumber(session.scaleFactor) ?? 1)
+      : unit.contributions.length === 1
+        ? (decimalToNumber(unit.contributions[0].source.scaleFactor) ?? 1)
+        : 1;
   const updates = computeChecklistDisplayUpdates(
     unit.checklistItems,
-    sessionMultiplier * (scaleFactor ?? 1),
+    owningSourceScale * (scaleFactor ?? 1),
   );
 
   await prisma.$transaction(async (tx) => {
@@ -870,6 +1317,229 @@ export async function updateUnitScale(
       data: { scaleFactor },
     });
     await applyChecklistDisplayUpdates(tx, updates);
+    await tx.cookingSession.update({
+      where: { id: sessionId },
+      data: { updatedAt: new Date() },
+    });
+  });
+}
+
+/**
+ * F8-style batched write, generalizing `applyChecklistDisplayUpdates` to
+ * also touch `baseQuantity`/`baseQuantityEnd` — needed only by a
+ * consolidated unit's rescale recompute below, where the aggregate itself
+ * (not just its display formatting) changes. Never touches `checkedAt`/
+ * `checkedQuantity`: an already-checked item's snapshotted amount is left
+ * exactly as it was, so the existing `computeChecklistItemConflict`
+ * mechanism (queries.ts) naturally flags it as stale against the new
+ * amount — the same "flagged, never silently rewritten" rule §24.5 already
+ * establishes for an ordinary rescale, generalized here rather than
+ * reinvented.
+ */
+async function applyChecklistBaseAndDisplayUpdates(
+  tx: Prisma.TransactionClient,
+  updates: Array<{
+    id: string;
+    baseQuantity: number;
+    baseQuantityEnd: number | null;
+    displayQuantity: string;
+  }>,
+): Promise<void> {
+  if (updates.length === 0) return;
+  await tx.$executeRaw`
+    UPDATE "CookingSessionChecklistItem" AS c
+    SET
+      "baseQuantity" = v.base_quantity::numeric,
+      "baseQuantityEnd" = v.base_quantity_end::numeric,
+      "displayQuantity" = v.display_quantity
+    FROM (VALUES ${Prisma.join(
+      updates.map(
+        (u) =>
+          Prisma.sql`(${u.id}::text, ${u.baseQuantity}::text, ${u.baseQuantityEnd}::text, ${u.displayQuantity}::text)`,
+      ),
+    )}) AS v(id, base_quantity, base_quantity_end, display_quantity)
+    WHERE c.id = v.id
+  `;
+}
+
+/**
+ * Live per-source rescale (owner completion-pass spec, 2026-09-18) — the
+ * multi-source generalization of `updateSessionScale`: each
+ * `CookingSessionSource` keeps its own independent, live scale, since "no
+ * meaningful single global scale spans unrelated Recipes/Parts." Rescaling
+ * one source never touches another's `CookingSessionSource.scaleFactor`,
+ * and every recompute below only ever *updates* existing rows — never
+ * deletes/recreates a `CookingSessionUnit`/`CookingSessionChecklistItem`/
+ * `Timer`, so checkoffs, completion, and running timers all survive
+ * untouched (the same "checked-off is evidence of what happened, not a
+ * transaction rescaling reverses" rule as an ordinary rescale, §24.5).
+ *
+ * - A unit this source is the *sole* contributor to (ordinary) is
+ *   recomputed exactly like `updateUnitScale`: `baseQuantity` is left
+ *   alone (it was never source-scaled to begin with — only the display
+ *   formatting is) and only `displayQuantity` changes.
+ * - A unit with more than one contribution (consolidated) has its
+ *   `baseQuantity` itself recomputed — it *is* the weighted sum of every
+ *   contributor's own current scale — by re-deriving each contributor's
+ *   fresh `buildCookableUnits()` (this source's new scale; every other
+ *   contributor's own existing, unchanged scale) and re-running the exact
+ *   same aggregation `consolidateSources` uses at creation
+ *   (`recomputeContributionAggregate`). Every *other* source's own
+ *   contribution row is left untouched — "retain the other sources'
+ *   existing contributions."
+ */
+export async function updateSourceScale(
+  ownerId: string,
+  sessionId: string,
+  sourceId: string,
+  scaleFactor: number | null,
+): Promise<void> {
+  const session = await getOwnedSessionOrThrow(ownerId, sessionId);
+  assertActive(session);
+
+  const source = session.sources.find((s) => s.id === sourceId);
+  if (!source) throw new NotFoundError("Source not found in this session.");
+
+  const { dish, version } = await getOwnedDishVersionOrThrow(
+    ownerId,
+    source.dishId,
+    source.dishVersionId,
+  );
+  const myCookableUnits = await buildCookableUnits(ownerId, dish, version);
+  const myCookableByKey = new Map(myCookableUnits.map((u) => [u.unitKey, u]));
+
+  // Re-derives one other contributing source's own cookable units at most
+  // once per rescale, however many consolidated units it and the rescaled
+  // source both contribute to.
+  const otherSourceUnitsCache = new Map<string, Map<string, CookableUnit>>();
+  async function cookableUnitsFor(contributionSource: {
+    id: string;
+    dishId: string;
+    dishVersionId: string;
+  }): Promise<Map<string, CookableUnit>> {
+    if (contributionSource.id === sourceId) return myCookableByKey;
+    const cached = otherSourceUnitsCache.get(contributionSource.id);
+    if (cached) return cached;
+    const { dish, version } = await getOwnedDishVersionOrThrow(
+      ownerId,
+      contributionSource.dishId,
+      contributionSource.dishVersionId,
+    );
+    const units = await buildCookableUnits(ownerId, dish, version);
+    const byKey = new Map(units.map((u) => [u.unitKey, u]));
+    otherSourceUnitsCache.set(contributionSource.id, byKey);
+    return byKey;
+  }
+
+  const displayOnlyUpdates: { id: string; displayQuantity: string }[] = [];
+  const baseAndDisplayUpdates: Array<{
+    id: string;
+    baseQuantity: number;
+    baseQuantityEnd: number | null;
+    displayQuantity: string;
+  }> = [];
+  const contributionUpdates: Array<{
+    id: string;
+    multiplier: number;
+    contributionQuantity: number | null;
+    contributionUnit: string | null;
+  }> = [];
+
+  for (const unit of session.units) {
+    if (unit.removedAt) continue;
+    const myContribution = unit.contributions.find(
+      (c) => c.sourceId === sourceId,
+    );
+    if (!myContribution) continue; // this source doesn't own/contribute here
+
+    const myRawUnit = myCookableByKey.get(myContribution.sourceUnitKey);
+    if (!myRawUnit) continue; // this source's own content changed since creation; nothing to re-derive from
+
+    const contributionQuantity =
+      myRawUnit.outputQuantity == null
+        ? null
+        : myRawUnit.outputQuantity *
+          myRawUnit.linkMultiplier *
+          (scaleFactor ?? 1);
+    contributionUpdates.push({
+      id: myContribution.id,
+      multiplier: scaleFactor ?? 1,
+      contributionQuantity,
+      contributionUnit: myRawUnit.outputUnit,
+    });
+
+    const unitMultiplier = decimalToNumber(unit.scaleFactor) ?? 1;
+
+    if (unit.contributions.length === 1) {
+      // Ordinary: same mechanism as updateUnitScale, substituting this
+      // source's scale for the session-level one.
+      displayOnlyUpdates.push(
+        ...computeChecklistDisplayUpdates(
+          unit.checklistItems,
+          (scaleFactor ?? 1) * unitMultiplier,
+        ),
+      );
+      continue;
+    }
+
+    // Consolidated: re-derive every contributor's current raw unit +
+    // current weight (this source's new scale; every other contributor's
+    // own existing CookingSessionSource.scaleFactor, untouched).
+    const contributionInputs = await Promise.all(
+      unit.contributions.map(async (c) => {
+        const byKey = await cookableUnitsFor(c.source);
+        const rawUnit = byKey.get(c.sourceUnitKey);
+        const weight =
+          c.sourceId === sourceId
+            ? (scaleFactor ?? 1)
+            : (decimalToNumber(c.source.scaleFactor) ?? 1);
+        return rawUnit ? { unit: rawUnit, weight } : null;
+      }),
+    );
+    const resolvedInputs = contributionInputs.filter(
+      (c): c is { unit: CookableUnit; weight: number } => c != null,
+    );
+    if (resolvedInputs.length === 0) continue;
+
+    const aggregate = recomputeContributionAggregate(resolvedInputs);
+    for (const item of unit.checklistItems) {
+      const aggRaw = aggregate.checklist.find(
+        (r) => r.sourceLineageId === item.sourceLineageId,
+      );
+      if (!aggRaw || aggRaw.kind !== "INGREDIENT" || aggRaw.quantity == null) {
+        continue;
+      }
+      baseAndDisplayUpdates.push({
+        id: item.id,
+        baseQuantity: aggRaw.quantity,
+        baseQuantityEnd: aggRaw.quantityEnd,
+        displayQuantity: formatScaledQuantity(
+          aggRaw.quantity,
+          aggRaw.quantityEnd,
+          item.isApproximate,
+          unitMultiplier,
+        ),
+      });
+    }
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.cookingSessionSource.update({
+      where: { id: sourceId },
+      data: { scaleFactor },
+    });
+    await applyChecklistDisplayUpdates(tx, displayOnlyUpdates);
+    await applyChecklistBaseAndDisplayUpdates(tx, baseAndDisplayUpdates);
+    for (const c of contributionUpdates) {
+      await tx.cookingSessionUnitContribution.update({
+        where: { id: c.id },
+        data: {
+          multiplier: c.multiplier,
+          contributionQuantity: c.contributionQuantity,
+          contributionUnit: c.contributionUnit,
+        },
+      });
+    }
     await tx.cookingSession.update({
       where: { id: sessionId },
       data: { updatedAt: new Date() },

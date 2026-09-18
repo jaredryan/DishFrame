@@ -3,9 +3,13 @@ import { prisma } from "@/lib/db/prisma";
 import * as cookingService from "@/lib/cooking/service";
 import * as reviewService from "@/lib/reviews/service";
 import { buildCookingModeSessionProps } from "@/lib/cooking/session-view";
-import { buildSessionReviewProps } from "@/lib/reviews/session-review-view";
+import {
+  buildSessionReviewProps,
+  buildMultiSourceSessionReviewProps,
+} from "@/lib/reviews/session-review-view";
 import {
   startCookingSessionSchema,
+  startMultiSourceCookingSessionSchema,
   removeSessionUnitSchema,
   restoreSessionUnitSchema,
   reorderSessionUnitsSchema,
@@ -14,6 +18,7 @@ import {
   setUnitCompletionSchema,
   updateSessionScaleSchema,
   updateUnitScaleSchema,
+  updateSourceScaleSchema,
   createTimerSchema,
   renameTimerSchema,
   timerIdSchema,
@@ -22,6 +27,7 @@ import {
 import {
   updateCookingNotesSchema,
   saveSessionReviewSchema,
+  saveSessionSourceReviewSchema,
 } from "@/lib/reviews/schema";
 import type { SyncOpRegistry } from "@/lib/offline-sync/http";
 
@@ -29,7 +35,7 @@ import type { SyncOpRegistry } from "@/lib/offline-sync/http";
  * CookingSession (e.g. `mealplan.startSessionFromEntry`) can report it as
  * their own response snapshot. */
 export async function snapshotResult(userId: string, sessionId: string) {
-  const [props, reviewProps] = await Promise.all([
+  const [props, reviewProps, sourceReviewProps] = await Promise.all([
     buildCookingModeSessionProps(userId, sessionId),
     // Computed alongside the active-session props (same "one combined
     // per-entity doc" tradeoff as Dish's `content`/`detail`/`cookableUnits`
@@ -37,11 +43,15 @@ export async function snapshotResult(userId: string, sessionId: string) {
     // Review once it's ended — see `session-review-view.ts`'s doc comment
     // for the "already-in-the-replica only" scope this covers.
     buildSessionReviewProps(userId, sessionId),
+    // Multi-source completion pass — every participating source's own
+    // review props, same "always computed, cheap at personal-data volumes"
+    // tradeoff. `[]` for a single-source session (nothing reads it there).
+    buildMultiSourceSessionReviewProps(userId, sessionId),
   ]);
   return {
     entityType: "cookingSession",
     entityId: sessionId,
-    snapshot: { ...props, reviewProps },
+    snapshot: { ...props, reviewProps, sourceReviewProps },
     // CookingSession doesn't carry a client-visible revision string of its
     // own beyond "the current props" — every mutation here is naturally
     // idempotent (set-state style) or guarded by the receipt ledger, so a
@@ -66,6 +76,14 @@ const startSessionPayloadSchema = z.object({
   clientUnitIds: clientUnitIdsSchema,
 });
 
+// Multi-source Cooking Sessions completion pass (2026-09-18) — only the
+// session's own id is client-generated (see `startMultiSourceCookingSession`'s
+// own doc comment in service.ts for why per-unit/per-source ids aren't).
+const startMultiSourceSessionPayloadSchema = z.object({
+  clientSessionId: z.string().min(1),
+  input: startMultiSourceCookingSessionSchema,
+});
+
 const addUnitsPayloadSchema = z.object({
   sessionId: z.string().min(1),
   unitKeys: z.array(z.string()),
@@ -79,6 +97,15 @@ export const cookingSyncOps: SyncOpRegistry = {
     await cookingService.startCookingSession(userId, input, {
       sessionId: payload.clientSessionId,
       units: payload.clientUnitIds,
+    });
+    return snapshotResult(userId, payload.clientSessionId);
+  },
+
+  "cooking.startMultiSourceSession": async (userId, _entityId, rawPayload) => {
+    const payload = startMultiSourceSessionPayloadSchema.parse(rawPayload);
+    const input = startMultiSourceCookingSessionSchema.parse(payload.input);
+    await cookingService.startMultiSourceCookingSession(userId, input, {
+      sessionId: payload.clientSessionId,
     });
     return snapshotResult(userId, payload.clientSessionId);
   },
@@ -162,6 +189,24 @@ export const cookingSyncOps: SyncOpRegistry = {
     return snapshotResult(userId, sessionId);
   },
 
+  // Multi-source Cooking Sessions completion pass (2026-09-18) — live
+  // per-source rescale, the multi-source counterpart of
+  // `cooking.updateSessionScale` above. Same idempotency profile as every
+  // other op here: `updateSourceScale` is a plain set-state write (no
+  // create), so a retried/duplicate delivery of the same payload converges
+  // to the same result rather than compounding.
+  "cooking.updateSourceScale": async (userId, _entityId, rawPayload) => {
+    const { sessionId, sourceId, scaleFactor } =
+      updateSourceScaleSchema.parse(rawPayload);
+    await cookingService.updateSourceScale(
+      userId,
+      sessionId,
+      sourceId,
+      scaleFactor,
+    );
+    return snapshotResult(userId, sessionId);
+  },
+
   "cooking.createTimer": async (userId, _entityId, rawPayload) => {
     const { sessionId, unitId, name, durationSeconds } =
       createTimerSchema.parse(rawPayload);
@@ -222,6 +267,15 @@ export const cookingSyncOps: SyncOpRegistry = {
   "cooking.saveReview": async (userId, _entityId, rawPayload) => {
     const input = saveSessionReviewSchema.parse(rawPayload);
     await reviewService.saveSessionReview(userId, input);
+    return snapshotResult(userId, input.sessionId);
+  },
+
+  // Multi-source Cooking Sessions completion pass (2026-09-18) — one review
+  // per participating source, the counterpart of `cooking.saveReview`
+  // above. Same idempotency profile: a set-state upsert, safe to retry.
+  "cooking.saveSourceReview": async (userId, _entityId, rawPayload) => {
+    const input = saveSessionSourceReviewSchema.parse(rawPayload);
+    await reviewService.saveSessionSourceReview(userId, input);
     return snapshotResult(userId, input.sessionId);
   },
 };

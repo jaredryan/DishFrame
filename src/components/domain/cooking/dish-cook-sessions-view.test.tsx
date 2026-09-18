@@ -53,6 +53,7 @@ const activeSession: DishActiveSessionData = {
   startedAt: new Date("2026-08-14T11:12:00-04:00"),
   unitLabels: ["Prep", "Sauce"],
   cookingNotes: "Simmering now.",
+  sourceTitles: ["Weeknight Ragu"],
 };
 
 const fullReviewSession: DishCompletedSessionData = {
@@ -70,6 +71,7 @@ const fullReviewSession: DishCompletedSessionData = {
     { tasterId: "owner", tasterName: "You", isOwner: true, value: 5 },
     { tasterId: "mom", tasterName: "Mom", isOwner: false, value: 4 },
   ],
+  sourceTitles: ["Weeknight Ragu"],
 };
 
 const partialUnratedSession: DishCompletedSessionData = {
@@ -84,6 +86,7 @@ const partialUnratedSession: DishCompletedSessionData = {
   whatDidNotGoWell: "Sauce split",
   anythingElse: null,
   ratings: [],
+  sourceTitles: ["Weeknight Ragu"],
 };
 
 /**

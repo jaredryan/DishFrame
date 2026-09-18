@@ -42,3 +42,36 @@ export async function startCookingSessionOffline(values: {
   if (!result.ok) return { status: "error", message: result.message };
   return { status: "success", sessionId: clientSessionId };
 }
+
+/**
+ * Multi-source Cooking Sessions completion pass (2026-09-18) — the
+ * multi-source counterpart of `startCookingSessionOffline` above, same
+ * "check upfront, call the pure offline path directly" pattern and the
+ * same accepted scope: no rich optimistic preview (`optimisticDoc` is a
+ * no-op), so the resulting session becomes visible once
+ * `cooking.startMultiSourceSession` actually syncs. Idempotency against a
+ * retried mutation comes from the sync route's own receipt ledger
+ * (`offline-sync/http.ts`) keyed by `mutationId` — reusing `clientSessionId`
+ * as that key, same convention as the single-source path, guarantees a
+ * retry can never create a second session/sources/units/contributions.
+ */
+export async function startMultiSourceCookingSessionOffline(values: {
+  sources: Array<{
+    dishId: string;
+    dishVersionId: string;
+    scaleFactor?: number | null;
+  }>;
+  units: Array<{ mergeKey: string; scaleFactor?: number | null }>;
+}): Promise<StartCookingSessionActionState> {
+  const clientSessionId = generateClientId();
+  const result = await runOrQueueMutation({
+    op: "cooking.startMultiSourceSession",
+    entityType: "cookingSession",
+    entityId: clientSessionId,
+    payload: { clientSessionId, input: values },
+    optimisticDoc: (current: unknown) => current,
+    mutationId: clientSessionId,
+  });
+  if (!result.ok) return { status: "error", message: result.message };
+  return { status: "success", sessionId: clientSessionId };
+}

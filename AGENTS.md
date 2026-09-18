@@ -21,6 +21,14 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
   in that turn. Leave changes staged/unstaged for the user to review and
   commit themselves.
 
+# Explicit request precedence (added 2026-09-17)
+
+An explicit in-prompt ask to add a feature or write a test overrides the
+scope/test-deferral defaults below (Usage-efficient execution,
+Test-value policy) — those only cap unrequested additions. If it truly
+conflicts with a canonical doc or stability concern, ask; don't silently
+drop it. Full rule/why in global `~/.claude/CLAUDE.md`.
+
 # Usage-efficient execution (added 2026-07-30; verification bullets amended 2026-07-31)
 
 Applies the global `~/.claude/CLAUDE.md` "Usage-efficient execution

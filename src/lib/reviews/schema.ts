@@ -34,6 +34,30 @@ export const deleteSessionReviewSchema = z.object({
   sessionId: z.string().min(1),
 });
 
+// Multi-source Cooking Sessions completion pass (2026-09-18) — one review
+// per participating source, walked through individually; same field shape
+// as the session-level review above, scoped by `sourceId` instead.
+export const saveSessionSourceReviewSchema = z.object({
+  sessionId: z.string().min(1),
+  sourceId: z.string().min(1),
+  whatWentWell: z.string().trim().max(4000).nullable(),
+  whatDidNotGoWell: z.string().trim().max(4000).nullable(),
+  anythingElse: z.string().trim().max(4000).nullable(),
+  actualAmountQuantity: z.number().positive().nullable(),
+  actualAmountUnit: z.string().trim().max(60).nullable(),
+  reviewAdjustedDurationSeconds: z.number().int().min(0).nullable(),
+  ratings: z.array(reviewRatingInputSchema),
+  includedUnitIds: z.array(z.string()),
+});
+export type SaveSessionSourceReviewInput = z.infer<
+  typeof saveSessionSourceReviewSchema
+>;
+
+export const deleteSessionSourceReviewSchema = z.object({
+  sessionId: z.string().min(1),
+  sourceId: z.string().min(1),
+});
+
 export const updateCookingNotesSchema = z.object({
   sessionId: z.string().min(1),
   cookingNotes: z.string().trim().max(4000).nullable(),

@@ -59,8 +59,14 @@ export class PartHasLiveUsagesError extends ValidationError {
  */
 export class ActiveSessionConflictError extends ConflictError {
   existingSessionId: string | null;
-  constructor(existingSessionId: string | null) {
-    super("A cooking session is already in progress for this item.");
+  // Multi-source Cooking Sessions (2026-09-17) — optional, since one
+  // conflicting selection among several needs to name which one, unlike the
+  // single-source case's already-unambiguous "this item."
+  constructor(
+    existingSessionId: string | null,
+    message = "A cooking session is already in progress for this item.",
+  ) {
+    super(message);
     this.name = "ActiveSessionConflictError";
     this.existingSessionId = existingSessionId;
   }

@@ -3,22 +3,11 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StartCookingButton } from "@/components/domain/cooking/start-cooking-button";
 import { listCookablePickerItems } from "@/lib/cooking/actions";
+import { readAndClearMultiSourceSetupSelection } from "@/lib/cooking/multi-source-setup-handoff";
 import type { CookablePickerItem } from "@/lib/dishes/queries";
 
 vi.mock("@/lib/cooking/actions", () => ({
   listCookablePickerItems: vi.fn(),
-}));
-
-const { listDishVersionOptions } = vi.hoisted(() => ({
-  listDishVersionOptions: vi.fn(async () => ({
-    status: "success" as const,
-    versions: [{ id: "v1", majorVersion: 1, minorVersion: 0 }],
-    currentVersionId: "v1" as string | null,
-  })),
-}));
-
-vi.mock("@/lib/dishes/actions", () => ({
-  listDishVersionOptions,
 }));
 
 const push = vi.fn();
@@ -56,19 +45,20 @@ const SAUCE: CookablePickerItem = {
 };
 
 /**
- * "What will you cook?" picker: modeled after PartAttachPicker's own
- * fresh-fetch-per-opening convention (part-attach-picker.test.tsx), plus the
- * All/Recipes/Parts tabs and select-then-choose-Version-then-Cook flow this
- * picker adds on top. Home and Cook each render this same component — see
- * home-dashboard.test.tsx for the entry-point-only coverage that leans on
- * this file for the rest.
+ * "What will you cook?" picker (completion pass, 2026-09-18 — collapsed
+ * back to a single checkbox-multi-select step): modeled after
+ * PartAttachPicker's own fresh-fetch-per-opening convention
+ * (part-attach-picker.test.tsx), plus the All/Recipes/Parts tabs this
+ * picker adds on top. Continuing hands off to the dedicated multi-source
+ * Cooking Setup route (`/cook/setup`) via `sessionStorage` — no Version or
+ * scale step lives in this dialog; Setup owns that.
  */
 describe("StartCookingButton picker", () => {
   beforeEach(() => {
     mockedListCookablePickerItems.mockReset();
-    listDishVersionOptions.mockClear();
     push.mockReset();
     mockPathname = "/home";
+    window.sessionStorage.clear();
   });
 
   it("does not fetch until opened, and opens the What will you cook? dialog", async () => {
@@ -145,7 +135,7 @@ describe("StartCookingButton picker", () => {
     expect(screen.getByText("Weeknight Ragu")).toBeInTheDocument();
   });
 
-  it("selecting a result transitions to a separate Version-selection screen, not an inline control, with the current Version preselected", async () => {
+  it("allows checking multiple Recipes/Parts at once, with Continue disabled until at least one is checked", async () => {
     const user = userEvent.setup();
     mockedListCookablePickerItems.mockResolvedValue({
       status: "success",
@@ -153,23 +143,23 @@ describe("StartCookingButton picker", () => {
     });
     render(<StartCookingButton />);
     await user.click(screen.getByRole("button", { name: "Start cooking" }));
-    const cookButton = screen.getByRole("button", { name: "Cook" });
-    expect(cookButton).toBeDisabled();
 
-    const row = await screen.findByRole("radio", { name: /Weeknight Ragu/ });
-    await user.click(row);
+    const continueButton = screen.getByRole("button", { name: "Continue" });
+    expect(continueButton).toBeDisabled();
 
-    // The search results (and the radio row itself) are gone — replaced by
-    // the Version-selection screen for just this one item.
-    expect(screen.queryByText("Tomato Sauce")).not.toBeInTheDocument();
+    await user.click(
+      await screen.findByRole("checkbox", { name: /Weeknight Ragu/ }),
+    );
+    expect(continueButton).toBeEnabled();
+    await user.click(screen.getByRole("checkbox", { name: /Tomato Sauce/ }));
+
+    // Both stay checked and visible — no transition to a second step.
     expect(
-      screen.queryByRole("radio", { name: /Weeknight Ragu/ }),
-    ).not.toBeInTheDocument();
-    expect(await screen.findByText("Weeknight Ragu")).toBeInTheDocument();
-
-    // Current Version (V1.0) is preselected once it loads.
-    await screen.findByText(/\(current\)/);
-    expect(cookButton).toBeEnabled();
+      screen.getByRole("checkbox", { name: /Weeknight Ragu/ }),
+    ).toBeChecked();
+    expect(
+      screen.getByRole("checkbox", { name: /Tomato Sauce/ }),
+    ).toBeChecked();
   });
 
   it("Cancel closes the dialog without starting anything", async () => {
@@ -189,7 +179,7 @@ describe("StartCookingButton picker", () => {
     expect(push).not.toHaveBeenCalled();
   });
 
-  it("Cook navigates into the selected Recipe's own Cooking setup route at the chosen Version, tagged with the Home origin so Cancel returns here", async () => {
+  it("Continue navigates directly to the multi-source Cooking Setup route with every checked source, tagged with the Home origin", async () => {
     mockPathname = "/home";
     const user = userEvent.setup();
     mockedListCookablePickerItems.mockResolvedValue({
@@ -199,52 +189,35 @@ describe("StartCookingButton picker", () => {
     render(<StartCookingButton />);
     await user.click(screen.getByRole("button", { name: "Start cooking" }));
     await user.click(
-      await screen.findByRole("radio", { name: /Weeknight Ragu/ }),
+      await screen.findByRole("checkbox", { name: /Weeknight Ragu/ }),
     );
-    await screen.findByText(/\(current\)/);
-    await user.click(screen.getByRole("button", { name: "Cook" }));
+    await user.click(screen.getByRole("checkbox", { name: /Tomato Sauce/ }));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
 
-    expect(push).toHaveBeenCalledWith(
-      "/recipes/recipe-1/cook?from=home&versionId=v1",
-    );
+    expect(push).toHaveBeenCalledWith("/cook/setup");
+    const selection = readAndClearMultiSourceSetupSelection();
+    expect(selection?.from).toBe("home");
+    expect(selection?.sources).toEqual([
+      { dishId: "recipe-1", dishVersionId: null },
+      { dishId: "part-1", dishVersionId: null },
+    ]);
   });
 
-  it("Cook navigates into the selected Part's own Cooking setup route at the chosen Version, tagged with the Cook-page origin so Cancel returns here", async () => {
+  it("tags the handoff with the Cook-page origin when opened from /cook", async () => {
     mockPathname = "/cook";
     const user = userEvent.setup();
     mockedListCookablePickerItems.mockResolvedValue({
       status: "success",
-      items: [RAGU, SAUCE],
+      items: [RAGU],
     });
     render(<StartCookingButton />);
     await user.click(screen.getByRole("button", { name: "Start cooking" }));
     await user.click(
-      await screen.findByRole("radio", { name: /Tomato Sauce/ }),
+      await screen.findByRole("checkbox", { name: /Weeknight Ragu/ }),
     );
-    await screen.findByText(/\(current\)/);
-    await user.click(screen.getByRole("button", { name: "Cook" }));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
 
-    expect(push).toHaveBeenCalledWith(
-      "/parts/part-1/cook?from=cook&versionId=v1",
-    );
-  });
-
-  it("Back returns from the Version-selection screen to the search results, clearing the chosen Version", async () => {
-    const user = userEvent.setup();
-    mockedListCookablePickerItems.mockResolvedValue({
-      status: "success",
-      items: [RAGU, SAUCE],
-    });
-    render(<StartCookingButton />);
-    await user.click(screen.getByRole("button", { name: "Start cooking" }));
-    await user.click(
-      await screen.findByRole("radio", { name: /Weeknight Ragu/ }),
-    );
-    await screen.findByText(/\(current\)/);
-
-    await user.click(screen.getByRole("button", { name: "Back" }));
-
-    expect(await screen.findByText("Tomato Sauce")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Cook" })).toBeDisabled();
+    const selection = readAndClearMultiSourceSetupSelection();
+    expect(selection?.from).toBe("cook");
   });
 });

@@ -43,6 +43,7 @@ const activeSession: CrossDishActiveSessionData = {
   startedAt: new Date(Date.now() - 90 * 60 * 1000),
   unitLabels: ["Prep", "Sauce"],
   cookingNotes: "Simmering now.",
+  sourceTitles: ["Weeknight Ragu"],
 };
 
 const completedSession: CrossDishCompletedSessionData = {
@@ -63,6 +64,7 @@ const completedSession: CrossDishCompletedSessionData = {
     { tasterId: "owner", tasterName: "You", isOwner: true, value: 5 },
     { tasterId: "mom", tasterName: "Mom", isOwner: false, value: 4 },
   ],
+  sourceTitles: ["Sourdough Loaf"],
 };
 
 /**

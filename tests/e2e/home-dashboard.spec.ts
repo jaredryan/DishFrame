@@ -55,7 +55,7 @@ test.describe("Home dashboard: navigation (empty account)", () => {
       picker.getByText("You don't have any recipes or parts saved yet."),
     ).toBeVisible();
     await expect(
-      picker.getByRole("button", { name: "Cook", exact: true }),
+      picker.getByRole("button", { name: "Continue", exact: true }),
     ).toBeDisabled();
     await picker.getByRole("button", { name: "Cancel" }).click();
     await expect(picker).not.toBeVisible();
@@ -223,13 +223,19 @@ test.describe("Home dashboard: populated data", () => {
     });
     await expect(picker).toBeVisible();
     await picker.getByPlaceholder("Search").fill(recipeTitle);
-    await picker.getByRole("radio", { name: new RegExp(recipeTitle) }).click();
-    await picker.getByRole("button", { name: "Cook", exact: true }).click();
-    await expect(page).toHaveURL(/\/cook\?from=home&versionId=[^&]+$/, {
+    await picker
+      .getByRole("checkbox", { name: new RegExp(recipeTitle) })
+      .click();
+    await picker.getByRole("button", { name: "Continue" }).click();
+    await expect(page).toHaveURL("/cook/setup", { timeout: 15_000 });
+    await page.getByRole("button", { name: "Start cooking" }).click();
+    // Excludes "setup" explicitly: `/cook/setup` (the page this click starts
+    // from) also satisfies `[^/]+$` on its own, letting this resolve before
+    // the click's own navigation/session-creation actually completes — and
+    // the very next actions below would then race an in-flight request.
+    await expect(page).toHaveURL(/\/cook\/(?!setup$)[^/]+$/, {
       timeout: 15_000,
     });
-    await page.getByRole("button", { name: "Start cooking" }).click();
-    await expect(page).toHaveURL(/\/cook\/[^/]+$/, { timeout: 15_000 });
 
     // --- Meal Plan ---
     await page.goto("/meal-plans");

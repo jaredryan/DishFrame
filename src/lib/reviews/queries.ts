@@ -19,6 +19,12 @@ export const getOwnedSessionForReview = cache(
     const session = await prisma.cookingSession.findFirst({
       where: { id: sessionId, ownerId },
       include: {
+        // Multi-source Cooking Sessions completion pass (2026-09-18) —
+        // needed for the per-source review wizard; every historical
+        // single-source session has exactly one row here, so the existing
+        // single-source Review page (which never reads these) is
+        // unaffected.
+        sources: { orderBy: { position: "asc" }, include: { review: true } },
         units: {
           orderBy: { position: "asc" },
           select: {
@@ -34,6 +40,7 @@ export const getOwnedSessionForReview = cache(
                 checkedAt: true,
               },
             },
+            contributions: { select: { sourceId: true } },
           },
         },
         review: true,
@@ -46,8 +53,11 @@ export const getOwnedSessionForReview = cache(
     });
     if (!session) throw new NotFoundError("Cooking Session not found.");
 
-    const dish = await prisma.dish.findFirst({
-      where: { id: session.dishId },
+    const dishIds = [
+      ...new Set([session.dishId, ...session.sources.map((s) => s.dishId)]),
+    ];
+    const dishes = await prisma.dish.findMany({
+      where: { id: { in: dishIds } },
       select: {
         id: true,
         kind: true,
@@ -56,8 +66,10 @@ export const getOwnedSessionForReview = cache(
         stage: true,
       },
     });
+    const dishById = new Map(dishes.map((d) => [d.id, d]));
+    const dish = dishById.get(session.dishId) ?? null;
 
-    return { session, dish };
+    return { session, dish, dishById };
   },
 );
 export type OwnedSessionForReview = Awaited<
@@ -126,10 +138,21 @@ export type EditorSessionEvidence = {
  * Sheet shows when opened from a Cooking Session or Review's "Edit
  * Recipe"/"Edit Part" action. Returns null for an in-progress session (a
  * Review isn't available yet, §33.1) or one the owner doesn't own.
+ *
+ * Multi-source audit (2026-09-18): `dishId` names which participating
+ * source's own evidence to return — the old version always returned the
+ * session's own top-level `dishId` (source[0]) regardless of which Dish's
+ * editor actually opened it, so the caller's own "only trust a sessionId
+ * deep-link when it actually belongs to this Dish" safety check
+ * (`recipes/[dishId]/edit/page.tsx`) silently discarded it for any other
+ * source. `dishId === session.dishId` still reads the single-source
+ * `SessionReview` unchanged; any other participating source reads its own
+ * `CookingSessionSourceReview` and its own dishId-scoped Ratings.
  */
 export async function getSessionEvidenceForEditor(
   ownerId: string,
   sessionId: string,
+  dishId: string,
 ): Promise<EditorSessionEvidence | null> {
   const session = await prisma.cookingSession.findFirst({
     where: { id: sessionId, ownerId },
@@ -144,41 +167,52 @@ export async function getSessionEvidenceForEditor(
       ratings: {
         select: {
           value: true,
+          dishId: true,
           taster: { select: { name: true, isOwner: true } },
         },
+      },
+      sources: {
+        where: { dishId },
+        select: { dishVersionId: true, review: true },
       },
     },
   });
   if (!session || session.state === "IN_PROGRESS") return null;
 
+  const isPrimary = dishId === session.dishId;
+  const source = session.sources[0] ?? null;
+  if (!isPrimary && !source) return null; // this Dish never participated in this session
+
+  const resolvedVersionId = isPrimary
+    ? session.dishVersionId
+    : source!.dishVersionId;
   const version = await prisma.dishVersion.findFirst({
-    where: { id: session.dishVersionId },
+    where: { id: resolvedVersionId },
     select: { majorVersion: true, minorVersion: true },
   });
+  const review = isPrimary ? session.review : source!.review;
+  const ratings = session.ratings.filter((r) => r.dishId === dishId);
 
   return {
     sessionId: session.id,
-    dishId: session.dishId,
+    dishId,
     outcome: session.state as "COMPLETED" | "ENDED_EARLY",
     endedAt: session.endedAt,
     cookedVersionLabel: version
       ? versionLabel(version.majorVersion, version.minorVersion)
       : "—",
     cookingNotes: session.cookingNotes,
-    review: session.review
+    review: review
       ? {
-          whatWentWell: session.review.whatWentWell,
-          whatDidNotGoWell: session.review.whatDidNotGoWell,
-          anythingElse: session.review.anythingElse,
-          actualAmountQuantity: decimalToNumber(
-            session.review.actualAmountQuantity,
-          ),
-          actualAmountUnit: session.review.actualAmountUnit,
-          reviewAdjustedDurationSeconds:
-            session.review.reviewAdjustedDurationSeconds,
+          whatWentWell: review.whatWentWell,
+          whatDidNotGoWell: review.whatDidNotGoWell,
+          anythingElse: review.anythingElse,
+          actualAmountQuantity: decimalToNumber(review.actualAmountQuantity),
+          actualAmountUnit: review.actualAmountUnit,
+          reviewAdjustedDurationSeconds: review.reviewAdjustedDurationSeconds,
         }
       : null,
-    ratings: session.ratings.map((r) => ({
+    ratings: ratings.map((r) => ({
       tasterName: r.taster.name,
       isOwner: r.taster.isOwner,
       value: r.value,

@@ -1363,7 +1363,9 @@ describe("reviews and ratings", () => {
       dishVersionId: versionId,
       units: [{ unitKey: `section:${version.sections[0]!.lineageId}` }],
     });
-    expect(await getSessionEvidenceForEditor(userId, inProgress.id)).toBeNull();
+    expect(
+      await getSessionEvidenceForEditor(userId, inProgress.id, recipeId),
+    ).toBeNull();
 
     const session = await cookingService.endCookingSession(
       userId,
@@ -1379,7 +1381,11 @@ describe("reviews and ratings", () => {
       }),
     );
 
-    const evidence = await getSessionEvidenceForEditor(userId, session.id);
+    const evidence = await getSessionEvidenceForEditor(
+      userId,
+      session.id,
+      recipeId,
+    );
     expect(evidence).not.toBeNull();
     expect(evidence!.dishId).toBe(recipeId);
     expect(evidence!.outcome).toBe("COMPLETED");
@@ -1394,7 +1400,7 @@ describe("reviews and ratings", () => {
     otherUserId = intruder.id;
     await initializeNewUser(otherUserId);
     expect(
-      await getSessionEvidenceForEditor(otherUserId, session.id),
+      await getSessionEvidenceForEditor(otherUserId, session.id, recipeId),
     ).toBeNull();
   });
 });

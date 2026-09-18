@@ -78,11 +78,13 @@ export default async function EditRecipePage({
       listCuisines(session.user.id),
       listSelectedCuisineIds(dish.id),
     ]);
-  // PRODUCT_SPEC.md §39.5: only trust a `sessionId` deep-link when it
-  // actually belongs to this Dish — otherwise silently drop it rather than
-  // surface another item's evidence.
+  // PRODUCT_SPEC.md §39.5: only trust a `sessionId` deep-link when this
+  // Dish actually participated in it — `getSessionEvidenceForEditor` scopes
+  // by `dish.id` directly now (multi-source audit, 2026-09-18: a session
+  // may have more than one participating source), so this is defense in
+  // depth rather than the only guard.
   const evidenceRaw = sessionId
-    ? await getSessionEvidenceForEditor(session.user.id, sessionId)
+    ? await getSessionEvidenceForEditor(session.user.id, sessionId, dish.id)
     : null;
   const evidence = evidenceRaw?.dishId === dish.id ? evidenceRaw : null;
 

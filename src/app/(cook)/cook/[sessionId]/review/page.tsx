@@ -3,7 +3,10 @@ import { notFound, redirect } from "next/navigation";
 import { getServerSession } from "@/lib/auth/session";
 import { NotFoundError } from "@/lib/errors";
 import { getOwnedSessionForReview } from "@/lib/reviews/queries";
-import { buildSessionReviewProps } from "@/lib/reviews/session-review-view";
+import {
+  buildSessionReviewProps,
+  buildMultiSourceSessionReviewProps,
+} from "@/lib/reviews/session-review-view";
 import { SessionReviewOfflineBoundary } from "@/components/domain/cooking/session-review-offline-boundary";
 import { OFFLINE_SHELL_SENTINEL } from "@/lib/offline/shell-sentinel";
 
@@ -33,7 +36,10 @@ export default async function SessionReviewPage({
   if (sessionId === OFFLINE_SHELL_SENTINEL) {
     return (
       <div className="bg-background mx-auto flex min-h-dvh max-w-lg flex-col gap-6 px-4 py-6">
-        <SessionReviewOfflineBoundary serverProps={null} />
+        <SessionReviewOfflineBoundary
+          serverProps={null}
+          serverSourceProps={null}
+        />
       </div>
     );
   }
@@ -56,11 +62,17 @@ export default async function SessionReviewPage({
     redirect(`/cook/${sessionId}`);
   }
 
-  const reviewProps = await buildSessionReviewProps(session.user.id, sessionId);
+  const [reviewProps, sourceReviewProps] = await Promise.all([
+    buildSessionReviewProps(session.user.id, sessionId),
+    buildMultiSourceSessionReviewProps(session.user.id, sessionId),
+  ]);
 
   return (
     <div className="bg-background mx-auto flex min-h-dvh max-w-lg flex-col gap-6 px-4 py-6">
-      <SessionReviewOfflineBoundary serverProps={reviewProps} />
+      <SessionReviewOfflineBoundary
+        serverProps={reviewProps}
+        serverSourceProps={sourceReviewProps}
+      />
     </div>
   );
 }
